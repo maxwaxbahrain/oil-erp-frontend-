@@ -1,0 +1,119 @@
+@import "tailwindcss";
+
+@theme {
+  --color-redwood-brand: #C74634;
+  --color-redwood-primary: #00758F;
+  --color-redwood-secondary: #5F6B7D;
+  --color-redwood-midnight: #161C24;
+  --color-redwood-slate: #212B36;
+  --color-redwood-bg-light: #F9FAFB;
+  --color-redwood-bg-surface: #FFFFFF;
+  --color-redwood-border: #DFE3E8;
+  --color-redwood-text-main: #212B36;
+  --color-redwood-text-muted: #637381;
+
+  --font-inter: "Inter", sans-serif;
+}
+
+:root {
+  --bg-app: var(--color-redwood-bg-light);
+  --bg-sidebar: var(--color-redwood-midnight);
+  --text-main: var(--color-redwood-text-main);
+  --text-muted: var(--color-redwood-text-muted);
+  --border-subtle: var(--color-redwood-border);
+  --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: var(--bg-app);
+  color: var(--text-main);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* High-density layout adjustments */
+.text-xs {
+  font-size: 0.75rem;
+}
+
+.text-sm {
+  font-size: 0.8125rem;
+}
+
+.text-base {
+  font-size: 0.875rem;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c4cdd5;
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #919eab;
+}
+
+/* Base UI Components - Oracle Redwood Style */
+.oracle-card {
+  background: var(--redwood-bg-surface);
+  border: 1px solid var(--redwood-border);
+  border-left: 4px solid var(--redwood-brand);
+  border-radius: 2px;
+  box-shadow: var(--card-shadow);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.oracle-button-primary {
+  background-color: var(--redwood-brand);
+  color: white;
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 8px 20px;
+  border-radius: 2px;
+  transition: all 0.2s;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.oracle-button-secondary {
+  background-color: transparent;
+  color: var(--redwood-text-main);
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  padding: 8px 20px;
+  border-radius: 2px;
+  border: 1px solid var(--redwood-border);
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.oracle-button-primary:hover {
+  filter: brightness(0.9);
+  box-shadow: 0 4px 12px rgba(199, 70, 52, 0.2);
+}
+
+.oracle-button-secondary:hover {
+  background-color: var(--redwood-bg-light);
+}
