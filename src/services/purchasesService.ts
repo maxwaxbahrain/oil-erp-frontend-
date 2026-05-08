@@ -9,6 +9,8 @@ export interface PurchaseOrderItem {
     total: number;
 }
 
+export type POStatus = 'Pending' | 'Approved' | 'GRN' | 'Paid' | 'Received' | 'Completed' | 'Draft';
+
 export interface PurchaseOrder {
     id: string;
     poNumber: string;
@@ -16,7 +18,10 @@ export interface PurchaseOrder {
     supplierName: string;
     date: string;
     expectedDate: string;
-    status: 'Pending' | 'Received' | 'Completed' | 'Draft' | 'Approved';
+    status: POStatus;
+    approved_date?: string;
+    grn_date?: string;
+    paid_date?: string;
     items: PurchaseOrderItem[];
     subtotal: number;
     taxTotal: number;
@@ -177,4 +182,67 @@ export const getSupplierBalance = async (supplierId: string): Promise<number> =>
     const totalPayments = allPayments.reduce((sum, p) => sum + p.amount, 0);
 
     return openingBalance + totalPurchases - totalPayments;
+};
+
+// ── Procurement Flow Actions ─────────────────────────────────────────────────
+const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+
+export const approvePurchaseOrder = async (id: string): Promise<PurchaseOrder> => {
+    return updatePurchaseOrder(id, {
+        status: 'Approved',
+        approved_date: new Date().toISOString()
+    });
+};
+
+export const confirmGRN = async (id: string): Promise<PurchaseOrder> => {
+    const orders = await getPurchaseOrders();
+    const po = orders.find(o => o.id === id);
+    if (!po) throw new Error('PO not found');
+
+    // Increase warehouse stock for each line item via backend API
+    for (const item of po.items) {
+        if (!item.productId) continue;
+        try {
+            const res = await fetch(`${API_HOST}/products/${item.productId}`);
+            if (!res.ok) continue;
+            const product = await res.json();
+            const newStock = (product.current_stock || 0) + item.quantity;
+            await fetch(`${API_HOST}/products/${item.productId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...product, current_stock: newStock })
+            });
+        } catch (e) {
+            console.warn(`Stock update failed for ${item.productId}`, e);
+        }
+    }
+
+    return updatePurchaseOrder(id, {
+        status: 'GRN',
+        grn_date: new Date().toISOString()
+    });
+};
+
+export const markPOPaid = async (id: string, paymentMethod: string): Promise<PurchaseOrder> => {
+    const orders = await getPurchaseOrders();
+    const po = orders.find(o => o.id === id);
+    if (!po) throw new Error('PO not found');
+
+    // Record supplier payment ledger entry
+    await createSupplierPayment({
+        supplierId: po.supplierId,
+        amount: po.remaining_balance ?? po.grandTotal,
+        date: new Date().toISOString().split('T')[0],
+        paymentMethod,
+        reference: po.poNumber,
+        notes: `Payment for PO ${po.poNumber}`
+    });
+
+    return updatePurchaseOrder(id, {
+        status: 'Paid',
+        paid_date: new Date().toISOString(),
+        payment_status: 'Paid',
+        amount_paid: po.grandTotal,
+        remaining_balance: 0
+    });
 };

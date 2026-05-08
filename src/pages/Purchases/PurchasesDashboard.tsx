@@ -14,7 +14,7 @@ import {
     CheckCircle
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { getPurchaseOrders, type PurchaseOrder } from '../../services/purchasesService';
+import { getPurchaseOrders, approvePurchaseOrder, confirmGRN, markPOPaid, type PurchaseOrder } from '../../services/purchasesService';
 const PurchasesDashboard = () => {
     const navigate = useNavigate();
     const location = useLocation();
@@ -41,22 +41,65 @@ const PurchasesDashboard = () => {
 
     const getStatusColor = (status: string) => {
         switch (status) {
-            case 'Approved': return 'bg-emerald-500';
+            case 'Pending': return 'bg-yellow-400';
+            case 'Approved': return 'bg-blue-500';
+            case 'GRN': return 'bg-emerald-500';
+            case 'Paid': return 'bg-gray-400';
+            case 'Received': return 'bg-emerald-500';
+            case 'Completed': return 'bg-gray-400';
             case 'Draft': return 'bg-amber-500';
-            case 'Sent': return 'bg-redwood-brand';
-            case 'Closed': return 'bg-gray-400';
             default: return 'bg-redwood-primary';
         }
     };
 
     const getStatusLabel = (status: string) => {
         switch (status) {
-            case 'Approved': return 'Intake Verified';
-            case 'Draft': return 'Awaiting Auth';
-            case 'Sent': return 'Global Transit';
-            case 'Closed': return 'Fulfilled';
+            case 'Pending': return '🟡 Pending Requisition';
+            case 'Approved': return '🔵 Approved PO';
+            case 'GRN': return '🟢 Goods Received';
+            case 'Paid': return '✅ Invoice Paid';
+            case 'Received': return '🟢 Goods Received';
+            case 'Completed': return '✅ Completed';
+            case 'Draft': return '⚪ Draft';
             default: return status;
         }
+    };
+
+    const handleApprove = async (id: string) => {
+        if (!confirm('Approve this Purchase Order? This confirms the purchase with the supplier.')) return;
+        try {
+            await approvePurchaseOrder(id);
+            const updated = await getPurchaseOrders();
+            setPurchaseOrders(updated);
+            setSuccessMessage('✅ PO Approved! Warehouse can now confirm Goods Received.');
+            setShowSuccess(true);
+            setTimeout(() => setShowSuccess(false), 5000);
+        } catch (e: any) { alert('Error: ' + e.message); }
+    };
+
+    const handleGRN = async (id: string) => {
+        if (!confirm('Confirm Goods Received (GRN)?\n\nThis will INCREASE warehouse stock for all items in this PO.')) return;
+        try {
+            await confirmGRN(id);
+            const updated = await getPurchaseOrders();
+            setPurchaseOrders(updated);
+            setSuccessMessage('✅ GRN Confirmed! Warehouse stock has been updated.');
+            setShowSuccess(true);
+            setTimeout(() => setShowSuccess(false), 5000);
+        } catch (e: any) { alert('Error: ' + e.message); }
+    };
+
+    const handleMarkPaid = async (id: string) => {
+        const method = prompt('Payment Method (e.g. Bank Transfer, Cash, Cheque):');
+        if (!method) return;
+        try {
+            await markPOPaid(id, method);
+            const updated = await getPurchaseOrders();
+            setPurchaseOrders(updated);
+            setSuccessMessage('✅ Invoice Paid! Supplier ledger has been updated.');
+            setShowSuccess(true);
+            setTimeout(() => setShowSuccess(false), 5000);
+        } catch (e: any) { alert('Error: ' + e.message); }
     };
 
     return (
@@ -113,7 +156,7 @@ const PurchasesDashboard = () => {
                 {[
                     { label: 'Total Orders', value: `${purchaseOrders.length} RECORDS`, icon: ClipboardList, color: 'text-redwood-primary', status: 'In Analytics' },
                     { label: 'Approved Orders', value: `${purchaseOrders.filter(po => po.status === 'Approved').length} VERIFIED`, icon: PackageCheck, color: 'text-emerald-500', status: 'Global Benchmark' },
-                    { label: 'Draft Orders', value: `${purchaseOrders.filter(po => po.status === 'Draft').length} PENDING`, icon: AlertCircle, color: 'text-amber-500', status: 'Awaiting Review' },
+                    { label: 'Pending Approval', value: `${purchaseOrders.filter(po => po.status === 'Pending').length} PENDING`, icon: AlertCircle, color: 'text-amber-500', status: 'Awaiting Review' },
                 ].map((kpi, i) => (
                     <div key={i} className="bg-white p-8 rounded-sm border border-redwood-border shadow-sm flex items-center gap-8 group cursor-pointer hover:border-redwood-brand/30 transition-all border-l-4 border-l-transparent hover:border-l-redwood-brand">
                         <div className={`w-14 h-14 rounded-sm bg-redwood-bg-light flex items-center justify-center transition-all group-hover:bg-redwood-midnight group-hover:text-white border border-redwood-border shadow-inner ${kpi.color}`}>
@@ -195,9 +238,37 @@ const PurchasesDashboard = () => {
                                             <div className="text-[9px] text-rose-600 font-bold uppercase tracking-[0.2em] mt-1">{order.status === 'Completed' ? 'Settled' : 'Pending Settlement'}</div>
                                         </td>
                                         <td className="px-8 py-6 text-right">
-                                            <button className="p-2 text-redwood-border hover:text-redwood-brand transition-all">
-                                                <MoreVertical size={20} />
-                                            </button>
+                                            <div className="flex items-center justify-end gap-2">
+                                                {order.status === 'Pending' && (
+                                                    <button
+                                                        onClick={() => handleApprove(order.id)}
+                                                        className="px-3 py-1.5 bg-blue-600 text-white text-[10px] font-black uppercase tracking-wide rounded hover:bg-blue-700 transition-all"
+                                                    >
+                                                        ✓ Approve PO
+                                                    </button>
+                                                )}
+                                                {order.status === 'Approved' && (
+                                                    <button
+                                                        onClick={() => handleGRN(order.id)}
+                                                        className="px-3 py-1.5 bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wide rounded hover:bg-emerald-700 transition-all"
+                                                    >
+                                                        📦 Confirm GRN
+                                                    </button>
+                                                )}
+                                                {order.status === 'GRN' && (
+                                                    <button
+                                                        onClick={() => handleMarkPaid(order.id)}
+                                                        className="px-3 py-1.5 bg-orange-600 text-white text-[10px] font-black uppercase tracking-wide rounded hover:bg-orange-700 transition-all"
+                                                    >
+                                                        💰 Mark Paid
+                                                    </button>
+                                                )}
+                                                {order.status === 'Paid' && (
+                                                    <span className="px-3 py-1.5 bg-gray-100 text-gray-500 text-[10px] font-black uppercase tracking-wide rounded">
+                                                        ✅ Settled
+                                                    </span>
+                                                )}
+                                            </div>
                                         </td>
                                     </tr>
                                 ))

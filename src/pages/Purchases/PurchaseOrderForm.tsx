@@ -34,7 +34,8 @@ interface POFormData {
     amountPaid: number;
     remainingBalance: number;
     paymentReference: string;
-    status: 'Pending' | 'Received';
+    status: 'Pending' | 'Approved' | 'GRN' | 'Paid' | 'Received';
+    paymentReference: string;
 }
 
 export default function PurchaseOrderForm() {
@@ -75,7 +76,7 @@ export default function PurchaseOrderForm() {
         amountPaid: 0,
         remainingBalance: 0,
         paymentReference: '',
-        status: prefilledSupplier?.isPending ? 'Pending' : 'Received'
+        status: 'Pending'
     });
 
     useEffect(() => {
@@ -250,7 +251,7 @@ export default function PurchaseOrderForm() {
 
             await createPurchaseOrder(poData);
 
-            alert(`✅ Purchase Order Created Successfully!\n\nOrder: ${formData.poNumber}\nSupplier: ${formData.supplierName}\nTotal: ${formData.grandTotal.toLocaleString()}\n\nThe order status is set to ${formData.status}.`);
+            alert(`✅ Purchase Requisition Submitted!\n\nPO: ${formData.poNumber}\nSupplier: ${formData.supplierName}\nTotal: ${formData.grandTotal.toLocaleString()}\n\nStatus: PENDING REQUISITION\nNext: A manager must approve this PO from the orders list.`);
 
             navigate(`/suppliers/${formData.supplierId}?tab=purchases`);
         } catch (error: any) {
@@ -321,14 +322,13 @@ export default function PurchaseOrderForm() {
                         <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">
                             Procurement Status
                         </label>
-                        <select
-                            value={formData.status}
-                            onChange={(e) => setFormData(p => ({ ...p, status: e.target.value as any }))}
-                            className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-black focus:border-orange-600 outline-none bg-white transition-all uppercase"
-                        >
-                            <option value="Pending">🟡 Pending Requisition</option>
-                            <option value="Received">🟢 Goods Received (GRN)</option>
-                        </select>
+                        <div className="w-full border-2 border-yellow-400 bg-yellow-50 rounded-lg px-4 py-3 flex items-center gap-3">
+                            <span className="text-lg">🟡</span>
+                            <div>
+                                <p className="text-sm font-black text-yellow-800 uppercase tracking-wide">Pending Requisition</p>
+                                <p className="text-[10px] text-yellow-600 mt-0.5">New POs always start here. Manager approves from the orders list.</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
