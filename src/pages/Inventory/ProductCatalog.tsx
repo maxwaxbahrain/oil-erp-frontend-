@@ -373,7 +373,7 @@ export default function ProductCatalog() {
                                                             <span className="text-[11px] font-bold text-gray-400">{product.sku}</span>
                                                         </td>
                                                         <td className="px-8 py-4">
-                                                            <span className="text-sm font-black text-gray-900">PKR {product.pricing.sellingPrice.toLocaleString()}</span>
+                                                            <span className="text-sm font-black text-gray-900">{formatCurrency(product.pricing.sellingPrice)}</span>
                                                         </td>
                                                         <td className="px-8 py-4">
                                                             <span className="text-sm font-black text-gray-900">{totalStock}</span>
