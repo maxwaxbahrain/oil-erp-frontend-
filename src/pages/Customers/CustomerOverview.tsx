@@ -35,7 +35,7 @@ import {
     type Payment
 } from '../../services/customerService';
 import { getCustomerCreditNotes, type CreditNote } from '../../services/creditNoteService';
-import { getCompanySettings } from '../../services/settingsService';
+import { getCompanySettings , getSystemSettings } from '../../services/settingsService';
 import {
     downloadInvoicePDF,
     downloadInvoiceWord,
@@ -794,7 +794,7 @@ export default function CustomerOverview() {
                                             <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest">Items</th>
                                             <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest text-center">Operation Status</th>
                                             <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest text-center">Payment Status</th>
-                                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest text-right">Value (PKR)</th>
+                                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest text-right">{`Value (${getSystemSettings().defaultCurrencyCode})`}</th>
                                             <th className="px-6 py-4 text-center w-40">Actions</th>
                                         </tr>
                                     </thead>

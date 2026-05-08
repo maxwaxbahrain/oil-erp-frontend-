@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { getSystemSettings } from '../../services/settingsService';
 import {
     DollarSign, Upload, Plus, FileText,
     Edit2, Trash2, RefreshCw,
@@ -369,7 +370,7 @@ export default function ExpenseManagement() {
                                                     <option value="USD">USD</option>
                                                     <option value="EUR">EUR</option>
                                                     <option value="GBP">GBP</option>
-                                                    <option value="PKR">PKR</option>
+                                                    <option value={getSystemSettings().defaultCurrencyCode}>{getSystemSettings().defaultCurrencyCode}</option>
                                                 </select>
                                                 <input
                                                     ref={amountRef}

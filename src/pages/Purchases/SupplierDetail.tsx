@@ -30,8 +30,7 @@ import * as XLSX from 'xlsx';
 import autoTable from 'jspdf-autotable';
 import { generateStandardPDF } from '../../utils/documentGenerator';
 import {
-    getCompanyProfile
-} from '../../services/settingsService';
+    getCompanyProfile, getSystemSettings} from '../../services/settingsService';
 import {
     getSupplierById,
     getSupplierPurchases,
@@ -847,7 +846,7 @@ export default function SupplierDetail() {
                                             <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest">Items</th>
                                             <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest text-center">Operation Status</th>
                                             <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest text-center">Payment Status</th>
-                                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest text-right">Value (PKR)</th>
+                                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest text-right">{`Value (${getSystemSettings().defaultCurrencyCode})`}</th>
                                             <th className="px-6 py-4 text-center w-40">Actions</th>
                                         </tr>
                                     </thead>
@@ -1188,7 +1187,7 @@ export default function SupplierDetail() {
                                                     >
                                                         <option>USD</option>
                                                         <option>BHD</option>
-                                                        <option>PKR</option>
+                                                        <option>{getSystemSettings().defaultCurrencyCode}</option>
                                                     </select>
                                                 </div>
                                             </div>
