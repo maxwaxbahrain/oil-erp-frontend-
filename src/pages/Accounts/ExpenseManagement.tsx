@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-    DollarSign, Upload, Plus, Calendar, FileText, CreditCard,
-    CheckCircle, XCircle, Edit2, Trash2, RefreshCw, Download,
-    Sparkles, Brain, TrendingUp, Filter, Search, Eye
+    DollarSign, Upload, Plus, FileText,
+    Edit2, Trash2, RefreshCw,
+    Sparkles, Brain, TrendingUp
 } from 'lucide-react';
 import clsx from 'clsx';
 import {
@@ -30,7 +30,7 @@ export default function ExpenseManagement() {
     const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
 
     // AI upload state
-    const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+    const [, setUploadedFile] = useState<File | null>(null);
     const [aiProcessing, setAiProcessing] = useState(false);
     const [aiExtractedData, setAiExtractedData] = useState<AIExtractedData | null>(null);
 

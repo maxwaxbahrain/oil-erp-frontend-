@@ -1,7 +1,6 @@
-import { useState } from 'react';
 import {
     Search, Filter, Plus, Users, Mail, Phone, MapPin,
-    MoreHorizontal, Shield, Briefcase, Download, CornerUpLeft
+    Shield, Briefcase, Download, CornerUpLeft
 } from 'lucide-react';
 import clsx from 'clsx';
 import { Link } from 'react-router-dom';

@@ -2,11 +2,12 @@ export interface ProductLocation {
     id: string;
     name: string;
     type: 'Warehouse' | 'Van' | 'Store' | 'Retail';
-    currentStock: number;
-    reorderPoint: number;
-    maxStock: number;
+    currentStock?: number;
+    reorderPoint?: number;
+    maxStock?: number;
     physicalLocation?: string;
     assignedTo?: string;
+    contactPhone?: string;
     avgDailySales?: number;
     lastRestocked?: string;
     todaySales?: number;
@@ -44,6 +45,8 @@ export interface ProductSpecification {
     value: string;
 }
 
+
+import { getOilErpApiBase } from '../config/apiBase';
 
 export interface Product {
     id: string;
@@ -114,6 +117,103 @@ export interface Product {
     // Loss & Returns
     leakageRate: number; // percentage
     returnRate: number; // percentage
+}
+
+function apiUrl(path: string): string {
+    const base = getOilErpApiBase().replace(/\/$/, '');
+    const p = path.replace(/^\//, '');
+    return `${base}/${p}`;
+}
+
+function num(v: unknown, fallback = 0): number {
+    if (typeof v === 'number' && !Number.isNaN(v)) return v;
+    const n = parseFloat(String(v ?? ''));
+    return Number.isNaN(n) ? fallback : n;
+}
+
+function parseProductsJson(payload: unknown): Record<string, unknown>[] {
+    if (Array.isArray(payload)) return payload as Record<string, unknown>[];
+    if (payload && typeof payload === 'object') {
+        const o = payload as Record<string, unknown>;
+        const inner = o.items ?? o.data ?? o.results ?? o.products;
+        if (Array.isArray(inner)) return inner as Record<string, unknown>[];
+    }
+    return [];
+}
+
+/** Map FastAPI product row to the rich `Product` shape used by the catalog UI. */
+function mapApiProductToProduct(raw: Record<string, unknown>): Product {
+    const id = String(raw.id ?? '');
+    const name = raw.name != null ? String(raw.name) : '';
+    const sku = raw.sku != null ? String(raw.sku) : '';
+    const category = raw.category != null ? String(raw.category) : 'Uncategorized';
+    const description = raw.description != null ? String(raw.description) : '';
+    const stock = num(raw.stock);
+    const minStock = num(raw.min_stock);
+    const price = num(raw.price);
+    const cost = num(raw.cost, price);
+    const unit = raw.unit != null ? String(raw.unit) : '';
+    const barcode = raw.barcode != null ? String(raw.barcode) : undefined;
+    const isActive = raw.is_active !== false;
+
+    return {
+        id,
+        name,
+        sku,
+        barcode,
+        category,
+        status: isActive ? 'Active' : 'Inactive',
+        description,
+        shortDescription: description.slice(0, 120),
+        uom: unit || 'unit',
+        velocityStatus: 'Medium',
+        salesVelocity: 0,
+        salesTrend: 0,
+        revenueContribution: 0,
+        grossMarginPercent: 0,
+        netProfitPerUnit: 0,
+        locations: [
+            {
+                id: 'LOC-WH-001',
+                name: 'Main Warehouse',
+                type: 'Warehouse',
+                currentStock: stock,
+                reorderPoint: minStock,
+                maxStock: Math.max(stock * 2, minStock * 2, 100),
+            },
+        ],
+        avgDailySales: 0,
+        daysStockRemaining: 0,
+        reorderLevel: minStock,
+        overstockRisk: 'Low',
+        pricing: {
+            purchasePriceExWorks: 0,
+            freightShipping: 0,
+            importDuty: 0,
+            otherDirectCosts: 0,
+            landedCost: cost,
+            operatingExpenseAllocation: 0,
+            sellingPrice: price,
+            taxRate: 0,
+            taxIncluded: false,
+        },
+        priceHistory: [],
+        images: [],
+        aiEnabled: false,
+        aiDemandPrediction: 0,
+        aiConfidenceLevel: 0,
+        leadTimeDays: 0,
+        minOrderQty: 0,
+        specifications: [],
+        tags: [],
+        seo: {
+            metaTitle: name,
+            metaDescription: description,
+            keywords: `${sku},${category}`,
+        },
+        leakageRate: 0,
+        returnRate: 0,
+    };
 }
 
 const PRODUCTS_KEY = 'zavi_products';
@@ -201,17 +301,24 @@ const getInitialProducts = (): Product[] => {
 };
 
 export async function getProducts(): Promise<Product[]> {
-    return new Promise((resolve) => {
-        setTimeout(() => resolve(getInitialProducts()), 100);
-    });
+    const response = await fetch(apiUrl('products/'), { cache: 'no-store' });
+    if (!response.ok) {
+        throw new Error(`Products API HTTP ${response.status}`);
+    }
+    const payload = await response.json().catch(() => null);
+    const rows = parseProductsJson(payload);
+    return rows.map(mapApiProductToProduct);
 }
 
 export async function getProductById(id: string): Promise<Product | undefined> {
-    return new Promise((resolve) => {
-        const products = getInitialProducts();
-        const product = products.find(p => p.id === id);
-        setTimeout(() => resolve(product), 50);
-    });
+    const response = await fetch(apiUrl(`products/${encodeURIComponent(id)}`), { cache: 'no-store' });
+    if (response.status === 404) return undefined;
+    if (!response.ok) {
+        throw new Error(`Product API HTTP ${response.status}`);
+    }
+    const raw = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!raw || typeof raw !== 'object') return undefined;
+    return mapApiProductToProduct(raw);
 }
 
 export async function saveProduct(product: Partial<Product>): Promise<Product> {

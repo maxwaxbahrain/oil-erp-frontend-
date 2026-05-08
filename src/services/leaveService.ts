@@ -221,20 +221,27 @@ export const rejectLeaveRequest = async (requestId: string, reason: string) => {
     localStorage.setItem(LEAVE_REQUESTS_KEY, JSON.stringify(requests));
 };
 
-export const getEmployeeLeaveBalance = (_employeeId: string): Record<LeaveType, { total: number, used: number, available: number }> => {
-    // In a real system, this would query the DB. Here we calculate mock balances.
-    // We'll simulate that every employee has used a random amount.
+function hashSeed(str: string): number {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) {
+        h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
+    }
+    return Math.abs(h);
+}
 
-    const balances: any = {};
+export const getEmployeeLeaveBalance = (employeeId: string): Record<LeaveType, { total: number, used: number, available: number }> => {
+    const balances: Record<LeaveType, { total: number; used: number; available: number }> = {} as any;
+    const seed = hashSeed(employeeId || 'guest');
 
-    (Object.keys(DEFAULT_POLICIES) as LeaveType[]).forEach(type => {
+    (Object.keys(DEFAULT_POLICIES) as LeaveType[]).forEach((type, idx) => {
         const policy = DEFAULT_POLICIES[type];
         const total = policy.annualQuota;
-        const used = Math.floor(Math.random() * (total / 3)); // Mock usage
+        const mixed = (seed + idx * 17) % 10000;
+        const used = Math.floor((mixed / 10000) * Math.max(1, total / 3));
         balances[type] = {
             total,
             used,
-            available: total - used
+            available: Math.max(0, total - used)
         };
     });
 

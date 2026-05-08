@@ -60,7 +60,7 @@ export default function InvoiceFormPage() {
                 productId: '',
                 product: '',
                 description: '',
-                quantity: 1,
+                quantity: 0,
                 rate: 0,
                 amount: 0
             }
@@ -123,7 +123,7 @@ export default function InvoiceFormPage() {
             productId: '',
             product: '',
             description: '',
-            quantity: 1,
+            quantity: 0,
             rate: 0,
             amount: 0
         };
@@ -147,25 +147,26 @@ export default function InvoiceFormPage() {
     };
 
     const handleProductSelect = (lineId: string, productId: string) => {
-        const selectedProduct = products.find(p => p.id === productId);
+        const selectedProduct = products.find(p => String(p.id) === String(productId));
 
         if (!selectedProduct) return;
+
+        const rate = selectedProduct.unit_price;
+        const unitSuffix = selectedProduct.unit ? ` (${selectedProduct.unit})` : '';
 
         setFormData(prev => ({
             ...prev,
             lineItems: prev.lineItems.map(item => {
                 if (item.id !== lineId) return item;
 
-                const updatedItem = {
+                return {
                     ...item,
                     productId: selectedProduct.id,
                     product: selectedProduct.name,
-                    description: selectedProduct.name,
-                    rate: selectedProduct.unit_price,
-                    amount: item.quantity * selectedProduct.unit_price
+                    description: `${selectedProduct.name}${unitSuffix}`,
+                    rate,
+                    amount: item.quantity * rate
                 };
-
-                return updatedItem;
             })
         }));
     };
@@ -429,8 +430,8 @@ export default function InvoiceFormPage() {
                                                 type="number"
                                                 value={item.quantity || ''}
                                                 onChange={(e) => handleLineItemChange(item.id, 'quantity', parseFloat(e.target.value) || 0)}
-                                                min="0"
-                                                placeholder="0"
+                                                min="1"
+                                                placeholder="Enter quantity"
                                                 className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm text-center font-mono font-bold focus:border-[#800020] focus:outline-none"
                                             />
                                         </td>
@@ -442,7 +443,7 @@ export default function InvoiceFormPage() {
                                                 onChange={(e) => handleLineItemChange(item.id, 'rate', parseFloat(e.target.value) || 0)}
                                                 min="0"
                                                 step="0.01"
-                                                placeholder=""
+                                                placeholder="Enter rate"
                                                 className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm text-center font-mono font-bold focus:border-[#800020] focus:outline-none"
                                             />
                                         </td>

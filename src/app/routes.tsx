@@ -6,18 +6,28 @@ import Dashboard from '../pages/Dashboard/Dashboard';
 import CustomerList from '../pages/Customers/CustomerList';
 import CustomerOverview from '../pages/Customers/CustomerOverview';
 import CustomerFormPage from '../pages/Customers/CustomerFormPage';
-import SalesDashboard from '../pages/Sales/SalesDashboard';
 import SalesOverview from '../pages/Sales/SalesOverview';
+import SalesOrdersWorkflow from '../pages/Sales/SalesOrdersWorkflow';
 import SalesOrderFormPage from '../pages/Sales/SalesOrderFormPage';
+import SalesOrderDetailPage from '../pages/Sales/SalesOrderDetailPage';
+import Quotations from '../pages/Sales/Quotations';
 import Invoices from '../pages/Sales/Invoices';
 import InvoiceFormPage from '../pages/Sales/InvoiceFormPage';
 import CreditNoteFormPage from '../pages/Sales/CreditNoteFormPage';
+import CreditNotes from '../pages/Sales/CreditNotes';
+import CreditNoteDetailPage from '../pages/Sales/CreditNoteDetailPage';
 import SalesByProduct from '../pages/Sales/SalesByProduct';
 import SalesByCustomer from '../pages/Sales/SalesByCustomer';
 import SalesBySalesman from '../pages/Sales/SalesBySalesman';
 import ProfitAnalysis from '../pages/Sales/ProfitAnalysis';
 import VanPerformance from '../pages/Sales/VanPerformance';
+import SalesReturns from '../pages/Sales/SalesReturns';
+import SalesReturnFormPage from '../pages/Sales/SalesReturnFormPage';
+import SalesReturnDetailPage from '../pages/Sales/SalesReturnDetailPage';
 import VanSalesDashboard from '../pages/VanSales/VanSalesDashboard';
+import VanSalesForm from '../pages/VanSales/VanSalesForm';
+import VanSalesHistory from '../pages/VanSales/VanSalesHistory';
+import VanManagement from '../pages/VanSales/VanManagement';
 import AccountsDashboard from '../pages/Accounts/AccountsDashboard';
 import ExpenseManagement from '../pages/Accounts/ExpenseManagement';
 import PayrollManagement from '../pages/Accounts/PayrollManagement';
@@ -26,8 +36,8 @@ import PurchasesDashboard from '../pages/Purchases/PurchasesDashboard';
 import PurchaseOrderForm from '../pages/Purchases/PurchaseOrderForm';
 import SupplierForm from '../pages/Purchases/SupplierForm';
 import GoodsReceivedForm from '../pages/Inventory/GoodsReceivedForm';
+import GoodsReceivedList from '../pages/Inventory/GoodsReceivedList';
 import StockTransfer from '../pages/Inventory/StockTransfer';
-import InventoryAdjustment from '../pages/Inventory/InventoryAdjustment';
 import InventoryReports from '../pages/Inventory/InventoryReports';
 import SettingsPage from '../pages/Settings/SettingsPage';
 import SupplierList from '../pages/Purchases/SupplierList';
@@ -40,8 +50,12 @@ import InvoiceImport from '../pages/Inventory/InvoiceImport';
 import AIStockControl from '../pages/Inventory/AIStockControl';
 import EmployeePortal from '../pages/Portal/EmployeePortal';
 import ProfitabilityReports from '../pages/Reports/ProfitabilityReports';
-import PODDashboard from '../pages/Logistics/PODDashboard';
+import DriverApp from '../pages/POD/DriverApp';
+import ManagementDashboard from '../pages/POD/ManagementDashboard';
+import PODTestRunner from '../pages/POD/PODTestRunner';
 import VanOperations from '../pages/Logistics/VanOperations';
+import RouteNavigator from '../pages/Logistics/RouteNavigator';
+import PublicInvoice from '../pages/PublicInvoice';
 
 import OrganizationChart from '../pages/UserManagement/OrganizationChart';
 import UserDirectory from '../pages/UserManagement/UserDirectory';
@@ -52,12 +66,6 @@ import PartnerDirectory from '../pages/UserManagement/PartnerDirectory';
 import OrgDashboard from '../pages/UserManagement/OrgDashboard';
 import OrgPerformance from '../pages/UserManagement/OrgPerformance';
 import OrgSettings from '../pages/UserManagement/OrgSettings';
-import TaxDashboard from '../pages/TaxSystem/TaxDashboard';
-import CountrySetup from '../pages/TaxSystem/CountrySetup';
-import TaxCalculator from '../pages/TaxSystem/TaxCalculator';
-import TaxFiling from '../pages/TaxSystem/TaxFiling';
-import TaxSettings from '../pages/TaxSystem/TaxSettings';
-
 // Placeholder Component
 const PlaceholderPage = ({ title }: { title: string }) => (
     <div className="flex flex-col items-center justify-center h-[60vh] text-center p-8 bg-white rounded-xl border-2 border-dashed border-redwood-border/30">
@@ -74,6 +82,7 @@ const PlaceholderPage = ({ title }: { title: string }) => (
 export const AppRoutes = () => {
     return (
         <Routes>
+            <Route path="/invoice/:token" element={<PublicInvoice />} />
             <Route path="/" element={<Dashboard />} />
 
             {/* Inventory & Products */}
@@ -86,7 +95,7 @@ export const AppRoutes = () => {
 
             <Route path="/inventory" element={<Navigate to="/products" replace />} />
             <Route path="/inventory/transfer" element={<StockTransfer />} />
-            <Route path="/inventory/adjustments" element={<InventoryAdjustment />} />
+            <Route path="/inventory/adjustments" element={<Navigate to="/products" replace />} />
             <Route path="/inventory/ai-stock-control" element={<AIStockControl />} />
 
             {/* Procurement */}
@@ -96,22 +105,29 @@ export const AppRoutes = () => {
             <Route path="/suppliers/new" element={<SupplierForm />} />
             <Route path="/suppliers/:id" element={<SupplierDetail />} />
             <Route path="/suppliers/edit/:id" element={<SupplierForm />} />
-            <Route path="/receiving" element={<PlaceholderPage title="Goods Received (GRN)" />} />
+            <Route path="/receiving" element={<GoodsReceivedList />} />
             <Route path="/receiving/new" element={<GoodsReceivedForm />} />
             <Route path="/receiving/:id" element={<GoodsReceivedForm />} />
 
             {/* Sales & Revenue */}
             <Route path="/sales" element={<SalesOverview />} />
-            <Route path="/sales/orders" element={<SalesDashboard />} />
+            <Route path="/sales/orders" element={<SalesOrdersWorkflow />} />
             <Route path="/sales/orders/new" element={<SalesOrderFormPage />} />
-            <Route path="/sales/quotations" element={<PlaceholderPage title="Sales Quotations" />} />
+            <Route path="/sales/orders/:id" element={<SalesOrderDetailPage />} />
+            <Route path="/sales/quotations" element={<Quotations />} />
             <Route path="/sales/estimates" element={<PlaceholderPage title="Sales Estimates" />} />
             <Route path="/sales/delivery-notes" element={<PlaceholderPage title="Delivery Notes" />} />
             <Route path="/sales/invoices" element={<Invoices />} />
             <Route path="/sales/invoices/new" element={<InvoiceFormPage />} />
             <Route path="/sales/invoices/:id" element={<InvoiceFormPage />} />
-            <Route path="/sales/returns" element={<PlaceholderPage title="Sales Returns" />} />
-            <Route path="/sales/credit-notes" element={<CreditNoteFormPage />} />
+            <Route path="/sales/returns" element={<SalesReturns />} />
+            <Route path="/sales/returns/new" element={<SalesReturnFormPage />} />
+            <Route path="/sales/returns/edit/:id" element={<SalesReturnFormPage />} />
+            <Route path="/sales/returns/:id" element={<SalesReturnDetailPage />} />
+            <Route path="/sales/credit-notes" element={<CreditNotes />} />
+            <Route path="/sales/credit-notes/new" element={<CreditNoteFormPage />} />
+            <Route path="/sales/credit-notes/edit/:id" element={<CreditNoteFormPage />} />
+            <Route path="/sales/credit-notes/:id" element={<CreditNoteDetailPage />} />
             <Route path="/sales/receipts" element={<PlaceholderPage title="Customer Receipts" />} />
             <Route path="/sales/payments" element={<PlaceholderPage title="Payments Received" />} />
 
@@ -120,13 +136,18 @@ export const AppRoutes = () => {
             <Route path="/sales/by-salesman" element={<SalesBySalesman />} />
             <Route path="/sales/profit-analysis" element={<ProfitAnalysis />} />
             <Route path="/sales/van-performance" element={<VanPerformance />} />
-            <Route path="/van-sales" element={<VanSalesDashboard />} />
 
-            {/* Customers */}
+            {/* Van Sales Module */}
+            <Route path="/van-sales" element={<VanSalesDashboard />} />
+            <Route path="/van-sales/new" element={<VanSalesForm />} />
+            <Route path="/van-sales/history" element={<VanSalesHistory />} />
+            <Route path="/van-sales/manage-vans" element={<VanManagement />} />
+
+            {/* Customers — static paths before :id so /customers/new is not treated as an id */}
             <Route path="/customers" element={<CustomerList />} />
-            <Route path="/customers/:id" element={<CustomerOverview />} />
-            <Route path="/customers/edit/:id" element={<CustomerEditPage />} />
             <Route path="/customers/new" element={<CustomerFormPage />} />
+            <Route path="/customers/edit/:id" element={<CustomerEditPage />} />
+            <Route path="/customers/:id" element={<CustomerOverview />} />
 
             {/* Finance & Operations */}
             <Route path="/finance/expenses" element={<ExpenseManagement />} />
@@ -140,10 +161,13 @@ export const AppRoutes = () => {
             <Route path="/accounts" element={<Navigate to="/finance/accounting" replace />} />
 
             {/* Logistics & Delivery */}
-            <Route path="/logistics/pod" element={<PODDashboard />} />
+            <Route path="/logistics/pod" element={<DriverApp />} />
+            <Route path="/pod/driver" element={<DriverApp />} />
+            <Route path="/pod/management" element={<ManagementDashboard />} />
+            <Route path="/pod/test" element={<PODTestRunner />} />
             <Route path="/logistics/operations" element={<VanOperations />} />
-
-
+            <Route path="/logistics/routes" element={<RouteNavigator />} />
+            <Route path="/routes" element={<Navigate to="/logistics/routes" replace />} />
 
             {/* User Management */}
             <Route path="/users/dashboard" element={<OrgDashboard />} />
@@ -158,14 +182,6 @@ export const AppRoutes = () => {
             <Route path="/users/distributors" element={<DistributorNetwork />} />
             <Route path="/users/dealers" element={<DealerNetwork />} />
             <Route path="/users/partners" element={<PartnerDirectory />} />
-
-            {/* Tax System */}
-            <Route path="/tax/dashboard" element={<TaxDashboard />} />
-            <Route path="/tax/auto-calculate" element={<TaxCalculator />} />
-            <Route path="/tax/file-returns" element={<TaxFiling />} />
-            <Route path="/tax/settings" element={<TaxSettings />} />
-            <Route path="/tax/country-setup" element={<CountrySetup />} />
-            <Route path="/tax/*" element={<TaxDashboard />} />
 
             {/* Reports */}
             <Route path="/reports/sales" element={<ProfitabilityReports />} />

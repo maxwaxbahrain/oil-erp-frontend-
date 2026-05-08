@@ -77,12 +77,12 @@ export default function ProductCatalog() {
 
     // Stats calculations
     const totalProducts = products.length;
-    const inStock = products.filter(p => p.locations.reduce((a, b) => a + b.currentStock, 0) > p.reorderLevel).length;
+    const inStock = products.filter(p => p.locations.reduce((a, b) => a + (b.currentStock ?? 0), 0) > p.reorderLevel).length;
     const lowStock = products.filter(p => {
-        const stock = p.locations.reduce((a, b) => a + b.currentStock, 0);
+        const stock = p.locations.reduce((a, b) => a + (b.currentStock ?? 0), 0);
         return stock > 0 && stock <= p.reorderLevel;
     }).length;
-    const outOfStock = products.filter(p => p.locations.reduce((a, b) => a + b.currentStock, 0) === 0).length;
+    const outOfStock = products.filter(p => p.locations.reduce((a, b) => a + (b.currentStock ?? 0), 0) === 0).length;
 
     if (loading) {
         return (
@@ -242,7 +242,7 @@ export default function ProductCatalog() {
                             {viewMode === 'grid' ? (
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                                     {catProducts.map(product => {
-                                        const totalStock = product.locations.reduce((a, b) => a + b.currentStock, 0);
+                                        const totalStock = product.locations.reduce((a, b) => a + (b.currentStock ?? 0), 0);
                                         const status = totalStock === 0 ? 'Out of Stock' : totalStock <= product.reorderLevel ? 'Low Stock' : totalStock > 100 ? 'Overstock' : 'Good';
 
                                         return (
@@ -344,7 +344,7 @@ export default function ProductCatalog() {
                                         </thead>
                                         <tbody className="divide-y divide-gray-50">
                                             {catProducts.map(product => {
-                                                const totalStock = product.locations.reduce((a, b) => a + b.currentStock, 0);
+                                                const totalStock = product.locations.reduce((a, b) => a + (b.currentStock ?? 0), 0);
                                                 const status = totalStock === 0 ? 'Out of Stock' : totalStock <= product.reorderLevel ? 'Low Stock' : totalStock > 100 ? 'Overstock' : 'Good';
 
                                                 return (

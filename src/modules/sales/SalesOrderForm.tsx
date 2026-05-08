@@ -75,8 +75,8 @@ export default function SalesOrderForm({ onSave, onCancel }: SalesOrderFormProps
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!customerId || !vanId || items.length === 0) {
-            setError('Execution Parameters Incomplete: Ensure entity, asset, and dispatch lines are set.');
+        if (!customerId || items.length === 0) {
+            setError('Select a customer and at least one line item.');
             return;
         }
 
@@ -86,12 +86,15 @@ export default function SalesOrderForm({ onSave, onCancel }: SalesOrderFormProps
         try {
             await createSalesOrder({
                 customer_id: customerId,
-                van_id: vanId,
+                van_id: vanId || null,
                 order_date: orderDate,
-                items,
-                total_amount: totalAmount,
-                status: 'pending',
+                items: items as unknown as Array<Record<string, unknown>>,
+                subtotal: totalAmount,
+                tax: 0,
+                total: totalAmount,
+                status: 'confirmed',
                 payment_status: 'unpaid',
+                notes: '',
             });
             onSave();
         } catch (err: any) {

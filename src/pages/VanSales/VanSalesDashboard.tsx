@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Truck, Package, Clock, ShieldCheck, AlertCircle, Plus, MoreVertical, Filter, Download, ExternalLink, Search, Map, RefreshCw } from 'lucide-react';
 import { vanService, type Van } from '../../services/vanService';
 
 const VanSalesDashboard = () => {
+    const navigate = useNavigate();
     const [vans, setVans] = useState<Van[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -39,14 +41,23 @@ const VanSalesDashboard = () => {
                     </div>
                 </div>
                 <div className="flex gap-3">
-                    <button className="px-5 py-2.5 bg-white border border-redwood-border rounded-sm text-[11px] font-black text-redwood-text-muted hover:bg-redwood-bg-light transition-all shadow-sm flex items-center gap-2 uppercase tracking-widest">
-                        <Filter size={14} /> OPS FILTERS
+                    <button
+                        onClick={() => navigate('/van-sales/history')}
+                        className="px-5 py-2.5 bg-white border border-redwood-border rounded-sm text-[11px] font-black text-redwood-text-muted hover:bg-redwood-bg-light transition-all shadow-sm flex items-center gap-2 uppercase tracking-widest">
+                        <Filter size={14} /> VIEW HISTORY
+                    </button>
+                    <button
+                        onClick={() => navigate('/van-sales/manage-vans')}
+                        className="px-5 py-2.5 bg-white border border-redwood-border rounded-sm text-[11px] font-black text-redwood-text-muted hover:bg-redwood-bg-light transition-all shadow-sm flex items-center gap-2 uppercase tracking-widest">
+                        <Truck size={14} /> MANAGE VANS
                     </button>
                     <button className="px-5 py-2.5 bg-white border border-redwood-border rounded-sm text-[11px] font-black text-redwood-text-muted hover:bg-redwood-bg-light transition-all shadow-sm flex items-center gap-2 uppercase tracking-widest">
                         <Download size={14} /> FLEET EXPORT
                     </button>
-                    <button className="px-6 py-2.5 bg-redwood-brand border border-transparent rounded-sm text-white text-[11px] font-black hover:brightness-95 transition-all flex items-center gap-2 shadow-lg uppercase tracking-widest">
-                        <Plus size={16} /> ASSET REGISTRATION
+                    <button
+                        onClick={() => navigate('/van-sales/new')}
+                        className="px-6 py-2.5 bg-redwood-brand border border-transparent rounded-sm text-white text-[11px] font-black hover:brightness-95 transition-all flex items-center gap-2 shadow-lg uppercase tracking-widest">
+                        <Plus size={16} /> NEW VAN SALE
                     </button>
                 </div>
             </div>

@@ -3,7 +3,6 @@ import {
   Menu,
   ChevronRight,
   HelpCircle,
-  Search,
   Bell,
   Globe
 } from 'lucide-react';
@@ -13,6 +12,14 @@ import Sidebar from '../components/layout/Sidebar';
 function App() {
   const location = useLocation();
   const navigate = useNavigate();
+
+  if (location.pathname.startsWith('/invoice/')) {
+    return (
+      <div className="min-h-screen bg-[#f0f2f4] text-gray-900 font-inter antialiased">
+        <AppRoutes />
+      </div>
+    );
+  }
 
   const paths = location.pathname.split('/').filter(p => p);
   const breadcrumb = paths.length > 0
@@ -92,10 +99,10 @@ function App() {
 
         {/* Global Identity Footer */}
         <footer className="h-10 bg-white border-t border-redwood-border px-8 flex items-center justify-between text-[10px] font-bold text-redwood-text-muted uppercase tracking-[0.2em] shadow-[0_-1px_3px_rgba(0,0,0,0.02)]">
-          <div className="flex items-center gap-4">
-            <span className="text-redwood-brand">Identity: DIST-ERP-SECURE-v4.2</span>
-            <div className="h-3 w-[1px] bg-redwood-border"></div>
-            <span>Kernel: 0.8.4-RELEASE</span>
+          <div className="flex items-center gap-4 flex-wrap min-w-0">
+            <span className="text-redwood-brand whitespace-nowrap shrink-0">Identity: DIST-ERP-SECURE-v4.2</span>
+            <div className="h-3 w-[1px] bg-redwood-border shrink-0" />
+            <span className="whitespace-nowrap shrink-0">Kernel: 0.8.4-RELEASE</span>
           </div>
           <div className="flex items-center gap-6">
             <span className="flex items-center gap-2">

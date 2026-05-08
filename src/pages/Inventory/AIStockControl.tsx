@@ -5,7 +5,6 @@ import {
     AlertTriangle,
     CheckCircle2,
     TrendingUp,
-    Search,
     RefreshCw,
     ShieldAlert,
     Clock,
@@ -15,13 +14,11 @@ import {
     BarChart3
 } from 'lucide-react';
 import { aiStockService, type AIStockAdjustment, type AIInsight } from '../../services/aiStockService';
-import { useNavigate } from 'react-router-dom';
 
 export default function AIStockControl() {
-    const navigate = useNavigate();
     const [adjustments, setAdjustments] = useState<AIStockAdjustment[]>([]);
     const [insights, setInsights] = useState<AIInsight[]>([]);
-    const [loading, setLoading] = useState(true);
+    const [, setLoading] = useState(true);
     const [processingId, setProcessingId] = useState<string | null>(null);
 
     useEffect(() => {

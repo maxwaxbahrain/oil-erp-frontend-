@@ -35,7 +35,7 @@ export default function InvoiceImport() {
     const [progressStatus, setProgressStatus] = useState('');
     const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
     const [invoiceData, setInvoiceData] = useState<InvoiceData | null>(null);
-    const [error, setError] = useState<string>('');
+    const [, setError] = useState<string>('');
     const [importing, setImporting] = useState(false);
     const [apiKey, setApiKey] = useState('');
 
@@ -43,9 +43,6 @@ export default function InvoiceImport() {
         if (!invoiceData) return;
         setImporting(true);
         try {
-            // 1. Local Recalculation / Verification
-            const calcTotal = invoiceData.products.reduce((sum, p) => sum + p.lineTotal, 0);
-
             // 2. Identify or Create Supplier
             let supplierId = '';
             let supplierName = invoiceData.supplier.name;
@@ -291,7 +288,7 @@ export default function InvoiceImport() {
 
                 {step !== 'upload' && (
                     <div className="flex gap-4">
-                        <div className={`px-6 py-4 rounded-2xl border-2 transition-all flex items-center gap-3 ${step === 'upload' ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-100 bg-white text-gray-400'}`}>
+                        <div className="px-6 py-4 rounded-2xl border-2 transition-all flex items-center gap-3 border-gray-100 bg-white text-gray-400">
                             <span className="text-xs font-black uppercase">1. Upload</span>
                         </div>
                         <div className={`px-6 py-4 rounded-2xl border-2 transition-all flex items-center gap-3 ${step === 'processing' ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-100 bg-white text-gray-400'}`}>

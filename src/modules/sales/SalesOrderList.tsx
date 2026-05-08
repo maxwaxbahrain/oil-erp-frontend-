@@ -27,7 +27,7 @@ export default function SalesOrderList() {
       header: 'Consignment ID',
       accessor: (o: SalesOrder) => (
         <div className="flex flex-col">
-          <span className="text-redwood-text-main font-black font-mono">#{o.id.slice(0, 8).toUpperCase()}</span>
+          <span className="text-redwood-text-main font-black font-mono">{o.so_number || `#${o.id.slice(0, 8)}`}</span>
           <span className="text-[10px] text-redwood-text-muted font-bold uppercase tracking-widest mt-0.5">Flow: {o.status}</span>
         </div>
       )
@@ -38,7 +38,10 @@ export default function SalesOrderList() {
         <div className="flex flex-col">
           <span className="text-redwood-text-main font-bold uppercase tracking-tight truncate max-w-[200px]">Node: {o.customer_id}</span>
           <div className="flex items-center gap-2 mt-1">
-            <span className="text-[9px] bg-redwood-bg-light border border-redwood-border px-1.5 py-0.5 rounded-sm font-black text-redwood-text-muted uppercase italic">Logistics: {o.van_id}</span>
+            <span className="text-[9px] bg-redwood-bg-light border border-redwood-border px-1.5 py-0.5 rounded-sm font-black text-redwood-text-muted uppercase italic">
+              Customer: {o.customer_id}
+              {o.van_id ? ` · Van: ${o.van_id}` : ''}
+            </span>
           </div>
         </div>
       )
@@ -46,9 +49,12 @@ export default function SalesOrderList() {
     {
       header: 'Fulfillment State',
       accessor: (o: SalesOrder) => (
-        <span className={`text-[10px] font-black px-3 py-1 rounded-sm uppercase tracking-widest border ${o.status === 'approved'
-          ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
-          : 'bg-redwood-brand/5 text-redwood-brand border-redwood-brand/20 animate-pulse'
+        <span className={`text-[10px] font-black px-3 py-1 rounded-sm uppercase tracking-widest border ${
+          o.status === 'delivered' || o.status === 'invoiced'
+            ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
+            : o.status === 'confirmed'
+              ? 'bg-blue-50 text-blue-700 border-blue-100'
+              : 'bg-redwood-brand/5 text-redwood-brand border-redwood-brand/20'
           }`}>
           {o.status}
         </span>

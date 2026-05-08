@@ -17,12 +17,7 @@ import {
     UserCheck,
     TrendingUp,
     User,
-    Calculator,
-    Landmark,
-    Calendar,
-    CreditCard,
-    Network,
-    Shield
+    MapPin
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -87,7 +82,7 @@ export default function Sidebar() {
                     </div>
                     <div className="flex flex-col">
                         <span className="text-[14px] font-black tracking-tight leading-none text-white uppercase italic">ZAVI ERP 2.0</span>
-                        <span className="text-[9px] text-redwood-brand font-black uppercase tracking-[0.2em] mt-0.5">Enterprise System (Live)</span>
+                        <span className="text-[9px] text-redwood-brand font-black uppercase tracking-[0.2em] mt-0.5">Oil Distribution</span>
                     </div>
                 </div>
             </div>
@@ -109,6 +104,7 @@ export default function Sidebar() {
                     Sales
                 </div>
                 <NavItem to="/customers" icon={Users} label="Customers" />
+                <NavItem to="/sales/orders" icon={FileText} label="Orders" />
 
                 <div>
                     <SectionHeader
@@ -127,44 +123,15 @@ export default function Sidebar() {
                     )}
                 </div>
 
-                <NavItem to="/van-sales" icon={Truck} label="Van Sales (Filtered)" />
-
                 <div className="h-px bg-white/5 my-3 mx-2" />
 
                 {/* LOGISTICS */}
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
                     Logistics & Delivery
                 </div>
-                <NavItem to="/logistics/pod" icon={BarChart2} label="POD Dashboard" />
+                <NavItem to="/logistics/pod" icon={BarChart2} label="POD - Driver App" />
                 <NavItem to="/logistics/operations" icon={Truck} label="Van Operations" />
-
-
-
-                <div className="h-px bg-white/5 my-3 mx-2" />
-
-                {/* ORGANIZATION */}
-                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
-                    ORGANIZATION
-                </div>
-                <NavItem to="/users/dashboard" icon={LayoutDashboard} label="Dashboard" />
-                <NavItem to="/users/performance" icon={TrendingUp} label="Performance" />
-                <NavItem to="/users/hierarchy" icon={Network} label="Hierarchy" />
-                <NavItem to="/users/settings" icon={Settings} label="Settings" />
-
-                <div className="h-px bg-white/5 my-3 mx-2" />
-
-                {/* TAX SYSTEM */}
-                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
-                    TAX SYSTEM
-                </div>
-                <NavItem to="/tax/dashboard" icon={Landmark} label="Tax Dashboard" />
-                <NavItem to="/tax/auto-calculate" icon={Calculator} label="Auto Calculate" />
-                <NavItem to="/tax/file-returns" icon={FileText} label="File Returns" />
-                <NavItem to="/tax/payments" icon={CreditCard} label="Tax Payments" />
-                <NavItem to="/tax/settings" icon={Settings} label="Tax Settings" />
-                <NavItem to="/tax/calendar" icon={Calendar} label="Tax Calendar" />
-                <NavItem to="/tax/audit-trail" icon={Shield} label="Audit Trail" />
-                <NavItem to="/tax/country-setup" icon={Globe} label="Country Setup" />
+                <NavItem to="/logistics/routes" icon={MapPin} label="Route Navigator" />
 
                 <div className="h-px bg-white/5 my-3 mx-2" />
 
@@ -183,7 +150,6 @@ export default function Sidebar() {
                     {sections.products && (
                         <div className="space-y-0.5 pl-2 border-l-2 border-white/5 ml-2">
                             <NavItem to="/products" icon={Package} label="Product Catalog" />
-                            <NavItem to="/inventory/adjustments" icon={RefreshCw} label="Stock Adjustment" />
                             <NavItem to="/products/reports" icon={PieChart} label="Inventory Reports" />
                         </div>
                     )}

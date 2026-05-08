@@ -349,7 +349,7 @@ export async function saveComprehensiveEmployee(employee: Partial<ComprehensiveE
 }
 
 // AI-Powered Analytics
-export async function calculateSalaryBenchmark(employeeId: string): Promise<AIInsights['salaryBenchmark']> {
+export async function calculateSalaryBenchmark(_employeeId: string): Promise<AIInsights['salaryBenchmark']> {
     return new Promise((resolve) => {
         setTimeout(() => {
             // Simulated AI calculation
@@ -362,7 +362,7 @@ export async function calculateSalaryBenchmark(employeeId: string): Promise<AIIn
     });
 }
 
-export async function calculateAttritionRisk(employeeId: string): Promise<AIInsights['attritionRisk']> {
+export async function calculateAttritionRisk(_employeeId: string): Promise<AIInsights['attritionRisk']> {
     return new Promise((resolve) => {
         setTimeout(() => {
             // Simulated AI analysis
@@ -380,7 +380,7 @@ export async function calculateAttritionRisk(employeeId: string): Promise<AIInsi
     });
 }
 
-export async function calculatePromotionReadiness(employeeId: string): Promise<AIInsights['promotionReadiness']> {
+export async function calculatePromotionReadiness(_employeeId: string): Promise<AIInsights['promotionReadiness']> {
     return new Promise((resolve) => {
         setTimeout(() => {
             const score = Math.round(Math.random() * 100);

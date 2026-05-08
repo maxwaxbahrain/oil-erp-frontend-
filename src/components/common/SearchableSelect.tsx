@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react';
-import { Search, X } from 'lucide-react';
+import { useState, useMemo, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { Search } from 'lucide-react';
 
 export default function SearchableSelect({
     options,
@@ -18,8 +19,12 @@ export default function SearchableSelect({
 }) {
     const [isOpen, setIsOpen] = useState(false);
     const [search, setSearch] = useState('');
+    const [dropdownStyle, setDropdownStyle] = useState({});
+    const buttonRef = useRef<HTMLButtonElement>(null);
 
-    const selectedOption = options.find(opt => opt.id === value);
+    const selectedOption = options.find(
+        opt => String(opt.id) === String(value)
+    );
 
     const filteredOptions = useMemo(() => {
         if (!search) return options;
@@ -30,6 +35,19 @@ export default function SearchableSelect({
         );
     }, [options, search, displayKey]);
 
+    useEffect(() => {
+        if (isOpen && buttonRef.current) {
+            const rect = buttonRef.current.getBoundingClientRect();
+            setDropdownStyle({
+                position: 'fixed',
+                top: rect.bottom + window.scrollY + 4,
+                left: rect.left + window.scrollX,
+                width: rect.width,
+                zIndex: 99999,
+            });
+        }
+    }, [isOpen]);
+
     const handleSelect = (optionId: string) => {
         onChange(optionId);
         setIsOpen(false);
@@ -38,8 +56,8 @@ export default function SearchableSelect({
 
     return (
         <div className="relative">
-            {/* Trigger Button */}
             <button
+                ref={buttonRef}
                 type="button"
                 onClick={() => !disabled && setIsOpen(!isOpen)}
                 disabled={disabled}
@@ -51,45 +69,32 @@ export default function SearchableSelect({
                 <Search size={16} className="text-gray-400 flex-shrink-0" />
             </button>
 
-            {/* Dropdown */}
-            {isOpen && (
+            {isOpen && createPortal(
                 <>
-                    <div className="absolute z-50 w-full mt-1 bg-white border-2 border-gray-300 rounded-lg shadow-xl max-h-80 overflow-hidden">
-                        {/* Search Input */}
+                    <div
+                        className="fixed inset-0"
+                        style={{ zIndex: 99998 }}
+                        onClick={() => { setIsOpen(false); setSearch(''); }}
+                    />
+                    <div
+                        className="bg-white border-2 border-gray-300 rounded-lg shadow-xl max-h-80 overflow-hidden"
+                        style={dropdownStyle}
+                    >
                         <div className="p-3 border-b border-gray-200 bg-gray-50">
-                            <div className="relative">
-                                <input
-                                    type="text"
-                                    value={search}
-                                    onChange={(e) => setSearch(e.target.value)}
-                                    placeholder="Type to search..."
-                                    className="w-full px-4 pr-10 py-2.5 border-2 border-gray-300 rounded-lg text-sm font-medium focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 transition-all"
-                                    autoFocus
-                                    onClick={(e) => e.stopPropagation()}
-                                />
-                                {search && (
-                                    <button
-                                        type="button"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            setSearch('');
-                                        }}
-                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-800 transition-colors"
-                                    >
-                                        <X size={18} />
-                                    </button>
-                                )}
-                            </div>
+                            <input
+                                type="text"
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                placeholder="Type to search..."
+                                className="w-full px-4 py-2.5 border-2 border-gray-300 rounded-lg text-sm font-medium focus:border-blue-500 focus:outline-none"
+                                autoFocus
+                                onClick={(e) => e.stopPropagation()}
+                            />
                         </div>
-
-                        {/* Options List */}
                         <div className="max-h-60 overflow-y-auto">
                             {filteredOptions.length === 0 ? (
                                 <div className="px-4 py-8 text-sm text-gray-500 text-center">
-                                    <div className="text-gray-400 mb-2">
-                                        <Search size={32} className="mx-auto opacity-30" />
-                                    </div>
-                                    No results found for "{search}"
+                                    No results found
                                 </div>
                             ) : (
                                 filteredOptions.map(option => (
@@ -98,14 +103,16 @@ export default function SearchableSelect({
                                         type="button"
                                         onClick={(e) => {
                                             e.stopPropagation();
-                                            handleSelect(option.id);
+                                            handleSelect(String(option.id));
                                         }}
-                                        className="w-full px-4 py-3 text-left hover:bg-blue-50 focus:bg-blue-50 focus:outline-none transition-colors border-b border-gray-100 last:border-b-0"
+                                        className="w-full px-4 py-3 text-left hover:bg-blue-50 transition-colors border-b border-gray-100"
                                     >
-                                        <div className="font-bold text-gray-900">{option[displayKey]}</div>
-                                        {(option.code || option.sku) && (
+                                        <div className="font-bold text-gray-900">
+                                            {option[displayKey]}
+                                        </div>
+                                        {(option.sku) && (
                                             <div className="text-xs text-gray-500 mt-1">
-                                                Code: {option.code || option.sku}
+                                                SKU: {option.sku}
                                             </div>
                                         )}
                                     </button>
@@ -113,16 +120,8 @@ export default function SearchableSelect({
                             )}
                         </div>
                     </div>
-
-                    {/* Backdrop */}
-                    <div
-                        className="fixed inset-0 z-40"
-                        onClick={() => {
-                            setIsOpen(false);
-                            setSearch('');
-                        }}
-                    />
-                </>
+                </>,
+                document.body
             )}
         </div>
     );

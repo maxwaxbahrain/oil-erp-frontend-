@@ -1,8 +1,6 @@
-import { useState } from 'react';
 import {
     Settings, Save, Globe, Shield, RefreshCw, Bell, CreditCard
 } from 'lucide-react';
-import clsx from 'clsx';
 
 export default function TaxSettings() {
     return (

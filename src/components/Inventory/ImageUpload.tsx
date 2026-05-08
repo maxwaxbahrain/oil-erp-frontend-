@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, X, Star, Upload, Image as ImageIcon } from 'lucide-react';
+import { Plus, X, Star, Upload } from 'lucide-react';
 
 export interface ProductImage {
     id: string;

@@ -1,5 +1,8 @@
-const API_BASE_URL = 'http://localhost:8000/api';
-const USE_MOCK = true; // Enabled by default to fix connection issues
+const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
+  .trim()
+  .replace(/\/+$/, '');
+export const API_BASE_URL = `${API_HOST}/api`;
+const USE_MOCK = false;
 
 export interface Customer {
   id: string;
@@ -21,11 +24,13 @@ export interface LedgerEntry {
   id: string;
   customer_id: string;
   date: string;
-  type: 'invoice' | 'payment' | 'credit' | 'debit';
+  type: 'invoice' | 'payment' | 'credit' | 'debit' | 'van_sale';
   amount: number;
   balance: number;
   description?: string;
   reference?: string;
+  van_number?: string;
+  salesman_name?: string;
 }
 
 export interface Van {
@@ -44,10 +49,13 @@ export interface Product {
   name: string;
   sku: string;
   category?: string;
+  /** Selling / list price used by invoice line items (maps from API `price`). */
   unit_price: number;
   cost_price?: number;
   current_stock: number;
   minimum_stock?: number;
+  /** From API `unit` (e.g. 12x1 QT). */
+  unit?: string;
 }
 
 export interface Payment {
@@ -58,6 +66,8 @@ export interface Payment {
   payment_method: string;
   reference?: string;
   notes?: string;
+  invoice_id?: string; // Link payment to specific invoice
+  is_advance?: boolean; // Mark as advance payment
 }
 
 export interface SalesOrder {
@@ -69,6 +79,10 @@ export interface SalesOrder {
   salesman?: string;
   van?: string;
   status: 'Pending' | 'Converted' | 'Cancelled';
+  /** Lowercase workflow status from API: draft | confirmed | delivered | invoiced | cancelled */
+  workflowStatus?: string;
+  podConfirmed?: boolean;
+  signatureConfirmed?: boolean;
   lineItems: Array<{
     product: string;
     description: string;
@@ -84,11 +98,39 @@ export interface SalesOrder {
   createdAt: string;
 }
 
+export interface PublicInvoicePayload {
+  invoice_number: string;
+  customer_name: string;
+  date: string | null;
+  due_date: string | null;
+  items: Array<Record<string, unknown>>;
+  subtotal: number;
+  discount: number;
+  tax: number;
+  total: number;
+  notes: string | null;
+  status?: string;
+  share_token: string | null;
+  company_settings: {
+    name: string;
+    address: string;
+    city: string;
+    country: string;
+    phone: string;
+    email: string;
+    website: string;
+    tax_id: string;
+    logo: string | null;
+  };
+}
+
 export interface Invoice {
   id: string;
   invoiceNumber: string;
   customerId: string;
   customerName: string;
+  /** Public page token for /invoice/:token (no login) */
+  shareToken?: string;
   invoiceDate: string;
   dueDate: string;
   salesman?: string;
@@ -126,6 +168,72 @@ const setStorage = <T>(key: string, data: T[]) => {
   localStorage.setItem(key, JSON.stringify(data));
 };
 
+// Initialize sample data if empty
+const initializeSampleData = () => {
+  const customers = getStorage<Customer>('customers');
+  if (customers.length === 0) {
+    const sampleCustomers: Customer[] = [
+      {
+        id: crypto.randomUUID(),
+        name: 'Al-Khaleej Trading Co.',
+        email: 'info@alkhaleej.com',
+        phone: '+973-1234-5678',
+        address: 'Manama, Bahrain',
+        category: 'Wholesale',
+        balance: -15000,
+        credit_limit: 50000,
+        created_at: new Date('2024-01-15').toISOString()
+      },
+      {
+        id: crypto.randomUUID(),
+        name: 'Gulf Petroleum Services',
+        email: 'contact@gulfpetro.com',
+        phone: '+973-9876-5432',
+        address: 'Riffa, Bahrain',
+        category: 'Retail',
+        balance: -8500,
+        credit_limit: 25000,
+        created_at: new Date('2024-02-20').toISOString()
+      },
+      {
+        id: crypto.randomUUID(),
+        name: 'Bahrain Motors Ltd.',
+        email: 'sales@bahrainmotors.com',
+        phone: '+973-5555-1234',
+        address: 'Sitra, Bahrain',
+        category: 'Wholesale',
+        balance: 0,
+        credit_limit: 100000,
+        created_at: new Date('2024-03-10').toISOString()
+      },
+      {
+        id: crypto.randomUUID(),
+        name: 'MaxWax Oil Trading',
+        email: 'info@maxwax.com',
+        phone: '+973-7777-8888',
+        address: 'Muharraq, Bahrain',
+        category: 'Distributor',
+        balance: -5000,
+        credit_limit: 75000,
+        created_at: new Date('2024-04-05').toISOString()
+      },
+      {
+        id: crypto.randomUUID(),
+        name: 'Arabian Lubricants Co.',
+        email: 'sales@arabianlube.com',
+        phone: '+973-3333-4444',
+        address: 'Hamad Town, Bahrain',
+        category: 'Retail',
+        balance: -2500,
+        credit_limit: 20000,
+        created_at: new Date('2024-05-12').toISOString()
+      }
+    ];
+    setStorage('customers', sampleCustomers);
+    console.log('✅ Initialized sample customer data');
+  }
+};
+
 async function mockHandler<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   await delay(600); // Simulate network latency
 
@@ -134,6 +242,7 @@ async function mockHandler<T>(endpoint: string, options: RequestInit = {}): Prom
 
   // --- Customers ---
   if (endpoint.startsWith('/customers')) {
+    initializeSampleData(); // Ensure sample data exists
     const customers = getStorage<Customer>('customers');
 
     // GET /customers/overdue
@@ -207,10 +316,25 @@ async function mockHandler<T>(endpoint: string, options: RequestInit = {}): Prom
 
   // --- Products ---
   if (endpoint.startsWith('/products')) {
-    const products = getStorage<Product>('products');
+    // Get products from zavi_products (productService storage)
+    const rawProducts = getStorage<any>('zavi_products');
+
+    // Map detailed product structure to simple API product structure
+    const products: Product[] = rawProducts.map((p: any) => ({
+      id: String(p.id ?? ''),
+      name: p.name,
+      sku: p.sku,
+      category: p.category,
+      unit: p.uom ?? p.unit,
+      unit_price: p.pricing?.sellingPrice || p.unit_price || 0,
+      cost_price: p.pricing?.landedCost || p.cost_price || 0,
+      current_stock: p.locations?.reduce((sum: number, loc: any) => sum + (loc.currentStock || 0), 0) || p.current_stock || 0,
+      minimum_stock: p.reorderLevel || p.minimum_stock || 0
+    }));
+
     if (method === 'POST') {
       const newProduct = { ...body, id: crypto.randomUUID() };
-      setStorage('products', [newProduct, ...products]);
+      setStorage('zavi_products', [newProduct, ...rawProducts]);
       return newProduct as any;
     }
     return products as any;
@@ -276,7 +400,7 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
 }
 
 // Customer APIs
-export const getCustomers = (): Promise<Customer[]> => apiRequest<Customer[]>('/customers');
+export const getCustomers = (): Promise<Customer[]> => apiRequest<Customer[]>('/customers/');
 export const getCustomer = (id: string): Promise<Customer> => apiRequest<Customer>(`/customers/${id}`);
 export const createCustomer = (data: Partial<Customer>): Promise<Customer> => apiRequest<Customer>('/customers', { method: 'POST', body: JSON.stringify(data) });
 export const updateCustomer = (id: string, data: Partial<Customer>): Promise<Customer> => apiRequest<Customer>(`/customers/${id}`, { method: 'PUT', body: JSON.stringify(data) });
@@ -286,18 +410,83 @@ export const getOverdueCustomers = (): Promise<Customer[]> => apiRequest<Custome
 
 // Payment APIs
 export const getPayments = (): Promise<Payment[]> => apiRequest<Payment[]>('/payments');
-export const createPayment = (data: Partial<Payment>): Promise<Payment> => apiRequest<Payment>('/payments', { method: 'POST', body: JSON.stringify(data) });
+/** Record payment against customer ledger (backend `PaymentCreate`: customer_id, amount, mode, reference, date). */
+export const createPayment = (data: any): Promise<any> => {
+  const customer_id = parseInt(String(data.customer_id), 10);
+  if (Number.isNaN(customer_id)) {
+    return Promise.reject(new Error('Invalid customer_id'));
+  }
+  const body: Record<string, unknown> = {
+    customer_id,
+    amount: Number(data.amount),
+    mode: data.payment_method || 'Cash',
+    reference: data.reference ?? data.reference_number ?? null,
+    date: data.payment_date ?? null,
+  };
+  if (data.notes) body.notes = data.notes;
+  if (data.invoice_id != null && String(data.invoice_id) !== '') {
+    const iid = parseInt(String(data.invoice_id), 10);
+    if (!Number.isNaN(iid)) body.invoice_id = iid;
+  }
+  return apiRequest<any>('/ledger/payment', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+};
 
 // Van APIs
 export const getVans = (): Promise<Van[]> => apiRequest<Van[]>('/vans');
 export const getVan = (id: string): Promise<Van> => apiRequest<Van>(`/vans/${id}`);
-export const createVan = (data: Partial<Van>): Promise<Van> => apiRequest<Van>('/vans', { method: 'POST', body: JSON.stringify(data) });
+export const createVan = (data: Partial<Van>): Promise<Van> => apiRequest<Van>('/vans/', { method: 'POST', body: JSON.stringify(data) });
 export const updateVan = (id: string, data: Partial<Van>): Promise<Van> => apiRequest<Van>(`/vans/${id}`, { method: 'PUT', body: JSON.stringify(data) });
 export const deleteVan = (id: string): Promise<void> => apiRequest<void>(`/vans/${id}`, { method: 'DELETE' });
 
+function numField(v: unknown, fallback = 0): number {
+  if (typeof v === 'number' && !Number.isNaN(v)) return v;
+  const n = parseFloat(String(v ?? ''));
+  return Number.isNaN(n) ? fallback : n;
+}
+
+/** Normalize FastAPI product JSON (id, price, stock, …) to `Product`. */
+function normalizeApiProductRow(raw: Record<string, unknown>): Product {
+  const id = String(raw.id ?? '');
+  const name = raw.name != null ? String(raw.name) : '';
+  const sku = raw.sku != null ? String(raw.sku) : '';
+  const category = raw.category != null ? String(raw.category) : undefined;
+  const unit = raw.unit != null ? String(raw.unit) : undefined;
+  const unit_price = numField(raw.unit_price, numField(raw.price));
+  const costRaw = raw.cost_price !== undefined ? raw.cost_price : raw.cost;
+  const cost_price = costRaw !== undefined ? numField(costRaw) : undefined;
+  return {
+    id,
+    name,
+    sku,
+    category,
+    unit,
+    unit_price,
+    cost_price,
+    current_stock: numField(raw.current_stock, numField(raw.stock)),
+    minimum_stock: numField(raw.minimum_stock, numField(raw.min_stock)),
+  };
+}
+
 // Product APIs
-export const getProducts = (): Promise<Product[]> => apiRequest<Product[]>('/products');
-export const getProduct = (id: string): Promise<Product> => apiRequest<Product>(`/products/${id}`);
+export async function getProducts(): Promise<Product[]> {
+  const raw = await apiRequest<any[]>('/products/');
+  const list = Array.isArray(raw) ? raw : [];
+  return list.map((row) => normalizeApiProductRow(row as Record<string, unknown>));
+}
+
+export async function getProduct(id: string): Promise<Product> {
+  const payload = await apiRequest<unknown>(`/products/${encodeURIComponent(id)}`);
+  if (Array.isArray(payload)) {
+    const row = (payload as Record<string, unknown>[]).find((p) => String(p.id) === String(id));
+    if (!row) throw new Error('Product not found');
+    return normalizeApiProductRow(row);
+  }
+  if (!payload || typeof payload !== 'object') throw new Error('Product not found');
+  return normalizeApiProductRow(payload as Record<string, unknown>);
+}
 export const createProduct = (data: Partial<Product>): Promise<Product> => apiRequest<Product>('/products', { method: 'POST', body: JSON.stringify(data) });
 export const updateProduct = (id: string, data: Partial<Product>): Promise<Product> => apiRequest<Product>(`/products/${id}`, { method: 'PUT', body: JSON.stringify(data) });
 
@@ -305,35 +494,160 @@ export const updateProduct = (id: string, data: Partial<Product>): Promise<Produ
 // INVOICE FUNCTIONS
 // ============================================
 
-// Create invoice (saves to localStorage for now)
-export async function createInvoice(invoice: Omit<Invoice, 'id' | 'createdAt'>): Promise<Invoice> {
-  try {
-    const id = `inv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+/** POST /api/invoices/ — body matches backend `InvoiceCreate` (camelCase + snake_case payment fields). */
+export async function createInvoice(
+  invoice: Omit<Invoice, 'id' | 'createdAt'>
+): Promise<Invoice> {
+  const inv = invoice as Omit<Invoice, 'id' | 'createdAt'> & {
+    paymentStatus?: string;
+    paymentMethod?: string;
+    remainingBalance?: number;
+    amount_paid?: number;
+  };
+  const paymentStatus =
+    inv.paymentStatus ?? inv.payment_status ?? 'Unpaid';
+  const paymentMethod =
+    inv.paymentMethod ?? inv.payment_method ?? 'Cash';
+  const grand = Number(invoice.grandTotal) || 0;
+  const amountPaid =
+    paymentStatus === 'Paid'
+      ? grand
+      : Number(inv.amount_paid ?? invoice.amount_paid ?? 0) || 0;
+  const remainingBalance =
+    Number(
+      inv.remainingBalance ??
+        invoice.remaining_balance ??
+        Math.max(0, grand - amountPaid)
+    ) || 0;
 
-    const newInvoice: Invoice = {
-      ...invoice,
-      id,
-      createdAt: new Date().toISOString()
-    };
+  const payload = {
+    invoiceNumber: invoice.invoiceNumber || `INV-${Date.now()}`,
+    customerId: String(invoice.customerId),
+    customerName: invoice.customerName || '',
+    invoiceDate: invoice.invoiceDate || new Date().toISOString().split('T')[0],
+    dueDate: invoice.dueDate || null,
+    lineItems: (invoice.lineItems || []).map((item: any) => ({
+      product: item.product || item.name || '',
+      description: item.description || '',
+      quantity: Number(item.quantity) || 1,
+      rate: Number(item.rate) || 0,
+      amount: Number(item.amount) || 0,
+      productId: item.productId || null,
+      itemCode: item.itemCode || item.sku || null,
+    })),
+    subtotal: Number(invoice.subtotal) || 0,
+    taxRate: Number(invoice.taxRate) || 0,
+    taxAmount: Number(invoice.taxAmount) || 0,
+    discount: Number(invoice.discount) || 0,
+    grandTotal: grand,
+    notes: invoice.notes || '',
+    salesman: invoice.salesman || '',
+    van: invoice.van || '',
+    payment_status: paymentStatus,
+    payment_method: paymentMethod,
+    amount_paid: amountPaid,
+    remaining_balance: remainingBalance,
+    status: invoice.status,
+  };
 
-    const existingInvoices = JSON.parse(localStorage.getItem('invoices') || '[]');
-    existingInvoices.push(newInvoice);
-    localStorage.setItem('invoices', JSON.stringify(existingInvoices));
+  const raw = await apiRequest<any>('/invoices/', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
 
-    console.log('✅ Invoice saved to localStorage:', newInvoice);
-
-    return newInvoice;
-  } catch (error) {
-    console.error('Failed to create invoice:', error);
-    throw new Error('Failed to create invoice');
-  }
+  return {
+    ...invoice,
+    id: String(raw.id),
+    shareToken: raw.share_token != null ? String(raw.share_token) : invoice.shareToken,
+    createdAt: raw.created_at || new Date().toISOString(),
+  };
 }
 
-// Get all invoices
+/** Public invoice by share token — no auth. */
+export async function fetchPublicInvoiceByToken(token: string): Promise<PublicInvoicePayload> {
+  const url = `https://ferocity-virtual-smog.ngrok-free.dev/api/invoices/view/${encodeURIComponent(token)}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { detail?: string };
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+function sliceDatePart(v: unknown): string {
+  if (v == null) return '';
+  const s = typeof v === 'string' ? v : String(v);
+  return s.length >= 10 ? s.slice(0, 10) : s;
+}
+
+function mapApiInvoiceToInvoice(inv: Record<string, unknown>): Invoice {
+  const items = inv.items;
+  let lineItems: Invoice['lineItems'] = [];
+  if (Array.isArray(items)) {
+    lineItems = (items as Record<string, unknown>[]).map((it) => ({
+      product: String(it.product ?? it.name ?? ''),
+      description: String(it.description ?? ''),
+      quantity: Number(it.quantity) || 0,
+      rate: Number(it.rate) || 0,
+      amount: Number(it.amount) || 0,
+    }));
+  }
+  const grandTotal = Number(inv.total ?? inv.total_amount ?? inv.grand_total ?? inv.grandTotal ?? 0);
+  const paid = Number(inv.paid_amount ?? inv.amount_paid ?? 0);
+  const balanceRaw = inv.balance ?? inv.balance_due ?? inv.remaining_balance;
+  const remaining_balance =
+    balanceRaw !== undefined && balanceRaw !== null
+      ? Number(balanceRaw)
+      : Math.max(0, grandTotal - paid);
+
+  const statusRaw = String(inv.status ?? 'Unpaid').toLowerCase();
+  const statusNorm: Invoice['status'] =
+    statusRaw === 'paid'
+      ? 'Paid'
+      : statusRaw === 'partial'
+        ? 'Partial'
+        : statusRaw === 'overdue'
+          ? 'Overdue'
+          : 'Unpaid';
+
+  const cid = inv.customer_id ?? inv.customerId;
+  const cname = inv.customer_name ?? inv.customerName;
+
+  return {
+    id: String(inv.id ?? ''),
+    customerId: cid != null ? String(cid) : '',
+    customerName: cname != null ? String(cname) : '',
+    shareToken:
+      inv.share_token != null && inv.share_token !== ''
+        ? String(inv.share_token)
+        : inv.shareToken != null && inv.shareToken !== ''
+          ? String(inv.shareToken)
+          : undefined,
+    invoiceNumber: String(inv.invoice_number ?? inv.invoiceNumber ?? inv.id ?? ''),
+    invoiceDate: sliceDatePart(inv.date ?? inv.invoiceDate),
+    dueDate: sliceDatePart(inv.due_date ?? inv.dueDate ?? inv.date),
+    lineItems,
+    subtotal: Number(inv.subtotal ?? 0),
+    taxRate: Number(inv.tax_rate ?? inv.taxRate ?? 0),
+    taxAmount: Number(inv.tax ?? inv.taxAmount ?? 0),
+    discount: Number(inv.discount ?? 0),
+    grandTotal,
+    notes: String(inv.notes ?? ''),
+    status: statusNorm,
+    payment_status:
+      remaining_balance <= 0 && grandTotal > 0 ? 'Paid' : paid > 0 ? 'Advance Paid' : 'Unpaid',
+    amount_paid: paid,
+    remaining_balance,
+    createdAt: inv.created_at != null ? String(inv.created_at) : new Date().toISOString(),
+  };
+}
+
+// Get all invoices (from backend)
 export async function getInvoices(): Promise<Invoice[]> {
   try {
-    const invoices = JSON.parse(localStorage.getItem('invoices') || '[]');
-    return invoices;
+    const raw = await apiRequest<unknown>('/invoices/');
+    const list = Array.isArray(raw) ? raw : [];
+    return list.map((inv) => mapApiInvoiceToInvoice(inv as Record<string, unknown>));
   } catch (error) {
     console.error('Failed to get invoices:', error);
     return [];
@@ -366,54 +680,90 @@ export async function getInvoiceById(id: string): Promise<Invoice | null> {
 // SALES ORDER FUNCTIONS
 // ============================================
 
-export async function createSalesOrder(order: Omit<SalesOrder, 'id' | 'createdAt' | 'status'>): Promise<SalesOrder> {
-  const existingOrders = JSON.parse(localStorage.getItem('sales_orders') || '[]');
-  const newOrder: SalesOrder = {
-    ...order,
-    id: `so_${Date.now()}`,
-    status: 'Pending',
-    createdAt: new Date().toISOString()
+function legacySalesOrderFromWorkflow(so: import('./salesService').SalesOrder): SalesOrder {
+  const status: SalesOrder['status'] =
+    so.status === 'invoiced' ? 'Converted' : so.status === 'cancelled' ? 'Cancelled' : 'Pending';
+  return {
+    id: so.id,
+    orderNumber: so.so_number,
+    customerId: so.customer_id,
+    customerName: so.customer_name || '',
+    orderDate: so.order_date,
+    salesman: so.salesman_name || undefined,
+    van: so.van_id || undefined,
+    status,
+    workflowStatus: so.status,
+    podConfirmed: so.pod_confirmed,
+    signatureConfirmed: so.signature_confirmed,
+    lineItems: so.items.map((i) => ({
+      product: i.product_name,
+      description: i.description || '',
+      quantity: i.quantity,
+      rate: i.unit_price,
+      amount: i.total,
+    })),
+    subtotal: so.subtotal,
+    taxAmount: so.tax,
+    discount: 0,
+    grandTotal: so.total,
+    notes: so.notes,
+    createdAt: so.created_at || so.order_date,
   };
-  existingOrders.push(newOrder);
-  localStorage.setItem('sales_orders', JSON.stringify(existingOrders));
-  return newOrder;
+}
+
+export async function createSalesOrder(order: Omit<SalesOrder, 'id' | 'createdAt' | 'status'>): Promise<SalesOrder> {
+  const { createSalesOrder: createSo } = await import('./salesService');
+  const created = await createSo({
+    customer_id: order.customerId,
+    order_date: order.orderDate,
+    items: order.lineItems.map((li) => ({
+      product_id: '',
+      product_name: li.product,
+      quantity: li.quantity,
+      unit_price: li.rate,
+      total: li.amount,
+      description: li.description,
+    })) as unknown as Array<Record<string, unknown>>,
+    notes: order.notes || '',
+    status: 'confirmed',
+    salesman_name: order.salesman,
+    van_id: order.van || null,
+    payment_status: 'unpaid',
+    subtotal: order.subtotal,
+    tax: order.taxAmount,
+    total: order.grandTotal,
+  });
+  return legacySalesOrderFromWorkflow(created);
 }
 
 export async function getSalesOrders(): Promise<SalesOrder[]> {
-  return JSON.parse(localStorage.getItem('sales_orders') || '[]');
+  const { getSalesOrders: fetchSo, hydrateSalesOrdersWithCustomers } = await import('./salesService');
+  const rows = await fetchSo();
+  const hydrated = await hydrateSalesOrdersWithCustomers(rows);
+  return hydrated.map(legacySalesOrderFromWorkflow);
 }
 
 export async function getCustomerSalesOrders(customerId: string): Promise<SalesOrder[]> {
   const all = await getSalesOrders();
-  return all.filter(o => o.customerId === customerId);
+  return all.filter((o) => o.customerId === String(customerId));
 }
 
 export async function convertOrderToInvoice(orderId: string): Promise<Invoice> {
-  const orders = await getSalesOrders();
-  const orderIndex = orders.findIndex(o => o.id === orderId);
-  if (orderIndex === -1) throw new Error('Order not found');
-
-  const order = orders[orderIndex];
-  order.status = 'Converted';
-  localStorage.setItem('sales_orders', JSON.stringify(orders));
-
-  const invoiceData: Omit<Invoice, 'id' | 'createdAt'> = {
-    invoiceNumber: `INV-${order.orderNumber.split('-')[1]}`,
-    customerId: order.customerId,
-    customerName: order.customerName,
-    invoiceDate: new Date().toISOString().split('T')[0],
-    dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    lineItems: order.lineItems,
-    subtotal: order.subtotal,
-    taxRate: 17, // default
-    taxAmount: order.taxAmount,
-    discount: order.discount,
-    grandTotal: order.grandTotal,
-    notes: order.notes || '',
-    status: 'Unpaid'
-  };
-
-  return createInvoice(invoiceData);
+  const { convertSalesOrderToInvoice } = await import('./salesService');
+  const updated = await convertSalesOrderToInvoice(orderId);
+  if (!updated.linked_invoice_number) {
+    throw new Error('Order was not invoiced (check POD and DELIVERED status).');
+  }
+  const invoices = await getInvoices();
+  const inv = invoices.find((i) => i.invoiceNumber === updated.linked_invoice_number);
+  if (!inv) {
+    await new Promise((r) => setTimeout(r, 400));
+    const again = await getInvoices();
+    const retry = again.find((i) => i.invoiceNumber === updated.linked_invoice_number);
+    if (!retry) throw new Error('Invoice not found after conversion');
+    return retry;
+  }
+  return inv;
 }
 
 // ============================================
@@ -423,6 +773,41 @@ export async function convertOrderToInvoice(orderId: string): Promise<Invoice> {
 export async function getCustomerPayments(customerId: string): Promise<Payment[]> {
   const allPayments = getStorage<Payment>('payments');
   return allPayments.filter(p => p.customer_id === customerId);
+}
+
+// Get unpaid or partially paid invoices for a customer
+export async function getUnpaidInvoices(customerId: string): Promise<Invoice[]> {
+  try {
+    const allInvoices = await getInvoices();
+    return allInvoices.filter(inv =>
+      inv.customerId === customerId &&
+      (inv.status === 'Unpaid' || inv.status === 'Partial') &&
+      (inv.remaining_balance || inv.grandTotal) > 0
+    );
+  } catch (error) {
+    console.error('Failed to get unpaid invoices:', error);
+    return [];
+  }
+}
+
+// Update invoice payment status (legacy localStorage path removed; invoices load from GET /api/invoices/)
+export async function updateInvoicePayment(
+  _invoiceId: string,
+  _paymentAmount: number
+): Promise<Invoice | null> {
+  return null;
+}
+
+// Get customer's advance payment balance
+export async function getCustomerAdvanceBalance(customerId: string): Promise<number> {
+  try {
+    const payments = await getCustomerPayments(customerId);
+    const advancePayments = payments.filter(p => p.is_advance && !p.invoice_id);
+    return advancePayments.reduce((sum, p) => sum + p.amount, 0);
+  } catch (error) {
+    console.error('Failed to get advance balance:', error);
+    return 0;
+  }
 }
 
 // Legacy API structure

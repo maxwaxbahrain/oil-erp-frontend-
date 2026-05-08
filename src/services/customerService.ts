@@ -1,10 +1,41 @@
-// ============================================
+import { getOilErpApiBase } from '../config/apiBase';
+
 // CUSTOMER SERVICE
 // Centralized customer management with mock data support
 // ============================================
 
-const API_BASE_URL = 'http://localhost:8000/api';
-const USE_MOCK = true; // Enable mock mode by default
+const USE_MOCK = false; // Enable mock mode by default
+
+function apiUrl(path: string): string {
+    const base = getOilErpApiBase().replace(/\/$/, '');
+    const p = path.replace(/^\//, '');
+    return `${base}/${p}`;
+}
+
+/** FastAPI uses numeric `id` and optional strings; UI expects string id + safe name. */
+function normalizeCustomerFromApi(raw: Record<string, unknown>): Customer {
+    const bal = raw.balance;
+    const balanceNum =
+        typeof bal === 'number' && !Number.isNaN(bal)
+            ? bal
+            : parseFloat(String(bal ?? '0')) || 0;
+    return {
+        ...(raw as unknown as Customer),
+        id: String(raw.id ?? ''),
+        name: raw.name != null ? String(raw.name) : '',
+        balance: balanceNum,
+    };
+}
+
+function parseCustomersJson(payload: unknown): Record<string, unknown>[] {
+    if (Array.isArray(payload)) return payload as Record<string, unknown>[];
+    if (payload && typeof payload === 'object') {
+        const o = payload as Record<string, unknown>;
+        const inner = o.items ?? o.data ?? o.results ?? o.customers;
+        if (Array.isArray(inner)) return inner as Record<string, unknown>[];
+    }
+    return [];
+}
 
 // ============================================
 // INTERFACES
@@ -38,13 +69,31 @@ export interface LedgerEntry {
     id: string;
     customer_id: string;
     date: string;
-    type: 'invoice' | 'payment' | 'credit' | 'debit' | 'opening_balance';
+    type:
+        | 'invoice'
+        | 'payment'
+        | 'credit'
+        | 'debit'
+        | 'opening_balance'
+        | 'van_sale'
+        | 'transaction'
+        | 'credit_note'
+        | 'return_credit'
+        | 'credit_adjustment';
     amount: number;
     balance: number;
     description?: string;
     reference?: string;
     invoice_number?: string;
     payment_method?: string;
+    van_number?: string;        // Van number for van sales
+    salesman_name?: string;     // Salesman/driver name for van sales
+    /** Present when row comes from API `debit`/`credit` shape */
+    debit?: number;
+    credit?: number;
+    mode?: string;
+    /** Populated for synthetic invoice rows from GET .../ledger */
+    invoice_id?: string;
 }
 
 export interface Payment {
@@ -138,6 +187,60 @@ const initializeMockData = () => {
 // CUSTOMER CRUD OPERATIONS
 // ============================================
 
+/** Direct FastAPI URL when Vite proxy returns HTML/404 (backend running but /api not proxied). */
+function directCustomersUrl(): string {
+    return 'http://127.0.0.1:8000/api/customers/';
+}
+
+function formatCustomersHttpError(status: number, text: string): string {
+    const t = text.trim();
+    if (t.startsWith('{')) {
+        try {
+            const j = JSON.parse(t) as { detail?: unknown };
+            if (typeof j.detail === 'string') return j.detail;
+            if (Array.isArray(j.detail))
+                return j.detail
+                    .map((x: { msg?: string }) => x.msg || JSON.stringify(x))
+                    .join('; ');
+        } catch {
+            /* ignore */
+        }
+    }
+    if (t && !t.startsWith('<')) return t.slice(0, 400);
+    return `Failed to fetch customers (HTTP ${status}). Run FastAPI from oil-erp-backend: uvicorn app.main:app --reload --port 8000`;
+}
+
+async function fetchCustomersRows(primaryUrl: string): Promise<Customer[]> {
+    const response = await fetch(primaryUrl, { cache: 'no-store' });
+    const text = await response.text().catch(() => '');
+    const ct = (response.headers.get('content-type') || '').toLowerCase();
+
+    if (!response.ok) {
+        throw new Error(formatCustomersHttpError(response.status, text));
+    }
+
+    // SPA fallback / proxy miss often returns index.html — old code treated that as "no rows".
+    if (!ct.includes('json')) {
+        const sniff = text.trim().slice(0, 80).toLowerCase();
+        if (sniff.startsWith('<!') || sniff.includes('<html')) {
+            throw new Error(
+                'Customers API returned HTML instead of JSON. Usually the Vite proxy is not forwarding /api — keep npm run dev running and open the app at http://localhost:5174'
+            );
+        }
+        throw new Error(`Customers API returned ${ct || 'unknown type'}, expected JSON.`);
+    }
+
+    let payload: unknown;
+    try {
+        payload = text ? JSON.parse(text) : null;
+    } catch {
+        throw new Error('Customers API returned invalid JSON.');
+    }
+
+    const rows = parseCustomersJson(payload);
+    return rows.map(normalizeCustomerFromApi);
+}
+
 export async function getCustomers(): Promise<Customer[]> {
     if (USE_MOCK) {
         await delay(400);
@@ -145,9 +248,27 @@ export async function getCustomers(): Promise<Customer[]> {
         return getStorage<Customer>('customers');
     }
 
-    const response = await fetch(`${API_BASE_URL}/customers`);
-    if (!response.ok) throw new Error('Failed to fetch customers');
-    return response.json();
+    const primary = apiUrl('customers/');
+
+    try {
+        return await fetchCustomersRows(primary);
+    } catch (firstErr) {
+        // Dev fallback: same-origin /api failed but backend may still be up on :8000 (CORS allows *).
+        if (import.meta.env.DEV) {
+            try {
+                const rows = await fetchCustomersRows(directCustomersUrl());
+                if (rows.length > 0) {
+                    console.warn(
+                        '[customers] Loaded via direct http://127.0.0.1:8000 — fix Vite proxy or API base so /api works from this origin.'
+                    );
+                    return rows;
+                }
+            } catch {
+                /* fall through */
+            }
+        }
+        throw firstErr;
+    }
 }
 
 export async function getCustomer(id: string): Promise<Customer> {
@@ -159,9 +280,10 @@ export async function getCustomer(id: string): Promise<Customer> {
         return customer;
     }
 
-    const response = await fetch(`${API_BASE_URL}/customers/${id}`);
+    const response = await fetch(apiUrl(`customers/${id}`));
     if (!response.ok) throw new Error('Failed to fetch customer');
-    return response.json();
+    const row = (await response.json()) as Record<string, unknown>;
+    return normalizeCustomerFromApi(row);
 }
 
 export async function createCustomer(data: Partial<Customer>): Promise<Customer> {
@@ -211,13 +333,42 @@ export async function createCustomer(data: Partial<Customer>): Promise<Customer>
         return newCustomer;
     }
 
-    const response = await fetch(`${API_BASE_URL}/customers`, {
+    // Trailing slash required: POST /api/customers 307-redirects; Chrome fetch often surfaces that as "Failed to fetch".
+    const body = {
+        name: data.name ?? '',
+        email: data.email?.trim() || undefined,
+        phone: data.phone?.trim() || undefined,
+        address: data.address?.trim() || undefined,
+        category: (data.category ?? 'retail').toLowerCase(),
+        credit_limit: data.credit_limit ?? 0,
+        opening_balance: data.opening_balance ?? 0,
+        gps_location: data.gps_location?.trim() || undefined,
+        notes: data.notes?.trim() || undefined,
+    };
+    const response = await fetch(apiUrl('customers/'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
+        headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+        },
+        body: JSON.stringify(body),
+        cache: 'no-store',
     });
-    if (!response.ok) throw new Error('Failed to create customer');
-    return response.json();
+    if (!response.ok) {
+        const text = await response.text();
+        let detail = `HTTP ${response.status}`;
+        try {
+            const err = JSON.parse(text) as { detail?: unknown };
+            if (typeof err?.detail === 'string') detail = err.detail;
+            else if (Array.isArray(err?.detail))
+                detail = err.detail.map((x: { msg?: string }) => x.msg || JSON.stringify(x)).join('; ');
+        } catch {
+            if (text) detail = text.slice(0, 300);
+        }
+        throw new Error(detail);
+    }
+    const row = (await response.json()) as Record<string, unknown>;
+    return normalizeCustomerFromApi(row);
 }
 
 export async function updateCustomer(id: string, data: Partial<Customer>): Promise<Customer> {
@@ -233,13 +384,14 @@ export async function updateCustomer(id: string, data: Partial<Customer>): Promi
         return updated;
     }
 
-    const response = await fetch(`${API_BASE_URL}/customers/${id}`, {
+    const response = await fetch(apiUrl(`customers/${id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
     });
     if (!response.ok) throw new Error('Failed to update customer');
-    return response.json();
+    const row = (await response.json()) as Record<string, unknown>;
+    return normalizeCustomerFromApi(row);
 }
 
 export async function deleteCustomer(id: string): Promise<void> {
@@ -251,7 +403,7 @@ export async function deleteCustomer(id: string): Promise<void> {
         return;
     }
 
-    const response = await fetch(`${API_BASE_URL}/customers/${id}`, {
+    const response = await fetch(apiUrl(`customers/${id}`), {
         method: 'DELETE'
     });
     if (!response.ok) throw new Error('Failed to delete customer');
@@ -267,12 +419,51 @@ export async function getCustomerLedger(customerId: string): Promise<LedgerEntry
         const ledger = getStorage<LedgerEntry>('customer_ledger');
         return ledger
             .filter(entry => entry.customer_id === customerId)
-            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            .sort((a, b) =>
+                new Date(b.date).getTime() -
+                new Date(a.date).getTime()
+            );
     }
+    const response = await fetch(
+        apiUrl(`customers/${customerId}/ledger`)
+    );
+    if (!response.ok)
+        throw new Error('Failed to fetch customer ledger');
 
-    const response = await fetch(`${API_BASE_URL}/customers/${customerId}/ledger`);
-    if (!response.ok) throw new Error('Failed to fetch customer ledger');
-    return response.json();
+    const raw = await response.json();
+
+    let runningBalance = 0;
+    return raw.map((entry: any) => {
+        const debit = Number(entry.debit) || 0;
+        const credit = Number(entry.credit) || 0;
+        const isCreditType =
+            entry.type === 'payment' ||
+            entry.type === 'credit' ||
+            entry.type === 'credit_note' ||
+            entry.type === 'return_credit' ||
+            entry.type === 'credit_adjustment';
+        runningBalance = runningBalance + debit - credit;
+        return {
+            id: String(entry.id),
+            customer_id: String(customerId),
+            date: entry.date,
+            description: entry.description || '',
+            type: entry.type || 'transaction',
+            amount: isCreditType ? credit : debit,
+            debit: debit,
+            credit: credit,
+            balance: runningBalance,
+            reference: entry.reference || '',
+            invoice_number: entry.reference || '',
+            van_number: entry.van_number || '',
+            salesman_name: entry.salesman_name || '',
+            mode: entry.mode || '',
+            invoice_id:
+                entry.invoice_id != null && entry.invoice_id !== ''
+                    ? String(entry.invoice_id)
+                    : undefined,
+        };
+    });
 }
 
 export async function addLedgerEntry(entry: Omit<LedgerEntry, 'id'>): Promise<LedgerEntry> {
@@ -308,7 +499,7 @@ export async function addLedgerEntry(entry: Omit<LedgerEntry, 'id'>): Promise<Le
         return newEntry;
     }
 
-    const response = await fetch(`${API_BASE_URL}/customers/${entry.customer_id}/ledger`, {
+    const response = await fetch(apiUrl(`customers/${entry.customer_id}/ledger`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(entry)
@@ -330,7 +521,7 @@ export async function getCustomerPayments(customerId: string): Promise<Payment[]
             .sort((a, b) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime());
     }
 
-    const response = await fetch(`${API_BASE_URL}/customers/${customerId}/payments`);
+    const response = await fetch(apiUrl(`customers/${customerId}/payments`));
     if (!response.ok) throw new Error('Failed to fetch customer payments');
     return response.json();
 }
@@ -361,7 +552,7 @@ export async function createPayment(payment: Omit<Payment, 'id' | 'created_at'>)
         return newPayment;
     }
 
-    const response = await fetch(`${API_BASE_URL}/payments`, {
+    const response = await fetch(apiUrl('payments'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payment)
@@ -381,9 +572,10 @@ export async function getOverdueCustomers(): Promise<Customer[]> {
         return customers.filter(c => (c.balance || 0) < 0);
     }
 
-    const response = await fetch(`${API_BASE_URL}/customers/overdue`);
+    const response = await fetch(apiUrl('customers/overdue'));
     if (!response.ok) throw new Error('Failed to fetch overdue customers');
-    return response.json();
+    const payload = await response.json().catch(() => null);
+    return parseCustomersJson(payload).map(normalizeCustomerFromApi);
 }
 
 export async function getCustomerStats(): Promise<CustomerStats> {
@@ -406,7 +598,7 @@ export async function getCustomerStats(): Promise<CustomerStats> {
         };
     }
 
-    const response = await fetch(`${API_BASE_URL}/customers/stats`);
+    const response = await fetch(apiUrl('customers/stats'));
     if (!response.ok) throw new Error('Failed to fetch customer stats');
     return response.json();
 }
@@ -425,9 +617,21 @@ export async function searchCustomers(query: string): Promise<Customer[]> {
         );
     }
 
-    const response = await fetch(`${API_BASE_URL}/customers/search?q=${encodeURIComponent(query)}`);
+    const response = await fetch(`${apiUrl('customers/search')}?q=${encodeURIComponent(query)}`);
     if (!response.ok) throw new Error('Failed to search customers');
-    return response.json();
+    const payload = await response.json().catch(() => null);
+    return parseCustomersJson(payload).map(normalizeCustomerFromApi);
+}
+
+/** Creates Customer records for all Route Navigator priority (★) stops not already in customers (live API only). */
+export async function syncRoutePriorityToCustomers(): Promise<
+    import('./routeService').SyncRoutePriorityResult
+> {
+    if (USE_MOCK) {
+        return { created: 0, skipped_existing: 0, total_priority_stops: 0 };
+    }
+    const { syncPriorityRouteToCustomers } = await import('./routeService');
+    return syncPriorityRouteToCustomers();
 }
 
 // ============================================
@@ -453,5 +657,7 @@ export default {
     // Analytics
     getOverdueCustomers,
     getCustomerStats,
-    searchCustomers
+    searchCustomers,
+
+    syncRoutePriorityToCustomers,
 };

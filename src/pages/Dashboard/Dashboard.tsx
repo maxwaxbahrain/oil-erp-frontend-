@@ -9,51 +9,121 @@ import {
     TrendingDown,
     Activity
 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     BarChart, Bar, PieChart, Pie, Cell,
     XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
-
-// --- Mock Data ---
-
-const monthlyPerformanceData = [
-    { month: 'Jan', sales: 45000, expenses: 32000 },
-    { month: 'Feb', sales: 52000, expenses: 35000 },
-    { month: 'Mar', sales: 49000, expenses: 31000 },
-    { month: 'Apr', sales: 61000, expenses: 42000 },
-    { month: 'May', sales: 58000, expenses: 38000 },
-    { month: 'Jun', sales: 72000, expenses: 48000 },
-    { month: 'Jul', sales: 68000, expenses: 45000 },
-];
-
-const inventoryPieData = [
-    { name: 'Beverages', value: 400 },
-    { name: 'Food', value: 300 },
-    { name: 'Household', value: 300 },
-    { name: 'Personal Care', value: 200 },
-];
+import { getCustomers, getInvoices, getProducts, getSalesOrders, getVans, type Invoice, type Product } from '../../services/api';
 
 const PIE_COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042'];
 
-const recentOrders = [
-    { id: 'ORD-001', customer: 'Fresh Mart', date: '2025-01-15', amount: 1250, status: 'Completed' },
-    { id: 'ORD-002', customer: 'Quick Stop', date: '2025-01-15', amount: 850, status: 'Pending' },
-    { id: 'ORD-003', customer: 'City Grocers', date: '2025-01-14', amount: 2100, status: 'Completed' },
-    { id: 'ORD-004', customer: 'Corner Shop', date: '2025-01-14', amount: 450, status: 'Processing' },
-    { id: 'ORD-005', customer: 'Super Save', date: '2025-01-13', amount: 3200, status: 'Completed' },
-];
-
 export default function Dashboard() {
     const navigate = useNavigate();
+    const [invoices, setInvoices] = useState<Invoice[]>([]);
+    const [products, setProducts] = useState<Product[]>([]);
+    const [salesOrdersCount, setSalesOrdersCount] = useState(0);
+    const [vansCount, setVansCount] = useState(0);
+    const [customersCount, setCustomersCount] = useState(0);
+    const [newCustomersThisMonth, setNewCustomersThisMonth] = useState(0);
+    const [dataError, setDataError] = useState(false);
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const [inv, prod, orders, vans, customers] = await Promise.all([
+                    getInvoices().catch(() => []),
+                    getProducts().catch(() => []),
+                    getSalesOrders().catch(() => []),
+                    getVans().catch(() => []),
+                    getCustomers().catch(() => []),
+                ]);
+                if (cancelled) return;
+                setInvoices(Array.isArray(inv) ? inv : []);
+                setProducts(Array.isArray(prod) ? prod : []);
+                setSalesOrdersCount(Array.isArray(orders) ? orders.length : 0);
+                setVansCount(Array.isArray(vans) ? vans.filter((v) => String(v.status).toLowerCase() === 'active').length : 0);
+                const custList = Array.isArray(customers) ? customers : [];
+                setCustomersCount(custList.length);
+
+                const now = new Date();
+                const thisMonth = custList.filter((c) => {
+                    if (!c.created_at) return false;
+                    const d = new Date(c.created_at);
+                    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+                }).length;
+                setNewCustomersThisMonth(thisMonth);
+                setDataError(false);
+            } catch {
+                if (!cancelled) setDataError(true);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    const metrics = useMemo(() => {
+        const validIncomeInvoices = invoices.filter((i) => String(i.status || '').toLowerCase() !== 'cancelled');
+        const totalIncome = validIncomeInvoices.reduce((sum, i) => sum + (Number(i.grandTotal) || 0), 0);
+        const totalExpenses = 0;
+        const netProfit = totalIncome;
+        const unpaid = invoices.filter((i) => ['unpaid', 'pending', 'partial', 'overdue'].includes(String(i.status || '').toLowerCase()));
+        const unpaidAmount = unpaid.reduce((sum, i) => sum + (Number(i.remaining_balance ?? i.grandTotal) || 0), 0);
+        const overdueCount = invoices.filter((i) => String(i.status || '').toLowerCase() === 'overdue').length;
+        const lowStock = products.filter((p) => Number(p.current_stock || 0) < 10).length;
+        const productCount = products.length;
+        return { totalIncome, totalExpenses, netProfit, unpaidAmount, overdueCount, lowStock, productCount };
+    }, [invoices, products]);
+
+    const monthlyPerformanceData = useMemo(() => {
+        const now = new Date();
+        const points: Array<{ month: string; sales: number; expenses: number }> = [];
+        for (let i = 5; i >= 0; i--) {
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const keyYear = d.getFullYear();
+            const keyMonth = d.getMonth();
+            const monthLabel = d.toLocaleDateString(undefined, { month: 'short' });
+            const sales = invoices
+                .filter((inv) => {
+                    const date = new Date(inv.invoiceDate || inv.createdAt);
+                    return date.getFullYear() === keyYear && date.getMonth() === keyMonth;
+                })
+                .reduce((sum, inv) => sum + (Number(inv.grandTotal) || 0), 0);
+            points.push({ month: monthLabel, sales, expenses: 0 });
+        }
+        return points;
+    }, [invoices]);
+
+    const inventoryPieData = useMemo(
+        () => products.map((p) => ({ name: p.name, value: Number(p.current_stock) || 0 })).filter((x) => x.value > 0),
+        [products]
+    );
+
+    const recentOrders = useMemo(
+        () =>
+            [...invoices]
+                .sort((a, b) => new Date(b.invoiceDate || b.createdAt).getTime() - new Date(a.invoiceDate || a.createdAt).getTime())
+                .slice(0, 5)
+                .map((i) => ({
+                    id: i.invoiceNumber || i.id,
+                    customer: (i as Invoice & { customer_name?: string }).customer_name || i.customerName || 'N/A',
+                    date: i.invoiceDate || i.createdAt?.slice(0, 10) || 'N/A',
+                    amount: Number(i.grandTotal) || 0,
+                    status: i.status || 'Unpaid',
+                })),
+        [invoices]
+    );
 
     const stats = [
-        { label: 'Total Income', value: '$84,250', icon: TrendingUp, color: 'text-emerald-600', bg: 'bg-emerald-50', trend: '+12% vs last mth' },
-        { label: 'Total Expenses', value: '$42,800', icon: TrendingDown, color: 'text-rose-600', bg: 'bg-rose-50', trend: '-5% vs last mth' },
-        { label: 'Net Profit', value: '$41,450', icon: Wallet, color: 'text-blue-600', bg: 'bg-blue-50', trend: '+18% margin' },
-        { label: 'Unpaid Invoices', value: '$12,300', icon: FileText, color: 'text-amber-600', bg: 'bg-amber-50', trend: '8 invoices overdue' },
-        { label: 'Low Stock Alerts', value: '15', icon: AlertTriangle, color: 'text-orange-600', bg: 'bg-orange-50', trend: '5 critical items' },
-        { label: 'Total Orders', value: '1,245', icon: ShoppingCart, color: 'text-purple-600', bg: 'bg-purple-50', trend: '+85 this week' },
+        { label: 'Total Income', value: `$${metrics.totalIncome.toLocaleString()}`, icon: TrendingUp, color: 'text-emerald-600', bg: 'bg-emerald-50', trend: dataError ? 'N/A' : 'From invoices' },
+        { label: 'Total Expenses', value: '$0', icon: TrendingDown, color: 'text-rose-600', bg: 'bg-rose-50', trend: 'N/A' },
+        { label: 'Net Profit', value: `$${metrics.netProfit.toLocaleString()}`, icon: Wallet, color: 'text-blue-600', bg: 'bg-blue-50', trend: dataError ? 'N/A' : 'Income - Expenses' },
+        { label: 'Unpaid Invoices', value: `$${metrics.unpaidAmount.toLocaleString()}`, icon: FileText, color: 'text-amber-600', bg: 'bg-amber-50', trend: `${metrics.overdueCount} overdue` },
+        { label: 'Low Stock Alerts', value: String(metrics.lowStock), icon: AlertTriangle, color: 'text-orange-600', bg: 'bg-orange-50', trend: 'stock < 10' },
+        { label: 'Total Orders', value: String(salesOrdersCount), icon: ShoppingCart, color: 'text-purple-600', bg: 'bg-purple-50', trend: 'All sales orders' },
     ];
 
     return (
@@ -106,7 +176,7 @@ export default function Dashboard() {
                     <div className="mb-6 flex justify-between items-center">
                         <div>
                             <h3 className="text-[16px] font-black text-redwood-text-main">Financial Performance</h3>
-                            <p className="text-[12px] text-redwood-text-muted font-medium">Sales vs Expenses (Last 7 Months)</p>
+                            <p className="text-[12px] text-redwood-text-muted font-medium">Sales vs Expenses (Last 6 Months)</p>
                         </div>
                     </div>
                     <div className="h-[300px]">
@@ -130,7 +200,7 @@ export default function Dashboard() {
                 <div className="bg-white p-6 rounded-lg border border-redwood-border shadow-sm">
                     <div className="mb-6">
                         <h3 className="text-[16px] font-black text-redwood-text-main">Inventory Distribution</h3>
-                        <p className="text-[12px] text-redwood-text-muted font-medium">Stock value by category</p>
+                            <p className="text-[12px] text-redwood-text-muted font-medium">Stock by product</p>
                     </div>
                     <div className="h-[300px]">
                         <ResponsiveContainer width="100%" height="100%">
@@ -164,8 +234,8 @@ export default function Dashboard() {
                 <div className="lg:col-span-2 bg-white rounded-lg border border-redwood-border shadow-sm overflow-hidden dash-table-container">
                     <div className="p-6 border-b border-redwood-border flex justify-between items-center">
                         <div>
-                            <h3 className="text-[16px] font-black text-redwood-text-main">Recent Orders</h3>
-                            <p className="text-[12px] text-redwood-text-muted font-medium">Latest sales transactions</p>
+                        <h3 className="text-[16px] font-black text-redwood-text-main">Recent Orders</h3>
+                        <p className="text-[12px] text-redwood-text-muted font-medium">Latest real invoices</p>
                         </div>
                         <button onClick={() => navigate('/sales/orders')} className="text-[12px] font-bold text-redwood-brand hover:underline flex items-center gap-1">
                             View All <ArrowRight size={12} />
@@ -175,7 +245,7 @@ export default function Dashboard() {
                         <table className="w-full text-left">
                             <thead className="bg-gray-50 border-b border-gray-100">
                                 <tr>
-                                    <th className="px-6 py-3 text-[11px] font-bold text-redwood-text-muted uppercase tracking-wider">Order ID</th>
+                                    <th className="px-6 py-3 text-[11px] font-bold text-redwood-text-muted uppercase tracking-wider">Order/Invoice</th>
                                     <th className="px-6 py-3 text-[11px] font-bold text-redwood-text-muted uppercase tracking-wider">Customer</th>
                                     <th className="px-6 py-3 text-[11px] font-bold text-redwood-text-muted uppercase tracking-wider">Date</th>
                                     <th className="px-6 py-3 text-[11px] font-bold text-redwood-text-muted uppercase tracking-wider text-right">Amount</th>
@@ -190,9 +260,9 @@ export default function Dashboard() {
                                         <td className="px-6 py-4 text-[13px] text-gray-500">{order.date}</td>
                                         <td className="px-6 py-4 text-[13px] font-bold text-gray-900 text-right">${order.amount.toLocaleString()}</td>
                                         <td className="px-6 py-4">
-                                            <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${order.status === 'Completed' ? 'bg-emerald-100 text-emerald-700' :
-                                                order.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
-                                                    'bg-blue-100 text-blue-700'
+                                            <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${String(order.status).toLowerCase() === 'paid' || String(order.status).toLowerCase() === 'completed' ? 'bg-emerald-100 text-emerald-700' :
+                                                String(order.status).toLowerCase() === 'unpaid' || String(order.status).toLowerCase() === 'pending' ? 'bg-amber-100 text-amber-700' :
+                                                    String(order.status).toLowerCase() === 'overdue' ? 'bg-rose-100 text-rose-700' : 'bg-blue-100 text-blue-700'
                                                 }`}>
                                                 {order.status}
                                             </span>
@@ -212,20 +282,20 @@ export default function Dashboard() {
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div className="p-4 bg-gray-50 rounded-lg text-center border border-gray-100">
-                            <div className="text-[24px] font-black text-redwood-brand mb-1">98%</div>
-                            <div className="text-[10px] font-bold text-redwood-text-muted uppercase">On-Time Delivery</div>
-                        </div>
-                        <div className="p-4 bg-gray-50 rounded-lg text-center border border-gray-100">
-                            <div className="text-[24px] font-black text-emerald-600 mb-1">24h</div>
-                            <div className="text-[10px] font-bold text-redwood-text-muted uppercase">Avg. Turnaround</div>
-                        </div>
-                        <div className="p-4 bg-gray-50 rounded-lg text-center border border-gray-100">
-                            <div className="text-[24px] font-black text-blue-600 mb-1">12</div>
+                            <div className="text-[24px] font-black text-redwood-brand mb-1">{vansCount}</div>
                             <div className="text-[10px] font-bold text-redwood-text-muted uppercase">Active Vans</div>
                         </div>
                         <div className="p-4 bg-gray-50 rounded-lg text-center border border-gray-100">
-                            <div className="text-[24px] font-black text-purple-600 mb-1">450</div>
+                            <div className="text-[24px] font-black text-emerald-600 mb-1">{newCustomersThisMonth}</div>
                             <div className="text-[10px] font-bold text-redwood-text-muted uppercase">New Customers</div>
+                        </div>
+                        <div className="p-4 bg-gray-50 rounded-lg text-center border border-gray-100">
+                            <div className="text-[24px] font-black text-blue-600 mb-1">{customersCount}</div>
+                            <div className="text-[10px] font-bold text-redwood-text-muted uppercase">Total Customers</div>
+                        </div>
+                        <div className="p-4 bg-gray-50 rounded-lg text-center border border-gray-100">
+                            <div className="text-[24px] font-black text-purple-600 mb-1">{metrics.productCount}</div>
+                            <div className="text-[10px] font-bold text-redwood-text-muted uppercase">Products In Catalog</div>
                         </div>
                     </div>
 

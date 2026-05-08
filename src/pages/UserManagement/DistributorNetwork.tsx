@@ -1,11 +1,9 @@
 import { useState } from 'react';
 import {
-    Handshake, Plus, Map, List, Search, Filter,
-    TrendingUp, BadgeCheck, AlertCircle, DollarSign,
-    MoreHorizontal, Building2, Phone, Mail
+    Handshake, Plus, Map, List, Search,
+    TrendingUp, Building2, Phone, Mail, CornerUpLeft
 } from 'lucide-react';
 import clsx from 'clsx';
-import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 
 const DISTRIBUTORS = [
     { id: 'DIST-001', name: 'ABC Distributors Inc.', region: 'Northeast', tier: 'Platinum', status: 'Active', sales: 156890, monthTarget: 150000, credit: 500000, balance: 45680, contact: 'Ahmed Khan' },

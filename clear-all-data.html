@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clear All ERP Data</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            color: #C74634;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+
+        .warning {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            color: #856404;
+        }
+
+        .warning h3 {
+            margin-top: 0;
+            color: #856404;
+        }
+
+        button {
+            width: 100%;
+            padding: 15px;
+            margin: 10px 0;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #c82333;
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #218838;
+        }
+
+        .btn-info {
+            background: #17a2b8;
+            color: white;
+        }
+
+        .btn-info:hover {
+            background: #138496;
+        }
+
+        .data-list {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 10px 0;
+        }
+
+        .data-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        .data-item:last-child {
+            border-bottom: none;
+        }
+
+        .count {
+            background: #C74634;
+            color: white;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .status {
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+            text-align: center;
+            font-weight: bold;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 2px solid #28a745;
+        }
+
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 2px solid #17a2b8;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🗑️ Clear All ERP Data</h1>
+        <p style="text-align: center; color: #666;">Remove all test/demo data to verify Balance Sheet is properly linked
+        </p>
+
+        <div class="warning">
+            <h3>⚠️ WARNING</h3>
+            <p><strong>This will delete ALL data from your ERP system!</strong></p>
+            <p>This action cannot be undone. Make sure you want to clear everything before proceeding.</p>
+        </div>
+
+        <button class="btn-info" onclick="showCurrentData()">📊 Show Current Data</button>
+        <button class="btn-danger" onclick="clearAllData()">🗑️ Clear ALL Data</button>
+        <button class="btn-success" onclick="verifyBalanceSheet()">✅ Verify Balance Sheet (After Clear)</button>
+
+        <div id="results"></div>
+    </div>
+
+    <script>
+        function showCurrentData() {
+            const resultsDiv = document.getElementById('results');
+
+            const dataKeys = [
+                'zavi_invoices',
+                'zavi_purchase_orders',
+                'zavi_expenses',
+                'zavi_products',
+                'zavi_customers',
+                'zavi_suppliers',
+                'zavi_sales_orders',
+                'zavi_quotations',
+                'zavi_employees',
+                'zavi_financial_settings'
+            ];
+
+            let html = '<h3>📦 Current Data in System</h3>';
+            html += '<div class="data-list">';
+
+            let totalItems = 0;
+            dataKeys.forEach(key => {
+                const data = localStorage.getItem(key);
+                let count = 0;
+                if (data) {
+                    try {
+                        const parsed = JSON.parse(data);
+                        count = Array.isArray(parsed) ? parsed.length : 1;
+                        totalItems += count;
+                    } catch (e) {
+                        count = 1;
+                    }
+                }
+
+                const displayName = key.replace('zavi_', '').replace(/_/g, ' ').toUpperCase();
+                html += '<div class="data-item">';
+                html += '<span>' + displayName + '</span>';
+                html += '<span class="count">' + count + '</span>';
+                html += '</div>';
+            });
+
+            html += '</div>';
+            html += '<div class="status info">';
+            html += '<strong>Total Items: ' + totalItems + '</strong>';
+            html += '</div>';
+
+            resultsDiv.innerHTML = html;
+        }
+
+        function clearAllData() {
+            if (!confirm('⚠️ Are you ABSOLUTELY SURE you want to delete ALL data?\n\nThis will remove:\n- All Invoices\n- All Purchase Orders\n- All Expenses\n- All Products\n- All Customers\n- All Suppliers\n- All Sales Orders\n- All Quotations\n- All Employees\n- Financial Settings\n\nThis action CANNOT be undone!')) {
+                return;
+            }
+
+            if (!confirm('⚠️ FINAL CONFIRMATION\n\nClick OK to permanently delete all data.')) {
+                return;
+            }
+
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<p style="text-align: center;">Clearing data...</p>';
+
+            // List of all data keys to clear
+            const dataKeys = [
+                'zavi_invoices',
+                'zavi_purchase_orders',
+                'zavi_expenses',
+                'zavi_products',
+                'zavi_customers',
+                'zavi_suppliers',
+                'zavi_sales_orders',
+                'zavi_quotations',
+                'zavi_employees',
+                'zavi_financial_settings',
+                'zavi_system_settings',
+                'zavi_company_profile',
+                'zavi_document_signature',
+                'zavi_vans',
+                'zavi_deliveries',
+                'zavi_pod_drivers',
+                'zavi_van_locations',
+                'zavi_van_status',
+                'zavi_alerts',
+                'zavi_leave_requests',
+                'zavi_attendance_records',
+                'zavi_payroll_records'
+            ];
+
+            let cleared = 0;
+            dataKeys.forEach(key => {
+                if (localStorage.getItem(key)) {
+                    localStorage.removeItem(key);
+                    cleared++;
+                }
+            });
+
+            let html = '<div class="status success">';
+            html += '<h3>✅ Data Cleared Successfully!</h3>';
+            html += '<p>Removed ' + cleared + ' data collections from localStorage</p>';
+            html += '</div>';
+
+            html += '<div class="status info">';
+            html += '<h4>What happens now?</h4>';
+            html += '<ul style="text-align: left;">';
+            html += '<li>✅ Balance Sheet will show $0 for all values</li>';
+            html += '<li>✅ This proves it\'s linked to real data (not fake)</li>';
+            html += '<li>✅ You can now add your own real data</li>';
+            html += '<li>✅ Financial settings will use defaults</li>';
+            html += '</ul>';
+            html += '</div>';
+
+            html += '<div class="warning">';
+            html += '<h4>Next Steps:</h4>';
+            html += '<ol style="text-align: left;">';
+            html += '<li>Refresh your ERP application (F5)</li>';
+            html += '<li>Go to Reports → Profitability Reports → Balance Sheet</li>';
+            html += '<li>Verify all values are $0 or minimal</li>';
+            html += '<li>Start adding your real business data</li>';
+            html += '</ol>';
+            html += '</div>';
+
+            resultsDiv.innerHTML = html;
+        }
+
+        function verifyBalanceSheet() {
+            const resultsDiv = document.getElementById('results');
+
+            // Get data
+            const invoices = JSON.parse(localStorage.getItem('zavi_invoices') || '[]');
+            const purchaseOrders = JSON.parse(localStorage.getItem('zavi_purchase_orders') || '[]');
+            const expenses = JSON.parse(localStorage.getItem('zavi_expenses') || '[]');
+            const products = JSON.parse(localStorage.getItem('zavi_products') || '[]');
+            const financialSettings = JSON.parse(localStorage.getItem('zavi_financial_settings') || '{}');
+
+            // Calculate what Balance Sheet will show
+            const unpaidInvoices = invoices.filter(inv => inv.payment_status === 'Unpaid');
+            const accountsReceivable = unpaidInvoices.reduce((sum, inv) => sum + inv.grandTotal, 0);
+
+            let inventory = 0;
+            products.forEach(p => {
+                const stock = p.locations?.reduce((s, loc) => s + loc.currentStock, 0) || 0;
+                const cost = p.pricing?.landedCost || p.pricing?.sellingPrice || 0;
+                inventory += stock * cost;
+            });
+
+            const unpaidPOs = purchaseOrders.filter(po => po.payment_status === 'Unpaid');
+            const accountsPayable = unpaidPOs.reduce((sum, po) => sum + po.grandTotal, 0);
+
+            const ownersCapital = financialSettings.ownersCapital || 150000;
+            const shortTermDebt = financialSettings.shortTermDebt || 0;
+            const longTermDebt = financialSettings.longTermDebt || 0;
+
+            let html = '<h3>📊 Balance Sheet Preview (Current State)</h3>';
+            html += '<div class="data-list">';
+            html += '<h4>ASSETS</h4>';
+            html += '<div class="data-item"><span>Cash</span><span>$0 (from cash flow)</span></div>';
+            html += '<div class="data-item"><span>Accounts Receivable</span><span>$' + accountsReceivable.toLocaleString() + ' (' + unpaidInvoices.length + ' invoices)</span></div>';
+            html += '<div class="data-item"><span>Inventory</span><span>$' + inventory.toLocaleString() + ' (' + products.length + ' products)</span></div>';
+            html += '<div class="data-item"><span>Fixed Assets</span><span>$0 (no equipment expenses)</span></div>';
+            html += '<br>';
+            html += '<h4>LIABILITIES</h4>';
+            html += '<div class="data-item"><span>Accounts Payable</span><span>$' + accountsPayable.toLocaleString() + ' (' + unpaidPOs.length + ' POs)</span></div>';
+            html += '<div class="data-item"><span>Short-term Debt</span><span>$' + shortTermDebt.toLocaleString() + ' (from settings)</span></div>';
+            html += '<div class="data-item"><span>Long-term Debt</span><span>$' + longTermDebt.toLocaleString() + ' (from settings)</span></div>';
+            html += '<br>';
+            html += '<h4>EQUITY</h4>';
+            html += '<div class="data-item"><span>Owner\'s Capital</span><span>$' + ownersCapital.toLocaleString() + ' (from settings)</span></div>';
+            html += '<div class="data-item"><span>Retained Earnings</span><span>Calculated to balance</span></div>';
+            html += '</div>';
+
+            if (invoices.length === 0 && purchaseOrders.length === 0 && products.length === 0 && expenses.length === 0) {
+                html += '<div class="status success">';
+                html += '<h4>✅ Clean Slate!</h4>';
+                html += '<p>No data found. Balance Sheet will show minimal values.</p>';
+                html += '<p>Owner\'s Capital: $' + ownersCapital.toLocaleString() + ' (default setting)</p>';
+                html += '<p>All other values will be $0</p>';
+                html += '</div>';
+            } else {
+                html += '<div class="status info">';
+                html += '<h4>ℹ️ Data Still Present</h4>';
+                html += '<p>Found: ' + invoices.length + ' invoices, ' + purchaseOrders.length + ' POs, ' + products.length + ' products, ' + expenses.length + ' expenses</p>';
+                html += '<p>Click "Clear ALL Data" to remove everything</p>';
+                html += '</div>';
+            }
+
+            resultsDiv.innerHTML = html;
+        }
+
+        // Auto-show current data on load
+        window.addEventListener('load', () => {
+            setTimeout(showCurrentData, 500);
+        });
+    </script>
+</body>
+
+</html>

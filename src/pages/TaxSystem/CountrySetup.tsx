@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-    Globe, Check, MapPin, Building2, Flag
+    Globe, Check
 } from 'lucide-react';
 import clsx from 'clsx';
 

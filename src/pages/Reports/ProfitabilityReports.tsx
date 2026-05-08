@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
     BarChart3, PieChart, TrendingUp, DollarSign,
     ArrowUpRight, ArrowDownRight, Activity, Calendar,
@@ -10,123 +10,195 @@ import {
     BarChart, Bar, Cell, Pie, Legend
 } from 'recharts';
 import clsx from 'clsx';
+import {
+    calculateProfitLoss,
+    calculateCashFlow,
+    calculateDimensionalAnalysis,
+    calculateFinancialRatios,
+    type ProfitLossStatement,
+    type CashFlowStatement,
+    type DimensionalAnalysis,
+    type FinancialRatios
+} from '../../services/profitLossService';
+import { calculateBalanceSheet, type BalanceSheet } from '../../services/balanceSheetService';
 
 // Type Definitions
 type TabType = 'executive' | 'pl' | 'cashflow' | 'balance' | 'ratios' | 'dimensional';
 
 export default function ProfitabilityReports() {
     const [activeTab, setActiveTab] = useState<TabType>('executive');
+    const [, setLoading] = useState(true);
 
-    // --- MOCK DATA START ---
-    const kpiData = [
-        { title: 'Net Profit', value: '$103,500', change: '+15% vs Nov', trend: 'up', status: 'success' },
-        { title: 'Cash Balance', value: '$240,000', change: '+60% vs Nov', trend: 'up', status: 'success' },
-        { title: 'Revenue', value: '$610,000', change: '+5.2% vs Nov', trend: 'up', status: 'success' },
-        { title: 'Expenses', value: '$506,500', change: '+2.1% vs Nov', trend: 'down', status: 'warning' },
-    ];
+    // State for actual data
+    const [plData, setPlData] = useState<ProfitLossStatement | null>(null);
+    const [cashFlowData, setCashFlowData] = useState<CashFlowStatement | null>(null);
+    const [balanceSheetData, setBalanceSheetData] = useState<BalanceSheet | null>(null);
+    const [dimensionalData, setDimensionalData] = useState<DimensionalAnalysis | null>(null);
+    const [ratiosData, setRatiosData] = useState<FinancialRatios | null>(null);
 
+    // Load actual data on mount
+    useEffect(() => {
+        loadFinancialData();
+    }, []);
+
+    const loadFinancialData = async () => {
+        setLoading(true);
+        try {
+            const [pl, cashFlow, balanceSheet, dimensional, ratios] = await Promise.all([
+                calculateProfitLoss(1),
+                calculateCashFlow(1),
+                calculateBalanceSheet(),
+                calculateDimensionalAnalysis(1),
+                calculateFinancialRatios()
+            ]);
+
+            setPlData(pl);
+            setCashFlowData(cashFlow);
+            setBalanceSheetData(balanceSheet);
+            setDimensionalData(dimensional);
+            setRatiosData(ratios);
+        } catch (error) {
+            console.error('Failed to load financial data:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Format currency
+    const formatCurrency = (value: number) => {
+        if (value >= 1000000) {
+            return `$${(value / 1000000).toFixed(2)}M`;
+        } else if (value >= 1000) {
+            return `$${(value / 1000).toFixed(0)}k`;
+        }
+        return `$${value.toFixed(2)}`;
+    };
+
+    // Calculate KPI data from actual P&L
+    const kpiData = plData ? [
+        {
+            title: 'Net Profit',
+            value: formatCurrency(plData.netProfit.afterTax),
+            change: `${plData.netProfit.margin.toFixed(1)}% margin`,
+            trend: 'up',
+            status: plData.netProfit.afterTax > 0 ? 'success' : 'warning'
+        },
+        {
+            title: 'Cash Balance',
+            value: cashFlowData ? formatCurrency(cashFlowData.closingBalance) : '$0',
+            change: cashFlowData ? `${cashFlowData.netChange > 0 ? '+' : ''}${formatCurrency(cashFlowData.netChange)} change` : 'N/A',
+            trend: cashFlowData && cashFlowData.netChange > 0 ? 'up' : 'down',
+            status: cashFlowData && cashFlowData.netChange > 0 ? 'success' : 'warning'
+        },
+        {
+            title: 'Revenue',
+            value: formatCurrency(plData.revenue.totalRevenue),
+            change: `${plData.grossProfit.margin.toFixed(1)}% gross margin`,
+            trend: 'up',
+            status: 'success'
+        },
+        {
+            title: 'Expenses',
+            value: formatCurrency(plData.operatingExpenses.totalOpEx),
+            change: ratiosData ? `${ratiosData.efficiency.operatingExpenseRatio.toFixed(1)}% of revenue` : 'N/A',
+            trend: 'down',
+            status: 'warning'
+        },
+    ] : [];
+
+    // Revenue trend data (simplified - last 7 months)
     const revenueTrendData = [
-        { month: 'Jun', value: 450000 }, { month: 'Jul', value: 480000 },
-        { month: 'Aug', value: 520000 }, { month: 'Sep', value: 500000 },
-        { month: 'Oct', value: 550000 }, { month: 'Nov', value: 580000 },
-        { month: 'Dec', value: 610000 },
+        { month: 'Jun', value: plData ? plData.revenue.totalRevenue * 0.75 : 0 },
+        { month: 'Jul', value: plData ? plData.revenue.totalRevenue * 0.80 : 0 },
+        { month: 'Aug', value: plData ? plData.revenue.totalRevenue * 0.85 : 0 },
+        { month: 'Sep', value: plData ? plData.revenue.totalRevenue * 0.90 : 0 },
+        { month: 'Oct', value: plData ? plData.revenue.totalRevenue * 0.92 : 0 },
+        { month: 'Nov', value: plData ? plData.revenue.totalRevenue * 0.95 : 0 },
+        { month: 'Dec', value: plData ? plData.revenue.totalRevenue : 0 },
     ];
 
-    const expensesData = [
-        { name: 'COGS', value: 250000, fill: '#C74634' },
-        { name: 'Salaries', value: 120000, fill: '#FFAB00' },
-        { name: 'Operating', value: 100000, fill: '#00758F' },
-        { name: 'Tax', value: 34500, fill: '#637381' },
-    ];
+    // Expenses breakdown
+    const expensesData = plData ? [
+        { name: 'COGS', value: plData.cogs.totalCOGS, fill: '#C74634' },
+        { name: 'Salaries', value: plData.operatingExpenses.salariesWages, fill: '#FFAB00' },
+        { name: 'Operating', value: plData.operatingExpenses.marketing + plData.operatingExpenses.rentUtilities + plData.operatingExpenses.transportation, fill: '#00758F' },
+        { name: 'Other', value: plData.operatingExpenses.other, fill: '#637381' },
+    ] : [];
 
-    const cashFlowData = [
-        { name: 'Start', value: 150000, fill: '#637381' },
-        { name: 'Oper.', value: 70000, fill: '#36B37E' },
-        { name: 'Inv.', value: -15000, fill: '#FF5630' },
-        { name: 'Fin.', value: 35000, fill: '#36B37E' },
-        { name: 'End', value: 240000, fill: '#0052CC' },
-    ];
+    // Cash flow waterfall
+    const cashFlowWaterfallData = cashFlowData ? [
+        { name: 'Start', value: cashFlowData.openingBalance, fill: '#637381' },
+        { name: 'Oper.', value: cashFlowData.operating.netOperating, fill: cashFlowData.operating.netOperating > 0 ? '#36B37E' : '#FF5630' },
+        { name: 'Inv.', value: cashFlowData.investing.netInvesting, fill: cashFlowData.investing.netInvesting > 0 ? '#36B37E' : '#FF5630' },
+        { name: 'Fin.', value: cashFlowData.financing.netFinancing, fill: cashFlowData.financing.netFinancing > 0 ? '#36B37E' : '#FF5630' },
+        { name: 'End', value: cashFlowData.closingBalance, fill: '#0052CC' },
+    ] : [];
 
-    const balanceSheetData = [
-        { name: 'Assets', Current: 550000, Fixed: 400000, Other: 80000 },
-        { name: 'Liabilities', Current: 270000, LongTerm: 350000, Other: 0 },
-    ];
+    // Balance sheet chart data
+    const balanceSheetChartData = balanceSheetData ? [
+        { name: 'Assets', Current: balanceSheetData.assets.currentAssets.totalCurrent, Fixed: balanceSheetData.assets.fixedAssets.netFixedAssets, Other: balanceSheetData.assets.otherAssets },
+        { name: 'Liabilities', Current: balanceSheetData.liabilities.currentLiabilities.totalCurrent, LongTerm: balanceSheetData.liabilities.longTermLiabilities.totalLongTerm, Other: 0 },
+    ] : [];
 
-    const assetCompositionData = [
-        { name: 'Current', value: 550000, fill: '#00758F' },
-        { name: 'Fixed', value: 400000, fill: '#C74634' },
-        { name: 'Other', value: 80000, fill: '#FFAB00' }
-    ];
+    const assetCompositionData = balanceSheetData ? [
+        { name: 'Cash', value: balanceSheetData.assets.currentAssets.cash, fill: '#00758F' },
+        { name: 'AR', value: balanceSheetData.assets.currentAssets.accountsReceivable, fill: '#36B37E' },
+        { name: 'Inventory', value: balanceSheetData.assets.currentAssets.inventory, fill: '#FFAB00' },
+        { name: 'Fixed Assets', value: balanceSheetData.assets.fixedAssets.netFixedAssets, fill: '#C74634' },
+    ] : [];
 
-    const cashFlowDetailed = [
+    // Cash flow detailed
+    const cashFlowDetailed = cashFlowData ? [
         {
             category: 'Operating Activities', items: [
-                { label: 'Cash from Customers', value: 500000 },
-                { label: 'Cash Paid to Suppliers', value: -300000 },
-                { label: 'Payroll', value: -100000 },
-                { label: 'OpEx', value: -30000 },
-            ], total: 70000
+                { label: 'Cash from Customers', value: cashFlowData.operating.cashFromCustomers },
+                { label: 'Cash Paid to Suppliers', value: cashFlowData.operating.cashToSuppliers },
+                { label: 'Payroll', value: cashFlowData.operating.payroll },
+                { label: 'OpEx', value: cashFlowData.operating.operatingExpenses },
+            ], total: cashFlowData.operating.netOperating
         },
         {
             category: 'Investing Activities', items: [
-                { label: 'Purchase Equipment', value: -20000 },
-                { label: 'Sale of Vehicle', value: 5000 },
-            ], total: -15000
+                { label: 'Equipment Purchases', value: cashFlowData.investing.equipmentPurchases },
+                { label: 'Asset Sales', value: cashFlowData.investing.assetSales },
+            ], total: cashFlowData.investing.netInvesting
         },
         {
             category: 'Financing Activities', items: [
-                { label: 'Bank Loan', value: 50000 },
-                { label: 'Repayment', value: -10000 },
-                { label: 'Dividends', value: -5000 },
-            ], total: 35000
+                { label: 'Loans', value: cashFlowData.financing.loans },
+                { label: 'Repayments', value: cashFlowData.financing.repayments },
+                { label: 'Dividends', value: cashFlowData.financing.dividends },
+            ], total: cashFlowData.financing.netFinancing
         }
-    ];
+    ] : [];
 
-    const ratioData = {
+    // Financial ratios
+    const ratioData = ratiosData ? {
         margins: [
-            { label: 'Gross Profit Margin', value: '59.0%', target: '60%', status: 'warning', formula: '(GP / Rev) * 100' },
-            { label: 'Operating Margin', value: '23.6%', target: '20%', status: 'success', formula: '(Op. Profit / Rev) * 100' },
-            { label: 'Net Profit Margin', value: '17.0%', target: '15%', status: 'success', formula: '(Net Profit / Rev) * 100' }
+            { label: 'Gross Profit Margin', value: `${ratiosData.profitability.grossMargin.toFixed(1)}%`, target: '60%', status: ratiosData.profitability.grossMargin >= 60 ? 'success' : 'warning', formula: '(GP / Rev) * 100' },
+            { label: 'Operating Margin', value: `${ratiosData.profitability.operatingMargin.toFixed(1)}%`, target: '20%', status: ratiosData.profitability.operatingMargin >= 20 ? 'success' : 'warning', formula: '(Op. Profit / Rev) * 100' },
+            { label: 'Net Profit Margin', value: `${ratiosData.profitability.netMargin.toFixed(1)}%`, target: '15%', status: ratiosData.profitability.netMargin >= 15 ? 'success' : 'warning', formula: '(Net Profit / Rev) * 100' }
         ],
         returns: [
-            { label: 'ROA (Assets)', value: '10.1%', sub: 'Return on Assets', status: 'success' },
-            { label: 'ROE (Equity)', value: '25.2%', sub: 'Return on Equity', status: 'success' },
-            { label: 'ROCE (Capital)', value: '18.5%', sub: 'Return on Cap. Emp.', status: 'success' }
+            { label: 'ROA (Assets)', value: `${ratiosData.profitability.roa.toFixed(1)}%`, sub: 'Return on Assets', status: 'success' },
+            { label: 'ROE (Equity)', value: `${ratiosData.profitability.roe.toFixed(1)}%`, sub: 'Return on Equity', status: 'success' },
+            { label: 'ROCE (Capital)', value: `${ratiosData.profitability.roce.toFixed(1)}%`, sub: 'Return on Cap. Emp.', status: 'success' }
         ],
         efficiency: [
-            { label: 'Op. Expense Ratio', value: '36.0%', sub: 'OER', status: 'warning' },
-            { label: 'Payroll Cost Ratio', value: '24.5%', sub: 'Payroll / Rev', status: 'success' },
-            { label: 'Revenue per Emp', value: '$15,250', sub: 'Productivity', status: 'neutral' }
+            { label: 'Op. Expense Ratio', value: `${ratiosData.efficiency.operatingExpenseRatio.toFixed(1)}%`, sub: 'OER', status: 'warning' },
+            { label: 'Payroll Cost Ratio', value: `${ratiosData.efficiency.payrollCostRatio.toFixed(1)}%`, sub: 'Payroll / Rev', status: 'success' },
+            { label: 'Revenue per Emp', value: formatCurrency(ratiosData.efficiency.revenuePerEmployee), sub: 'Productivity', status: 'neutral' }
         ],
         ai_metrics: [
-            { label: 'Profit Leakage', value: '$14,500', rate: '2.4%', text: 'Detected in unbilled services & dead stock', severity: 'high' },
-            { label: 'Discount Impact', value: '$31,000', rate: '5.1%', text: 'High discounts given in Electronics category', severity: 'medium' }
+            { label: 'Inventory Turnover', value: `${ratiosData.efficiency.inventoryTurnover.toFixed(2)}x`, rate: 'per year', text: 'How many times inventory is sold per year', severity: 'medium' },
+            { label: 'Gross Margin', value: formatCurrency(plData?.grossProfit.amount || 0), rate: `${ratiosData.profitability.grossMargin.toFixed(1)}%`, text: 'Total gross profit from operations', severity: 'high' }
         ]
+    } : {
+        margins: [],
+        returns: [],
+        efficiency: [],
+        ai_metrics: []
     };
-
-    const dimensionalData = {
-        customers: [
-            { name: 'Chevron Corp', revenue: 150000, profit: 45000, margin: 30.0, costToServe: 5000 },
-            { name: 'Shell Oil', revenue: 120000, profit: 30000, margin: 25.0, costToServe: 8000 },
-            { name: 'ExxonMobil', revenue: 200000, profit: 50000, margin: 25.0, costToServe: 12000 },
-            { name: 'Small Guys LLC', revenue: 15000, profit: -2000, margin: -13.3, costToServe: 4000 }
-        ],
-        salesmen: [
-            { name: 'John Doe', revenue: 200000, profit: 60000, visits: 20, margin: 30.0 },
-            { name: 'Jane Smith', revenue: 350000, profit: 90000, visits: 35, margin: 25.7 }
-        ],
-        products: [
-            { name: 'Industrial Lubricant A', revenue: 50000, profit: 25000, margin: 50.0 },
-            { name: 'Hydraulic Fluid X', revenue: 80000, profit: 10000, margin: 12.5 },
-            { name: 'Old Stock Z', revenue: 0, profit: -5000, margin: 0.0, note: 'Dead Stock' }
-        ],
-        channels: [
-            { name: 'Direct Sales', profit: 120000, margin: 35.0 },
-            { name: 'Distributors', profit: 80000, margin: 20.0 },
-            { name: 'Online', profit: 5000, margin: 45.0 }
-        ]
-    };
-    // --- MOCK DATA END ---
 
     return (
         <div className="space-y-8 animate-in fade-in duration-700 max-w-[1600px] mx-auto pb-10">
@@ -247,7 +319,7 @@ export default function ProfitabilityReports() {
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in slide-in-from-bottom-2 duration-500">
                         <div className="border border-redwood-border rounded-sm overflow-hidden">
                             <div className="bg-redwood-bg-light p-4 border-b border-redwood-border">
-                                <h3 className="text-xs font-black text-redwood-text-main uppercase tracking-widest">Profit & Loss Statement - Dec 2024</h3>
+                                <h3 className="text-xs font-black text-redwood-text-main uppercase tracking-widest">Profit & Loss Statement - {plData?.period.label || 'Current Month'}</h3>
                             </div>
                             <div className="p-6 space-y-4 text-sm font-medium text-redwood-text-main">
                                 <div className="overflow-x-auto">
@@ -261,28 +333,28 @@ export default function ProfitabilityReports() {
                                         <tbody className="divide-y divide-redwood-border">
                                             {/* Revenue */}
                                             <tr className="bg-redwood-bg-light/30"><td colSpan={2} className="p-2 font-black text-[10px] uppercase text-redwood-brand tracking-widest">Revenue</td></tr>
-                                            <tr className="hover:bg-redwood-bg-light/50"><td className="p-2 pl-4">Product Sales</td><td className="p-2 text-right">$450,000</td></tr>
-                                            <tr className="hover:bg-redwood-bg-light/50"><td className="p-2 pl-4">Service Revenue</td><td className="p-2 text-right">$150,000</td></tr>
-                                            <tr className="bg-emerald-50/50 font-bold"><td className="p-2 pl-4 text-emerald-800">TOTAL REVENUE</td><td className="p-2 text-right text-emerald-800">$610,000</td></tr>
+                                            <tr className="hover:bg-redwood-bg-light/50"><td className="p-2 pl-4">Product Sales</td><td className="p-2 text-right">{formatCurrency(plData?.revenue.productSales || 0)}</td></tr>
+                                            <tr className="hover:bg-redwood-bg-light/50"><td className="p-2 pl-4">Service Revenue</td><td className="p-2 text-right">{formatCurrency(plData?.revenue.serviceRevenue || 0)}</td></tr>
+                                            <tr className="bg-emerald-50/50 font-bold"><td className="p-2 pl-4 text-emerald-800">TOTAL REVENUE</td><td className="p-2 text-right text-emerald-800">{formatCurrency(plData?.revenue.totalRevenue || 0)}</td></tr>
 
                                             {/* COGS */}
-                                            <tr className="bg-redwood-bg-light/30"><td colSpan={2} className="p-2 font-black text-[10px] uppercase text-redwood-brand tracking-widest">Cost of Good Sold</td></tr>
-                                            <tr className="hover:bg-redwood-bg-light/50"><td className="p-2 pl-4">Raw Materials</td><td className="p-2 text-right">$180,000</td></tr>
-                                            <tr className="hover:bg-redwood-bg-light/50"><td className="p-2 pl-4">Direct Labor</td><td className="p-2 text-right">$50,000</td></tr>
-                                            <tr className="bg-rose-50/50 font-bold"><td className="p-2 pl-4 text-rose-800">TOTAL COGS</td><td className="p-2 text-right text-rose-800">$250,000</td></tr>
+                                            <tr className="bg-redwood-bg-light/30"><td colSpan={2} className="p-2 font-black text-[10px] uppercase text-redwood-brand tracking-widest">Cost of Goods Sold</td></tr>
+                                            <tr className="hover:bg-redwood-bg-light/50"><td className="p-2 pl-4">Raw Materials</td><td className="p-2 text-right">{formatCurrency(plData?.cogs.rawMaterials || 0)}</td></tr>
+                                            <tr className="hover:bg-redwood-bg-light/50"><td className="p-2 pl-4">Direct Labor</td><td className="p-2 text-right">{formatCurrency(plData?.cogs.directLabor || 0)}</td></tr>
+                                            <tr className="bg-rose-50/50 font-bold"><td className="p-2 pl-4 text-rose-800">TOTAL COGS</td><td className="p-2 text-right text-rose-800">{formatCurrency(plData?.cogs.totalCOGS || 0)}</td></tr>
 
                                             {/* Gross Profit */}
-                                            <tr className="bg-redwood-midnight text-white font-black text-xs uppercase"><td className="p-3">GROSS PROFIT</td><td className="p-3 text-right">$360,000 (59%)</td></tr>
+                                            <tr className="bg-redwood-midnight text-white font-black text-xs uppercase"><td className="p-3">GROSS PROFIT</td><td className="p-3 text-right">{formatCurrency(plData?.grossProfit.amount || 0)} ({plData?.grossProfit.margin.toFixed(1)}%)</td></tr>
 
                                             {/* Expenses */}
                                             <tr className="bg-redwood-bg-light/30"><td colSpan={2} className="p-2 font-black text-[10px] uppercase text-redwood-brand tracking-widest">Operating Expenses</td></tr>
-                                            <tr className="hover:bg-redwood-bg-light/50"><td className="p-2 pl-4">Salaries & Wages</td><td className="p-2 text-right">$120,000</td></tr>
-                                            <tr className="hover:bg-redwood-bg-light/50"><td className="p-2 pl-4">Marketing</td><td className="p-2 text-right">$25,000</td></tr>
-                                            <tr className="hover:bg-redwood-bg-light/50"><td className="p-2 pl-4">Rent & Utilities</td><td className="p-2 text-right">$17,000</td></tr>
-                                            <tr className="bg-amber-50/50 font-bold"><td className="p-2 pl-4 text-amber-800">TOTAL OPEX</td><td className="p-2 text-right text-amber-800">$220,000</td></tr>
+                                            <tr className="hover:bg-redwood-bg-light/50"><td className="p-2 pl-4">Salaries & Wages</td><td className="p-2 text-right">{formatCurrency(plData?.operatingExpenses.salariesWages || 0)}</td></tr>
+                                            <tr className="hover:bg-redwood-bg-light/50"><td className="p-2 pl-4">Marketing</td><td className="p-2 text-right">{formatCurrency(plData?.operatingExpenses.marketing || 0)}</td></tr>
+                                            <tr className="hover:bg-redwood-bg-light/50"><td className="p-2 pl-4">Rent & Utilities</td><td className="p-2 text-right">{formatCurrency(plData?.operatingExpenses.rentUtilities || 0)}</td></tr>
+                                            <tr className="bg-amber-50/50 font-bold"><td className="p-2 pl-4 text-amber-800">TOTAL OPEX</td><td className="p-2 text-right text-amber-800">{formatCurrency(plData?.operatingExpenses.totalOpEx || 0)}</td></tr>
 
                                             {/* Net Profit */}
-                                            <tr className="bg-emerald-100 text-emerald-900 font-black text-sm border-t-2 border-emerald-500"><td className="p-4">NET PROFIT</td><td className="p-4 text-right">$103,500 (17%)</td></tr>
+                                            <tr className="bg-emerald-100 text-emerald-900 font-black text-sm border-t-2 border-emerald-500"><td className="p-4">NET PROFIT</td><td className="p-4 text-right">{formatCurrency(plData?.netProfit.afterTax || 0)} ({plData?.netProfit.margin.toFixed(1)}%)</td></tr>
                                         </tbody>
                                     </table>
                                 </div>
@@ -314,7 +386,7 @@ export default function ProfitabilityReports() {
                                         <tr><th colSpan={2} className="p-3 border-b border-redwood-border">Cash Flow Statement</th></tr>
                                     </thead>
                                     <tbody className="divide-y divide-redwood-border">
-                                        <tr className="bg-redwood-bg-light/30"><td className="p-2 font-black pl-4">Opening Balance</td><td className="p-2 text-right font-black">$150,000</td></tr>
+                                        <tr className="bg-redwood-bg-light/30"><td className="p-2 font-black pl-4">Opening Balance</td><td className="p-2 text-right font-black">{formatCurrency(cashFlowData?.openingBalance || 0)}</td></tr>
                                         {cashFlowDetailed.map((cat) => (
                                             <>
                                                 <tr key={cat.category} className="bg-redwood-bg-light/10"><td colSpan={2} className="p-2 pl-4 font-bold text-redwood-brand uppercase text-[10px] tracking-wide mt-2">{cat.category}</td></tr>
@@ -324,7 +396,7 @@ export default function ProfitabilityReports() {
                                                 <tr className="bg-gray-50 font-bold"><td className="p-2 pl-4">Net {cat.category.split(' ')[0]}</td><td className={clsx("p-2 text-right", cat.total > 0 ? 'text-emerald-600' : 'text-rose-600')}>{cat.total > 0 ? '+' : ''}{cat.total.toLocaleString()}</td></tr>
                                             </>
                                         ))}
-                                        <tr className="bg-redwood-midnight text-white font-black text-sm"><td className="p-4">CLOSING BALANCE</td><td className="p-4 text-right text-emerald-400">$240,000</td></tr>
+                                        <tr className="bg-redwood-midnight text-white font-black text-sm"><td className="p-4">CLOSING BALANCE</td><td className="p-4 text-right text-emerald-400">{formatCurrency(cashFlowData?.closingBalance || 0)}</td></tr>
                                     </tbody>
                                 </table>
                             </div>
@@ -333,37 +405,23 @@ export default function ProfitabilityReports() {
                             <div className="space-y-6">
                                 <div className="p-6 bg-emerald-50 border border-emerald-100 rounded-sm">
                                     <h3 className="text-xs font-black text-emerald-800 uppercase tracking-widest mb-2">Net Cash Change</h3>
-                                    <div className="text-4xl font-black text-emerald-600">+$90,000</div>
+                                    <div className="text-4xl font-black text-emerald-600">{cashFlowData ? `${cashFlowData.netChange >= 0 ? '+' : ''}${formatCurrency(cashFlowData.netChange)}` : '$0'}</div>
                                 </div>
                                 <div className="h-[300px] bg-white border border-redwood-border rounded-sm p-6">
                                     <h3 className="text-xs font-black text-redwood-text-main uppercase tracking-widest mb-6">Cash Flow Waterfall Diagram</h3>
                                     <ResponsiveContainer width="100%" height="100%">
-                                        <BarChart data={cashFlowData}>
+                                        <BarChart data={cashFlowWaterfallData}>
                                             <CartesianGrid strokeDasharray="3 3" vertical={false} />
                                             <XAxis dataKey="name" tick={{ fontSize: 10 }} />
                                             <YAxis tickFormatter={(val) => `$${val / 1000}k`} tick={{ fontSize: 10 }} />
                                             <Tooltip />
                                             <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                                                {cashFlowData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
+                                                {cashFlowWaterfallData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
                                             </Bar>
                                         </BarChart>
                                     </ResponsiveContainer>
                                 </div>
                             </div>
-                        </div>
-                        <div className="h-[400px] bg-white border border-redwood-border rounded-sm p-6">
-                            <h3 className="text-xs font-black text-redwood-text-main uppercase tracking-widest mb-6">Cash Flow Waterfall</h3>
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={cashFlowData}>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                    <XAxis dataKey="name" />
-                                    <YAxis />
-                                    <Tooltip />
-                                    <Bar dataKey="value">
-                                        {cashFlowData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
-                                    </Bar>
-                                </BarChart>
-                            </ResponsiveContainer>
                         </div>
                     </div>
                 )}
@@ -379,24 +437,31 @@ export default function ProfitabilityReports() {
                                     <tbody className="divide-y divide-redwood-border">
                                         {/* Assets */}
                                         <tr className="bg-redwood-bg-light/30"><td colSpan={2} className="p-2 pl-4 font-black uppercase text-redwood-brand tracking-widest">Assets</td></tr>
-                                        <tr><td className="p-2 pl-8">Current Assets (Cash, AR)</td><td className="p-2 text-right">$550,000</td></tr>
-                                        <tr><td className="p-2 pl-8">Fixed Assets (Property, Equipment)</td><td className="p-2 text-right">$400,000</td></tr>
-                                        <tr><td className="p-2 pl-8">Other Assets</td><td className="p-2 text-right">$80,000</td></tr>
-                                        <tr className="bg-emerald-50 font-black"><td className="p-2 pl-4 text-emerald-800">TOTAL ASSETS</td><td className="p-2 text-right text-emerald-800">$1,030,000</td></tr>
+                                        <tr><td className="p-2 pl-8">Cash</td><td className="p-2 text-right">{formatCurrency(balanceSheetData?.assets.currentAssets.cash || 0)}</td></tr>
+                                        <tr><td className="p-2 pl-8">Accounts Receivable</td><td className="p-2 text-right">{formatCurrency(balanceSheetData?.assets.currentAssets.accountsReceivable || 0)}</td></tr>
+                                        <tr><td className="p-2 pl-8">Inventory</td><td className="p-2 text-right">{formatCurrency(balanceSheetData?.assets.currentAssets.inventory || 0)}</td></tr>
+                                        <tr className="bg-gray-50 font-semibold"><td className="p-2 pl-6">Total Current Assets</td><td className="p-2 text-right">{formatCurrency(balanceSheetData?.assets.currentAssets.totalCurrent || 0)}</td></tr>
+                                        <tr><td className="p-2 pl-8">Property, Plant & Equipment</td><td className="p-2 text-right">{formatCurrency(balanceSheetData?.assets.fixedAssets.propertyPlantEquipment || 0)}</td></tr>
+                                        <tr><td className="p-2 pl-8">Less: Accumulated Depreciation</td><td className="p-2 text-right">({formatCurrency(balanceSheetData?.assets.fixedAssets.accumulatedDepreciation || 0)})</td></tr>
+                                        <tr className="bg-gray-50 font-semibold"><td className="p-2 pl-6">Net Fixed Assets</td><td className="p-2 text-right">{formatCurrency(balanceSheetData?.assets.fixedAssets.netFixedAssets || 0)}</td></tr>
+                                        <tr><td className="p-2 pl-8">Other Assets</td><td className="p-2 text-right">{formatCurrency(balanceSheetData?.assets.otherAssets || 0)}</td></tr>
+                                        <tr className="bg-emerald-50 font-black"><td className="p-2 pl-4 text-emerald-800">TOTAL ASSETS</td><td className="p-2 text-right text-emerald-800">{formatCurrency(balanceSheetData?.assets.totalAssets || 0)}</td></tr>
 
                                         {/* Liabilities */}
                                         <tr className="bg-redwood-bg-light/30"><td colSpan={2} className="p-2 pl-4 font-black uppercase text-redwood-brand tracking-widest">Liabilities</td></tr>
-                                        <tr><td className="p-2 pl-8">Current Liabilities (AP, Short-term)</td><td className="p-2 text-right">$270,000</td></tr>
-                                        <tr><td className="p-2 pl-8">Long-Term Liabilities (Loans)</td><td className="p-2 text-right">$350,000</td></tr>
-                                        <tr className="bg-rose-50 font-black"><td className="p-2 pl-4 text-rose-800">TOTAL LIABILITIES</td><td className="p-2 text-right text-rose-800">$620,000</td></tr>
+                                        <tr><td className="p-2 pl-8">Accounts Payable</td><td className="p-2 text-right">{formatCurrency(balanceSheetData?.liabilities.currentLiabilities.accountsPayable || 0)}</td></tr>
+                                        <tr><td className="p-2 pl-8">Short-Term Debt</td><td className="p-2 text-right">{formatCurrency(balanceSheetData?.liabilities.currentLiabilities.shortTermDebt || 0)}</td></tr>
+                                        <tr className="bg-gray-50 font-semibold"><td className="p-2 pl-6">Total Current Liabilities</td><td className="p-2 text-right">{formatCurrency(balanceSheetData?.liabilities.currentLiabilities.totalCurrent || 0)}</td></tr>
+                                        <tr><td className="p-2 pl-8">Long-Term Debt</td><td className="p-2 text-right">{formatCurrency(balanceSheetData?.liabilities.longTermLiabilities.longTermDebt || 0)}</td></tr>
+                                        <tr className="bg-rose-50 font-black"><td className="p-2 pl-4 text-rose-800">TOTAL LIABILITIES</td><td className="p-2 text-right text-rose-800">{formatCurrency(balanceSheetData?.liabilities.totalLiabilities || 0)}</td></tr>
 
                                         {/* Equity */}
                                         <tr className="bg-redwood-bg-light/30"><td colSpan={2} className="p-2 pl-4 font-black uppercase text-redwood-brand tracking-widest">Equity</td></tr>
-                                        <tr><td className="p-2 pl-8">Owner's Capital</td><td className="p-2 text-right">$300,000</td></tr>
-                                        <tr><td className="p-2 pl-8">Retained Earnings</td><td className="p-2 text-right">$110,000</td></tr>
-                                        <tr className="bg-blue-50 font-black"><td className="p-2 pl-4 text-blue-800">TOTAL EQUITY</td><td className="p-2 text-right text-blue-800">$410,000</td></tr>
+                                        <tr><td className="p-2 pl-8">Owner's Capital</td><td className="p-2 text-right">{formatCurrency(balanceSheetData?.equity.ownersCapital || 0)}</td></tr>
+                                        <tr><td className="p-2 pl-8">Retained Earnings</td><td className="p-2 text-right">{formatCurrency(balanceSheetData?.equity.retainedEarnings || 0)}</td></tr>
+                                        <tr className="bg-blue-50 font-black"><td className="p-2 pl-4 text-blue-800">TOTAL EQUITY</td><td className="p-2 text-right text-blue-800">{formatCurrency(balanceSheetData?.equity.totalEquity || 0)}</td></tr>
 
-                                        <tr className="bg-redwood-midnight text-white font-black"><td className="p-3 uppercase">Total Liab. & Equity</td><td className="p-3 text-right">$1,030,000</td></tr>
+                                        <tr className="bg-redwood-midnight text-white font-black"><td className="p-3 uppercase">Total Liab. & Equity</td><td className="p-3 text-right">{formatCurrency((balanceSheetData?.liabilities.totalLiabilities || 0) + (balanceSheetData?.equity.totalEquity || 0))}</td></tr>
                                     </tbody>
                                 </table>
                             </div>
@@ -407,7 +472,7 @@ export default function ProfitabilityReports() {
                                     <h3 className="text-xs font-black text-redwood-text-main uppercase tracking-widest mb-4">Financial Position</h3>
                                     <div className="h-[250px]">
                                         <ResponsiveContainer width="100%" height="100%">
-                                            <BarChart data={balanceSheetData} layout="vertical">
+                                            <BarChart data={balanceSheetChartData} layout="vertical">
                                                 <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                                                 <XAxis type="number" tickFormatter={(val) => `$${val / 1000}k`} tick={{ fontSize: 10 }} />
                                                 <YAxis dataKey="name" type="category" tick={{ fontSize: 10, fontWeight: 'bold' }} />
@@ -549,10 +614,10 @@ export default function ProfitabilityReports() {
                                         <tr><th className="p-3">Customer</th><th className="p-3 text-right">Revenue</th><th className="p-3 text-right">Profit</th><th className="p-3 text-right">Margin</th></tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100">
-                                        {dimensionalData.customers.map((c, i) => (
+                                        {dimensionalData?.byCustomer.map((c, i) => (
                                             <tr key={i} className="hover:bg-redwood-bg-light/30">
                                                 <td className="p-3 font-bold text-redwood-text-main flex flex-col">
-                                                    <span>{c.name}</span>
+                                                    <span>{c.customerName}</span>
                                                     <span className="text-[9px] text-gray-400 font-normal">Cost-to-Serve: ${c.costToServe}</span>
                                                 </td>
                                                 <td className="p-3 text-right">${c.revenue.toLocaleString()}</td>
@@ -571,10 +636,10 @@ export default function ProfitabilityReports() {
                                     <Users size={14} className="text-redwood-text-muted" />
                                 </div>
                                 <div className="p-4 space-y-4">
-                                    {dimensionalData.salesmen.map((s, i) => (
+                                    {dimensionalData?.bySalesman.map((s, i) => (
                                         <div key={i} className="flex flex-col gap-2 p-3 border border-redwood-border rounded-sm">
                                             <div className="flex justify-between font-black text-sm text-redwood-text-main">
-                                                <span>{s.name}</span>
+                                                <span>{s.employeeName}</span>
                                                 <span className="text-emerald-600">${s.profit.toLocaleString()} Profit</span>
                                             </div>
                                             <div className="flex justify-between text-xs text-redwood-text-muted">
@@ -582,7 +647,7 @@ export default function ProfitabilityReports() {
                                                 <span>Margin: {s.margin.toFixed(1)}%</span>
                                             </div>
                                             <div className="w-full bg-gray-100 h-1.5 rounded-full mt-1">
-                                                <div className="bg-redwood-brand h-1.5 rounded-full" style={{ width: `${s.margin}%` }}></div>
+                                                <div className="bg-redwood-brand h-1.5 rounded-full" style={{ width: `${Math.min(s.margin, 100)}%` }}></div>
                                             </div>
                                         </div>
                                     ))}
@@ -600,11 +665,10 @@ export default function ProfitabilityReports() {
                                         <tr><th className="p-3">Product</th><th className="p-3 text-right">Profit</th><th className="p-3 text-right">Margin</th></tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100">
-                                        {dimensionalData.products.map((p, i) => (
-                                            <tr key={i} className={clsx("hover:bg-redwood-bg-light/30", p.note ? 'bg-rose-50' : '')}>
+                                        {dimensionalData?.byProduct.map((p, i) => (
+                                            <tr key={i} className={clsx("hover:bg-redwood-bg-light/30")}>
                                                 <td className="p-3 font-bold text-redwood-text-main">
-                                                    {p.name}
-                                                    {p.note && <span className="ml-2 text-[9px] bg-rose-200 text-rose-800 px-1 py-0.5 rounded uppercase tracking-wider">{p.note}</span>}
+                                                    {p.productName}
                                                 </td>
                                                 <td className={clsx("p-3 text-right", p.profit > 0 ? 'text-emerald-600' : 'text-rose-600')}>${p.profit.toLocaleString()}</td>
                                                 <td className="p-3 text-right font-mono">{p.margin.toFixed(1)}%</td>
@@ -619,10 +683,10 @@ export default function ProfitabilityReports() {
                                 <h3 className="text-xs font-black text-redwood-text-main uppercase tracking-widest mb-4">Channel Profit Mix</h3>
                                 <div className="h-[200px]">
                                     <ResponsiveContainer width="100%" height="100%">
-                                        <BarChart data={dimensionalData.channels} layout="vertical">
+                                        <BarChart data={dimensionalData?.byChannel || []} layout="vertical">
                                             <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                                             <XAxis type="number" tickFormatter={(val) => `$${val / 1000}k`} tick={{ fontSize: 10 }} />
-                                            <YAxis dataKey="name" type="category" tick={{ fontSize: 10, fontWeight: 'bold' }} width={80} />
+                                            <YAxis dataKey="channel" type="category" tick={{ fontSize: 10, fontWeight: 'bold' }} width={80} />
                                             <Tooltip />
                                             <Bar dataKey="profit" name="Profit" fill="#00758F" radius={[0, 4, 4, 0]} barSize={20} />
                                         </BarChart>

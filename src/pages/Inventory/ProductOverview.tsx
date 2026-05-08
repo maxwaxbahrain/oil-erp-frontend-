@@ -26,10 +26,24 @@ import {
     MessageSquare,
     Phone
 } from 'lucide-react';
-import { getProductById, type Product } from '../../services/productService';
+import { getProductById, saveProduct, getAIInsights, type Product } from '../../services/productService';
+import { formatCurrency } from '../../services/settingsService';
 import clsx from 'clsx';
 
 type TabType = 'Performance' | 'Inventory' | 'Velocity' | 'Customers' | 'Pricing' | 'Suppliers' | 'Losses' | 'Forecast' | 'Action' | 'Documents';
+
+const PROFESSIONAL_TAB_LABELS: Record<TabType, string> = {
+    Performance: 'Performance Overview',
+    Inventory: 'Inventory Status',
+    Velocity: 'Sales Velocity',
+    Customers: 'Customer Insights',
+    Pricing: 'Pricing Strategy',
+    Suppliers: 'Supplier Profile',
+    Losses: 'Loss Analysis',
+    Forecast: 'Demand Forecast',
+    Action: 'Action Center',
+    Documents: 'Documents',
+};
 
 export default function ProductOverview() {
     const { id } = useParams();
@@ -37,6 +51,8 @@ export default function ProductOverview() {
     const [product, setProduct] = useState<Product | null>(null);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<TabType>('Performance');
+    const [aiInsights, setAiInsights] = useState<string[]>([]);
+    const [busyAction, setBusyAction] = useState<string | null>(null);
 
     useEffect(() => {
         if (id) {
@@ -55,6 +71,78 @@ export default function ProductOverview() {
             setLoading(false);
         }
     }
+
+    const n = (value: unknown, fallback = 0): number => {
+        const num = typeof value === 'number' ? value : Number(value);
+        return Number.isFinite(num) ? num : fallback;
+    };
+
+    const onRefresh = async () => {
+        if (!id) return;
+        await loadProduct(id);
+    };
+
+    const onDuplicate = async () => {
+        if (!product) return;
+        try {
+            setBusyAction('duplicate');
+            const created = await saveProduct({
+                ...product,
+                id: undefined,
+                sku: `${product.sku}-COPY`,
+                name: `${product.name} (Copy)`,
+                status: 'Draft',
+            });
+            navigate(`/products/edit/${created.id}`);
+        } catch (e) {
+            console.error(e);
+            alert('Failed to duplicate product.');
+        } finally {
+            setBusyAction(null);
+        }
+    };
+
+    const onSimulatePriceLift = () => {
+        if (!product) return;
+        const current = n(product.pricing?.sellingPrice);
+        const target = current * 1.03;
+        alert(`Price simulation complete.\nCurrent: ${formatCurrency(current)}\nSuggested (+3%): ${formatCurrency(target)}`);
+    };
+
+    const onApplyNewSrp = async () => {
+        if (!product) return;
+        const current = n(product.pricing?.sellingPrice);
+        const next = Number((current * 1.03).toFixed(2));
+        try {
+            setBusyAction('srp');
+            await saveProduct({
+                ...product,
+                pricing: { ...product.pricing, sellingPrice: next },
+            });
+            await onRefresh();
+            alert(`New SRP applied: ${formatCurrency(next)}`);
+        } catch (e) {
+            console.error(e);
+            alert('Failed to apply new SRP.');
+        } finally {
+            setBusyAction(null);
+        }
+    };
+
+    const onLoadAiInsights = async () => {
+        if (!product) return;
+        try {
+            setBusyAction('ai');
+            const insights = await getAIInsights(product.id);
+            setAiInsights(insights);
+            setActiveTab('Forecast');
+        } catch (e) {
+            console.error(e);
+            alert('Unable to load AI insights.');
+        } finally {
+            setBusyAction(null);
+        }
+    };
 
     if (loading) {
         return (
@@ -77,7 +165,9 @@ export default function ProductOverview() {
         );
     }
 
-    const totalStock = product.locations.reduce((sum, l) => sum + l.currentStock, 0);
+    const totalStock = (product.locations || []).reduce((sum, l) => sum + n(l.currentStock), 0);
+    const avgDailySales = Math.max(1, n(product.avgDailySales, Math.round(n(product.salesVelocity) / 30) || 1));
+    const daysStockRemaining = Math.floor(totalStock / avgDailySales);
 
     return (
         <div className="space-y-6 pb-20 animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -122,10 +212,10 @@ export default function ProductOverview() {
                         </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
-                        <button className="p-3 bg-gray-50 text-gray-400 border border-gray-100 rounded-xl hover:text-redwood-brand hover:bg-white hover:shadow-lg transition-all">
+                        <button onClick={onRefresh} title="Refresh product data" className="p-3 bg-gray-50 text-gray-400 border border-gray-100 rounded-xl hover:text-redwood-brand hover:bg-white hover:shadow-lg transition-all">
                             <RefreshCw size={20} />
                         </button>
-                        <button className="px-5 py-3 bg-gray-50 text-gray-600 text-[11px] font-black uppercase tracking-widest rounded-xl flex items-center gap-2 border border-gray-100 hover:bg-white hover:shadow-lg transition-all">
+                        <button onClick={onDuplicate} disabled={busyAction === 'duplicate'} className="px-5 py-3 bg-gray-50 text-gray-600 text-[11px] font-black uppercase tracking-widest rounded-xl flex items-center gap-2 border border-gray-100 hover:bg-white hover:shadow-lg transition-all disabled:opacity-50">
                             <Copy size={16} /> Duplicate
                         </button>
                         <button onClick={() => navigate(`/products/edit/${product.id}`)} className="px-5 py-3 bg-gray-900 text-white text-[11px] font-black uppercase tracking-widest rounded-xl flex items-center gap-2 hover:bg-black transition-all shadow-xl">
@@ -169,11 +259,11 @@ export default function ProductOverview() {
                     <div className="absolute top-0 right-0 p-4 opacity-5 translate-x-4 -translate-y-4 group-hover:translate-x-0 group-hover:translate-y-0 transition-transform duration-700">
                         <Box size={80} className="text-redwood-brand" />
                     </div>
-                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-4">Current Stock Level</span>
+                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-4">Current Stock Position</span>
                     <div className="flex items-end justify-between">
                         <div>
                             <p className="text-3xl font-black text-gray-900 tracking-tighter">{totalStock} Units</p>
-                            <p className="text-[10px] font-bold text-amber-500 mt-1 uppercase tracking-widest">{product.daysStockRemaining} days supply remaining</p>
+                            <p className="text-[10px] font-bold text-amber-500 mt-1 uppercase tracking-widest">{daysStockRemaining} days supply remaining</p>
                         </div>
                     </div>
                 </div>
@@ -194,22 +284,21 @@ export default function ProductOverview() {
                 </div>
             </div>
 
-            {/* 3. High-Fidelity Tab Navigation */}
+            {/* 3. Professional Tab Navigation */}
             <div className="bg-white p-1 rounded-2xl border border-gray-100 shadow-sm overflow-x-auto no-scrollbar">
-                <div className="flex items-center min-w-max">
+                <div className="flex items-center min-w-max gap-1">
                     {(['Performance', 'Inventory', 'Velocity', 'Customers', 'Pricing', 'Suppliers', 'Losses', 'Forecast', 'Action', 'Documents'] as TabType[]).map((tab) => (
                         <button
                             key={tab}
                             onClick={() => setActiveTab(tab)}
                             className={clsx(
-                                "px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] transition-all relative shrink-0",
+                                "px-5 py-3.5 text-[10px] uppercase tracking-[0.12em] transition-all relative shrink-0 whitespace-nowrap",
                                 activeTab === tab
-                                    ? "text-redwood-brand bg-gray-50 rounded-xl"
-                                    : "text-gray-400 hover:text-gray-600 hover:bg-gray-50/50 rounded-xl"
+                                    ? "text-redwood-brand bg-gray-50 rounded-xl font-extrabold"
+                                    : "text-gray-400 hover:text-gray-600 hover:bg-gray-50/50 rounded-xl font-black"
                             )}
                         >
-                            {activeTab === tab && <div className="absolute bottom-1 left-1/2 -translate-x-1/2 w-8 h-1 bg-redwood-brand rounded-full"></div>}
-                            {tab}
+                            {PROFESSIONAL_TAB_LABELS[tab]}
                         </button>
                     ))}
                 </div>
@@ -222,7 +311,7 @@ export default function ProductOverview() {
                         <div className="bg-white p-10 rounded-3xl border border-gray-100 shadow-sm flex flex-col justify-between">
                             <div className="flex justify-between items-start mb-12">
                                 <div>
-                                    <h3 className="text-sm font-black text-gray-900 uppercase tracking-[0.2em]">Sales Metrics Comparison</h3>
+                                    <h3 className="text-sm font-black text-gray-900 uppercase tracking-[0.2em]">Sales Performance Overview</h3>
                                     <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">Multi-period aggregation</p>
                                 </div>
                                 <div className="flex gap-1 bg-gray-50 p-1 rounded-lg">
@@ -265,7 +354,7 @@ export default function ProductOverview() {
                         </div>
 
                         <div className="bg-white p-10 rounded-3xl border border-gray-100 shadow-sm">
-                            <h3 className="text-sm font-black text-gray-900 uppercase tracking-[0.2em] mb-12">Profitability Architecture</h3>
+                            <h3 className="text-sm font-black text-gray-900 uppercase tracking-[0.2em] mb-12">Profitability Structure</h3>
                             <div className="space-y-10">
                                 <div className="space-y-4">
                                     <div className="flex justify-between items-center text-[10px] font-black uppercase text-gray-500">
@@ -315,7 +404,7 @@ export default function ProductOverview() {
                                     <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest mt-1">Real-time stock across all nodes</p>
                                 </div>
                                 <div className="flex gap-3">
-                                    <button className="px-6 py-3 bg-redwood-brand text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:brightness-110 shadow-lg shadow-redwood-brand/20 transition-all">
+                                    <button onClick={() => navigate(`/products/edit/${product.id}`)} className="px-6 py-3 bg-redwood-brand text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:brightness-110 shadow-lg shadow-redwood-brand/20 transition-all">
                                         Rebalance Stock
                                     </button>
                                 </div>
@@ -341,16 +430,16 @@ export default function ProductOverview() {
                                         <div className="space-y-6">
                                             <div>
                                                 <div className="flex justify-between items-end mb-1">
-                                                    <span className="text-[18px] font-black text-gray-900 tracking-tighter">{loc.currentStock}</span>
+                                                    <span className="text-[18px] font-black text-gray-900 tracking-tighter">{n(loc.currentStock)}</span>
                                                     <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest pb-1">Units</span>
                                                 </div>
                                                 <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
                                                     <div
                                                         className={clsx(
                                                             "h-full transition-all duration-1000",
-                                                            loc.currentStock <= loc.reorderPoint ? 'bg-red-500' : 'bg-emerald-500'
+                                                            n(loc.currentStock) <= n(loc.reorderPoint) ? 'bg-red-500' : 'bg-emerald-500'
                                                         )}
-                                                        style={{ width: `${Math.min((loc.currentStock / (loc.maxStock || 500)) * 100, 100)}%` }}
+                                                        style={{ width: `${Math.min((n(loc.currentStock) / (n(loc.maxStock) || 500)) * 100, 100)}%` }}
                                                     />
                                                 </div>
                                             </div>
@@ -358,20 +447,20 @@ export default function ProductOverview() {
                                             <div className="grid grid-cols-2 gap-4">
                                                 <div>
                                                     <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1">Threshold</p>
-                                                    <p className="text-[11px] font-black text-gray-900">{loc.reorderPoint}</p>
+                                                    <p className="text-[11px] font-black text-gray-900">{n(loc.reorderPoint)}</p>
                                                 </div>
                                                 <div>
                                                     <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1">Daily Cap</p>
-                                                    <p className="text-[11px] font-black text-gray-900">{loc.maxStock}</p>
+                                                    <p className="text-[11px] font-black text-gray-900">{n(loc.maxStock)}</p>
                                                 </div>
                                             </div>
 
                                             <div className="pt-4 border-t border-gray-100 flex items-center justify-between">
                                                 <span className={clsx(
                                                     "text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-widest",
-                                                    loc.currentStock <= loc.reorderPoint ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-600"
+                                                    n(loc.currentStock) <= n(loc.reorderPoint) ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-600"
                                                 )}>
-                                                    {loc.currentStock <= loc.reorderPoint ? '⚠️ Reorder' : '✅ Healthy'}
+                                                    {n(loc.currentStock) <= n(loc.reorderPoint) ? '⚠️ Reorder' : '✅ Healthy'}
                                                 </span>
                                                 <span className="text-[9px] font-black text-gray-400">{loc.avgDailySales || 0} units/day</span>
                                             </div>
@@ -487,7 +576,7 @@ export default function ProductOverview() {
                         <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
                             <div className="p-8 border-b border-gray-50 bg-gray-50/50 flex justify-between items-center">
                                 <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">Retention Opportunity Identification</h3>
-                                <button className="text-[10px] font-black text-redwood-brand uppercase tracking-widest hover:underline">View CRM Pipeline</button>
+                                <button onClick={() => navigate('/customers')} className="text-[10px] font-black text-redwood-brand uppercase tracking-widest hover:underline">View CRM Pipeline</button>
                             </div>
                             <div className="divide-y divide-gray-50">
                                 {[
@@ -511,10 +600,10 @@ export default function ProductOverview() {
                                                 <p className="text-sm font-black text-red-600">{c.value}</p>
                                             </div>
                                             <div className="flex gap-2">
-                                                <button className="p-3 bg-redwood-brand text-white rounded-xl hover:brightness-110 transition-all shadow-md">
+                                                <button onClick={() => navigate('/customers')} className="p-3 bg-redwood-brand text-white rounded-xl hover:brightness-110 transition-all shadow-md">
                                                     <Phone size={16} />
                                                 </button>
-                                                <button className="p-3 bg-gray-900 text-white rounded-xl hover:bg-black transition-all shadow-md">
+                                                <button onClick={() => navigate('/customers')} className="p-3 bg-gray-900 text-white rounded-xl hover:bg-black transition-all shadow-md">
                                                     <MessageSquare size={16} />
                                                 </button>
                                             </div>
@@ -534,25 +623,25 @@ export default function ProductOverview() {
                                 <div className="space-y-6">
                                     <div className="flex items-center justify-between p-6 bg-gray-50 rounded-2xl">
                                         <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest">Base Purchase (Ex-works)</span>
-                                        <span className="text-lg font-black text-gray-900">${product.pricing.purchasePriceExWorks}</span>
+                                        <span className="text-lg font-black text-gray-900">{formatCurrency(n(product.pricing.purchasePriceExWorks))}</span>
                                     </div>
                                     <div className="space-y-3 px-2">
                                         <div className="flex justify-between items-center text-[10px] font-black text-gray-400 uppercase tracking-widest">
                                             <span>Freight & Shipping</span>
-                                            <span>${product.pricing.freightShipping}</span>
+                                            <span>{formatCurrency(n(product.pricing.freightShipping))}</span>
                                         </div>
                                         <div className="flex justify-between items-center text-[10px] font-black text-gray-400 uppercase tracking-widest">
                                             <span>Import Duty / Taxes</span>
-                                            <span>${product.pricing.importDuty}</span>
+                                            <span>{formatCurrency(n(product.pricing.importDuty))}</span>
                                         </div>
                                         <div className="flex justify-between items-center text-[10px] font-black text-gray-400 uppercase tracking-widest">
                                             <span>Handling Charges</span>
-                                            <span>${product.pricing.otherDirectCosts}</span>
+                                            <span>{formatCurrency(n(product.pricing.otherDirectCosts))}</span>
                                         </div>
                                     </div>
                                     <div className="pt-6 mt-6 border-t border-gray-100 flex items-center justify-between">
                                         <span className="text-[12px] font-black text-gray-900 uppercase tracking-[0.2em]">Total Landed Cost (COGS)</span>
-                                        <span className="text-2xl font-black text-redwood-brand">${product.pricing.landedCost}</span>
+                                        <span className="text-2xl font-black text-redwood-brand">{formatCurrency(n(product.pricing.landedCost))}</span>
                                     </div>
                                 </div>
                             </div>
@@ -566,14 +655,14 @@ export default function ProductOverview() {
                                         </div>
                                         <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Public Selling Price</label>
                                         <div className="flex items-baseline gap-2">
-                                            <span className="text-4xl font-black text-white tracking-tighter">${product.pricing.sellingPrice}</span>
+                                            <span className="text-4xl font-black text-white tracking-tighter">{formatCurrency(n(product.pricing.sellingPrice))}</span>
                                             <span className="text-[11px] font-black text-emerald-500 uppercase tracking-widest ml-4">↗ {product.grossMarginPercent}% Margin</span>
                                         </div>
 
                                         <div className="mt-12 flex justify-between items-end border-t border-white/10 pt-8">
                                             <div>
                                                 <p className="text-[8px] font-black text-gray-500 uppercase tracking-widest mb-1">Net Unit Profit</p>
-                                                <p className="text-2xl font-black text-white">${product.netProfitPerUnit}</p>
+                                                <p className="text-2xl font-black text-white">{formatCurrency(n(product.netProfitPerUnit))}</p>
                                             </div>
                                             <div className="text-right">
                                                 <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Optimal</p>
@@ -583,8 +672,8 @@ export default function ProductOverview() {
                                     </div>
                                 </div>
                                 <div className="mt-8 flex gap-3">
-                                    <button className="flex-1 py-4 bg-gray-50 text-gray-900 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-gray-100 transition-all border border-gray-100">Simulate Price Lift</button>
-                                    <button className="flex-1 py-4 bg-redwood-brand text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:brightness-110 transition-shadow shadow-lg shadow-redwood-brand/20">Apply New SRP</button>
+                                    <button onClick={onSimulatePriceLift} className="flex-1 py-4 bg-gray-50 text-gray-900 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-gray-100 transition-all border border-gray-100">Simulate Price Lift</button>
+                                    <button onClick={onApplyNewSrp} disabled={busyAction === 'srp'} className="flex-1 py-4 bg-redwood-brand text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:brightness-110 transition-shadow shadow-lg shadow-redwood-brand/20 disabled:opacity-50">Apply New SRP</button>
                                 </div>
                             </div>
                         </div>
@@ -596,7 +685,7 @@ export default function ProductOverview() {
                         <div className="bg-white p-10 rounded-3xl border border-gray-100 shadow-sm">
                             <div className="flex justify-between items-start mb-12">
                                 <div>
-                                    <h3 className="text-lg font-black text-gray-900 uppercase tracking-tighter">Primary Global Partner</h3>
+                                    <h3 className="text-lg font-black text-gray-900 uppercase tracking-tighter">Primary Supplier Profile</h3>
                                     <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest mt-1">Supply Chain Reliability Audit</p>
                                 </div>
                                 <div className="flex gap-1 text-amber-400">
@@ -674,7 +763,7 @@ export default function ProductOverview() {
                         <div className="bg-white p-10 rounded-3xl border border-gray-100 shadow-sm">
                             <div className="flex justify-between items-center mb-12">
                                 <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">Audit Trail: Field Sales Discrepancy</h3>
-                                <button className="px-5 py-2.5 bg-gray-50 text-gray-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-gray-100 transition-all border border-gray-100">Schedule Physical Audit</button>
+                                <button onClick={() => navigate(`/products/edit/${product.id}`)} className="px-5 py-2.5 bg-gray-50 text-gray-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-gray-100 transition-all border border-gray-100">Schedule Physical Audit</button>
                             </div>
                             <div className="space-y-6">
                                 {[
@@ -720,7 +809,7 @@ export default function ProductOverview() {
                                     <Zap className="text-redwood-brand" size={32} />
                                 </div>
                                 <div className="">
-                                    <h3 className="text-3xl font-black text-white uppercase tracking-tighter">AI Demand Prediction (30 Days)</h3>
+                                    <h3 className="text-3xl font-black text-white uppercase tracking-tighter">AI Demand Forecast (30 Days)</h3>
                                     <div className="flex items-center gap-3 mt-1 text-emerald-500">
                                         <Activity size={14} className="animate-pulse" />
                                         <span className="text-[10px] font-black uppercase tracking-widest">Model Confidence: 87% (High)</span>
@@ -752,10 +841,18 @@ export default function ProductOverview() {
 
                                 <div className="bg-white/5 backdrop-blur-md p-8 rounded-2xl border border-white/10 flex flex-col justify-between">
                                     <div>
-                                        <p className="text-[11px] font-black text-white uppercase tracking-widest mb-6">AI BRAIN Insight</p>
-                                        <p className="text-sm font-bold text-gray-300 leading-relaxed uppercase">
-                                            "Prediction based on 3-year historical patterns and current +15% velocity node. Winter maintenance surge expected to add 30% baseline demand."
-                                        </p>
+                                        <p className="text-[11px] font-black text-white uppercase tracking-widest mb-6">AI Executive Insight</p>
+                                        {aiInsights.length > 0 ? (
+                                            <ul className="space-y-3">
+                                                {aiInsights.map((line, idx) => (
+                                                    <li key={idx} className="text-sm font-bold text-gray-300 leading-relaxed uppercase">{line}</li>
+                                                ))}
+                                            </ul>
+                                        ) : (
+                                            <p className="text-sm font-bold text-gray-300 leading-relaxed uppercase">
+                                                Prediction based on historical trend and current sales velocity. Click \"Simulate All Strategic Outcomes\" to load live AI insights.
+                                            </p>
+                                        )}
                                     </div>
                                     <div className="pt-8 border-t border-white/10 flex justify-between items-center">
                                         <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Reliability Band</p>
@@ -781,8 +878,8 @@ export default function ProductOverview() {
                                         Stockout risk detected in 28 days. Prevent <span className="text-red-600 font-black">$78k lost revenue</span> per week.
                                     </p>
                                     <div className="flex gap-3">
-                                        <button className="flex-1 py-4 bg-red-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:brightness-110 transition-all shadow-lg shadow-red-500/20">Create Purchase Order Now</button>
-                                        <button className="p-4 bg-gray-50 text-gray-400 rounded-xl hover:bg-gray-100 transition-all"><Clock size={18} /></button>
+                                        <button onClick={() => navigate('/purchases/new')} className="flex-1 py-4 bg-red-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:brightness-110 transition-all shadow-lg shadow-red-500/20">Create Purchase Order Now</button>
+                                        <button onClick={onRefresh} className="p-4 bg-gray-50 text-gray-400 rounded-xl hover:bg-gray-100 transition-all"><Clock size={18} /></button>
                                     </div>
                                 </div>
 
@@ -796,8 +893,8 @@ export default function ProductOverview() {
                                         3% leakage rate detected (above 2% threshold). Audit required to recover <span className="text-amber-600 font-black">$6,120 locked value</span>.
                                     </p>
                                     <div className="flex gap-3">
-                                        <button className="flex-1 py-4 bg-amber-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:brightness-110 transition-all shadow-lg shadow-amber-500/20">Start Van Audit</button>
-                                        <button className="p-4 bg-gray-50 text-gray-400 rounded-xl hover:bg-gray-100 transition-all"><RefreshCw size={18} /></button>
+                                        <button onClick={() => navigate('/logistics/operations')} className="flex-1 py-4 bg-amber-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:brightness-110 transition-all shadow-lg shadow-amber-500/20">Start Van Audit</button>
+                                        <button onClick={onRefresh} className="p-4 bg-gray-50 text-gray-400 rounded-xl hover:bg-gray-100 transition-all"><RefreshCw size={18} /></button>
                                     </div>
                                 </div>
                             </div>
@@ -840,7 +937,7 @@ export default function ProductOverview() {
                                         </div>
                                     </div>
                                 </div>
-                                <button className="w-full mt-10 py-5 bg-white text-gray-950 rounded-2xl text-[11px] font-black uppercase tracking-[0.2em] shadow-xl hover:bg-gray-100 transition-all">Simulate All Strategic Outcomes</button>
+                                <button onClick={onLoadAiInsights} disabled={busyAction === 'ai'} className="w-full mt-10 py-5 bg-white text-gray-950 rounded-2xl text-[11px] font-black uppercase tracking-[0.2em] shadow-xl hover:bg-gray-100 transition-all disabled:opacity-50">{busyAction === 'ai' ? 'Loading AI Insights...' : 'Simulate All Strategic Outcomes'}</button>
                             </div>
                         </div>
                     </div>
@@ -853,7 +950,7 @@ export default function ProductOverview() {
                         <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest mt-4 max-w-sm">
                             Access all safety data sheets, regulatory certifications, and technical audit reports associated with this material SKU.
                         </p>
-                        <button className="mt-12 px-10 py-4 bg-gray-50 border border-gray-100 text-[11px] font-black uppercase tracking-widest rounded-xl text-gray-600 hover:text-redwood-brand hover:bg-white hover:shadow-xl transition-all flex items-center gap-3">
+                        <button onClick={() => navigate(`/products/edit/${product.id}`)} className="mt-12 px-10 py-4 bg-gray-50 border border-gray-100 text-[11px] font-black uppercase tracking-widest rounded-xl text-gray-600 hover:text-redwood-brand hover:bg-white hover:shadow-xl transition-all flex items-center gap-3">
                             <Download size={18} /> Download All Media Assets
                         </button>
                     </div>

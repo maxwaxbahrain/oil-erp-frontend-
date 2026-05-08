@@ -7,7 +7,6 @@ import {
     XCircle,
     ArrowRight,
     RefreshCw,
-    Percent,
     Bell
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -41,7 +40,7 @@ export default function LowStockAlerts() {
 
             products.forEach((product: Product) => {
                 // Calculate total current stock across all locations
-                const currentStock = product.locations.reduce((sum, loc) => sum + loc.currentStock, 0);
+                const currentStock = product.locations.reduce((sum, loc) => sum + (loc.currentStock ?? 0), 0);
                 const requiredStock = product.reorderLevel || 0;
 
                 // Only include if stock is below reorder level

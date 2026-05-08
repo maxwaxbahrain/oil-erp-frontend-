@@ -1,9 +1,8 @@
-import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     Users, Shield, Handshake, Store, Briefcase,
-    Plus, Upload, FileText, Map, Activity,
-    Settings, BarChart2, CornerUpLeft, Network
+    Plus, Upload, Activity,
+    BarChart2, Network
 } from 'lucide-react';
 
 export default function OrgDashboard() {

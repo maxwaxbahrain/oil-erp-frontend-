@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cash Balance Debugger</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1000px;
+            margin: 40px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            color: #C74634;
+            text-align: center;
+        }
+
+        .section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid #C74634;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+
+        th,
+        td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        th {
+            background: #C74634;
+            color: white;
+            font-weight: bold;
+        }
+
+        .total-row {
+            background: #f8f9fa;
+            font-weight: bold;
+            font-size: 16px;
+        }
+
+        .positive {
+            color: green;
+        }
+
+        .negative {
+            color: red;
+        }
+
+        button {
+            background: #C74634;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 6px;
+            cursor: pointer;
+            width: 100%;
+            margin: 10px 0;
+        }
+
+        button:hover {
+            background: #A63829;
+        }
+
+        .warning {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+            color: #856404;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>💵 Cash Balance Debugger</h1>
+        <p style="text-align: center; color: #666;">See exactly why Cash = $208k and how to make it $0</p>
+
+        <button onclick="analyzeCash()">🔍 Analyze Cash Calculation</button>
+
+        <div id="results"></div>
+    </div>
+
+    <script>
+        function analyzeCash() {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<p style="text-align: center;">Analyzing...</p>';
+
+            try {
+                // Get all data
+                const invoices = JSON.parse(localStorage.getItem('zavi_invoices') || '[]');
+                const purchaseOrders = JSON.parse(localStorage.getItem('zavi_purchase_orders') || '[]');
+                const expenses = JSON.parse(localStorage.getItem('zavi_expenses') || '[]');
+                const financialSettings = JSON.parse(localStorage.getItem('zavi_financial_settings') || '{}');
+
+                // Get initial cash
+                const initialCash = financialSettings.initialCashBalance || 150000;
+
+                // Calculate cash flow (mimicking the service)
+                const now = new Date();
+                const twelveMonthsAgo = new Date();
+                twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+
+                // Historical (before 12 months ago)
+                const historicalInvoices = invoices.filter(inv =>
+                    new Date(inv.invoiceDate) < twelveMonthsAgo && inv.payment_status === 'Paid'
+                );
+                const historicalPOs = purchaseOrders.filter(po =>
+                    new Date(po.date) < twelveMonthsAgo && po.payment_status === 'Paid'
+                );
+                const historicalExpenses = expenses.filter(exp =>
+                    new Date(exp.date) < twelveMonthsAgo && exp.status === 'Paid'
+                );
+
+                const historicalInflows = historicalInvoices.reduce((sum, inv) => sum + inv.grandTotal, 0);
+                const historicalOutflows =
+                    historicalPOs.reduce((sum, po) => sum + po.grandTotal, 0) +
+                    historicalExpenses.reduce((sum, exp) => sum + exp.amount, 0);
+
+                const openingBalance = initialCash + historicalInflows - historicalOutflows;
+
+                // Current period (last 12 months)
+                const periodInvoices = invoices.filter(inv => {
+                    const date = new Date(inv.invoiceDate);
+                    return date >= twelveMonthsAgo && date <= now && inv.payment_status === 'Paid';
+                });
+                const periodPOs = purchaseOrders.filter(po => {
+                    const date = new Date(po.date);
+                    return date >= twelveMonthsAgo && date <= now && po.payment_status === 'Paid';
+                });
+                const periodExpenses = expenses.filter(exp => {
+                    const date = new Date(exp.date);
+                    return date >= twelveMonthsAgo && date <= now && exp.status === 'Paid';
+                });
+
+                const cashFromCustomers = periodInvoices.reduce((sum, inv) => sum + inv.grandTotal, 0);
+                const cashToSuppliers = periodPOs.reduce((sum, po) => sum + po.grandTotal, 0);
+                const cashForExpenses = periodExpenses.reduce((sum, exp) => sum + exp.amount, 0);
+
+                const netOperating = cashFromCustomers - cashToSuppliers - cashForExpenses;
+                const closingBalance = openingBalance + netOperating;
+
+                // Display results
+                let html = '<div class="section">';
+                html += '<h2>💰 Cash Calculation Breakdown</h2>';
+                html += '<table>';
+                html += '<tr><th>Component</th><th>Count</th><th>Amount</th></tr>';
+
+                html += '<tr><td colspan="3" style="background: #e9ecef; font-weight: bold;">OPENING BALANCE</td></tr>';
+                html += '<tr><td>Initial Cash (from settings)</td><td>-</td><td class="positive">$' + initialCash.toLocaleString() + '</td></tr>';
+                html += '<tr><td>Historical Paid Invoices (before 12 months)</td><td>' + historicalInvoices.length + '</td><td class="positive">+$' + historicalInflows.toLocaleString() + '</td></tr>';
+                html += '<tr><td>Historical Paid POs & Expenses (before 12 months)</td><td>' + (historicalPOs.length + historicalExpenses.length) + '</td><td class="negative">-$' + historicalOutflows.toLocaleString() + '</td></tr>';
+                html += '<tr class="total-row"><td colspan="2">Opening Balance (12 months ago)</td><td>$' + openingBalance.toLocaleString() + '</td></tr>';
+
+                html += '<tr><td colspan="3" style="background: #e9ecef; font-weight: bold;">LAST 12 MONTHS</td></tr>';
+                html += '<tr><td>Paid Invoices (last 12 months)</td><td>' + periodInvoices.length + '</td><td class="positive">+$' + cashFromCustomers.toLocaleString() + '</td></tr>';
+                html += '<tr><td>Paid Purchase Orders (last 12 months)</td><td>' + periodPOs.length + '</td><td class="negative">-$' + cashToSuppliers.toLocaleString() + '</td></tr>';
+                html += '<tr><td>Paid Expenses (last 12 months)</td><td>' + periodExpenses.length + '</td><td class="negative">-$' + cashForExpenses.toLocaleString() + '</td></tr>';
+                html += '<tr class="total-row"><td colspan="2">Net Change (last 12 months)</td><td>$' + netOperating.toLocaleString() + '</td></tr>';
+
+                html += '<tr style="background: #C74634; color: white; font-size: 18px;"><td colspan="2"><strong>CLOSING BALANCE (Cash in Balance Sheet)</strong></td><td><strong>$' + closingBalance.toLocaleString() + '</strong></td></tr>';
+                html += '</table>';
+                html += '</div>';
+
+                // Show what's still there
+                const allPaidInvoices = invoices.filter(inv => inv.payment_status === 'Paid');
+                const allPaidPOs = purchaseOrders.filter(po => po.payment_status === 'Paid');
+                const allPaidExpenses = expenses.filter(exp => exp.status === 'Paid');
+
+                if (allPaidInvoices.length > 0 || allPaidPOs.length > 0 || allPaidExpenses.length > 0 || initialCash > 0) {
+                    html += '<div class="warning">';
+                    html += '<h3>⚠️ Why Cash is NOT $0:</h3>';
+                    html += '<ul>';
+                    if (initialCash > 0) {
+                        html += '<li><strong>Initial Cash Balance:</strong> $' + initialCash.toLocaleString() + ' (in financial settings)</li>';
+                    }
+                    if (allPaidInvoices.length > 0) {
+                        html += '<li><strong>Paid Invoices:</strong> ' + allPaidInvoices.length + ' still exist</li>';
+                    }
+                    if (allPaidPOs.length > 0) {
+                        html += '<li><strong>Paid Purchase Orders:</strong> ' + allPaidPOs.length + ' still exist</li>';
+                    }
+                    if (allPaidExpenses.length > 0) {
+                        html += '<li><strong>Paid Expenses:</strong> ' + allPaidExpenses.length + ' still exist</li>';
+                    }
+                    html += '</ul>';
+                    html += '<p><strong>To make Cash = $0, you need to:</strong></p>';
+                    html += '<ol>';
+                    html += '<li>Set Initial Cash Balance to $0 in financial settings</li>';
+                    html += '<li>Remove ALL paid invoices</li>';
+                    html += '<li>Remove ALL paid purchase orders</li>';
+                    html += '<li>Remove ALL paid expenses</li>';
+                    html += '</ol>';
+                    html += '<p><strong>Use the "clear-cash-only.html" tool to do this automatically!</strong></p>';
+                    html += '</div>';
+                } else {
+                    html += '<div style="background: #d4edda; border: 2px solid #28a745; padding: 15px; border-radius: 6px; color: #155724;">';
+                    html += '<h3>✅ Cash Should Be $0</h3>';
+                    html += '<p>All paid transactions have been cleared. If Balance Sheet still shows $208k, try refreshing the page.</p>';
+                    html += '</div>';
+                }
+
+                // Show detailed list
+                html += '<details style="margin-top: 20px;">';
+                html += '<summary style="cursor: pointer; font-weight: bold; padding: 10px; background: #f8f9fa; border-radius: 4px;">📋 View All Paid Transactions</summary>';
+                html += '<div style="padding: 15px; background: #f8f9fa; margin-top: 10px; border-radius: 4px;">';
+
+                if (allPaidInvoices.length > 0) {
+                    html += '<h4>Paid Invoices (' + allPaidInvoices.length + '):</h4>';
+                    html += '<ul>';
+                    allPaidInvoices.slice(0, 10).forEach(inv => {
+                        html += '<li>' + inv.invoiceNumber + ' - ' + inv.customer_name + ' - $' + inv.grandTotal.toLocaleString() + ' (' + new Date(inv.invoiceDate).toLocaleDateString() + ')</li>';
+                    });
+                    if (allPaidInvoices.length > 10) {
+                        html += '<li>... and ' + (allPaidInvoices.length - 10) + ' more</li>';
+                    }
+                    html += '</ul>';
+                }
+
+                if (allPaidPOs.length > 0) {
+                    html += '<h4>Paid Purchase Orders (' + allPaidPOs.length + '):</h4>';
+                    html += '<ul>';
+                    allPaidPOs.slice(0, 10).forEach(po => {
+                        html += '<li>' + po.poNumber + ' - ' + po.supplier_name + ' - $' + po.grandTotal.toLocaleString() + ' (' + new Date(po.date).toLocaleDateString() + ')</li>';
+                    });
+                    if (allPaidPOs.length > 10) {
+                        html += '<li>... and ' + (allPaidPOs.length - 10) + ' more</li>';
+                    }
+                    html += '</ul>';
+                }
+
+                if (allPaidExpenses.length > 0) {
+                    html += '<h4>Paid Expenses (' + allPaidExpenses.length + '):</h4>';
+                    html += '<ul>';
+                    allPaidExpenses.slice(0, 10).forEach(exp => {
+                        html += '<li>' + exp.name + ' - $' + exp.amount.toLocaleString() + ' (' + new Date(exp.date).toLocaleDateString() + ')</li>';
+                    });
+                    if (allPaidExpenses.length > 10) {
+                        html += '<li>... and ' + (allPaidExpenses.length - 10) + ' more</li>';
+                    }
+                    html += '</ul>';
+                }
+
+                html += '</div>';
+                html += '</details>';
+
+                resultsDiv.innerHTML = html;
+
+            } catch (error) {
+                resultsDiv.innerHTML = '<div style="background: #f8d7da; color: #721c24; padding: 15px; border-radius: 6px;">Error: ' + error.message + '</div>';
+            }
+        }
+
+        // Auto-run on load
+        window.addEventListener('load', () => {
+            setTimeout(analyzeCash, 500);
+        });
+    </script>
+</body>
+
+</html>

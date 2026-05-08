@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clear Cash Transactions Only</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            color: #C74634;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .info {
+            background: #d1ecf1;
+            border: 2px solid #17a2b8;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            color: #0c5460;
+        }
+
+        .warning {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            color: #856404;
+        }
+
+        button {
+            width: 100%;
+            padding: 15px;
+            margin: 10px 0;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .btn-primary {
+            background: #C74634;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #A63829;
+        }
+
+        .btn-info {
+            background: #17a2b8;
+            color: white;
+        }
+
+        .btn-info:hover {
+            background: #138496;
+        }
+
+        .data-box {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 10px 0;
+            border-left: 4px solid #C74634;
+        }
+
+        .status {
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+            text-align: center;
+            font-weight: bold;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 2px solid #28a745;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+
+        th,
+        td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        th {
+            background: #f8f9fa;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>💵 Clear Cash Transactions Only</h1>
+        <p class="subtitle">Remove all PAID transactions to make Cash = $0 (keeps business logic intact)</p>
+
+        <div class="info">
+            <h3>ℹ️ What This Does</h3>
+            <p><strong>Removes:</strong></p>
+            <ul>
+                <li>✅ All PAID invoices (affects Cash calculation)</li>
+                <li>✅ All PAID purchase orders (affects Cash calculation)</li>
+                <li>✅ All PAID expenses (affects Cash calculation)</li>
+                <li>✅ Sets initial cash balance to $0 in financial settings</li>
+            </ul>
+            <p><strong>Keeps:</strong></p>
+            <ul>
+                <li>✅ All UNPAID invoices (Accounts Receivable)</li>
+                <li>✅ All UNPAID purchase orders (Accounts Payable)</li>
+                <li>✅ All products (Inventory)</li>
+                <li>✅ All customers, suppliers, employees</li>
+                <li>✅ All business logic (unchanged)</li>
+            </ul>
+        </div>
+
+        <button class="btn-info" onclick="showCurrentState()">📊 Show Current Cash Transactions</button>
+        <button class="btn-primary" onclick="clearCashTransactions()">💵 Clear Cash Transactions (Make Cash =
+            $0)</button>
+
+        <div id="results"></div>
+    </div>
+
+    <script>
+        function showCurrentState() {
+            const resultsDiv = document.getElementById('results');
+
+            const invoices = JSON.parse(localStorage.getItem('zavi_invoices') || '[]');
+            const purchaseOrders = JSON.parse(localStorage.getItem('zavi_purchase_orders') || '[]');
+            const expenses = JSON.parse(localStorage.getItem('zavi_expenses') || '[]');
+            const financialSettings = JSON.parse(localStorage.getItem('zavi_financial_settings') || '{}');
+
+            const paidInvoices = invoices.filter(inv => inv.payment_status === 'Paid');
+            const unpaidInvoices = invoices.filter(inv => inv.payment_status === 'Unpaid');
+            const paidPOs = purchaseOrders.filter(po => po.payment_status === 'Paid');
+            const unpaidPOs = purchaseOrders.filter(po => po.payment_status === 'Unpaid');
+            const paidExpenses = expenses.filter(exp => exp.status === 'Paid');
+            const unpaidExpenses = expenses.filter(exp => exp.status !== 'Paid');
+
+            const paidInvoicesTotal = paidInvoices.reduce((sum, inv) => sum + inv.grandTotal, 0);
+            const paidPOsTotal = paidPOs.reduce((sum, po) => sum + po.grandTotal, 0);
+            const paidExpensesTotal = paidExpenses.reduce((sum, exp) => sum + exp.amount, 0);
+
+            const initialCash = financialSettings.initialCashBalance || 150000;
+            const estimatedCash = initialCash + paidInvoicesTotal - paidPOsTotal - paidExpensesTotal;
+
+            let html = '<h3>💰 Current Cash Transactions</h3>';
+
+            html += '<table>';
+            html += '<tr><th>Type</th><th>Count</th><th>Total Amount</th><th>Impact on Cash</th></tr>';
+            html += '<tr><td>Initial Cash Balance</td><td>-</td><td>$' + initialCash.toLocaleString() + '</td><td style="color: green;">+$' + initialCash.toLocaleString() + '</td></tr>';
+            html += '<tr><td>Paid Invoices</td><td>' + paidInvoices.length + '</td><td>$' + paidInvoicesTotal.toLocaleString() + '</td><td style="color: green;">+$' + paidInvoicesTotal.toLocaleString() + '</td></tr>';
+            html += '<tr><td>Paid Purchase Orders</td><td>' + paidPOs.length + '</td><td>$' + paidPOsTotal.toLocaleString() + '</td><td style="color: red;">-$' + paidPOsTotal.toLocaleString() + '</td></tr>';
+            html += '<tr><td>Paid Expenses</td><td>' + paidExpenses.length + '</td><td>$' + paidExpensesTotal.toLocaleString() + '</td><td style="color: red;">-$' + paidExpensesTotal.toLocaleString() + '</td></tr>';
+            html += '<tr style="background: #f8f9fa; font-weight: bold;"><td colspan="3">Estimated Cash Balance</td><td style="color: blue;">$' + estimatedCash.toLocaleString() + '</td></tr>';
+            html += '</table>';
+
+            html += '<div class="data-box">';
+            html += '<h4>What Will Be Kept:</h4>';
+            html += '<ul>';
+            html += '<li>Unpaid Invoices: <strong>' + unpaidInvoices.length + '</strong> (Accounts Receivable)</li>';
+            html += '<li>Unpaid Purchase Orders: <strong>' + unpaidPOs.length + '</strong> (Accounts Payable)</li>';
+            html += '<li>Unpaid/Pending Expenses: <strong>' + unpaidExpenses.length + '</strong></li>';
+            html += '<li>All Products, Customers, Suppliers, Employees</li>';
+            html += '</ul>';
+            html += '</div>';
+
+            html += '<div class="warning">';
+            html += '<h4>⚠️ After Clearing Cash Transactions:</h4>';
+            html += '<ul>';
+            html += '<li>Cash will be: <strong>$0</strong></li>';
+            html += '<li>Accounts Receivable: <strong>Unchanged</strong> (unpaid invoices remain)</li>';
+            html += '<li>Accounts Payable: <strong>Unchanged</strong> (unpaid POs remain)</li>';
+            html += '<li>Inventory: <strong>Unchanged</strong> (all products remain)</li>';
+            html += '<li>Business Logic: <strong>Unchanged</strong> (all code remains the same)</li>';
+            html += '</ul>';
+            html += '</div>';
+
+            resultsDiv.innerHTML = html;
+        }
+
+        function clearCashTransactions() {
+            if (!confirm('⚠️ This will remove all PAID transactions to make Cash = $0\n\nThis will delete:\n- ' +
+                'All PAID invoices\n- All PAID purchase orders\n- All PAID expenses\n- Set initial cash to $0\n\n' +
+                'This will KEEP:\n- All UNPAID invoices/POs\n- All products\n- All customers/suppliers\n- All business logic\n\n' +
+                'Continue?')) {
+                return;
+            }
+
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<p style="text-align: center;">Processing...</p>';
+
+            try {
+                // Get current data
+                const invoices = JSON.parse(localStorage.getItem('zavi_invoices') || '[]');
+                const purchaseOrders = JSON.parse(localStorage.getItem('zavi_purchase_orders') || '[]');
+                const expenses = JSON.parse(localStorage.getItem('zavi_expenses') || '[]');
+                const financialSettings = JSON.parse(localStorage.getItem('zavi_financial_settings') || '{}');
+
+                // Count what we're removing
+                const paidInvoices = invoices.filter(inv => inv.payment_status === 'Paid');
+                const paidPOs = purchaseOrders.filter(po => po.payment_status === 'Paid');
+                const paidExpenses = expenses.filter(exp => exp.status === 'Paid');
+
+                // Keep only unpaid transactions
+                const unpaidInvoices = invoices.filter(inv => inv.payment_status !== 'Paid');
+                const unpaidPOs = purchaseOrders.filter(po => po.payment_status !== 'Paid');
+                const unpaidExpenses = expenses.filter(exp => exp.status !== 'Paid');
+
+                // Update localStorage
+                localStorage.setItem('zavi_invoices', JSON.stringify(unpaidInvoices));
+                localStorage.setItem('zavi_purchase_orders', JSON.stringify(unpaidPOs));
+                localStorage.setItem('zavi_expenses', JSON.stringify(unpaidExpenses));
+
+                // Set initial cash balance to $0
+                financialSettings.initialCashBalance = 0;
+                localStorage.setItem('zavi_financial_settings', JSON.stringify(financialSettings));
+
+                // Show results
+                let html = '<div class="status success">';
+                html += '<h3>✅ Cash Transactions Cleared!</h3>';
+                html += '<p>Successfully removed all paid transactions</p>';
+                html += '</div>';
+
+                html += '<div class="data-box">';
+                html += '<h4>📊 What Was Removed:</h4>';
+                html += '<ul>';
+                html += '<li>Paid Invoices: <strong>' + paidInvoices.length + '</strong> removed</li>';
+                html += '<li>Paid Purchase Orders: <strong>' + paidPOs.length + '</strong> removed</li>';
+                html += '<li>Paid Expenses: <strong>' + paidExpenses.length + '</strong> removed</li>';
+                html += '<li>Initial Cash Balance: Set to <strong>$0</strong></li>';
+                html += '</ul>';
+                html += '</div>';
+
+                html += '<div class="data-box">';
+                html += '<h4>✅ What Was Kept:</h4>';
+                html += '<ul>';
+                html += '<li>Unpaid Invoices: <strong>' + unpaidInvoices.length + '</strong> (Accounts Receivable)</li>';
+                html += '<li>Unpaid Purchase Orders: <strong>' + unpaidPOs.length + '</strong> (Accounts Payable)</li>';
+                html += '<li>Unpaid/Pending Expenses: <strong>' + unpaidExpenses.length + '</strong></li>';
+                html += '<li>All Products, Customers, Suppliers, Employees: <strong>Unchanged</strong></li>';
+                html += '</ul>';
+                html += '</div>';
+
+                html += '<div class="info">';
+                html += '<h4>🎯 Expected Balance Sheet (After Refresh):</h4>';
+                html += '<ul>';
+                html += '<li><strong>Cash:</strong> $0 ✅ (no paid transactions)</li>';
+                html += '<li><strong>Accounts Receivable:</strong> From ' + unpaidInvoices.length + ' unpaid invoices ✅</li>';
+                html += '<li><strong>Inventory:</strong> Unchanged ✅</li>';
+                html += '<li><strong>Accounts Payable:</strong> From ' + unpaidPOs.length + ' unpaid POs ✅</li>';
+                html += '<li><strong>Business Logic:</strong> Unchanged ✅</li>';
+                html += '</ul>';
+                html += '</div>';
+
+                html += '<div class="warning">';
+                html += '<h4>📋 Next Steps:</h4>';
+                html += '<ol>';
+                html += '<li>Refresh your ERP application (F5 or Cmd+R)</li>';
+                html += '<li>Go to: Reports → Profitability Reports → Balance Sheet</li>';
+                html += '<li>Verify: Cash = $0</li>';
+                html += '<li>Verify: Other values unchanged (A/R, Inventory, A/P)</li>';
+                html += '</ol>';
+                html += '</div>';
+
+                resultsDiv.innerHTML = html;
+
+            } catch (error) {
+                resultsDiv.innerHTML = '<div class="status" style="background: #f8d7da; color: #721c24; border-color: #dc3545;">Error: ' + error.message + '</div>';
+            }
+        }
+
+        // Auto-show current state on load
+        window.addEventListener('load', () => {
+            setTimeout(showCurrentState, 500);
+        });
+    </script>
+</body>
+
+</html>

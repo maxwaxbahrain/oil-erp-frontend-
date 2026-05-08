@@ -391,7 +391,7 @@ VALIDATION: Before returning, verify:
     /**
      * Extract currency from text
      */
-    private extractCurrency(text: string): string {
+    private extractCurrency(_text: string): string {
         // Force USD per user request
         return 'USD';
     }
@@ -822,26 +822,5 @@ VALIDATION: Before returning, verify:
         }
 
         return 'Pieces'; // Default
-    }
-
-    /**
-     * Calculate confidence scores
-     */
-    private calculateConfidence(invoiceData: any, products: ExtractedProduct[]): { overall: number; supplier: number; products: number } {
-        let supplierScore = 0;
-        if (invoiceData.supplier.name) supplierScore += 40;
-        if (invoiceData.supplier.email) supplierScore += 20;
-        if (invoiceData.supplier.phone) supplierScore += 20;
-        if (invoiceData.supplier.address) supplierScore += 20;
-
-        const productScore = products.length > 0 ? Math.min(100, products.length * 10 + 50) : 0;
-
-        const overall = Math.round((supplierScore + productScore) / 2);
-
-        return {
-            overall,
-            supplier: supplierScore,
-            products: productScore
-        };
     }
 }

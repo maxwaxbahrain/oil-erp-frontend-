@@ -1,7 +1,6 @@
-import { useState } from 'react';
 import {
-    Briefcase, Truck, CreditCard, Code, Factory,
-    MoreHorizontal, ExternalLink, Plus
+    Briefcase, Truck, Code, Factory,
+    MoreHorizontal, ExternalLink, Plus, CornerUpLeft
 } from 'lucide-react';
 import clsx from 'clsx';
 

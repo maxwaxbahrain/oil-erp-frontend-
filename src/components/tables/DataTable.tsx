@@ -53,7 +53,7 @@ export default function DataTable<T extends { id?: string | number }>({
                             ))}
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
+                    <tbody>
                         {loading ? (
                             Array(5).fill(0).map((_, i) => (
                                 <tr key={i} className="animate-pulse">
@@ -78,7 +78,8 @@ export default function DataTable<T extends { id?: string | number }>({
                                 <tr
                                     key={item.id || i}
                                     onClick={() => onRowClick?.(item)}
-                                    className="hover:bg-gray-50 transition-colors cursor-pointer"
+                                    className={`transition-colors cursor-pointer border-b border-gray-100/80 hover:bg-redwood-bg-light/80 ${i % 2 === 0 ? 'bg-white' : 'bg-[#F8F9FA]'
+                                        }`}
                                 >
                                     {(columns as any).map((col: any, j: number) => (
                                         <td key={j} className={`px-6 py-4 text-sm ${col.className || ''}`}>
@@ -92,12 +93,6 @@ export default function DataTable<T extends { id?: string | number }>({
                 </table>
             </div>
 
-            {/* Footer */}
-            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
-                <div className="text-xs text-gray-600">
-                    Showing {data.length} {data.length === 1 ? 'record' : 'records'}
-                </div>
-            </div>
         </div>
     );
 }

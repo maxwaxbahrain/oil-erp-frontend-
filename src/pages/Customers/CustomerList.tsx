@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { type Customer, getCustomers } from '../../services/customerService';
+import { type Customer, getCustomers, syncRoutePriorityToCustomers } from '../../services/customerService';
 import DataTable from '../../components/tables/DataTable';
 import { Plus } from 'lucide-react';
 
@@ -11,7 +11,7 @@ interface CustomerListProps {
   refreshTrigger?: number;
 }
 
-export default function CustomerList({ onEdit, onLedger, onReceipt, refreshTrigger }: CustomerListProps) {
+export default function CustomerList({ refreshTrigger }: CustomerListProps) {
   const navigate = useNavigate();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -19,43 +19,89 @@ export default function CustomerList({ onEdit, onLedger, onReceipt, refreshTrigg
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
-    loadData();
+    let cancelled = false;
+
+    async function loadRegistry() {
+      try {
+        setLoading(true);
+        setError(null);
+        // Never block the registry on sync — sync can be slow or fail while GET /customers still works.
+        void syncRoutePriorityToCustomers()
+          .then(async () => {
+            try {
+              const fresh = await getCustomers();
+              if (!cancelled) setCustomers(fresh);
+            } catch (e) {
+              console.warn('Refresh after route sync failed:', e);
+            }
+          })
+          .catch((syncErr) => {
+            console.warn('Priority route → customers sync:', syncErr);
+          });
+
+        const data = await getCustomers();
+        if (!cancelled) setCustomers(data);
+      } catch (err) {
+        console.error('Failed to fetch customers:', err);
+        if (!cancelled)
+          setError(
+            err instanceof Error ? err.message : 'Unable to load customers. Start the API (port 8000) and refresh.'
+          );
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void loadRegistry();
+    return () => {
+      cancelled = true;
+    };
   }, [refreshTrigger]);
 
   async function loadData() {
     try {
       setLoading(true);
+      setError(null);
+      void syncRoutePriorityToCustomers().catch((syncErr) => {
+        console.warn('Priority route → customers sync:', syncErr);
+      });
       const data = await getCustomers();
       setCustomers(data);
     } catch (err) {
       console.error('Failed to fetch customers:', err);
-      setError('Unable to load customers. Please check your connection.');
+      setError(err instanceof Error ? err.message : 'Unable to load customers. Start the API (port 8000) and refresh.');
     } finally {
       setLoading(false);
     }
   }
 
-  // Filter customers based on search
-  const filteredCustomers = customers.filter(customer =>
-    customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.address?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const q = searchTerm.toLowerCase();
+  // Defensive: API may return numeric id / missing name; string ops must not throw (blank screen).
+  const filteredCustomers = customers.filter((customer) => {
+    const name = (customer.name ?? '').toLowerCase();
+    const idStr = String(customer.id ?? '').toLowerCase();
+    const addr = (customer.address ?? '').toLowerCase();
+    return name.includes(q) || idStr.includes(q) || addr.includes(q);
+  });
+
+  const tableHead = 'bg-blue-950 text-white border-r border-blue-900/40 last:border-r-0';
 
   const columns = [
     {
       header: 'Legal Entity Name',
-      headerClassName: 'bg-blue-900 text-white',
+      headerClassName: tableHead,
       accessor: (c: Customer) => (
         <div className="flex flex-col">
           <span className="text-redwood-text-main font-black uppercase tracking-tight">{c.name}</span>
-          <span className="text-[10px] text-redwood-text-muted font-bold tracking-widest">{c.id?.slice(-8) || 'LEGACY-ID'}</span>
+          <span className="text-[10px] text-redwood-text-muted font-bold tracking-widest">
+            {String(c.id ?? '').slice(-8) || 'LEGACY-ID'}
+          </span>
         </div>
       )
     },
     {
       header: 'Classification',
-      headerClassName: 'bg-blue-800 text-white',
+      headerClassName: tableHead,
       accessor: (c: Customer) => (
         <span className="text-[11px] font-black bg-redwood-bg-light border border-redwood-border px-2 py-1 rounded-sm uppercase tracking-widest">
           {c.category || 'RETAIL'}
@@ -64,7 +110,7 @@ export default function CustomerList({ onEdit, onLedger, onReceipt, refreshTrigg
     },
     {
       header: 'Nexus Location',
-      headerClassName: 'bg-slate-600 text-white',
+      headerClassName: tableHead,
       accessor: (c: Customer) => (
         <span className="text-[11px] text-redwood-text-muted font-bold tracking-tight uppercase">
           {c.address && c.address.trim() !== '' ? (c.address.length > 30 ? c.address.slice(0, 30) + '...' : c.address) : 'NOT SPECIFIED'}
@@ -73,13 +119,13 @@ export default function CustomerList({ onEdit, onLedger, onReceipt, refreshTrigg
     },
     {
       header: 'Fiscal Balance',
-      headerClassName: 'bg-slate-500 text-white',
+      headerClassName: tableHead,
       accessor: (c: Customer) => (
         <div className="flex flex-col items-end w-full">
           <span className={`text-[13px] font-black font-mono ${(c.balance || 0) > 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
             {(c.balance || 0).toLocaleString()}
           </span>
-          <span className="text-[9px] text-redwood-text-muted font-bold uppercase tracking-widest">Sync-In-Progress</span>
+          <span className="text-[9px] text-redwood-text-muted/80 font-bold tracking-widest">SYNC-IN-PROGRESS</span>
         </div>
       ),
       className: 'text-right'
@@ -134,6 +180,23 @@ export default function CustomerList({ onEdit, onLedger, onReceipt, refreshTrigg
         </div>
       </div>
 
+      {!loading && customers.length === 0 && (
+        <div className="rounded-sm border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-950">
+          <strong className="font-black uppercase tracking-wide">No rows returned from the API.</strong>{' '}
+          Confirm FastAPI is running with your database (e.g.{' '}
+          <code className="rounded bg-white px-1 font-mono text-[11px]">uvicorn app.main:app --reload --port 8000</code> in{' '}
+          <code className="rounded bg-white px-1 font-mono text-[11px]">oil-erp-backend</code>
+          ). The app loads customers from <code className="font-mono text-[11px]">GET /api/customers/</code>, proxied from this dev
+          server.
+        </div>
+      )}
+
+      {!loading && customers.length > 0 && filteredCustomers.length === 0 && (
+        <div className="rounded-sm border border-gray-200 bg-white px-4 py-2 text-[12px] text-redwood-text-muted">
+          No rows match your search — clear the search box to see all {customers.length} customers.
+        </div>
+      )}
+
       {/* Data Table */}
       <DataTable
         title="Global Entity Registry"
@@ -146,5 +209,3 @@ export default function CustomerList({ onEdit, onLedger, onReceipt, refreshTrigg
     </div>
   );
 }
-#test the git hub
-# i change some files in folder

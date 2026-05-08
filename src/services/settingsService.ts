@@ -17,7 +17,33 @@ export interface CompanyProfile {
     email: string;
     website: string;
     logo?: string;
+    taxId?: string;
 }
+
+/** Flat shape for invoices / sharing (localStorage `company_settings`). */
+export interface CompanySettings {
+    name: string;
+    address: string;
+    city: string;
+    country: string;
+    phone: string;
+    email: string;
+    website: string;
+    taxId: string;
+    /** Data URL or fetchable image URL for invoices */
+    logo?: string;
+}
+
+export const DEFAULT_COMPANY: CompanySettings = {
+    name: 'Bettano LLC',
+    address: '184-10 Jamaica Ave',
+    city: 'Jamaica, NY 11423',
+    country: 'USA',
+    phone: '+1 (346) 795-1216',
+    email: 'info@bettanollc.com',
+    website: '',
+    taxId: '',
+};
 
 export interface DocumentSignature {
     signatoryName: string;
@@ -38,15 +64,16 @@ const DEFAULT_SETTINGS: SystemSettings = {
 };
 
 const DEFAULT_PROFILE: CompanyProfile = {
-    name: 'BETTANO INTERNATIONAL',
-    address1: 'Industrial Area Phase 2',
-    city: 'Karachi',
-    state: 'Sindh',
-    postalCode: '75500',
-    country: 'Pakistan',
-    phone: '+92 21 3456789',
-    email: 'ops@bettano.com',
-    website: 'www.bettano.com',
+    name: 'Bettano LLC',
+    address1: '184-10 Jamaica Ave',
+    city: 'Jamaica',
+    state: 'NY',
+    postalCode: '11423',
+    country: 'USA',
+    phone: '+1 (346) 795-1216',
+    email: 'info@bettanollc.com',
+    website: '',
+    taxId: '',
 };
 
 const DEFAULT_SIGNATURE: DocumentSignature = {
@@ -62,6 +89,7 @@ const DEFAULT_SIGNATURE: DocumentSignature = {
 const SETTINGS_KEY = 'zavi_system_settings';
 const PROFILE_KEY = 'zavi_company_profile';
 const SIGNATURE_KEY = 'zavi_document_signature';
+const COMPANY_SETTINGS_KEY = 'company_settings';
 
 export const getSystemSettings = (): SystemSettings => {
     const data = localStorage.getItem(SETTINGS_KEY);
@@ -84,6 +112,42 @@ export const getCompanyProfile = (): CompanyProfile => {
 export const saveCompanyProfile = (profile: CompanyProfile): void => {
     localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
 };
+
+export function companyProfileToSettings(profile: CompanyProfile): CompanySettings {
+    const cityLine = [profile.city, profile.state, profile.postalCode].filter(Boolean).join(', ');
+    return {
+        name: profile.name || DEFAULT_COMPANY.name,
+        address: profile.address1 || '',
+        city: cityLine || DEFAULT_COMPANY.city,
+        country: profile.country || '',
+        phone: profile.phone || '',
+        email: profile.email || '',
+        website: profile.website || '',
+        taxId: profile.taxId || '',
+        logo: profile.logo,
+    };
+}
+
+export function getCompanySettings(): CompanySettings {
+    const saved = localStorage.getItem(COMPANY_SETTINGS_KEY);
+    const profile = getCompanyProfile();
+    if (saved) {
+        try {
+            const merged: CompanySettings = { ...DEFAULT_COMPANY, ...JSON.parse(saved) };
+            if (!merged.logo && profile.logo) {
+                merged.logo = profile.logo;
+            }
+            return merged;
+        } catch {
+            /* use profile fallback */
+        }
+    }
+    return companyProfileToSettings(profile);
+}
+
+export function saveCompanySettings(settings: CompanySettings): void {
+    localStorage.setItem(COMPANY_SETTINGS_KEY, JSON.stringify(settings));
+}
 
 export const getDocumentSignature = (): DocumentSignature => {
     const data = localStorage.getItem(SIGNATURE_KEY);

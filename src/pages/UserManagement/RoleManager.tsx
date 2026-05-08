@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import {
-    Shield, Check, X, Plus, Copy, Save, AlertCircle, Info, CornerUpLeft
+    Shield, Check, Plus, Copy, Save, AlertCircle, CornerUpLeft
 } from 'lucide-react';
 import clsx from 'clsx';
 import { Link } from 'react-router-dom';

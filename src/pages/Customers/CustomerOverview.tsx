@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
     ArrowLeft,
@@ -7,11 +8,17 @@ import {
     ShoppingCart,
     Edit,
     Download,
+    FileDown,
     X,
     Eye,
     CheckCircle,
     Receipt,
-    Save
+    Share2,
+    ChevronDown,
+    MessageCircle,
+    Smartphone,
+    Mail,
+    Link2,
 } from 'lucide-react';
 import {
     getCustomerInvoices,
@@ -23,12 +30,21 @@ import {
 import {
     getCustomers,
     getCustomerPayments,
-    createPayment,
+    getCustomerLedger,
     type Customer,
     type Payment
 } from '../../services/customerService';
+import { getCustomerCreditNotes, type CreditNote } from '../../services/creditNoteService';
+import { getCompanySettings } from '../../services/settingsService';
+import {
+    downloadInvoicePDF,
+    downloadInvoiceWord,
+    shareInvoicePDF,
+    type SharePdfResult,
+} from '../../services/invoiceDocumentService';
 import { WORLD_CURRENCIES } from '../../constants/currencies';
 import SearchableSelect from '../../components/common/SearchableSelect';
+import PaymentReceipt from './PaymentReceipt';
 
 interface CustomerStats {
     outstandingBalance: number;
@@ -45,13 +61,15 @@ interface CustomerStats {
 interface LedgerEntry {
     id: string;
     date: string;
-    type: 'Invoice' | 'Payment' | 'Credit Note' | 'Debit Note';
+    type: 'Invoice' | 'Payment' | 'Credit Note' | 'Debit Note' | 'Van Sale';
     referenceNumber: string;
     description: string;
     debit: number;
     credit: number;
     balance: number;
     relatedId?: string;
+    van_number?: string;
+    salesman_name?: string;
 }
 
 
@@ -138,7 +156,7 @@ export default function CustomerOverview() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const location = useLocation();
-    const [activeTab, setActiveTab] = useState<'overview' | 'ledger' | 'sales' | 'payments'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'ledger' | 'sales' | 'payments' | 'credits'>('overview');
     const [customer, setCustomer] = useState<Customer | null>(null);
     const [loading, setLoading] = useState(true);
 
@@ -162,28 +180,27 @@ export default function CustomerOverview() {
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([]);
     const [payments, setPayments] = useState<Payment[]>([]);
+    const [creditNotes, setCreditNotes] = useState<CreditNote[]>([]);
 
     // Modal state
     const [showPaymentModal, setShowPaymentModal] = useState(false);
     const [showInvoiceModal, setShowInvoiceModal] = useState(false);
     const [selectedInvoice, setSelectedInvoice] = useState<Invoice | any>(null);
     const [converting, setConverting] = useState<string | null>(null);
+    const [shareMenuPos, setShareMenuPos] = useState<{ top: number; left: number } | null>(null);
+    const [shareMenuInvoiceId, setShareMenuInvoiceId] = useState<string | null>(null);
+    const shareButtonRef = useRef<Record<string, HTMLButtonElement | null>>({});
+    const [shareAttachModal, setShareAttachModal] = useState<{
+        channel: 'whatsapp' | 'sms' | 'email';
+        fileName: string;
+    } | null>(null);
     const [selectedCurrency, setSelectedCurrency] = useState(WORLD_CURRENCIES[0]); // Default to USD
-
-    // Payment Form state
-    const [paymentForm, setPaymentForm] = useState({
-        amount: 0,
-        payment_date: new Date().toISOString().split('T')[0],
-        payment_method: 'Cash',
-        reference: '',
-        notes: ''
-    });
 
     // Check for tab parameter in URL
     useEffect(() => {
         const searchParams = new URLSearchParams(location.search);
         const tab = searchParams.get('tab');
-        if (tab === 'ledger' || tab === 'sales' || tab === 'payments') {
+        if (tab === 'ledger' || tab === 'sales' || tab === 'payments' || tab === 'credits') {
             setActiveTab(tab);
         }
     }, [location.search]);
@@ -223,21 +240,25 @@ export default function CustomerOverview() {
         try {
             setLoadingLedger(true);
 
-            // Fetch everything in parallel
-            const [custInvoices, custOrders, custPayments] = await Promise.all([
+            // Fetch everything in parallel including ledger entries from customer_ledger
+            const [custInvoices, custOrders, custPayments, customerLedgerEntries, custCreditNotes] = await Promise.all([
                 getCustomerInvoices(id),
                 getCustomerSalesOrders(id),
-                getCustomerPayments(id)
+                getCustomerPayments(id),
+                getCustomerLedger(id),
+                getCustomerCreditNotes(id)
             ]);
 
             setInvoices(custInvoices);
             setSalesOrders(custOrders);
             setPayments(custPayments);
+            setCreditNotes(custCreditNotes);
 
-            // Build Ledger
+            // Build Ledger - merge invoices, payments, and ledger entries (van sales, etc.)
             const allTransactions: any[] = [
                 ...custInvoices.map(inv => ({
                     id: inv.id,
+                    relatedInvoiceId: String(inv.id),
                     date: inv.invoiceDate,
                     type: 'Invoice' as const,
                     referenceNumber: inv.invoiceNumber,
@@ -247,24 +268,71 @@ export default function CustomerOverview() {
                 })),
                 ...custPayments.map(pay => ({
                     id: pay.id,
+                    relatedInvoiceId: undefined as string | undefined,
                     date: pay.payment_date,
                     type: 'Payment' as const,
                     referenceNumber: pay.reference || `PAY-${pay.id.slice(-4)}`,
                     description: `Payment Received - ${pay.payment_method}`,
                     debit: 0,
                     credit: pay.amount
-                }))
+                })),
+                // Add ledger entries (van sales, opening balance, etc.)
+                ...customerLedgerEntries.map(entry => {
+                    const invId =
+                        entry.invoice_id != null && entry.invoice_id !== ''
+                            ? String(entry.invoice_id)
+                            : entry.type === 'invoice'
+                              ? (() => {
+                                  const n = Number(entry.id);
+                                  return !Number.isNaN(n) && n >= 100000 ? String(n - 100000) : undefined;
+                                })()
+                              : undefined;
+                    return {
+                        id: entry.id,
+                        relatedInvoiceId: invId,
+                        date: entry.date,
+                        type: entry.type === 'van_sale' ? 'Van Sale' as const :
+                            entry.type === 'opening_balance' ? 'Credit Note' as const :
+                                entry.type === 'credit' ? 'Credit Note' as const :
+                                    entry.type === 'debit' ? 'Debit Note' as const :
+                                        'Invoice' as const, // Default or handle other types
+                        referenceNumber: entry.reference || entry.invoice_number || `${entry.type.toUpperCase()}-${entry.id.slice(-4)}`,
+                        description: entry.description || `${entry.type} transaction`,
+                        debit: entry.type === 'van_sale' || entry.type === 'invoice' || entry.type === 'debit' || entry.type === 'opening_balance' ? entry.amount : 0,
+                        credit:
+                            entry.type === 'payment' ||
+                            entry.type === 'credit' ||
+                            entry.type === 'credit_note' ||
+                            entry.type === 'return_credit' ||
+                            entry.type === 'credit_adjustment'
+                                ? entry.amount
+                                : 0,
+                        van_number: entry.van_number,
+                        salesman_name: entry.salesman_name
+                    };
+                })
             ];
 
+            // Remove duplicates (payments are in both custPayments and customerLedgerEntries)
+            const uniqueTransactions = allTransactions.filter((tx, index, self) =>
+                index === self.findIndex(t => t.referenceNumber === tx.referenceNumber)
+            );
+
             // Sort by date and calculate running balance
-            const sortedTransactions = allTransactions.sort((a, b) =>
+            const sortedTransactions = uniqueTransactions.sort((a, b) =>
                 new Date(a.date).getTime() - new Date(b.date).getTime()
             );
 
             let runningBalance = 0;
             const ledgerEntries: LedgerEntry[] = sortedTransactions.map(tx => {
                 runningBalance += (tx.debit - tx.credit);
-                return { ...tx, balance: runningBalance, relatedId: tx.id };
+                return {
+                    ...tx,
+                    balance: runningBalance,
+                    relatedId: tx.relatedInvoiceId != null ? String(tx.relatedInvoiceId) : String(tx.id),
+                    van_number: tx.van_number,
+                    salesman_name: tx.salesman_name
+                };
             });
 
             setLedger(ledgerEntries);
@@ -321,42 +389,6 @@ export default function CustomerOverview() {
         loadAllData();
     }, [id]);
 
-    const handleReceivePayment = async () => {
-        if (!id || paymentForm.amount <= 0) {
-            alert('Please enter a valid amount');
-            return;
-        }
-
-        try {
-            setLoading(true);
-            await createPayment({
-                customer_id: id,
-                amount: paymentForm.amount,
-                payment_date: paymentForm.payment_date,
-                payment_method: paymentForm.payment_method,
-                reference: paymentForm.reference,
-                notes: paymentForm.notes
-            });
-
-            setShowPaymentModal(false);
-            setPaymentForm({
-                amount: 0,
-                payment_date: new Date().toISOString().split('T')[0],
-                payment_method: 'Cash',
-                reference: '',
-                notes: ''
-            });
-
-            await loadAllData();
-            alert('✅ Payment recorded successfully!');
-        } catch (error) {
-            console.error('Failed to record payment:', error);
-            alert('❌ Failed to record payment');
-        } finally {
-            setLoading(false);
-        }
-    };
-
     const handleConvertOrder = async (orderId: string) => {
         try {
             setConverting(orderId);
@@ -380,6 +412,8 @@ export default function CustomerOverview() {
             generateCustomerLedgerExcel(customer, ledger);
         }
     };
+
+    const companyForShare = getCompanySettings();
 
     if (loading) {
         return (
@@ -531,7 +565,8 @@ export default function CustomerOverview() {
                         { key: 'overview', label: 'Overview' },
                         { key: 'ledger', label: 'Ledger' },
                         { key: 'sales', label: 'Sales' },
-                        { key: 'payments', label: 'Payments' }
+                        { key: 'payments', label: 'Payments' },
+                        { key: 'credits', label: 'Credits' }
                     ].map(tab => (
                         <button
                             key={tab.key}
@@ -600,7 +635,7 @@ export default function CustomerOverview() {
                                 </div>
                             </div>
 
-                            <div className="overflow-x-auto">
+                            <div className="overflow-x-auto overflow-y-visible">
                                 <table className="w-full text-left">
                                     <thead className="bg-gray-50 border-b-2 border-gray-200">
                                         <tr>
@@ -611,7 +646,7 @@ export default function CustomerOverview() {
                                             <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-right">Debit</th>
                                             <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-right">Credit</th>
                                             <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-right">Balance</th>
-                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-center w-20">Actions</th>
+                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-center min-w-[7.5rem]">Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100">
@@ -640,7 +675,8 @@ export default function CustomerOverview() {
                                                     <td className="px-4 py-3">
                                                         <span className={`px-2 py-1 rounded text-xs font-bold ${entry.type === 'Invoice' ? 'bg-blue-100 text-blue-700' :
                                                             entry.type === 'Payment' ? 'bg-green-100 text-green-700' :
-                                                                'bg-gray-100 text-gray-700'
+                                                                entry.type === 'Van Sale' ? 'bg-orange-100 text-orange-700' :
+                                                                    'bg-gray-100 text-gray-700'
                                                             }`}>
                                                             {entry.type}
                                                         </span>
@@ -648,7 +684,16 @@ export default function CustomerOverview() {
                                                     <td className="px-4 py-3 text-sm font-mono text-gray-900 font-bold">
                                                         {entry.referenceNumber}
                                                     </td>
-                                                    <td className="px-4 py-3 text-sm text-gray-600">{entry.description}</td>
+                                                    <td className="px-4 py-3 text-sm text-gray-600">
+                                                        {entry.description}
+                                                        {entry.type === 'Van Sale' && (entry.van_number || entry.salesman_name) && (
+                                                            <div className="text-xs text-gray-500 mt-1">
+                                                                {entry.van_number && <span>Van: {entry.van_number}</span>}
+                                                                {entry.van_number && entry.salesman_name && <span> • </span>}
+                                                                {entry.salesman_name && <span>Driver: {entry.salesman_name}</span>}
+                                                            </div>
+                                                        )}
+                                                    </td>
                                                     <td className="px-4 py-3 text-sm font-bold text-red-600 text-right font-mono">
                                                         {entry.debit > 0 ? `${entry.debit.toLocaleString()}` : '-'}
                                                     </td>
@@ -658,22 +703,60 @@ export default function CustomerOverview() {
                                                     <td className="px-4 py-3 text-sm font-bold text-gray-900 text-right font-mono">
                                                         {entry.balance.toLocaleString()}
                                                     </td>
-                                                    <td className="px-4 py-3 text-center">
-                                                        {entry.type === 'Invoice' && (
-                                                            <button
-                                                                onClick={() => {
-                                                                    const inv = invoices.find(i => i.id === entry.relatedId);
-                                                                    if (inv) {
-                                                                        setSelectedInvoice(inv);
-                                                                        setShowInvoiceModal(true);
-                                                                    }
-                                                                }}
-                                                                title="View Invoice"
-                                                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                                                            >
-                                                                <Eye size={18} />
-                                                            </button>
-                                                        )}
+                                                    <td className="px-4 py-3 text-center relative align-middle">
+                                                        {entry.type === 'Invoice' && (() => {
+                                                            const inv = invoices.find(i => String(i.id) === String(entry.relatedId));
+                                                            return (
+                                                                <div className="flex items-center justify-center gap-0.5">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            if (inv) {
+                                                                                setSelectedInvoice(inv);
+                                                                                setShowInvoiceModal(true);
+                                                                            }
+                                                                        }}
+                                                                        title="View Invoice"
+                                                                        className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                                                    >
+                                                                        <Eye size={18} />
+                                                                    </button>
+                                                                    {inv && (
+                                                                        <button
+                                                                            ref={(el) => {
+                                                                                shareButtonRef.current[entry.id] = el;
+                                                                            }}
+                                                                            type="button"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                if (shareMenuInvoiceId === entry.id) {
+                                                                                    setShareMenuInvoiceId(null);
+                                                                                    setShareMenuPos(null);
+                                                                                    return;
+                                                                                }
+                                                                                const btn = shareButtonRef.current[entry.id];
+                                                                                if (!btn) return;
+                                                                                const rect = btn.getBoundingClientRect();
+                                                                                const dropdownHeight = 280;
+                                                                                const spaceBelow = window.innerHeight - rect.bottom;
+                                                                                const top =
+                                                                                    spaceBelow > dropdownHeight
+                                                                                        ? rect.bottom + 4
+                                                                                        : rect.top - dropdownHeight - 4;
+                                                                                const left = Math.min(rect.left, window.innerWidth - 210);
+                                                                                setShareMenuPos({ top, left });
+                                                                                setShareMenuInvoiceId(entry.id);
+                                                                            }}
+                                                                            title="Share invoice"
+                                                                            className="p-1.5 text-[#800020] hover:bg-red-50 rounded transition-colors flex items-center gap-0.5"
+                                                                        >
+                                                                            <Share2 size={16} />
+                                                                            <ChevronDown size={14} className="opacity-70" />
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })()}
                                                         {entry.type === 'Payment' && (
                                                             <button
                                                                 title="View Receipt"
@@ -789,7 +872,11 @@ export default function CustomerOverview() {
                                                                 >
                                                                     <Eye size={18} />
                                                                 </button>
-                                                                {doc.docType === 'SalesOrder' && doc.status === 'Pending' && (
+                                                                {doc.docType === 'SalesOrder' &&
+                                                                    doc.status === 'Pending' &&
+                                                                    doc.workflowStatus === 'delivered' &&
+                                                                    doc.podConfirmed &&
+                                                                    doc.signatureConfirmed && (
                                                                     <button
                                                                         onClick={() => handleConvertOrder(doc.id)}
                                                                         disabled={converting === doc.id}
@@ -861,103 +948,64 @@ export default function CustomerOverview() {
                             </div>
                         </div>
                     )}
+
+                    {activeTab === 'credits' && (
+                        <div className="space-y-4">
+                            <div className="flex justify-between items-center">
+                                <h3 className="text-sm font-black text-gray-700 uppercase">Credit Notes</h3>
+                                <button
+                                    onClick={() => navigate('/sales/credit-notes/new', { state: { customerId: customer.id } })}
+                                    className="px-3 py-1.5 bg-[#800020] text-white rounded-sm text-xs font-bold"
+                                >
+                                    New Credit Note
+                                </button>
+                            </div>
+                            <div className="border border-gray-200 rounded-sm overflow-x-auto">
+                                <table className="w-full text-left">
+                                    <thead className="bg-gray-50 border-b border-gray-200">
+                                        <tr>
+                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">CN #</th>
+                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Issue Date</th>
+                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Reason</th>
+                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-right">Total</th>
+                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-right">Remaining</th>
+                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {creditNotes.length === 0 ? (
+                                            <tr><td colSpan={6} className="px-4 py-6 text-center text-sm text-gray-500">No credit notes found</td></tr>
+                                        ) : (
+                                            creditNotes.map(cn => (
+                                                <tr key={cn.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => navigate(`/sales/credit-notes/${cn.id}`)}>
+                                                    <td className="px-4 py-3 text-sm font-mono font-black text-[#800020]">{cn.creditNoteNumber}</td>
+                                                    <td className="px-4 py-3 text-sm">{cn.issueDate}</td>
+                                                    <td className="px-4 py-3 text-sm">{cn.reason.replace('_', ' ')}</td>
+                                                    <td className="px-4 py-3 text-sm font-mono text-right">{cn.totalCreditAmount.toLocaleString()}</td>
+                                                    <td className="px-4 py-3 text-sm font-mono text-right font-black">{cn.remainingCredit.toLocaleString()}</td>
+                                                    <td className="px-4 py-3 text-xs uppercase font-bold">{cn.status.replace('_', ' ')}</td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
 
-            {/* Payment Modal */}
-            {showPaymentModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg border-2 border-[#800020] overflow-hidden">
-                        <div className="bg-[#800020] px-6 py-4 flex items-center justify-between">
-                            <h2 className="text-xl font-black text-white uppercase tracking-tight flex items-center gap-2">
-                                <DollarSign size={24} />
-                                Receive Payment
-                            </h2>
-                            <button
-                                onClick={() => setShowPaymentModal(false)}
-                                className="text-white/80 hover:text-white transition-colors"
-                            >
-                                <X size={24} />
-                            </button>
-                        </div>
-
-                        <div className="p-6 space-y-4">
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Payment Amount (PKR)</label>
-                                    <input
-                                        type="number"
-                                        value={paymentForm.amount || ''}
-                                        onChange={(e) => setPaymentForm({ ...paymentForm, amount: parseFloat(e.target.value) || 0 })}
-                                        className="w-full border-2 border-gray-200 rounded-lg px-4 py-3 text-lg font-bold focus:border-[#800020] outline-none transition-all font-mono"
-                                        placeholder="0.00"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Payment Date</label>
-                                    <input
-                                        type="date"
-                                        value={paymentForm.payment_date}
-                                        onChange={(e) => setPaymentForm({ ...paymentForm, payment_date: e.target.value })}
-                                        className="w-full border-2 border-gray-200 rounded-lg px-4 py-3 text-sm font-bold focus:border-[#800020] outline-none transition-all"
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Payment Method</label>
-                                    <select
-                                        value={paymentForm.payment_method}
-                                        onChange={(e) => setPaymentForm({ ...paymentForm, payment_method: e.target.value })}
-                                        className="w-full border-2 border-gray-200 rounded-lg px-4 py-3 text-sm font-bold focus:border-[#800020] outline-none transition-all bg-white"
-                                    >
-                                        <option value="Cash">Cash</option>
-                                        <option value="Bank Transfer">Bank Transfer</option>
-                                        <option value="Cheque">Cheque</option>
-                                        <option value="Credit Card">Credit Card</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Ref / Trans #</label>
-                                    <input
-                                        type="text"
-                                        value={paymentForm.reference}
-                                        onChange={(e) => setPaymentForm({ ...paymentForm, reference: e.target.value })}
-                                        className="w-full border-2 border-gray-200 rounded-lg px-4 py-3 text-sm font-bold focus:border-[#800020] outline-none transition-all font-mono"
-                                        placeholder="TXN-XXXX"
-                                    />
-                                </div>
-                            </div>
-
-                            <div>
-                                <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Notes (Optional)</label>
-                                <textarea
-                                    value={paymentForm.notes}
-                                    onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })}
-                                    className="w-full border-2 border-gray-200 rounded-lg px-4 py-3 text-sm font-medium focus:border-[#800020] outline-none transition-all resize-none"
-                                    rows={2}
-                                    placeholder="Add any additional details..."
-                                />
-                            </div>
-                        </div>
-
-                        <div className="bg-gray-50 px-6 py-4 flex gap-3 justify-end border-t border-gray-100">
-                            <button
-                                onClick={() => setShowPaymentModal(false)}
-                                className="px-6 py-2.5 bg-white border-2 border-gray-200 rounded-lg text-sm font-bold hover:bg-gray-100 transition-all uppercase tracking-wider"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleReceivePayment}
-                                disabled={loading || paymentForm.amount <= 0}
-                                className="px-8 py-2.5 bg-[#800020] text-white rounded-lg text-sm font-black hover:bg-[#600018] transition-all flex items-center gap-2 shadow-lg uppercase tracking-wider disabled:opacity-50"
-                            >
-                                <Save size={18} />
-                                {loading ? 'Saving...' : 'Save Payment'}
-                            </button>
-                        </div>
+            {/* Payment Modal - NEW QuickBooks Style */}
+            {showPaymentModal && customer && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/50 backdrop-blur-sm">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-y-auto">
+                        <PaymentReceipt
+                            customer={customer}
+                            onBack={() => {
+                                setShowPaymentModal(false);
+                                loadAllData(); // Refresh data after payment
+                            }}
+                        />
                     </div>
                 </div>
             )}
@@ -1101,6 +1149,218 @@ export default function CustomerOverview() {
                                 <Download size={16} />
                                 Print Invoice
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {shareMenuInvoiceId &&
+                shareMenuPos &&
+                (() => {
+                    const shareEntry = ledger.find((e) => e.id === shareMenuInvoiceId);
+                    const portalInv =
+                        shareEntry != null
+                            ? invoices.find((i) => String(i.id) === String(shareEntry.relatedId))
+                            : undefined;
+                    if (!portalInv) return null;
+
+                    const shareOptClass =
+                        'w-full flex items-center gap-3 text-left text-[#1a1a1a] hover:bg-[#f3f4f6] cursor-pointer border-0 bg-transparent rounded-none';
+                    const shareOptStyle = { padding: '10px 16px', fontSize: '14px' } as const;
+
+                    const closeShareMenu = () => {
+                        setShareMenuInvoiceId(null);
+                        setShareMenuPos(null);
+                    };
+
+                    const finishShare = (res: SharePdfResult) => {
+                        closeShareMenu();
+                        if (res.showAttachModal) {
+                            setShareAttachModal({
+                                channel: res.channel,
+                                fileName: res.fileName,
+                            });
+                        }
+                    };
+
+                    return createPortal(
+                        <>
+                            <div
+                                style={{ position: 'fixed', inset: 0, zIndex: 99997 }}
+                                onClick={closeShareMenu}
+                                aria-hidden
+                            />
+                            <div
+                                style={{
+                                    position: 'fixed',
+                                    top: shareMenuPos.top,
+                                    left: shareMenuPos.left,
+                                    zIndex: 99999,
+                                    background: '#FFFFFF',
+                                    border: '1px solid #e5e7eb',
+                                    borderRadius: '8px',
+                                    boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                                    minWidth: '200px',
+                                    overflow: 'hidden',
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                role="menu"
+                            >
+                                <button
+                                    type="button"
+                                    className={shareOptClass}
+                                    style={shareOptStyle}
+                                    onClick={() => {
+                                        void downloadInvoicePDF(portalInv, companyForShare).finally(closeShareMenu);
+                                    }}
+                                >
+                                    <FileDown className="shrink-0 text-red-600" size={18} />
+                                    <span>Download PDF</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    className={shareOptClass}
+                                    style={shareOptStyle}
+                                    onClick={async () => {
+                                        await downloadInvoiceWord(portalInv, companyForShare);
+                                        closeShareMenu();
+                                    }}
+                                >
+                                    <FileText className="shrink-0 text-blue-600" size={18} />
+                                    <span>Download Word</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    className={shareOptClass}
+                                    style={shareOptStyle}
+                                    onClick={() => {
+                                        void shareInvoicePDF(portalInv, companyForShare, 'whatsapp').then(finishShare);
+                                    }}
+                                >
+                                    <MessageCircle className="shrink-0 text-emerald-600" size={18} />
+                                    <span>WhatsApp</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    className={shareOptClass}
+                                    style={shareOptStyle}
+                                    onClick={() => {
+                                        void shareInvoicePDF(portalInv, companyForShare, 'sms').then(finishShare);
+                                    }}
+                                >
+                                    <Smartphone className="shrink-0 text-orange-600" size={18} />
+                                    <span>SMS / Text Message</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    className={shareOptClass}
+                                    style={shareOptStyle}
+                                    onClick={() => {
+                                        void shareInvoicePDF(portalInv, companyForShare, 'email').then(finishShare);
+                                    }}
+                                >
+                                    <Mail className="shrink-0 text-gray-600" size={18} />
+                                    <span>Email</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    className={shareOptClass}
+                                    style={shareOptStyle}
+                                    onClick={() => {
+                                        void shareInvoicePDF(portalInv, companyForShare, 'copy').then(() =>
+                                            closeShareMenu()
+                                        );
+                                    }}
+                                >
+                                    <Link2 className="shrink-0 text-violet-700" size={18} />
+                                    <span>Copy link</span>
+                                </button>
+                            </div>
+                        </>,
+                        document.body
+                    );
+                })()}
+
+            {shareAttachModal && (
+                <div
+                    className="fixed inset-0 z-[100000] flex items-center justify-center p-4 bg-black/50"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="share-attach-modal-title"
+                    onClick={() => setShareAttachModal(null)}
+                >
+                    <div
+                        className="bg-white rounded-sm border border-redwood-border shadow-xl max-w-md w-full overflow-hidden"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="px-6 py-4 border-b border-redwood-border bg-redwood-bg-light/50">
+                            <h2
+                                id="share-attach-modal-title"
+                                className="text-lg font-black text-redwood-text-main uppercase tracking-tight"
+                            >
+                                {shareAttachModal.channel === 'whatsapp' && 'Share Invoice on WhatsApp'}
+                                {shareAttachModal.channel === 'sms' && 'Share Invoice via SMS'}
+                                {shareAttachModal.channel === 'email' && 'Share Invoice via Email'}
+                            </h2>
+                        </div>
+                        <div className="px-6 py-5 text-sm text-gray-700 leading-relaxed space-y-4">
+                            {shareAttachModal.channel === 'whatsapp' && (
+                                <p className="whitespace-pre-line">
+                                    {`Your PDF has been downloaded as:\n${shareAttachModal.fileName}\n\nTo attach it on WhatsApp Web:\n1. Find the downloaded PDF in your Downloads folder\n2. In WhatsApp Web click the 📎 paperclip/attach button\n3. Select the PDF file\n4. Send to your customer`}
+                                </p>
+                            )}
+                            {shareAttachModal.channel === 'sms' && (
+                                <p className="whitespace-pre-line">
+                                    {`Your PDF has been downloaded as:\n${shareAttachModal.fileName}\n\nTo attach it in the Messages app:\n1. Find the downloaded PDF in your Downloads folder (or Files on mobile)\n2. Open or start your SMS conversation with your customer\n3. Tap the attach / paperclip icon and choose the PDF\n4. Send the message`}
+                                </p>
+                            )}
+                            {shareAttachModal.channel === 'email' && (
+                                <p className="whitespace-pre-line">
+                                    {`Your PDF has been downloaded as:\n${shareAttachModal.fileName}\n\nTo attach it in your email:\n1. Find the downloaded PDF in your Downloads folder\n2. In your email window, click attach / paperclip\n3. Select the PDF file\n4. Send to your customer`}
+                                </p>
+                            )}
+                        </div>
+                        <div className="px-6 py-4 bg-gray-50 border-t border-redwood-border flex flex-col sm:flex-row gap-2 sm:justify-end">
+                            <button
+                                type="button"
+                                onClick={() => setShareAttachModal(null)}
+                                className="w-full sm:w-auto px-4 py-2.5 rounded-sm border border-gray-300 bg-white text-sm font-bold text-gray-700 hover:bg-gray-100 uppercase tracking-wide"
+                            >
+                                Close
+                            </button>
+                            {shareAttachModal.channel === 'whatsapp' && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        window.open('https://web.whatsapp.com', '_blank', 'noopener,noreferrer');
+                                    }}
+                                    className="w-full sm:w-auto px-4 py-2.5 rounded-sm bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 uppercase tracking-wide"
+                                >
+                                    Open WhatsApp Web
+                                </button>
+                            )}
+                            {shareAttachModal.channel === 'sms' && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        window.location.href = 'sms:';
+                                    }}
+                                    className="w-full sm:w-auto px-4 py-2.5 rounded-sm bg-orange-600 text-white text-sm font-bold hover:bg-orange-700 uppercase tracking-wide"
+                                >
+                                    Open Messages
+                                </button>
+                            )}
+                            {shareAttachModal.channel === 'email' && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        window.open('mailto:', '_blank', 'noopener,noreferrer');
+                                    }}
+                                    className="w-full sm:w-auto px-4 py-2.5 rounded-sm bg-gray-700 text-white text-sm font-bold hover:bg-gray-800 uppercase tracking-wide"
+                                >
+                                    Open email
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>

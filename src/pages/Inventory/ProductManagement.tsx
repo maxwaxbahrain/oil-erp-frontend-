@@ -4,12 +4,11 @@ import {
     Tag,
     BarChart2,
     AlertTriangle,
-    Plus,
-    BarChart3
 } from 'lucide-react';
 import ProductCatalog from './ProductCatalog';
 import Categories from './Categories';
 import LowStockAlerts from './LowStockAlerts';
+import StockAdjustmentManager from './StockAdjustmentManager';
 import clsx from 'clsx';
 
 type TabType = 'Products' | 'Categories' | 'Stock Adjustment' | 'Low Stock';
@@ -66,25 +65,7 @@ export default function ProductManagement() {
             <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
                 {activeTab === 'Products' && <ProductCatalog />}
                 {activeTab === 'Categories' && <Categories />}
-                {activeTab === 'Stock Adjustment' && (
-                    <div className="bg-white p-12 rounded-3xl border border-gray-100 shadow-sm flex flex-col items-center justify-center text-center">
-                        <BarChart2 size={64} className="text-gray-200 mb-6" />
-                        <h2 className="text-2xl font-black text-gray-900 uppercase tracking-tighter mb-4">Stock Adjustment</h2>
-                        <p className="text-gray-500 max-w-md mx-auto mb-10 text-sm font-medium leading-relaxed">
-                            Adjust stock levels for specific products across your warehouse, vans, and stores.
-                        </p>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-2xl">
-                            <button className="p-8 bg-gray-50 border border-gray-100 rounded-3xl hover:bg-white hover:border-gray-900 hover:shadow-xl transition-all group">
-                                <Plus className="mx-auto mb-4 text-gray-400 group-hover:text-gray-900" size={32} />
-                                <span className="text-[11px] font-black uppercase tracking-widest block">New Adjustment</span>
-                            </button>
-                            <button className="p-8 bg-gray-50 border border-gray-100 rounded-3xl hover:bg-white hover:border-gray-900 hover:shadow-xl transition-all group">
-                                <BarChart3 className="mx-auto mb-4 text-gray-400 group-hover:text-gray-900" size={32} />
-                                <span className="text-[11px] font-black uppercase tracking-widest block">View History</span>
-                            </button>
-                        </div>
-                    </div>
-                )}
+                {activeTab === 'Stock Adjustment' && <StockAdjustmentManager />}
                 {activeTab === 'Low Stock' && <LowStockAlerts />}
             </div>
         </div>

@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import {
-    Building2, ChevronRight, ChevronDown, Plus, MapPin, Users, CornerUpLeft
+    Building2, ChevronRight, ChevronDown, Plus, MapPin, Users
 } from 'lucide-react';
 import clsx from 'clsx';
-import { Link } from 'react-router-dom';
 
 // Tree Node Structure
 type OrgUnit = {

@@ -1,7 +1,6 @@
-import { useState } from 'react';
 import {
     Store, MapPin, Truck, Calendar, ShoppingBag,
-    MoreHorizontal, Filter, Search, Plus
+    Search, Plus, CornerUpLeft
 } from 'lucide-react';
 import clsx from 'clsx';
 

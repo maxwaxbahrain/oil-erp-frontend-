@@ -29,6 +29,8 @@ export default function CustomerLedger({ customer, onBack }: CustomerLedgerProps
           <tr>
             <th style={{ padding: '8px' }}>Date</th>
             <th style={{ padding: '8px' }}>Description</th>
+            <th style={{ padding: '8px' }}>Van</th>
+            <th style={{ padding: '8px' }}>Salesman</th>
             <th style={{ padding: '8px' }}>Debit</th>
             <th style={{ padding: '8px' }}>Credit</th>
             <th style={{ padding: '8px' }}>Balance</th>
@@ -37,11 +39,13 @@ export default function CustomerLedger({ customer, onBack }: CustomerLedgerProps
         <tbody>
           {ledger.map((entry) => (
             <tr key={entry.id} style={{ color: '#000' }}>
-              <td style={{ padding: '8px' }}>{entry.date}</td>
+              <td style={{ padding: '8px' }}>{new Date(entry.date).toLocaleDateString()}</td>
               <td style={{ padding: '8px' }}>{entry.description}</td>
-              <td style={{ padding: '8px' }}>{(entry.type === 'invoice' || entry.type === 'debit') ? entry.amount : '-'}</td>
-              <td style={{ padding: '8px' }}>{(entry.type === 'payment' || entry.type === 'credit') ? entry.amount : '-'}</td>
-              <td style={{ padding: '8px' }}>{entry.balance}</td>
+              <td style={{ padding: '8px' }}>{entry.van_number || '-'}</td>
+              <td style={{ padding: '8px' }}>{entry.salesman_name || '-'}</td>
+              <td style={{ padding: '8px' }}>{(entry.type === 'invoice' || entry.type === 'debit' || entry.type === 'van_sale') ? entry.amount.toFixed(2) : '-'}</td>
+              <td style={{ padding: '8px' }}>{(entry.type === 'payment' || entry.type === 'credit') ? entry.amount.toFixed(2) : '-'}</td>
+              <td style={{ padding: '8px' }}>{entry.balance.toFixed(2)}</td>
             </tr>
           ))}
         </tbody>

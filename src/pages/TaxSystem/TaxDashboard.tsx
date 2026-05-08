@@ -1,7 +1,5 @@
-import { useState } from 'react';
 import {
-    PieChart, Activity, Calendar, FileText, DollarSign,
-    CheckCircle, AlertCircle, TrendingUp, Map, Shield
+    Activity, Calendar, CheckCircle, AlertCircle, Map
 } from 'lucide-react';
 import clsx from 'clsx';
 

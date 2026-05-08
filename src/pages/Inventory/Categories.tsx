@@ -36,7 +36,7 @@ export default function Categories() {
             const categoriesWithCounts = cats.map(cat => {
                 const categoryProducts = products.filter(p => p.category === cat.name);
                 const totalValue = categoryProducts.reduce((sum, p) => {
-                    const totalStock = p.locations.reduce((s, l) => s + l.currentStock, 0);
+                    const totalStock = p.locations.reduce((s, l) => s + (l.currentStock ?? 0), 0);
                     return sum + (totalStock * p.pricing.sellingPrice);
                 }, 0);
                 return {

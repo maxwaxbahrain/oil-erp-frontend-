@@ -1,13 +1,13 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-    Users, TrendingUp, Handshake, Store, ArrowLeft,
-    Calendar, Download, ChevronRight, CornerUpLeft
+    Users, TrendingUp, Handshake, Store,
+    Calendar, CornerUpLeft
 } from 'lucide-react';
 
 export default function OrgPerformance() {
     const navigate = useNavigate();
-    const [period, setPeriod] = useState('December 2024');
+    const [period] = useState('December 2024');
 
     return (
         <div className="flex flex-col h-full bg-redwood-bg-light overflow-hidden">

@@ -18,6 +18,8 @@ import {
 import {
     getCompanyProfile,
     saveCompanyProfile,
+    saveCompanySettings,
+    companyProfileToSettings,
     getDocumentSignature,
     saveDocumentSignature,
     type CompanyProfile,
@@ -46,7 +48,8 @@ export default function SettingsPage() {
     const handleSaveProfile = (e: React.FormEvent) => {
         e.preventDefault();
         saveCompanyProfile(profile);
-        notify('Company profile synchronized successfully');
+        saveCompanySettings(companyProfileToSettings(profile));
+        notify('Company profile saved successfully');
     };
 
     const handleSaveSignature = (e: React.FormEvent) => {
@@ -248,6 +251,16 @@ export default function SettingsPage() {
                                                     type="text"
                                                     value={profile.website}
                                                     onChange={(e) => setProfile({ ...profile, website: e.target.value })}
+                                                    className="w-full bg-gray-50 border border-redwood-border rounded-sm px-4 py-3 text-sm font-bold focus:bg-white focus:border-redwood-brand outline-none transition-all"
+                                                />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <label className="text-[10px] font-black text-redwood-text-muted uppercase tracking-widest">Tax ID (optional)</label>
+                                                <input
+                                                    type="text"
+                                                    value={profile.taxId ?? ''}
+                                                    onChange={(e) => setProfile({ ...profile, taxId: e.target.value })}
+                                                    placeholder="e.g. EIN / VAT"
                                                     className="w-full bg-gray-50 border border-redwood-border rounded-sm px-4 py-3 text-sm font-bold focus:bg-white focus:border-redwood-brand outline-none transition-all"
                                                 />
                                             </div>

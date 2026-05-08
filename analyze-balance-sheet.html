@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Balance Sheet Data Source Analyzer</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1400px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #C74634;
+            border-bottom: 3px solid #C74634;
+            padding-bottom: 10px;
+        }
+
+        h2 {
+            color: #333;
+            margin-top: 30px;
+            background: #f8f8f8;
+            padding: 10px;
+            border-left: 4px solid #C74634;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+
+        th,
+        td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        th {
+            background: #C74634;
+            color: white;
+            font-weight: bold;
+        }
+
+        tr:hover {
+            background: #f5f5f5;
+        }
+
+        .value {
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            color: #0052CC;
+        }
+
+        .source {
+            font-size: 12px;
+            color: #666;
+            font-style: italic;
+        }
+
+        .warning {
+            background: #FFF4E5;
+            border-left: 4px solid #FFAB00;
+            padding: 15px;
+            margin: 15px 0;
+        }
+
+        .success {
+            background: #E3FCEF;
+            border-left: 4px solid #36B37E;
+            padding: 15px;
+            margin: 15px 0;
+        }
+
+        .error {
+            background: #FFEBE6;
+            border-left: 4px solid #FF5630;
+            padding: 15px;
+            margin: 15px 0;
+        }
+
+        button {
+            background: #C74634;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+
+        button:hover {
+            background: #A63829;
+        }
+
+        .detail-box {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+        }
+
+        .count {
+            background: #0052CC;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🔍 Balance Sheet - Data Source Analyzer</h1>
+        <p>This tool shows you <strong>exactly where each Balance Sheet value comes from</strong> in your system.</p>
+
+        <button onclick="analyzeData()">▶ Analyze Balance Sheet Data Sources</button>
+        <button onclick="showRawData()">📊 Show Raw Data</button>
+
+        <div id="results"></div>
+    </div>
+
+    <script>
+        function formatCurrency(value) {
+            return '$' + value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        function analyzeData() {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<h2>🔄 Analyzing...</h2>';
+
+            try {
+                // Get all data sources
+                const invoices = JSON.parse(localStorage.getItem('zavi_invoices') || '[]');
+                const purchaseOrders = JSON.parse(localStorage.getItem('zavi_purchase_orders') || '[]');
+                const expenses = JSON.parse(localStorage.getItem('zavi_expenses') || '[]');
+                const products = JSON.parse(localStorage.getItem('zavi_products') || '[]');
+                const financialSettings = JSON.parse(localStorage.getItem('zavi_financial_settings') || '{}');
+
+                let html = '<h2>📊 Balance Sheet Data Sources</h2>';
+
+                // ASSETS
+                html += '<h2>ASSETS</h2>';
+                html += '<table>';
+                html += '<tr><th>Item</th><th>Value</th><th>Data Source</th><th>Details</th></tr>';
+
+                // Cash
+                html += '<tr>';
+                html += '<td><strong>Cash</strong></td>';
+                html += '<td class="value">Calculated from Cash Flow</td>';
+                html += '<td class="source">Cash Flow Service → All Paid Invoices - All Paid Purchases - All Paid Expenses + Initial Capital</td>';
+                html += '<td><button onclick="showCashDetails()">View Details</button></td>';
+                html += '</tr>';
+
+                // Accounts Receivable
+                const unpaidInvoices = invoices.filter(inv => inv.payment_status === 'Unpaid');
+                const accountsReceivable = unpaidInvoices.reduce((sum, inv) => sum + inv.grandTotal, 0);
+                html += '<tr>';
+                html += '<td><strong>Accounts Receivable</strong></td>';
+                html += '<td class="value">' + formatCurrency(accountsReceivable) + '</td>';
+                html += '<td class="source">Unpaid Invoices <span class="count">' + unpaidInvoices.length + '</span></td>';
+                html += '<td><button onclick="showUnpaidInvoices()">View Invoices</button></td>';
+                html += '</tr>';
+
+                // Inventory
+                let inventory = 0;
+                let inventoryDetails = [];
+                products.forEach(p => {
+                    const stock = p.locations?.reduce((s, loc) => s + loc.currentStock, 0) || 0;
+                    const cost = p.pricing?.landedCost || p.pricing?.sellingPrice || 0;
+                    const value = stock * cost;
+                    inventory += value;
+                    if (stock > 0) {
+                        inventoryDetails.push({
+                            name: p.name,
+                            stock: stock,
+                            cost: cost,
+                            value: value
+                        });
+                    }
+                });
+                html += '<tr>';
+                html += '<td><strong>Inventory</strong></td>';
+                html += '<td class="value">' + formatCurrency(inventory) + '</td>';
+                html += '<td class="source">Product Stock × Cost <span class="count">' + inventoryDetails.length + ' products</span></td>';
+                html += '<td><button onclick="showInventoryDetails()">View Products</button></td>';
+                html += '</tr>';
+
+                // Fixed Assets
+                const equipmentExpenses = expenses.filter(exp =>
+                    exp.category?.toLowerCase().includes('equipment') ||
+                    exp.category?.toLowerCase().includes('asset') ||
+                    exp.category?.toLowerCase().includes('property')
+                );
+                const equipmentPurchases = equipmentExpenses.reduce((sum, exp) => sum + exp.amount, 0);
+                html += '<tr>';
+                html += '<td><strong>Property, Plant & Equipment</strong></td>';
+                html += '<td class="value">' + formatCurrency(equipmentPurchases) + '</td>';
+                html += '<td class="source">Equipment/Asset Expenses <span class="count">' + equipmentExpenses.length + '</span></td>';
+                html += '<td><button onclick="showEquipmentExpenses()">View Expenses</button></td>';
+                html += '</tr>';
+
+                // Accumulated Depreciation
+                const depreciationRate = financialSettings.depreciationRate || 0.20;
+                const equipmentDates = equipmentExpenses.map(exp => new Date(exp.date));
+                const firstPurchaseDate = equipmentDates.length > 0
+                    ? new Date(Math.min(...equipmentDates.map(d => d.getTime())))
+                    : new Date();
+                const yearsSinceFirstPurchase = (new Date().getTime() - firstPurchaseDate.getTime()) / (1000 * 60 * 60 * 24 * 365);
+                const accumulatedDepreciation = equipmentPurchases * depreciationRate * yearsSinceFirstPurchase;
+
+                html += '<tr>';
+                html += '<td><strong>Accumulated Depreciation</strong></td>';
+                html += '<td class="value">(' + formatCurrency(accumulatedDepreciation) + ')</td>';
+                html += '<td class="source">Equipment × ' + (depreciationRate * 100) + '% × ' + yearsSinceFirstPurchase.toFixed(2) + ' years</td>';
+                html += '<td>From Financial Settings</td>';
+                html += '</tr>';
+
+                html += '</table>';
+
+                // LIABILITIES
+                html += '<h2>LIABILITIES</h2>';
+                html += '<table>';
+                html += '<tr><th>Item</th><th>Value</th><th>Data Source</th><th>Details</th></tr>';
+
+                // Accounts Payable
+                const unpaidPOs = purchaseOrders.filter(po => po.payment_status === 'Unpaid');
+                const accountsPayable = unpaidPOs.reduce((sum, po) => sum + po.grandTotal, 0);
+                html += '<tr>';
+                html += '<td><strong>Accounts Payable</strong></td>';
+                html += '<td class="value">' + formatCurrency(accountsPayable) + '</td>';
+                html += '<td class="source">Unpaid Purchase Orders <span class="count">' + unpaidPOs.length + '</span></td>';
+                html += '<td><button onclick="showUnpaidPOs()">View POs</button></td>';
+                html += '</tr>';
+
+                // Short-term Debt
+                const shortTermDebt = financialSettings.shortTermDebt || 0;
+                html += '<tr>';
+                html += '<td><strong>Short-Term Debt</strong></td>';
+                html += '<td class="value">' + formatCurrency(shortTermDebt) + '</td>';
+                html += '<td class="source">Financial Settings (Configurable)</td>';
+                html += '<td><button onclick="updateDebt(\'short\')">Update</button></td>';
+                html += '</tr>';
+
+                // Long-term Debt
+                const longTermDebt = financialSettings.longTermDebt || 0;
+                html += '<tr>';
+                html += '<td><strong>Long-Term Debt</strong></td>';
+                html += '<td class="value">' + formatCurrency(longTermDebt) + '</td>';
+                html += '<td class="source">Financial Settings (Configurable)</td>';
+                html += '<td><button onclick="updateDebt(\'long\')">Update</button></td>';
+                html += '</tr>';
+
+                html += '</table>';
+
+                // EQUITY
+                html += '<h2>EQUITY</h2>';
+                html += '<table>';
+                html += '<tr><th>Item</th><th>Value</th><th>Data Source</th><th>Details</th></tr>';
+
+                // Owner's Capital
+                const ownersCapital = financialSettings.ownersCapital || 150000;
+                html += '<tr>';
+                html += '<td><strong>Owner\'s Capital</strong></td>';
+                html += '<td class="value">' + formatCurrency(ownersCapital) + '</td>';
+                html += '<td class="source">Financial Settings (Configurable)</td>';
+                html += '<td><button onclick="updateCapital()">Update</button></td>';
+                html += '</tr>';
+
+                // Retained Earnings
+                const allPaidInvoices = invoices.filter(inv => inv.payment_status === 'Paid');
+                const allPaidPOs = purchaseOrders.filter(po => po.payment_status === 'Paid');
+                const allPaidExpenses = expenses.filter(exp => exp.status === 'Paid');
+
+                const totalRevenue = allPaidInvoices.reduce((sum, inv) => sum + inv.grandTotal, 0);
+                const totalCosts = allPaidPOs.reduce((sum, po) => sum + po.grandTotal, 0);
+                const totalExpenses = allPaidExpenses.reduce((sum, exp) => sum + exp.amount, 0);
+                const retainedEarnings = totalRevenue - totalCosts - totalExpenses;
+
+                html += '<tr>';
+                html += '<td><strong>Retained Earnings</strong></td>';
+                html += '<td class="value">' + formatCurrency(retainedEarnings) + '</td>';
+                html += '<td class="source">ALL TIME: Revenue - Costs - Expenses</td>';
+                html += '<td><button onclick="showRetainedEarningsBreakdown()">View Breakdown</button></td>';
+                html += '</tr>';
+
+                html += '</table>';
+
+                // Summary
+                html += '<div class="success">';
+                html += '<h3>✅ Summary</h3>';
+                html += '<p><strong>All values are connected to real data!</strong></p>';
+                html += '<ul>';
+                html += '<li>Invoices: <strong>' + invoices.length + '</strong> total (' + unpaidInvoices.length + ' unpaid)</li>';
+                html += '<li>Purchase Orders: <strong>' + purchaseOrders.length + '</strong> total (' + unpaidPOs.length + ' unpaid)</li>';
+                html += '<li>Expenses: <strong>' + expenses.length + '</strong> total</li>';
+                html += '<li>Products: <strong>' + products.length + '</strong> total (' + inventoryDetails.length + ' in stock)</li>';
+                html += '</ul>';
+                html += '</div>';
+
+                // Store data for detail views
+                window.analysisData = {
+                    unpaidInvoices,
+                    unpaidPOs,
+                    inventoryDetails,
+                    equipmentExpenses,
+                    allPaidInvoices,
+                    allPaidPOs,
+                    allPaidExpenses,
+                    totalRevenue,
+                    totalCosts,
+                    totalExpenses
+                };
+
+                resultsDiv.innerHTML = html;
+
+            } catch (error) {
+                resultsDiv.innerHTML = '<div class="error"><h3>Error</h3><p>' + error.message + '</p></div>';
+            }
+        }
+
+        function showUnpaidInvoices() {
+            if (!window.analysisData) return;
+            const invoices = window.analysisData.unpaidInvoices;
+            let html = '<h3>Unpaid Invoices (Accounts Receivable)</h3>';
+            html += '<table><tr><th>Invoice #</th><th>Customer</th><th>Date</th><th>Amount</th></tr>';
+            invoices.forEach(inv => {
+                html += '<tr>';
+                html += '<td>' + inv.invoiceNumber + '</td>';
+                html += '<td>' + (inv.customer_name || 'N/A') + '</td>';
+                html += '<td>' + new Date(inv.invoiceDate).toLocaleDateString() + '</td>';
+                html += '<td>' + formatCurrency(inv.grandTotal) + '</td>';
+                html += '</tr>';
+            });
+            html += '</table>';
+            alert(html.replace(/<[^>]*>/g, '\n'));
+        }
+
+        function showUnpaidPOs() {
+            if (!window.analysisData) return;
+            const pos = window.analysisData.unpaidPOs;
+            let html = '<h3>Unpaid Purchase Orders (Accounts Payable)</h3>';
+            html += '<table><tr><th>PO #</th><th>Supplier</th><th>Date</th><th>Amount</th></tr>';
+            pos.forEach(po => {
+                html += '<tr>';
+                html += '<td>' + po.poNumber + '</td>';
+                html += '<td>' + (po.supplier_name || 'N/A') + '</td>';
+                html += '<td>' + new Date(po.date).toLocaleDateString() + '</td>';
+                html += '<td>' + formatCurrency(po.grandTotal) + '</td>';
+                html += '</tr>';
+            });
+            html += '</table>';
+            alert(html.replace(/<[^>]*>/g, '\n'));
+        }
+
+        function showInventoryDetails() {
+            if (!window.analysisData) return;
+            const items = window.analysisData.inventoryDetails;
+            let text = 'INVENTORY BREAKDOWN\n\n';
+            items.forEach(item => {
+                text += item.name + ': ' + item.stock + ' units × ' + formatCurrency(item.cost) + ' = ' + formatCurrency(item.value) + '\n';
+            });
+            alert(text);
+        }
+
+        function showEquipmentExpenses() {
+            if (!window.analysisData) return;
+            const expenses = window.analysisData.equipmentExpenses;
+            let text = 'EQUIPMENT/ASSET PURCHASES\n\n';
+            expenses.forEach(exp => {
+                text += exp.name + ' (' + new Date(exp.date).toLocaleDateString() + '): ' + formatCurrency(exp.amount) + '\n';
+            });
+            alert(text);
+        }
+
+        function showRetainedEarningsBreakdown() {
+            if (!window.analysisData) return;
+            const data = window.analysisData;
+            let text = 'RETAINED EARNINGS CALCULATION (ALL TIME)\n\n';
+            text += 'Total Revenue (Paid Invoices): ' + formatCurrency(data.totalRevenue) + '\n';
+            text += '  - ' + data.allPaidInvoices.length + ' paid invoices\n\n';
+            text += 'Total Costs (Paid POs): ' + formatCurrency(data.totalCosts) + '\n';
+            text += '  - ' + data.allPaidPOs.length + ' paid purchase orders\n\n';
+            text += 'Total Expenses (Paid): ' + formatCurrency(data.totalExpenses) + '\n';
+            text += '  - ' + data.allPaidExpenses.length + ' paid expenses\n\n';
+            text += '= Retained Earnings: ' + formatCurrency(data.totalRevenue - data.totalCosts - data.totalExpenses);
+            alert(text);
+        }
+
+        function updateCapital() {
+            const amount = prompt('Enter Owner\'s Capital:', '150000');
+            if (amount) {
+                const settings = JSON.parse(localStorage.getItem('zavi_financial_settings') || '{}');
+                settings.ownersCapital = parseFloat(amount);
+                settings.initialCashBalance = parseFloat(amount);
+                localStorage.setItem('zavi_financial_settings', JSON.stringify(settings));
+                alert('Owner\'s Capital updated! Refresh the Balance Sheet page to see changes.');
+                analyzeData();
+            }
+        }
+
+        function updateDebt(type) {
+            const label = type === 'short' ? 'Short-Term Debt' : 'Long-Term Debt';
+            const amount = prompt('Enter ' + label + ':', '0');
+            if (amount !== null) {
+                const settings = JSON.parse(localStorage.getItem('zavi_financial_settings') || '{}');
+                if (type === 'short') {
+                    settings.shortTermDebt = parseFloat(amount) || 0;
+                } else {
+                    settings.longTermDebt = parseFloat(amount) || 0;
+                }
+                localStorage.setItem('zavi_financial_settings', JSON.stringify(settings));
+                alert(label + ' updated! Refresh the Balance Sheet page to see changes.');
+                analyzeData();
+            }
+        }
+
+        function showRawData() {
+            const data = {
+                invoices: JSON.parse(localStorage.getItem('zavi_invoices') || '[]').length,
+                purchaseOrders: JSON.parse(localStorage.getItem('zavi_purchase_orders') || '[]').length,
+                expenses: JSON.parse(localStorage.getItem('zavi_expenses') || '[]').length,
+                products: JSON.parse(localStorage.getItem('zavi_products') || '[]').length,
+                financialSettings: JSON.parse(localStorage.getItem('zavi_financial_settings') || '{}')
+            };
+            alert('RAW DATA SUMMARY:\n\n' + JSON.stringify(data, null, 2));
+        }
+
+        // Auto-run on load
+        window.addEventListener('load', () => {
+            setTimeout(analyzeData, 500);
+        });
+    </script>
+</body>
+
+</html>

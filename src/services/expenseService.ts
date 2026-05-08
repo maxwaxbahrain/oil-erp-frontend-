@@ -239,7 +239,7 @@ export async function deleteExpense(id: string): Promise<void> {
 }
 
 // AI-powered expense extraction (simulated)
-export async function extractExpenseFromReceipt(file: File): Promise<AIExtractedData> {
+export async function extractExpenseFromReceipt(_file: File): Promise<AIExtractedData> {
     return new Promise((resolve) => {
         // Simulate AI processing delay
         setTimeout(() => {
@@ -260,7 +260,7 @@ export async function extractExpenseFromReceipt(file: File): Promise<AIExtracted
 }
 
 // LLM-powered custom expense head creator (simulated)
-export async function generateExpenseHeadWithAI(description: string): Promise<{
+export async function generateExpenseHeadWithAI(_description: string): Promise<{
     name: string;
     parentCategory: string;
     type: string;

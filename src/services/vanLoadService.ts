@@ -1,5 +1,5 @@
-const API_BASE_URL = 'http://localhost:8000/api';
-const USE_MOCK = true;
+import { API_BASE_URL } from './api';
+const USE_MOCK = false;
 
 export interface VanLoad {
     id: string;

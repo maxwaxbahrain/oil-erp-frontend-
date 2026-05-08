@@ -1,7 +1,6 @@
-import { useState } from 'react';
 import {
-    FileText, CheckCircle, Download, Calendar, UploadCloud,
-    MoreHorizontal, Shield, ExternalLink
+    FileText, Download, Calendar, UploadCloud,
+    Shield
 } from 'lucide-react';
 import clsx from 'clsx';
 

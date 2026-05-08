@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
     Calculator, MapPin, Package, ShoppingCart,
-    ArrowRight, CheckCircle, RefreshCw, DollarSign
+    ArrowRight, CheckCircle, RefreshCw
 } from 'lucide-react';
 import clsx from 'clsx';
 
