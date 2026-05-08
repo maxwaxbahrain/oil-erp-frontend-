@@ -198,15 +198,14 @@ const PurchasesDashboard = () => {
                             <tr className="bg-redwood-bg-light/50 border-b border-redwood-border">
                                 <th className="px-8 py-5 text-[10px] font-black text-redwood-text-muted uppercase tracking-[0.25em]">Authorized Supplier</th>
                                 <th className="px-8 py-5 text-[10px] font-black text-redwood-text-muted uppercase tracking-[0.25em]">Document ID</th>
-                                <th className="px-8 py-5 text-[10px] font-black text-redwood-text-muted uppercase tracking-[0.25em]">Workflow State</th>
+                                <th className="px-8 py-5 text-[10px] font-black text-redwood-text-muted uppercase tracking-[0.25em]">Workflow State & Actions</th>
                                 <th className="px-8 py-5 text-[10px] font-black text-redwood-text-muted uppercase tracking-[0.25em] text-right">Fiscal Value</th>
-                                <th className="px-8 py-5 text-[10px] font-black text-redwood-text-muted uppercase tracking-[0.25em] text-right">Command</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-redwood-bg-light/30">
                             {purchaseOrders.length === 0 ? (
                                 <tr>
-                                    <td colSpan={5} className="px-8 py-20 text-center">
+                                    <td colSpan={4} className="px-8 py-20 text-center">
                                         <div className="flex flex-col items-center gap-4">
                                             <ClipboardList size={48} className="text-redwood-border" />
                                             <p className="text-sm font-bold text-redwood-text-muted uppercase tracking-wide">No Purchase Orders Yet</p>
@@ -226,22 +225,16 @@ const PurchasesDashboard = () => {
                                             <div className="text-[10px] text-redwood-text-muted font-bold uppercase tracking-widest mt-1 opacity-60">Date: {new Date(order.date).toLocaleDateString()}</div>
                                         </td>
                                         <td className="px-8 py-6">
-                                            <div className="flex items-center gap-3">
+                                            <div className="flex items-center gap-3 mb-2">
                                                 <div className={`w-2 h-2 rounded-full ${getStatusColor(order.status)} ${order.status === 'Draft' ? 'animate-pulse' : ''}`}></div>
                                                 <span className="text-[10px] font-black text-redwood-text-main uppercase tracking-widest border border-redwood-border px-3 py-1 bg-white shadow-sm">
                                                     {getStatusLabel(order.status)}
                                                 </span>
                                             </div>
-                                        </td>
-                                        <td className="px-8 py-6 text-right">
-                                            <div className="text-[14px] font-black text-redwood-text-main tracking-tighter font-mono">${order.grandTotal.toFixed(2)}</div>
-                                            <div className="text-[9px] text-rose-600 font-bold uppercase tracking-[0.2em] mt-1">{order.status === 'Completed' ? 'Settled' : 'Pending Settlement'}</div>
-                                        </td>
-                                        <td className="px-8 py-6 text-right">
-                                            <div className="flex items-center justify-end gap-2">
-                                                {order.status === 'Pending' && (
+                                            <div className="flex items-center gap-2 mt-1">
+                                                {(order.status === 'Pending' || order.status === 'Draft') && (
                                                     <button
-                                                        onClick={() => handleApprove(order.id)}
+                                                        onClick={(e) => { e.stopPropagation(); handleApprove(order.id); }}
                                                         className="px-3 py-1.5 bg-blue-600 text-white text-[10px] font-black uppercase tracking-wide rounded hover:bg-blue-700 transition-all"
                                                     >
                                                         ✓ Approve PO
@@ -249,7 +242,7 @@ const PurchasesDashboard = () => {
                                                 )}
                                                 {order.status === 'Approved' && (
                                                     <button
-                                                        onClick={() => handleGRN(order.id)}
+                                                        onClick={(e) => { e.stopPropagation(); handleGRN(order.id); }}
                                                         className="px-3 py-1.5 bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wide rounded hover:bg-emerald-700 transition-all"
                                                     >
                                                         📦 Confirm GRN
@@ -257,19 +250,24 @@ const PurchasesDashboard = () => {
                                                 )}
                                                 {order.status === 'GRN' && (
                                                     <button
-                                                        onClick={() => handleMarkPaid(order.id)}
+                                                        onClick={(e) => { e.stopPropagation(); handleMarkPaid(order.id); }}
                                                         className="px-3 py-1.5 bg-orange-600 text-white text-[10px] font-black uppercase tracking-wide rounded hover:bg-orange-700 transition-all"
                                                     >
                                                         💰 Mark Paid
                                                     </button>
                                                 )}
-                                                {order.status === 'Paid' && (
+                                                {(order.status === 'Paid' || order.status === 'Received' || order.status === 'Completed') && (
                                                     <span className="px-3 py-1.5 bg-gray-100 text-gray-500 text-[10px] font-black uppercase tracking-wide rounded">
                                                         ✅ Settled
                                                     </span>
                                                 )}
                                             </div>
                                         </td>
+                                        <td className="px-8 py-6 text-right">
+                                            <div className="text-[14px] font-black text-redwood-text-main tracking-tighter font-mono">${order.grandTotal.toFixed(2)}</div>
+                                            <div className="text-[9px] text-rose-600 font-bold uppercase tracking-[0.2em] mt-1">{order.status === 'Completed' ? 'Settled' : 'Pending Settlement'}</div>
+                                        </td>
+
                                     </tr>
                                 ))
                             )}
