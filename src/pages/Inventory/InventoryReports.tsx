@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { formatCurrency as globalFormatCurrency } from '../../services/settingsService';
 import {
     BarChart3,
     Download,
@@ -358,7 +359,7 @@ function ReportModal({ type, data, onClose, loading }: { type: ReportType; data:
 
 // Individual Report Components
 function ValuationReport({ data }: { data: InventoryValuation }) {
-    const formatCurrency = (value: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
+    const formatCurrency = globalFormatCurrency;
 
     return (
         <div className="space-y-8">
@@ -479,7 +480,7 @@ function MovementReport({ data }: { data: StockMovement[] }) {
 }
 
 function DeadStockReport({ data }: { data: DeadStock[] }) {
-    const formatCurrency = (value: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
+    const formatCurrency = globalFormatCurrency;
 
     return (
         <div className="space-y-6">
@@ -565,7 +566,7 @@ function SupplierReport({ data }: { data: SupplierAccuracy[] }) {
 }
 
 function LossReport({ data }: { data: LossLeakage[] }) {
-    const formatCurrency = (value: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
+    const formatCurrency = globalFormatCurrency;
     const totalLoss = data.reduce((sum, item) => sum + Math.abs(item.estimatedLoss), 0);
 
     return (

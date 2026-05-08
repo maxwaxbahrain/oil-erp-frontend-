@@ -508,16 +508,18 @@ export default function SupplierDetail() {
                 <div className="bg-white border border-[#ddd] rounded-[4px] p-[20px] shadow-sm m-[10px]">
                     <div className="text-xs font-bold text-gray-500 uppercase mb-1">Credit Ceiling</div>
                     <div className="text-2xl font-black text-gray-900 font-mono">
-                        {supplier.creditLimit && supplier.creditLimit > 0 ? supplier.creditLimit.toLocaleString() : '-'}
+                        {supplier.creditLimit && supplier.creditLimit > 0 
+                        ? formatCurrency(supplier.creditLimit) 
+                        : <span className="text-gray-400 text-sm">Not Set</span>}
                     </div>
                 </div>
 
                 <div className="bg-white border border-[#ddd] rounded-[4px] p-[20px] shadow-sm m-[10px]">
                     <div className="text-xs font-bold text-gray-500 uppercase mb-1">Overdue Arrears</div>
-                    <div className="text-2xl font-black text-rose-600 font-mono">
-                        {outstandingBalance > (supplier.creditLimit || 0) && supplier.creditLimit && (outstandingBalance - supplier.creditLimit) > 0
-                            ? (outstandingBalance - supplier.creditLimit).toLocaleString()
-                            : '-'}
+                    <div className="text-2xl font-black font-mono">
+                        {outstandingBalance > 0
+                            ? <span className="text-rose-600">{formatCurrency(outstandingBalance)}</span>
+                            : <span className="text-emerald-600">$0.00</span>}
                     </div>
                 </div>
 
@@ -641,6 +643,13 @@ export default function SupplierDetail() {
                                     </div>
                                 </div>
                             </div>
+
+                            {supplier.notes && (
+                                <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
+                                    <p className="text-[10px] font-black text-yellow-700 uppercase tracking-widest mb-1">📝 Internal Notes</p>
+                                    <p className="text-sm text-gray-700 leading-relaxed">{supplier.notes}</p>
+                                </div>
+                            )}
 
                             <div className="space-y-6">
                                 <div>
@@ -1158,15 +1167,43 @@ export default function SupplierDetail() {
                                                 />
                                             </div>
                                         </div>
-                                        <div className="space-y-6">
+                                        <div className="space-y-4">
                                             <div>
-                                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Business address</label>
+                                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Business Address</label>
                                                 <textarea
-                                                    value={supplier.address}
+                                                    value={supplier.address || ''}
                                                     onChange={e => setSupplier({ ...supplier, address: e.target.value })}
                                                     className="w-full bg-gray-50 border-2 border-gray-100 rounded-xl px-4 py-3 text-sm font-bold focus:border-redwood-brand outline-none transition-all"
-                                                    rows={3}
+                                                    rows={2}
                                                 />
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Tax ID / VAT</label>
+                                                    <input
+                                                        type="text"
+                                                        value={supplier.taxId || ''}
+                                                        onChange={e => setSupplier({ ...supplier, taxId: e.target.value })}
+                                                        className="w-full bg-gray-50 border-2 border-gray-100 rounded-xl px-4 py-3 text-sm font-black focus:border-redwood-brand outline-none transition-all"
+                                                        placeholder="e.g. TAX-12345"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Payment Terms</label>
+                                                    <select
+                                                        value={supplier.paymentTerms || 'Net 30'}
+                                                        onChange={e => setSupplier({ ...supplier, paymentTerms: e.target.value })}
+                                                        className="w-full bg-gray-50 border-2 border-gray-100 rounded-xl px-4 py-3 text-sm font-black focus:border-redwood-brand outline-none transition-all"
+                                                    >
+                                                        <option>Net 7</option>
+                                                        <option>Net 15</option>
+                                                        <option>Net 30</option>
+                                                        <option>Net 45</option>
+                                                        <option>Net 60</option>
+                                                        <option>Advance Payment</option>
+                                                        <option>COD</option>
+                                                    </select>
+                                                </div>
                                             </div>
                                             <div className="grid grid-cols-2 gap-4">
                                                 <div>
@@ -1176,20 +1213,34 @@ export default function SupplierDetail() {
                                                         value={supplier.creditLimit || ''}
                                                         onChange={e => setSupplier({ ...supplier, creditLimit: parseFloat(e.target.value) || 0 })}
                                                         className="w-full bg-gray-50 border-2 border-gray-100 rounded-xl px-4 py-3 text-sm font-black focus:border-redwood-brand outline-none transition-all font-mono"
+                                                        placeholder="0.00"
                                                     />
                                                 </div>
                                                 <div>
                                                     <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Fiscal Currency</label>
                                                     <select
-                                                        value={supplier.currency}
+                                                        value={supplier.currency || 'USD'}
                                                         onChange={e => setSupplier({ ...supplier, currency: e.target.value })}
                                                         className="w-full bg-gray-50 border-2 border-gray-100 rounded-xl px-4 py-3 text-sm font-black focus:border-redwood-brand outline-none transition-all"
                                                     >
                                                         <option>USD</option>
+                                                        <option>AED</option>
                                                         <option>BHD</option>
-                                                        <option>{getSystemSettings().defaultCurrencyCode}</option>
+                                                        <option>PKR</option>
+                                                        <option>GBP</option>
+                                                        <option>EUR</option>
                                                     </select>
                                                 </div>
+                                            </div>
+                                            <div>
+                                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Internal Notes</label>
+                                                <textarea
+                                                    value={supplier.notes || ''}
+                                                    onChange={e => setSupplier({ ...supplier, notes: e.target.value })}
+                                                    className="w-full bg-gray-50 border-2 border-gray-100 rounded-xl px-4 py-3 text-sm font-bold focus:border-redwood-brand outline-none transition-all"
+                                                    rows={2}
+                                                    placeholder="Internal notes about this supplier..."
+                                                />
                                             </div>
                                         </div>
                                     </div>

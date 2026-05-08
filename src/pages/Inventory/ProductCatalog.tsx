@@ -259,7 +259,12 @@ export default function ProductCatalog() {
                                                             className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
                                                         />
                                                     ) : (
-                                                        <Package className="text-gray-200 group-hover:scale-110 transition-transform duration-700" size={64} />
+                                                        <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-orange-50 to-amber-100 group-hover:from-orange-100 group-hover:to-amber-200 transition-all duration-500">
+                                                            <div className="w-20 h-20 rounded-2xl bg-white shadow-md flex items-center justify-center mb-3 group-hover:scale-110 transition-transform duration-500">
+                                                                <span className="text-4xl">🛢️</span>
+                                                            </div>
+                                                            <span className="text-[10px] font-black text-orange-700 uppercase tracking-widest opacity-60">Bettano Oil</span>
+                                                        </div>
                                                     )}
                                                     <div className="absolute top-4 right-4">
                                                         <div className={clsx(
