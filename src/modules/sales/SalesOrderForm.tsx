@@ -3,6 +3,7 @@ import { ShoppingCart, Plus, Trash2, Save, X, User, Truck, Package, Calendar } f
 import { createSalesOrder, type SalesOrderItem } from '../../services/salesService';
 import { getCustomers, getVans, getProducts, type Customer, type Van, type Product } from '../../services/api';
 import FormInput from '../../components/forms/FormInput';
+import { getSystemSettings } from '../../services/settingsService';
 
 interface SalesOrderFormProps {
     onSave: () => void;
@@ -229,7 +230,7 @@ export default function SalesOrderForm({ onSave, onCancel }: SalesOrderFormProps
                                 </div>
 
                                 <div className="col-span-4 md:col-span-2 space-y-2">
-                                    <label className="text-[9px] font-black text-redwood-text-muted uppercase tracking-widest">Unit Rate (PKR)</label>
+                                    <label className="text-[9px] font-black text-redwood-text-muted uppercase tracking-widest">Unit Rate ({getSystemSettings().defaultCurrencyCode})</label>
                                     <input
                                         type="number"
                                         step="0.01"
@@ -272,7 +273,7 @@ export default function SalesOrderForm({ onSave, onCancel }: SalesOrderFormProps
                     <div className="text-right flex flex-col">
                         <span className="text-[11px] font-black text-redwood-text-muted uppercase tracking-[0.3em]">Aggregate Fiscal Exposure</span>
                         <div className="flex items-baseline gap-3 justify-end mt-1">
-                            <span className="text-[14px] font-black text-redwood-brand">PKR</span>
+                            <span className="text-[14px] font-black text-redwood-brand">{getSystemSettings().defaultCurrencyCode}</span>
                             <span className="text-4xl font-black text-redwood-text-main tracking-tighter font-mono">{totalAmount.toLocaleString()}</span>
                         </div>
                     </div>
