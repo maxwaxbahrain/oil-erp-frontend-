@@ -33,6 +33,7 @@ interface POFormData {
     paymentMethod: string;
     amountPaid: number;
     remainingBalance: number;
+    paymentReference: string;
     status: 'Pending' | 'Received';
 }
 
@@ -73,6 +74,7 @@ export default function PurchaseOrderForm() {
         paymentMethod: '',
         amountPaid: 0,
         remainingBalance: 0,
+        paymentReference: '',
         status: prefilledSupplier?.isPending ? 'Pending' : 'Received'
     });
 
@@ -109,9 +111,10 @@ export default function PurchaseOrderForm() {
         const subtotal = formData.lineItems.reduce((sum: number, item: POLineItem) => sum + item.amount, 0);
         const taxAmount = (subtotal * formData.taxRate) / 100;
         const grandTotal = subtotal + taxAmount - formData.discount;
-        const remainingBalance = formData.paymentStatus === 'Paid' ? 0 :
+        const rawBalance = formData.paymentStatus === 'Paid' ? 0 :
             formData.paymentStatus === 'Advance Paid' ? grandTotal - formData.amountPaid :
                 grandTotal;
+        const remainingBalance = Math.max(0, rawBalance);
 
         setFormData(prev => ({
             ...prev,
@@ -491,17 +494,27 @@ export default function PurchaseOrderForm() {
                         )}
 
                         {formData.paymentStatus === 'Advance Paid' && (
-                            <div className="space-y-3">
-                                <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest">Upfront Amount</label>
-                                <div className="relative">
-                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-orange-500 font-black">$</span>
+                            <div className="space-y-4">
+                                <div className="space-y-3">
+                                    <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest">Upfront Amount</label>
                                     <input
                                         type="number"
                                         value={formData.amountPaid || ''}
                                         onChange={(e) => setFormData(p => ({ ...p, amountPaid: parseFloat(e.target.value) || 0 }))}
-                                        className="w-full bg-gray-800 border-2 border-gray-700 rounded-xl pl-8 pr-4 py-4 text-lg font-mono font-black text-white focus:border-orange-500 outline-none transition-all"
-                                        placeholder="0.00"
+                                        className="w-full bg-gray-800 border-2 border-gray-700 rounded-xl px-4 py-4 text-lg font-mono font-black text-white focus:border-orange-500 outline-none transition-all"
+                                        placeholder="Enter amount paid"
                                     />
+                                </div>
+                                <div className="space-y-3">
+                                    <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest">Payment For (Invoice / PO Reference)</label>
+                                    <input
+                                        type="text"
+                                        value={formData.paymentReference || formData.poNumber}
+                                        onChange={(e) => setFormData(p => ({ ...p, paymentReference: e.target.value }))}
+                                        className="w-full bg-gray-800 border-2 border-gray-700 rounded-xl px-4 py-4 text-sm font-mono font-black text-orange-400 focus:border-orange-500 outline-none transition-all"
+                                        placeholder="e.g. PO-123456 or INV-789"
+                                    />
+                                    <p className="text-[10px] text-gray-500 italic">Auto-filled with this PO number. Edit if paying against a different invoice.</p>
                                 </div>
                             </div>
                         )}
@@ -581,6 +594,15 @@ export default function PurchaseOrderForm() {
                                             <span className="text-[9px] font-black text-emerald-700 uppercase tracking-widest">Amount Disbursed</span>
                                             <span className="text-base font-mono font-black text-emerald-800">
                                                 {formData.paymentStatus === 'Paid' ? formData.grandTotal.toLocaleString() : formData.amountPaid.toLocaleString()}
+                                            </span>
+                                        </div>
+                                    )}
+
+                                    {formData.paymentStatus === 'Advance Paid' && formData.amountPaid > formData.grandTotal && (
+                                        <div className="flex justify-between items-center bg-blue-500/10 px-4 py-3 rounded-xl border border-blue-400/30">
+                                            <span className="text-[9px] font-black text-blue-700 uppercase tracking-widest">⚠️ Overpayment / Credit</span>
+                                            <span className="text-base font-mono font-black text-blue-800">
+                                                +{(formData.amountPaid - formData.grandTotal).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                                             </span>
                                         </div>
                                     )}
