@@ -199,23 +199,30 @@ export const confirmGRN = async (id: string): Promise<PurchaseOrder> => {
     const po = orders.find(o => o.id === id);
     if (!po) throw new Error('PO not found');
 
-    // Increase warehouse stock for each line item via backend API
+    // Increase warehouse stock for each line item via dedicated add-stock endpoint
+    let stockUpdated = 0;
     for (const item of po.items) {
         if (!item.productId) continue;
         try {
-            const res = await fetch(`${API_HOST}/products/${item.productId}`);
-            if (!res.ok) continue;
-            const product = await res.json();
-            const newStock = (product.current_stock || 0) + item.quantity;
-            await fetch(`${API_HOST}/products/${item.productId}`, {
-                method: 'PUT',
+            const res = await fetch(`${API_HOST}/products/${item.productId}/add-stock`, {
+                method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ...product, current_stock: newStock })
+                body: JSON.stringify({ 
+                    quantity: item.quantity,
+                    reference: po.poNumber
+                })
             });
+            if (res.ok) stockUpdated++;
+            else {
+                const err = await res.text();
+                console.warn(`Stock update failed for ${item.productId}: ${err}`);
+            }
         } catch (e) {
-            console.warn(`Stock update failed for ${item.productId}`, e);
+            console.warn(`Stock update error for ${item.productId}`, e);
         }
     }
+
+    console.log(`GRN: ${stockUpdated}/${po.items.length} products stock updated`);
 
     return updatePurchaseOrder(id, {
         status: 'GRN',
