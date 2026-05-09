@@ -218,14 +218,32 @@ DATA RULES:
 
     const formatMessage = (text: string) => {
         return text.split('\n').map((line, i) => {
+            // Bullet points
             if (line.startsWith('• ') || line.startsWith('- ')) {
-                return <div key={i} className="flex gap-2 mt-1"><span className="text-orange-400 mt-0.5">•</span><span>{line.slice(2)}</span></div>;
+                return <div key={i} className="flex gap-2 mt-1 text-sm"><span className="text-orange-400 flex-shrink-0">•</span><span>{line.slice(2)}</span></div>;
             }
-            if (line.startsWith('**') && line.endsWith('**')) {
-                return <div key={i} className="font-black text-gray-900 mt-2">{line.slice(2, -2)}</div>;
+            // CAPS headings (e.g. "YOUR TOP CUSTOMERS:")
+            if (line === line.toUpperCase() && line.endsWith(':') && line.length > 4) {
+                return <div key={i} className="text-xs font-black text-orange-600 uppercase tracking-widest mt-3 mb-1 border-b border-orange-100 pb-1">{line}</div>;
+            }
+            // Action line
+            if (line.startsWith('Action:')) {
+                return <div key={i} className="mt-2 text-sm font-bold bg-emerald-50 text-emerald-800 px-2 py-1.5 rounded-lg">{line}</div>;
+            }
+            // Warning
+            if (line.startsWith('WARNING:')) {
+                return <div key={i} className="mt-2 text-sm font-bold bg-red-50 text-red-700 px-2 py-1.5 rounded-lg">{line}</div>;
+            }
+            // Market alert
+            if (line.startsWith('MARKET ALERT:')) {
+                return <div key={i} className="mt-2 text-sm font-bold bg-amber-50 text-amber-800 px-2 py-1.5 rounded-lg">{line}</div>;
+            }
+            // Numbered list
+            if (/^[0-9]+\./.test(line)) {
+                return <div key={i} className="mt-1.5 text-sm font-bold text-gray-800">{line}</div>;
             }
             if (line === '') return <div key={i} className="h-1" />;
-            return <div key={i}>{line}</div>;
+            return <div key={i} className="text-sm">{line}</div>;
         });
     };
 
