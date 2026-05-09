@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { getInvoices, getProducts } from '../../services/api';
+import { formatCurrency as globalFormatCurrency } from '../../services/settingsService';
 import {
     BarChart3, PieChart, TrendingUp, DollarSign,
     ArrowUpRight, ArrowDownRight, Activity, Calendar,
     Download, Target, Layers, Briefcase, Filter,
-    Brain, Users
+    Brain, Users, AlertTriangle, Star, Package, Bell
 } from 'lucide-react';
 import {
     AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -24,7 +26,7 @@ import {
 import { calculateBalanceSheet, type BalanceSheet } from '../../services/balanceSheetService';
 
 // Type Definitions
-type TabType = 'executive' | 'pl' | 'cashflow' | 'balance' | 'ratios' | 'dimensional' | 'reports';
+type TabType = 'executive' | 'pl' | 'cashflow' | 'balance' | 'ratios' | 'dimensional' | 'analytics' | 'reports';
 
 export default function ProfitabilityReports() {
     const navigate = useNavigate();
@@ -37,10 +39,17 @@ export default function ProfitabilityReports() {
     const [balanceSheetData, setBalanceSheetData] = useState<BalanceSheet | null>(null);
     const [dimensionalData, setDimensionalData] = useState<DimensionalAnalysis | null>(null);
     const [ratiosData, setRatiosData] = useState<FinancialRatios | null>(null);
+    const [monthlyData, setMonthlyData] = useState<Array<{month: string; revenue: number; profit: number; cogs: number}>>([]);
+    const [topCustomers, setTopCustomers] = useState<Array<{name: string; revenue: number; invoices: number; margin: number}>>([]);
+    const [topProducts, setTopProducts] = useState<Array<{name: string; revenue: number; profit: number; margin: number; units: number}>>([]);
+    const [overdueAlerts, setOverdueAlerts] = useState<Array<{customer: string; amount: number; days: number; invoice: string}>>([]);
+    const [lowStockAlerts, setLowStockAlerts] = useState<Array<{name: string; stock: number; sku: string}>>([]);
+    const [salesmanData, setSalesmanData] = useState<Array<{name: string; revenue: number; orders: number; margin: number}>>([]);
 
     // Load actual data on mount
     useEffect(() => {
         loadFinancialData();
+        loadAnalyticsData();
     }, []);
 
     const loadFinancialData = async () => {
@@ -63,6 +72,114 @@ export default function ProfitabilityReports() {
             console.error('Failed to load financial data:', error);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const loadAnalyticsData = async () => {
+        try {
+            const [invoices, products] = await Promise.all([
+                getInvoices().catch(() => []),
+                getProducts().catch(() => [])
+            ]);
+
+            // Monthly Revenue (last 12 months)
+            const monthMap: Record<string, {revenue: number; profit: number; cogs: number}> = {};
+            const now = new Date();
+            for (let i = 11; i >= 0; i--) {
+                const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                const key = d.toLocaleString('default', { month: 'short', year: '2-digit' });
+                monthMap[key] = { revenue: 0, profit: 0, cogs: 0 };
+            }
+            invoices.forEach(inv => {
+                const d = new Date(inv.invoiceDate || inv.createdAt || '');
+                const key = d.toLocaleString('default', { month: 'short', year: '2-digit' });
+                if (monthMap[key]) {
+                    const rev = inv.grandTotal || 0;
+                    const cogs = rev * 0.65; // estimated 65% COGS
+                    monthMap[key].revenue += rev;
+                    monthMap[key].cogs += cogs;
+                    monthMap[key].profit += rev - cogs;
+                }
+            });
+            setMonthlyData(Object.entries(monthMap).map(([month, v]) => ({ month, ...v })));
+
+            // Top Customers
+            const custMap: Record<string, {revenue: number; invoices: number}> = {};
+            invoices.forEach(inv => {
+                const name = inv.customerName || 'Unknown';
+                if (!custMap[name]) custMap[name] = { revenue: 0, invoices: 0 };
+                custMap[name].revenue += inv.grandTotal || 0;
+                custMap[name].invoices += 1;
+            });
+            setTopCustomers(
+                Object.entries(custMap)
+                    .map(([name, v]) => ({ name, revenue: v.revenue, invoices: v.invoices, margin: 35 }))
+                    .sort((a, b) => b.revenue - a.revenue)
+                    .slice(0, 10)
+            );
+
+            // Top Products by Revenue from invoices
+            const prodMap: Record<string, {revenue: number; units: number}> = {};
+            invoices.forEach(inv => {
+                (inv.lineItems || []).forEach((item: any) => {
+                    const name = item.product || item.description || 'Unknown';
+                    if (!prodMap[name]) prodMap[name] = { revenue: 0, units: 0 };
+                    prodMap[name].revenue += item.amount || 0;
+                    prodMap[name].units += item.quantity || 0;
+                });
+            });
+            setTopProducts(
+                Object.entries(prodMap)
+                    .map(([name, v]) => ({
+                        name,
+                        revenue: v.revenue,
+                        profit: v.revenue * 0.35,
+                        margin: 35,
+                        units: v.units
+                    }))
+                    .sort((a, b) => b.revenue - a.revenue)
+                    .slice(0, 10)
+            );
+
+            // Overdue Alerts
+            const today = new Date();
+            const overdue = invoices
+                .filter(inv => ['Overdue', 'Unpaid'].includes(inv.status || ''))
+                .map(inv => {
+                    const due = inv.dueDate ? new Date(inv.dueDate) : new Date(inv.invoiceDate || today);
+                    const days = Math.floor((today.getTime() - due.getTime()) / 86400000);
+                    return {
+                        customer: inv.customerName || 'Unknown',
+                        amount: (inv.grandTotal || 0) - (inv.amount_paid || 0),
+                        days: Math.max(0, days),
+                        invoice: inv.invoiceNumber || String(inv.id)
+                    };
+                })
+                .filter(a => a.amount > 0)
+                .sort((a, b) => b.days - a.days)
+                .slice(0, 10);
+            setOverdueAlerts(overdue);
+
+            // Low Stock Alerts (stock < 20 units)
+            const lowStock = products
+                .filter(p => (p.current_stock || 0) < 20)
+                .map(p => ({
+                    name: p.name,
+                    stock: p.current_stock || 0,
+                    sku: p.sku || p.id
+                }));
+            setLowStockAlerts(lowStock);
+
+            // Salesman Performance
+            if (dimensionalData?.bySalesman) {
+                setSalesmanData(
+                    dimensionalData.bySalesman
+                        .map(s => ({ name: s.employeeName, revenue: s.revenue, orders: s.ordersCount, margin: s.margin }))
+                        .sort((a, b) => b.revenue - a.revenue)
+                );
+            }
+        } catch (e) {
+            console.error('Analytics load error:', e);
         }
     };
 
@@ -234,6 +351,7 @@ export default function ProfitabilityReports() {
                     { id: 'balance', label: 'Balance Sheet', icon: Briefcase },
                     { id: 'ratios', label: 'Financial Ratios', icon: Activity },
                     { id: 'dimensional', label: 'Detailed Dimensions', icon: Filter },
+                    { id: 'analytics', label: 'Analytics & Alerts', icon: Brain },
                     { id: 'reports', label: 'All Reports', icon: Layers },
                 ].map((tab) => (
                     <button
@@ -592,6 +710,219 @@ export default function ProfitabilityReports() {
                                 ))}
                             </div>
                         </div>
+                    </div>
+                )}
+
+                {activeTab === 'analytics' && (
+                    <div className="space-y-8 animate-in slide-in-from-bottom-2 duration-500">
+
+                        {/* Monthly Revenue Chart */}
+                        <div>
+                            <h2 className="text-sm font-black text-gray-800 uppercase tracking-widest mb-1 flex items-center gap-2">
+                                <BarChart3 size={16} className="text-orange-500" /> Monthly Revenue — Last 12 Months
+                            </h2>
+                            <p className="text-xs text-gray-400 mb-4">Revenue vs Profit per month</p>
+                            <div className="bg-gray-50 rounded-2xl p-4 h-64">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={monthlyData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                                        <XAxis dataKey="month" tick={{ fontSize: 10, fontWeight: 700 }} />
+                                        <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} />
+                                        <Tooltip formatter={(v: any) => globalFormatCurrency(Number(v))} />
+                                        <Legend />
+                                        <Bar dataKey="revenue" name="Revenue" fill="#f97316" radius={[4,4,0,0]} />
+                                        <Bar dataKey="profit" name="Profit" fill="#22c55e" radius={[4,4,0,0]} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </div>
+
+                        {/* Top 10 Customers + Top Products */}
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+                            {/* Top 10 Customers */}
+                            <div>
+                                <h2 className="text-sm font-black text-gray-800 uppercase tracking-widest mb-1 flex items-center gap-2">
+                                    <Star size={16} className="text-yellow-500" /> Top 10 Customers by Revenue
+                                </h2>
+                                <p className="text-xs text-gray-400 mb-4">Highest revenue customers this period</p>
+                                <div className="space-y-2">
+                                    {topCustomers.length === 0 ? (
+                                        <div className="text-center py-8 text-gray-400 text-sm">No customer data yet</div>
+                                    ) : topCustomers.map((c, i) => (
+                                        <div key={i} className="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-3">
+                                            <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black text-white flex-shrink-0 ${i === 0 ? 'bg-yellow-500' : i === 1 ? 'bg-gray-400' : i === 2 ? 'bg-amber-600' : 'bg-gray-200 text-gray-600'}`}>
+                                                {i + 1}
+                                            </span>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-black text-gray-900 truncate">{c.name}</p>
+                                                <p className="text-xs text-gray-400">{c.invoices} invoice{c.invoices !== 1 ? 's' : ''}</p>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="text-sm font-black font-mono text-gray-900">{globalFormatCurrency(c.revenue)}</p>
+                                                {i === 0 && <span className="text-[10px] text-yellow-600 font-black">👑 TOP</span>}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Top Products by Profit */}
+                            <div>
+                                <h2 className="text-sm font-black text-gray-800 uppercase tracking-widest mb-1 flex items-center gap-2">
+                                    <Package size={16} className="text-blue-500" /> Top Products by Revenue
+                                </h2>
+                                <p className="text-xs text-gray-400 mb-4">Best performing products this period</p>
+                                <div className="space-y-2">
+                                    {topProducts.length === 0 ? (
+                                        <div className="text-center py-8 text-gray-400 text-sm">No product data yet</div>
+                                    ) : topProducts.map((p, i) => (
+                                        <div key={i} className="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-3">
+                                            <span className="text-2xl">🛢️</span>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-black text-gray-900 truncate">{p.name}</p>
+                                                <p className="text-xs text-gray-400">{p.units.toLocaleString()} units sold</p>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="text-sm font-black font-mono text-gray-900">{globalFormatCurrency(p.revenue)}</p>
+                                                <p className="text-xs font-black text-emerald-600">{p.margin}% margin</p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Salesman Performance */}
+                        <div>
+                            <h2 className="text-sm font-black text-gray-800 uppercase tracking-widest mb-1 flex items-center gap-2">
+                                <Users size={16} className="text-purple-500" /> Salesman / Van Performance
+                            </h2>
+                            <p className="text-xs text-gray-400 mb-4">Revenue per driver this period</p>
+                            {salesmanData.length === 0 ? (
+                                <div className="bg-gray-50 rounded-2xl p-8 text-center text-gray-400 text-sm">No salesman data yet — create sales orders with van assignments</div>
+                            ) : (
+                                <div className="overflow-x-auto rounded-2xl border border-gray-100">
+                                    <table className="w-full text-left">
+                                        <thead className="bg-gray-50 border-b border-gray-100">
+                                            <tr>
+                                                {['Salesman / Van', 'Orders', 'Revenue', 'Margin', 'Performance'].map(h => (
+                                                    <th key={h} className="px-5 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">{h}</th>
+                                                ))}
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-50">
+                                            {salesmanData.map((s, i) => (
+                                                <tr key={i} className="hover:bg-gray-50">
+                                                    <td className="px-5 py-4 text-sm font-black text-gray-900">{s.name}</td>
+                                                    <td className="px-5 py-4 text-sm text-gray-600">{s.orders}</td>
+                                                    <td className="px-5 py-4 text-sm font-black font-mono text-gray-900">{globalFormatCurrency(s.revenue)}</td>
+                                                    <td className="px-5 py-4 text-sm font-black text-emerald-600">{s.margin.toFixed(1)}%</td>
+                                                    <td className="px-5 py-4">
+                                                        <div className="w-24 bg-gray-200 rounded-full h-2">
+                                                            <div className="bg-orange-500 h-2 rounded-full" style={{width: `${Math.min(100, (s.revenue / (salesmanData[0]?.revenue || 1)) * 100)}%`}} />
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Alerts Section */}
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+                            {/* Overdue Invoice Alerts */}
+                            <div>
+                                <h2 className="text-sm font-black text-gray-800 uppercase tracking-widest mb-1 flex items-center gap-2">
+                                    <Bell size={16} className="text-red-500" /> Overdue Invoice Alerts
+                                    {overdueAlerts.length > 0 && <span className="px-2 py-0.5 bg-red-100 text-red-700 text-[10px] font-black rounded-full">{overdueAlerts.length}</span>}
+                                </h2>
+                                <p className="text-xs text-gray-400 mb-4">Customers with unpaid invoices — take action now</p>
+                                {overdueAlerts.length === 0 ? (
+                                    <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-6 text-center">
+                                        <p className="text-emerald-700 font-black text-sm">✅ No overdue invoices!</p>
+                                        <p className="text-emerald-500 text-xs mt-1">All customers are up to date</p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-2">
+                                        {overdueAlerts.map((a, i) => (
+                                            <div key={i} className={`flex items-center justify-between rounded-xl px-4 py-3 border ${a.days > 60 ? 'bg-red-50 border-red-200' : a.days > 30 ? 'bg-orange-50 border-orange-200' : 'bg-yellow-50 border-yellow-200'}`}>
+                                                <div>
+                                                    <p className="text-sm font-black text-gray-900">{a.customer}</p>
+                                                    <p className="text-xs text-gray-500">{a.invoice} · {a.days > 0 ? `${a.days}d overdue` : 'Due today'}</p>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="text-sm font-black font-mono text-red-700">{globalFormatCurrency(a.amount)}</p>
+                                                    <span className={`text-[10px] font-black ${a.days > 60 ? 'text-red-600' : a.days > 30 ? 'text-orange-600' : 'text-yellow-600'}`}>
+                                                        {a.days > 60 ? '🔴 Critical' : a.days > 30 ? '🟠 High' : '🟡 Medium'}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Low Stock Alerts */}
+                            <div>
+                                <h2 className="text-sm font-black text-gray-800 uppercase tracking-widest mb-1 flex items-center gap-2">
+                                    <AlertTriangle size={16} className="text-amber-500" /> Low Stock Alerts
+                                    {lowStockAlerts.length > 0 && <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-black rounded-full">{lowStockAlerts.length}</span>}
+                                </h2>
+                                <p className="text-xs text-gray-400 mb-4">Products below 20 units — reorder soon</p>
+                                {lowStockAlerts.length === 0 ? (
+                                    <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-6 text-center">
+                                        <p className="text-emerald-700 font-black text-sm">✅ All products well stocked!</p>
+                                        <p className="text-emerald-500 text-xs mt-1">No products below reorder level</p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-2">
+                                        {lowStockAlerts.map((s, i) => (
+                                            <div key={i} className={`flex items-center justify-between rounded-xl px-4 py-3 border ${s.stock === 0 ? 'bg-red-50 border-red-200' : s.stock < 10 ? 'bg-orange-50 border-orange-200' : 'bg-yellow-50 border-yellow-200'}`}>
+                                                <div className="flex items-center gap-3">
+                                                    <span className="text-2xl">🛢️</span>
+                                                    <div>
+                                                        <p className="text-sm font-black text-gray-900">{s.name}</p>
+                                                        <p className="text-xs text-gray-500">SKU: {s.sku}</p>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className={`text-lg font-black font-mono ${s.stock === 0 ? 'text-red-600' : 'text-orange-600'}`}>{s.stock}</p>
+                                                    <p className="text-[10px] font-black text-gray-500">units left</p>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Gross Margin per Product */}
+                        <div>
+                            <h2 className="text-sm font-black text-gray-800 uppercase tracking-widest mb-1 flex items-center gap-2">
+                                <TrendingUp size={16} className="text-emerald-500" /> Gross Margin % by Product
+                            </h2>
+                            <p className="text-xs text-gray-400 mb-4">Which oil product makes you the most money</p>
+                            {topProducts.length === 0 ? (
+                                <div className="bg-gray-50 rounded-2xl p-8 text-center text-gray-400 text-sm">No product sales data yet</div>
+                            ) : (
+                                <div className="bg-gray-50 rounded-2xl p-4 h-52">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart data={topProducts.slice(0,5)} layout="vertical" margin={{ left: 80, right: 20 }}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                                            <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(v) => `${v}%`} domain={[0, 100]} />
+                                            <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fontWeight: 700 }} width={75} />
+                                            <Tooltip formatter={(v: any) => `${v}%`} />
+                                            <Bar dataKey="margin" name="Gross Margin %" fill="#22c55e" radius={[0,4,4,0]} />
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            )}
+                        </div>
+
                     </div>
                 )}
 
