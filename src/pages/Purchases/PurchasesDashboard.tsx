@@ -5,7 +5,6 @@ import {
     History,
     PackageCheck,
     AlertCircle,
-    MoreVertical,
     Truck,
     Download,
     ShieldCheck,

@@ -9,13 +9,11 @@ import {
     Activity
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import GeneralLedger from '../../modules/accounts/GeneralLedger';
 import { getInvoices, getPayments } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
 
 const AccountsDashboard = () => {
-    const navigate = useNavigate();
     const [totalReceivable, setTotalReceivable] = useState(0);
     const [totalRevenue, setTotalRevenue] = useState(0);
     const [cashReceived, setCashReceived] = useState(0);
@@ -25,8 +23,8 @@ const AccountsDashboard = () => {
     useEffect(() => {
         Promise.all([getInvoices(), getPayments()]).then(([invoices, payments]) => {
             const unpaid = invoices.filter(i => ['Unpaid', 'Partial', 'Overdue'].includes(i.status || ''));
-            setTotalReceivable(unpaid.reduce((s, i) => s + (i.total || i.subtotal || 0), 0));
-            setTotalRevenue(invoices.filter(i => i.status !== 'Cancelled').reduce((s, i) => s + (i.total || i.subtotal || 0), 0));
+            setTotalReceivable(unpaid.reduce((s, i) => s + (i.grandTotal || i.subtotal || 0), 0));
+            setTotalRevenue(invoices.filter(i => i.status !== 'Paid').reduce((s, i) => s + (i.grandTotal || i.subtotal || 0), 0));
             setCashReceived(payments.reduce((s, p) => s + (p.amount || 0), 0));
             setOverdueCount(invoices.filter(i => i.status === 'Overdue').length);
             setLoading(false);

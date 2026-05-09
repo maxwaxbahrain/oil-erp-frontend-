@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { getInvoices, type Invoice } from '../../services/api';
-import { formatCurrency } from '../../services/settingsService';
 import { Package, Download, FileText, Filter, Calendar } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import FormInput from '../../components/forms/FormInput';
@@ -12,16 +11,15 @@ export default function SalesByProductReport() {
     const [selectedWarehouse, setSelectedWarehouse] = useState('all');
     const [selectedSalesman, setSelectedSalesman] = useState('all');
     const [invoices, setInvoices] = useState<Invoice[]>([]);
-    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        getInvoices().then(inv => { setInvoices(inv); setLoading(false); });
+        getInvoices().then(inv => { setInvoices(inv); });
     }, []);
 
     // Build product sales from real invoices
     const productMap: Record<string, { product: string; qty_sold: number; revenue: number; cost: number; profit: number; margin: number }> = {};
     invoices
-        .filter(inv => inv.status !== 'Cancelled')
+        .filter(inv => inv.status !== 'Paid')
         .filter(inv => {
             const d = inv.invoiceDate || inv.createdAt?.slice(0, 10) || '';
             return d >= dateFrom && d <= dateTo;

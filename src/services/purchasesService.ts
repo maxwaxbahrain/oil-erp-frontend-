@@ -49,6 +49,7 @@ export interface Supplier {
     currency: string;
     rating?: 'A' | 'B' | 'C';
     creditLimit?: number;
+    notes?: string;
     openingBalance?: number;
 }
 

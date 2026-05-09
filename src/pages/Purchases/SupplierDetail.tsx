@@ -30,7 +30,7 @@ import * as XLSX from 'xlsx';
 import autoTable from 'jspdf-autotable';
 import { generateStandardPDF } from '../../utils/documentGenerator';
 import {
-    getCompanyProfile, getSystemSettings} from '../../services/settingsService';
+    getCompanyProfile, getSystemSettings, formatCurrency} from '../../services/settingsService';
 import {
     getSupplierById,
     getSupplierPurchases,

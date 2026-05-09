@@ -35,7 +35,6 @@ interface POFormData {
     remainingBalance: number;
     paymentReference: string;
     status: 'Pending' | 'Approved' | 'GRN' | 'Paid' | 'Received';
-    paymentReference: string;
 }
 
 export default function PurchaseOrderForm() {

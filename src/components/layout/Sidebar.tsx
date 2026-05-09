@@ -18,7 +18,7 @@ import {
     TrendingUp,
     User,
     MapPin
-} from 'lucide-react';
+, Clock, BookOpen, Scale } from 'lucide-react';
 import clsx from 'clsx';
 
 

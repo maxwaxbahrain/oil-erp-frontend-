@@ -25,7 +25,7 @@ export default function OutstandingBills() {
             inv.invoiceNumber?.toLowerCase().includes(search.toLowerCase())
         )
         .sort((a, b) => {
-            if (sortBy === 'amount') return (b.total || 0) - (a.total || 0);
+            if (sortBy === 'amount') return (b.grandTotal || 0) - (a.grandTotal || 0);
             if (sortBy === 'customer') return (a.customerName || '').localeCompare(b.customerName || '');
             return new Date(b.invoiceDate || 0).getTime() - new Date(a.invoiceDate || 0).getTime();
         });

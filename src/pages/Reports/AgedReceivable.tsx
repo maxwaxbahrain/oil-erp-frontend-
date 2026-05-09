@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Clock, Download, Search, AlertTriangle, CheckCircle, TrendingUp } from 'lucide-react';
+import { Clock, Download, Search, AlertTriangle, CheckCircle } from 'lucide-react';
 import { getInvoices, type Invoice } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
 

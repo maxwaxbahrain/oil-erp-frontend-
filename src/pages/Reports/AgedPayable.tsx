@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Clock, Download, Search, AlertTriangle, CheckCircle } from 'lucide-react';
-import { getPurchaseOrders, getSuppliers } from '../../services/purchasesService';
+import { getPurchaseOrders } from '../../services/purchasesService';
 import { formatCurrency } from '../../services/settingsService';
 
 interface AgedSupplier {

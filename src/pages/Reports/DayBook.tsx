@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { BookOpen, Download, ChevronLeft, ChevronRight, TrendingUp, TrendingDown } from 'lucide-react';
-import { getInvoices, getPayments, type Invoice, type Payment } from '../../services/api';
+import { getInvoices, getPayments } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
 import { getPurchaseOrders } from '../../services/purchasesService';
 

@@ -35,7 +35,7 @@ export default function Banking() {
         // Payments received from customers (Credits)
         ...payments.map((p, idx) => ({
             id: `PAY-${p.id || idx}`,
-            date: p.date || new Date().toISOString().split('T')[0],
+            date: p.payment_date || new Date().toISOString().split('T')[0],
             description: `Payment received`,
             type: 'Credit' as const,
             amount: p.amount || 0,

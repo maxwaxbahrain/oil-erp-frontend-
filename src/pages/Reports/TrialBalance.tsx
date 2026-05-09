@@ -29,7 +29,7 @@ export default function TrialBalance() {
                 return d.getFullYear() === now.getFullYear();
             };
 
-            const validInvoices = invoices.filter(i => i.status !== 'Cancelled' && filterDate(i.invoiceDate || i.createdAt?.slice(0,10) || ''));
+            const validInvoices = invoices.filter(i => i.status !== 'Paid' && filterDate(i.invoiceDate || i.createdAt?.slice(0,10) || ''));
             const validPayments = payments.filter(p => filterDate(p.payment_date || ''));
             const validPOs = pos.filter(po => filterDate(po.date || ''));
 
