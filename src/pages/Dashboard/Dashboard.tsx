@@ -15,7 +15,9 @@ import {
     BarChart, Bar, PieChart, Pie, Cell,
     XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
-import { getCustomers, getInvoices, getProducts, getSalesOrders, getVans, type Invoice, type Product } from '../../services/api';
+import { getCustomers, getInvoices, getProducts, getSalesOrders, getVans, getPayments, type Invoice, type Product } from '../../services/api';
+import { getPurchaseOrders } from '../../services/purchasesService';
+import AIAssistant from '../../components/AIAssistant';
 
 const PIE_COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042'];
 
@@ -28,18 +30,24 @@ export default function Dashboard() {
     const [customersCount, setCustomersCount] = useState(0);
     const [newCustomersThisMonth, setNewCustomersThisMonth] = useState(0);
     const [dataError, setDataError] = useState(false);
+    const [aiContext, setAiContext] = useState({ invoices: [], customers: [], products: [], payments: [], purchaseOrders: [] } as any);
 
     useEffect(() => {
         let cancelled = false;
         (async () => {
             try {
-                const [inv, prod, orders, vans, customers] = await Promise.all([
+                const [inv, prod, orders, vans, customers, pays, pos] = await Promise.all([
                     getInvoices().catch(() => []),
                     getProducts().catch(() => []),
                     getSalesOrders().catch(() => []),
                     getVans().catch(() => []),
                     getCustomers().catch(() => []),
+                    getPayments().catch(() => []),
+                    getPurchaseOrders().catch(() => []),
                 ]);
+                if (!cancelled) {
+                    setAiContext({ invoices: inv, customers, products: prod, payments: pays, purchaseOrders: pos });
+                }
                 if (cancelled) return;
                 setInvoices(Array.isArray(inv) ? inv : []);
                 setProducts(Array.isArray(prod) ? prod : []);
@@ -127,6 +135,7 @@ export default function Dashboard() {
     ];
 
     return (
+        <>
         <div className="space-y-8 animate-in fade-in duration-700 pb-10">
             {/* Header & Quick Actions */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -317,5 +326,7 @@ export default function Dashboard() {
 
             </div>
         </div>
+        <AIAssistant context={aiContext} />
+        </>
     );
 }
