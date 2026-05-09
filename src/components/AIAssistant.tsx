@@ -46,46 +46,58 @@ export default function AIAssistant({ context }: AIAssistantProps) {
     const buildSystemPrompt = () => {
         const today = new Date().toISOString().slice(0, 10);
 
-        // Summarize data concisely to save tokens
-        const invoiceSummary = context.invoices.slice(0, 100).map(inv => ({
-            id: inv.invoiceNumber,
-            customer: inv.customerName,
-            date: inv.invoiceDate,
-            amount: inv.grandTotal,
+        // Build customer lookup map by ID for enriching invoices and payments
+        const custMap: Record<string, string> = {};
+        context.customers.forEach((c: any) => {
+            custMap[String(c.id)] = c.name;
+        });
+
+        // Enrich invoices with customer names
+        const invoiceSummary = context.invoices.slice(0, 100).map((inv: any) => ({
+            id: inv.invoiceNumber || inv.id,
+            customer: inv.customerName || custMap[String(inv.customerId)] || custMap[String(inv.customer_id)] || 'Unknown',
+            date: inv.invoiceDate || inv.createdAt?.slice(0, 10),
+            amount: inv.grandTotal || inv.subtotal || 0,
             status: inv.status,
             paid: inv.amount_paid || 0,
+            balance: (inv.grandTotal || 0) - (inv.amount_paid || 0),
             due: inv.dueDate
         }));
 
-        const customerSummary = context.customers.slice(0, 100).map(c => ({
+        const customerSummary = context.customers.slice(0, 160).map((c: any) => ({
             id: c.id,
             name: c.name,
+            phone: c.phone || '',
             balance: c.balance || 0,
-            credit_limit: c.credit_limit || 0
+            credit_limit: c.credit_limit || 0,
+            address: c.address || ''
         }));
 
-        const productSummary = context.products.map(p => ({
+        const productSummary = context.products.map((p: any) => ({
             id: p.id,
             name: p.name,
             sku: p.sku,
             stock: p.current_stock || 0,
             min_stock: p.minimum_stock || 10,
-            price: p.unit_price
+            price: p.unit_price,
+            status: (p.current_stock || 0) === 0 ? 'OUT OF STOCK' : (p.current_stock || 0) < (p.minimum_stock || 10) ? 'LOW STOCK' : 'OK'
         }));
 
-        const paymentSummary = context.payments.slice(0, 50).map(p => ({
-            customer_id: p.customer_id,
+        // Enrich payments with customer names
+        const paymentSummary = context.payments.slice(0, 100).map((p: any) => ({
+            customer: custMap[String(p.customer_id)] || 'Unknown',
             amount: p.amount,
             date: p.payment_date,
             method: p.payment_method
         }));
 
-        const poSummary = context.purchaseOrders.slice(0, 50).map(po => ({
+        const poSummary = context.purchaseOrders.slice(0, 50).map((po: any) => ({
             id: po.poNumber,
             supplier: po.supplierName,
-            date: po.date,
+            date: po.date?.slice(0, 10),
             total: po.grandTotal,
-            status: po.status
+            status: po.status,
+            paid: po.amount_paid || 0
         }));
 
         return `You are an ERP business intelligence assistant for a distribution company.
