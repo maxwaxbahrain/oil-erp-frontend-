@@ -8,9 +8,26 @@ import {
 } from 'lucide-react';
 import { AppRoutes } from './routes';
 import Sidebar from '../components/layout/Sidebar';
+import AIAssistant from '../components/AIAssistant';
+import { useState, useEffect } from 'react';
+import { getInvoices, getCustomers, getProducts, getPayments } from '../services/api';
+import { getPurchaseOrders } from '../services/purchasesService';
 
 function App() {
   const location = useLocation();
+  const [aiCtx, setAiCtx] = useState<any>({ invoices: [], customers: [], products: [], payments: [], purchaseOrders: [] });
+
+  useEffect(() => {
+    Promise.all([
+      getInvoices().catch(() => []),
+      getCustomers().catch(() => []),
+      getProducts().catch(() => []),
+      getPayments().catch(() => []),
+      getPurchaseOrders().catch(() => [])
+    ]).then(([inv, cust, prod, pays, pos]) => {
+      setAiCtx({ invoices: inv, customers: cust, products: prod, payments: pays, purchaseOrders: pos });
+    });
+  }, []);
   const navigate = useNavigate();
 
   if (location.pathname.startsWith('/invoice/')) {
@@ -96,6 +113,9 @@ function App() {
             <AppRoutes />
           </div>
         </div>
+
+        {/* AI Accountant - Available on all pages */}
+        <AIAssistant context={aiCtx} />
 
         {/* Global Identity Footer */}
         <footer className="h-10 bg-white border-t border-redwood-border px-8 flex items-center justify-between text-[10px] font-bold text-redwood-text-muted uppercase tracking-[0.2em] shadow-[0_-1px_3px_rgba(0,0,0,0.02)]">

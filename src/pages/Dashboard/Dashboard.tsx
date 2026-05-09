@@ -16,7 +16,6 @@ import {
 } from 'recharts';
 import { getCustomers, getInvoices, getProducts, getSalesOrders, getVans, getPayments, type Invoice, type Product } from '../../services/api';
 import { getPurchaseOrders } from '../../services/purchasesService';
-import AIAssistant from '../../components/AIAssistant';
 
 const PIE_COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042'];
 
@@ -134,7 +133,6 @@ export default function Dashboard() {
     ];
 
     return (
-        <>
         <div className="space-y-8 animate-in fade-in duration-700 pb-10">
             {/* Header & Quick Actions */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -312,7 +310,5 @@ export default function Dashboard() {
 
             </div>
         </div>
-        <AIAssistant context={aiContext} />
-        </>
     );
 }
