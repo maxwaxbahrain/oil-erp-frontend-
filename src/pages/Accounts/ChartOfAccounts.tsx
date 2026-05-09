@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Edit2, Trash2, ChevronRight, ChevronDown, Save, X, Search } from 'lucide-react';
+import { ArrowLeft, Plus, Edit2, Trash2, ChevronRight, ChevronDown, Check, X, Search } from 'lucide-react';
 
 export type AccountType = 'Asset' | 'Liability' | 'Equity' | 'Income' | 'Expense';
 export type AccountNature = 'Debit' | 'Credit';
@@ -203,11 +203,23 @@ export default function ChartOfAccounts() {
         });
     };
 
+    const nextAvailableCode = (parentCode: string): string => {
+        const existing = new Set(accounts.map(a => a.code));
+        // Try parent code + 10, 20, 30... until we find unused
+        const base = parseInt(parentCode);
+        for (let i = 10; i <= 90; i += 10) {
+            const candidate = String(base + i);
+            if (!existing.has(candidate)) return candidate;
+        }
+        return String(Date.now()).slice(-4);
+    };
+
     const openAdd = (parentId?: string, type?: AccountType) => {
         const parent = parentId ? accounts.find(a => a.id === parentId) : null;
+        const suggestedCode = parent ? nextAvailableCode(parent.code) : '';
         setEditAccount(null);
         setForm({
-            code: '',
+            code: suggestedCode,
             name: '',
             type: type || parent?.type || 'Asset',
             nature: type === 'Income' || type === 'Liability' || type === 'Equity' ? 'Credit' : 'Debit',
@@ -300,21 +312,21 @@ export default function ChartOfAccounts() {
                 {(['Asset', 'Liability', 'Equity', 'Income', 'Expense'] as AccountType[]).map(type => (
                     <button key={type} onClick={() => setTypeFilter(typeFilter === type ? 'All' : type)}
                         className={`rounded-2xl p-4 text-left transition-all border ${typeFilter === type ? 'border-gray-900 bg-gray-900 text-white' : 'bg-white border-gray-100 shadow-sm hover:border-gray-300'}`}>
-                        <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${typeFilter === type ? 'text-gray-400' : 'text-gray-400'}`}>{type}</p>
-                        <p className={`text-2xl font-black ${typeFilter === type ? 'text-white' : ''}`}>{totalByType(type)}</p>
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${typeFilter === type ? 'bg-white/20 text-white' : TYPE_COLORS[type]}`}>{accounts.filter(a => a.type === type && !a.parentId ? false : a.type === type).length} accounts</span>
+                        <p className="text-[10px] font-black uppercase tracking-widest mb-1 text-gray-400">{type}</p>
+                        <p className={`text-2xl font-black ${typeFilter === type ? 'text-white' : 'text-gray-900'}`}>{totalByType(type)}</p>
+                        <p className={`text-[10px] font-bold mt-1 ${typeFilter === type ? 'text-white/70' : 'text-gray-400'}`}>accounts</p>
                     </button>
                 ))}
             </div>
 
             {/* Add/Edit Form */}
             {showForm && (
-                <div className="bg-white border-2 border-orange-200 rounded-2xl p-6 shadow-sm">
+                <div className="bg-white border-2 border-orange-200 rounded-2xl p-5 shadow-sm">
                     <div className="flex items-center justify-between mb-4">
-                        <h2 className="text-sm font-black text-gray-900 uppercase tracking-wide">
-                            {editAccount ? 'Edit Account' : 'New Account'}
+                        <h2 className="text-sm font-black text-orange-600 uppercase tracking-widest">
+                            {editAccount ? '✏️ Edit Account' : '➕ New Account'}
                         </h2>
-                        <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-700"><X size={18} /></button>
+                        <button onClick={() => setShowForm(false)} className="w-7 h-7 flex items-center justify-center bg-gray-100 hover:bg-red-50 hover:text-red-600 rounded-lg text-gray-500 transition-all"><X size={15} /></button>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
@@ -361,7 +373,7 @@ export default function ChartOfAccounts() {
                     <div className="flex gap-3 mt-4">
                         <button onClick={handleSave}
                             className="flex items-center gap-2 px-5 py-2.5 bg-orange-500 text-white rounded-xl text-sm font-black hover:bg-orange-600 transition-all">
-                            <Save size={14} /> {editAccount ? 'Save Changes' : 'Create Account'}
+                            <Check size={14} /> {editAccount ? 'Save Changes' : 'Create Account'}
                         </button>
                         <button onClick={() => setShowForm(false)}
                             className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-black hover:bg-gray-50 transition-all">
