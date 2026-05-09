@@ -58,6 +58,7 @@ import OutstandingBills from '../pages/Reports/OutstandingBills';
 import DayBook from '../pages/Reports/DayBook';
 import TrialBalance from '../pages/Reports/TrialBalance';
 import Banking from '../pages/Accounts/Banking';
+import ChartOfAccounts from '../pages/Accounts/ChartOfAccounts';
 import DemandForecasting from '../pages/Reports/DemandForecasting';
 import InventoryAdjustment from '../pages/Inventory/InventoryAdjustment';
 import DriverApp from '../pages/POD/DriverApp';
@@ -164,6 +165,7 @@ export const AppRoutes = () => {
             <Route path="/finance/payroll" element={<PayrollManagement />} />
             <Route path="/finance/accounting" element={<AccountsDashboard />} />
             <Route path="/finance/banking" element={<Banking />} />
+            <Route path="/finance/chart-of-accounts" element={<ChartOfAccounts />} />
 
             {/* Employee Portal - Module 15 */}
             <Route path="/portal" element={<EmployeePortal />} />

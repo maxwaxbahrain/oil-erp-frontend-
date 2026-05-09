@@ -18,7 +18,7 @@ import {
     TrendingUp,
     User,
     MapPin
-, Tag } from 'lucide-react';
+, Tag , BookOpen } from 'lucide-react';
 import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
 
@@ -202,6 +202,7 @@ export default function Sidebar() {
                 </div>
 
                 <NavItem to="/finance/banking" icon={Globe} label="Banking" />
+                <NavItem to="/finance/chart-of-accounts" icon={BookOpen} label="Chart of Accounts" />
 
                 <div className="h-px bg-white/5 my-3 mx-2" />
 
