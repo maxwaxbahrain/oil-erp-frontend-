@@ -17,7 +17,11 @@ export default function TrialBalance() {
     const [period, setPeriod] = useState<'month' | 'quarter' | 'year'>('month');
 
     useEffect(() => {
-        Promise.all([getInvoices(), getPayments(), getPurchaseOrders()]).then(([invoices, payments, pos]) => {
+        Promise.all([
+            getInvoices().catch(() => []),
+            getPayments().catch(() => []),
+            getPurchaseOrders().catch(() => [])
+        ]).then(([invoices, payments, pos]) => {
             const now = new Date();
             const filterDate = (dateStr: string) => {
                 const d = new Date(dateStr);

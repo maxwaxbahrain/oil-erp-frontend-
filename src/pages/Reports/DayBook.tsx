@@ -21,7 +21,11 @@ export default function DayBook() {
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
 
     useEffect(() => {
-        Promise.all([getInvoices(), getPayments(), getPurchaseOrders()]).then(([invoices, payments, pos]) => {
+        Promise.all([
+            getInvoices().catch(() => []),
+            getPayments().catch(() => []),
+            getPurchaseOrders().catch(() => [])
+        ]).then(([invoices, payments, pos]) => {
             const all: DayEntry[] = [
                 ...invoices
                     .filter(inv => {
