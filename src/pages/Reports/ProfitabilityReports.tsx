@@ -43,7 +43,7 @@ export default function ProfitabilityReports() {
     const [topCustomers, setTopCustomers] = useState<Array<{name: string; revenue: number; invoices: number; margin: number}>>([]);
     const [topProducts, setTopProducts] = useState<Array<{name: string; revenue: number; profit: number; margin: number; units: number}>>([]);
     const [overdueAlerts, setOverdueAlerts] = useState<Array<{customer: string; amount: number; days: number; invoice: string}>>([]);
-    const [lowStockAlerts, setLowStockAlerts] = useState<Array<{name: string; stock: number; sku: string}>>([]);
+    const [lowStockAlerts, setLowStockAlerts] = useState<Array<{name: string; stock: number; sku: string; threshold: number}>>([]); 
     const [salesmanData, setSalesmanData] = useState<Array<{name: string; revenue: number; orders: number; margin: number}>>([]);
 
     // Load actual data on mount
@@ -87,12 +87,14 @@ export default function ProfitabilityReports() {
             const now = new Date();
             for (let i = 11; i >= 0; i--) {
                 const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-                const key = d.toLocaleString('default', { month: 'short', year: '2-digit' });
+                const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                const key = `${months[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`;
                 monthMap[key] = { revenue: 0, profit: 0, cogs: 0 };
             }
             invoices.forEach(inv => {
                 const d = new Date(inv.invoiceDate || inv.createdAt || '');
-                const key = d.toLocaleString('default', { month: 'short', year: '2-digit' });
+                const months2 = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                const key = `${months2[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`;
                 if (monthMap[key]) {
                     const rev = inv.grandTotal || 0;
                     const cogs = rev * 0.65; // estimated 65% COGS
@@ -111,9 +113,17 @@ export default function ProfitabilityReports() {
                 custMap[name].revenue += inv.grandTotal || 0;
                 custMap[name].invoices += 1;
             });
+            // Calculate real margin from invoices (grandTotal vs subtotal)
+            const custMarginMap: Record<string, number> = {};
+            invoices.forEach(inv => {
+                const name = inv.customerName || 'Unknown';
+                if (!custMarginMap[name]) custMarginMap[name] = 0;
+                const margin = inv.grandTotal > 0 ? ((inv.grandTotal - inv.subtotal * 0.65) / inv.grandTotal) * 100 : 0;
+                custMarginMap[name] = Math.max(custMarginMap[name], margin);
+            });
             setTopCustomers(
                 Object.entries(custMap)
-                    .map(([name, v]) => ({ name, revenue: v.revenue, invoices: v.invoices, margin: 35 }))
+                    .map(([name, v]) => ({ name, revenue: v.revenue, invoices: v.invoices, margin: Math.round(custMarginMap[name] || 35) }))
                     .sort((a, b) => b.revenue - a.revenue)
                     .slice(0, 10)
             );
@@ -160,23 +170,34 @@ export default function ProfitabilityReports() {
                 .slice(0, 10);
             setOverdueAlerts(overdue);
 
-            // Low Stock Alerts (stock < 20 units)
+            // Low Stock Alerts - use reorder level if set, else 20
             const lowStock = products
-                .filter(p => (p.current_stock || 0) < 20)
+                .filter(p => {
+                    const stock = p.current_stock || 0;
+                    const threshold = p.minimum_stock || 20;
+                    return stock <= threshold;
+                })
                 .map(p => ({
                     name: p.name,
                     stock: p.current_stock || 0,
-                    sku: p.sku || p.id
+                    sku: p.sku || String(p.id),
+                    threshold: p.minimum_stock || 20
                 }));
             setLowStockAlerts(lowStock);
 
-            // Salesman Performance
-            if (dimensionalData?.bySalesman) {
-                setSalesmanData(
-                    dimensionalData.bySalesman
-                        .map(s => ({ name: s.employeeName, revenue: s.revenue, orders: s.ordersCount, margin: s.margin }))
-                        .sort((a, b) => b.revenue - a.revenue)
-                );
+            // Salesman Performance — load directly, don't rely on dimensionalData state
+            try {
+                const { calculateDimensionalAnalysis: getDim } = await import('../../services/profitLossService');
+                const dimData = await getDim(12); // last 12 months for better coverage
+                if (dimData?.bySalesman?.length > 0) {
+                    setSalesmanData(
+                        dimData.bySalesman
+                            .map(s => ({ name: s.employeeName, revenue: s.revenue, orders: s.ordersCount, margin: s.margin }))
+                            .sort((a, b) => b.revenue - a.revenue)
+                    );
+                }
+            } catch (e) {
+                console.warn('Salesman data unavailable:', e);
             }
         } catch (e) {
             console.error('Analytics load error:', e);
