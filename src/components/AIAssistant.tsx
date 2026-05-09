@@ -210,21 +210,29 @@ RULES:
 
             {/* Chat Panel */}
             {open && (
-                <div className={`fixed bottom-6 right-6 z-50 bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col transition-all ${minimized ? 'w-72 h-14' : 'w-96 h-[600px]'}`}>
+                <div className={`fixed bottom-0 right-0 md:bottom-6 md:right-6 z-50 bg-white md:rounded-2xl shadow-2xl border border-gray-200 flex flex-col transition-all ${minimized ? 'w-full md:w-80 h-14' : 'w-full md:w-[420px] h-[85vh] md:h-[620px]'}`}>
 
                     {/* Header */}
-                    <div className="flex items-center justify-between px-4 py-3 bg-gray-900 rounded-t-2xl">
+                    <div className="flex items-center justify-between px-4 py-3 bg-gray-900 md:rounded-t-2xl flex-shrink-0">
                         <div className="flex items-center gap-2">
-                            <BrainCircuit size={16} className="text-orange-400" />
+                            <BrainCircuit size={18} className="text-orange-400" />
                             <span className="text-sm font-black text-white">AI Business Advisor</span>
                             <span className="text-[10px] px-2 py-0.5 bg-orange-500 text-white rounded-full font-black">LIVE DATA</span>
                         </div>
-                        <div className="flex items-center gap-2">
-                            <button onClick={() => setMinimized(!minimized)} className="text-gray-400 hover:text-white transition-all">
-                                {minimized ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
+                        <div className="flex items-center gap-3">
+                            <button
+                                onClick={() => setMinimized(!minimized)}
+                                className="w-8 h-8 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-lg text-white transition-all"
+                                title={minimized ? 'Expand' : 'Minimize'}
+                            >
+                                {minimized ? <Maximize2 size={16} /> : <Minimize2 size={16} />}
                             </button>
-                            <button onClick={() => { setOpen(false); setMessages([]); }} className="text-gray-400 hover:text-white transition-all">
-                                <X size={14} />
+                            <button
+                                onClick={() => { setOpen(false); setMessages([]); }}
+                                className="w-8 h-8 flex items-center justify-center bg-red-500 hover:bg-red-600 rounded-lg text-white transition-all"
+                                title="Close"
+                            >
+                                <X size={16} />
                             </button>
                         </div>
                     </div>
@@ -232,7 +240,7 @@ RULES:
                     {!minimized && (
                         <>
                             {/* Messages */}
-                            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                            <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
                                 {messages.length === 0 && (
                                     <div className="space-y-3">
                                         <div className="bg-orange-50 rounded-xl p-3">
@@ -278,7 +286,7 @@ RULES:
                             </div>
 
                             {/* Input */}
-                            <div className="p-3 border-t border-gray-100">
+                            <div className="p-3 border-t border-gray-100 flex-shrink-0">
                                 <div className="flex gap-2">
                                     <input
                                         type="text"
