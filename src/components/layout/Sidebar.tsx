@@ -222,11 +222,6 @@ export default function Sidebar() {
                 </div>
 
                 <NavItem to="/reports/sales" icon={TrendingUp} label="Profitability Reports" />
-                <NavItem to="/reports/aged-receivable" icon={Clock} label="Aged Receivable" />
-                <NavItem to="/reports/aged-payable" icon={Clock} label="Aged Payable" />
-                <NavItem to="/reports/outstanding-bills" icon={FileText} label="Outstanding Bills" />
-                <NavItem to="/reports/day-book" icon={BookOpen} label="Day Book" />
-                <NavItem to="/reports/trial-balance" icon={Scale} label="Trial Balance" />
 
                 <div className="h-px bg-white/5 my-3 mx-2" />
 
