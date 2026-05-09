@@ -178,7 +178,7 @@ RULES:
                     className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 bg-gray-900 text-white rounded-2xl shadow-2xl hover:bg-gray-800 transition-all hover:scale-105"
                 >
                     <Sparkles size={18} className="text-orange-400" />
-                    <span className="text-sm font-black">Ask AI</span>
+                    <span className="text-sm font-black">Ask AI Accountant</span>
                     {context.invoices.length > 0 && (
                         <span className="w-2 h-2 bg-green-400 rounded-full"></span>
                     )}
@@ -193,7 +193,7 @@ RULES:
                     <div className="flex items-center justify-between px-4 py-3 bg-gray-900 rounded-t-2xl">
                         <div className="flex items-center gap-2">
                             <Sparkles size={16} className="text-orange-400" />
-                            <span className="text-sm font-black text-white">AI Business Assistant</span>
+                            <span className="text-sm font-black text-white">AI Accountant</span>
                             <span className="text-[10px] px-2 py-0.5 bg-orange-500 text-white rounded-full font-black">LIVE DATA</span>
                         </div>
                         <div className="flex items-center gap-2">
@@ -262,7 +262,7 @@ RULES:
                                         value={input}
                                         onChange={e => setInput(e.target.value)}
                                         onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-                                        placeholder="Ask about your business..."
+                                        placeholder="Ask your accountant anything..."
                                         disabled={loading}
                                         className="flex-1 text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:border-orange-400 disabled:opacity-50"
                                     />

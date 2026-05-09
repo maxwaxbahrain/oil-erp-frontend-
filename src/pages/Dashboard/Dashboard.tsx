@@ -1,6 +1,5 @@
 import {
     ShoppingCart,
-    Truck,
     Wallet,
     TrendingUp,
     AlertTriangle,
@@ -110,20 +109,20 @@ export default function Dashboard() {
         [products]
     );
 
-    const recentOrders = useMemo(
-        () =>
-            [...invoices]
-                .sort((a, b) => new Date(b.invoiceDate || b.createdAt).getTime() - new Date(a.invoiceDate || a.createdAt).getTime())
-                .slice(0, 5)
-                .map((i) => ({
-                    id: i.invoiceNumber || i.id,
-                    customer: (i as Invoice & { customer_name?: string }).customer_name || i.customerName || 'N/A',
-                    date: i.invoiceDate || i.createdAt?.slice(0, 10) || 'N/A',
-                    amount: Number(i.grandTotal) || 0,
-                    status: i.status || 'Unpaid',
-                })),
-        [invoices]
-    );
+    const recentOrders = useMemo(() => {
+        const custMap: Record<string, string> = {};
+        (aiContext.customers || []).forEach((c: any) => { custMap[String(c.id)] = c.name; });
+        return [...invoices]
+            .sort((a, b) => new Date(b.invoiceDate || b.createdAt).getTime() - new Date(a.invoiceDate || a.createdAt).getTime())
+            .slice(0, 8)
+            .map((i) => ({
+                id: i.invoiceNumber || String(i.id),
+                customer: i.customerName || custMap[String(i.customerId)] || custMap[String((i as any).customer_id)] || 'Customer',
+                date: i.invoiceDate || i.createdAt?.slice(0, 10) || '—',
+                amount: Number(i.grandTotal) || 0,
+                status: i.status || 'Unpaid',
+            }));
+    }, [invoices, aiContext.customers]);
 
     const stats = [
         { label: 'Total Income', value: `$${metrics.totalIncome.toLocaleString()}`, icon: TrendingUp, color: 'text-emerald-600', bg: 'bg-emerald-50', trend: dataError ? 'N/A' : 'From invoices' },
@@ -143,20 +142,7 @@ export default function Dashboard() {
                     <h1 className="text-3xl font-black text-redwood-text-main tracking-tight">Dashboard Overview</h1>
                     <p className="text-[13px] text-redwood-text-muted font-medium mt-1">Real-time performance metrics and insights.</p>
                 </div>
-                <div className="flex gap-3">
-                    <button
-                        onClick={() => navigate('/sales/orders/new')}
-                        className="px-5 py-2.5 bg-redwood-brand text-white text-[13px] font-bold rounded-md hover:brightness-95 transition-all shadow-lg flex items-center gap-2"
-                    >
-                        <ShoppingCart size={16} /> New Sale
-                    </button>
-                    <button
-                        onClick={() => navigate('/van-sales')}
-                        className="px-5 py-2.5 bg-white border border-redwood-border text-redwood-text-main text-[13px] font-bold rounded-md hover:bg-gray-50 transition-all flex items-center gap-2"
-                    >
-                        <Truck size={16} /> Van Sales
-                    </button>
-                </div>
+
             </div>
 
             {/* 1. Key Metrics Cards (Grid of 6) */}
