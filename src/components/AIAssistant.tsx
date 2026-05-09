@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
-import { BrainCircuit, Send, X, Minimize2, Maximize2, Loader, Download, Copy, Check } from 'lucide-react';
+import { BrainCircuit, Send, X, Minimize2, Maximize2, Loader, Copy, Check, FileText, FileSpreadsheet } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 interface Message {
     role: 'user' | 'assistant';
@@ -195,16 +196,53 @@ DATA RULES:
         });
     };
 
-    const downloadAsPDF = (text: string, _idx: number) => {
+    const downloadAsPDF = (text: string) => {
         const date = new Date().toLocaleDateString();
-        const content = `AI Business Advisor — Marcus Reid\nGenerated: ${date}\n\n${text}`;
-        const blob = new Blob([content], { type: 'text/plain' });
+        // Build HTML content for PDF-like print
+        const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Marcus Reid — AI Business Advisor</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; color: #1a1a1a; }
+  h1 { color: #ea580c; font-size: 20px; border-bottom: 2px solid #ea580c; padding-bottom: 8px; }
+  .meta { color: #666; font-size: 12px; margin-bottom: 24px; }
+  .content { line-height: 1.7; white-space: pre-wrap; font-size: 14px; }
+  .heading { background: #ea580c; color: white; padding: 6px 12px; border-radius: 6px; font-weight: bold; font-size: 12px; margin: 16px 0 8px; display: inline-block; }
+</style>
+</head>
+<body>
+<h1>AI Business Advisor — Marcus Reid</h1>
+<div class="meta">Generated: ${date} | Bettano ERP System</div>
+<div class="content">${text.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+</body>
+</html>`;
+        const blob = new Blob([html], { type: 'text/html' });
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `marcus-advice-${Date.now()}.txt`;
-        a.click();
-        URL.revokeObjectURL(url);
+        const win = window.open(url, '_blank');
+        if (win) {
+            win.onload = () => {
+                win.print();
+                URL.revokeObjectURL(url);
+            };
+        }
+    };
+
+    const downloadAsExcel = (text: string) => {
+        const date = new Date().toLocaleDateString();
+        const lines = text.split('\n').filter(l => l.trim());
+        const rows = [
+            ['Marcus Reid — AI Business Advisor'],
+            [`Generated: ${date}`],
+            [''],
+            ...lines.map(line => [line])
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        ws['!cols'] = [{ wch: 100 }];
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'AI Advice');
+        XLSX.writeFile(wb, `marcus-advice-${Date.now()}.xlsx`);
     };
 
     const sendMessage = async (text?: string) => {
@@ -264,32 +302,48 @@ DATA RULES:
 
     const formatMessage = (text: string) => {
         return text.split('\n').map((line, i) => {
+            const trimmed = line.trim();
+
+            // Empty line
+            if (trimmed === '') return <div key={i} className="h-2" />;
+
             // Bullet points
-            if (line.startsWith('• ') || line.startsWith('- ')) {
-                return <div key={i} className="flex gap-2 mt-1 text-sm"><span className="text-orange-400 flex-shrink-0">•</span><span>{line.slice(2)}</span></div>;
+            if (trimmed.startsWith('• ') || trimmed.startsWith('- ')) {
+                return <div key={i} className="flex gap-2 mt-1 text-sm ml-1"><span className="text-orange-500 flex-shrink-0 font-black">•</span><span className="text-gray-700">{trimmed.slice(2)}</span></div>;
             }
-            // CAPS headings (e.g. "YOUR TOP CUSTOMERS:")
-            if (line === line.toUpperCase() && line.endsWith(':') && line.length > 4) {
-                return <div key={i} className="text-xs font-black text-orange-600 uppercase tracking-widest mt-3 mb-1 border-b border-orange-100 pb-1">{line}</div>;
+
+            // ALL CAPS section headings (YOUR IMMEDIATE CREDIT RISK CUSTOMERS)
+            if (trimmed === trimmed.toUpperCase() && trimmed.length > 6 && /[A-Z]{3}/.test(trimmed) && !trimmed.startsWith('•')) {
+                return <div key={i} className="text-xs font-black text-white bg-orange-500 px-3 py-1.5 rounded-lg mt-4 mb-2 uppercase tracking-widest">{trimmed}</div>;
             }
-            // Action line
-            if (line.startsWith('Action:')) {
-                return <div key={i} className="mt-2 text-sm font-bold bg-emerald-50 text-emerald-800 px-2 py-1.5 rounded-lg">{line}</div>;
+
+            // Numbered customer entries: "1. ALI — High Risk" or "2. GEORGE"
+            if (/^[0-9]+\.\s/.test(trimmed)) {
+                return <div key={i} className="text-sm font-black text-blue-700 bg-blue-50 px-3 py-2 rounded-lg mt-3 mb-1 border-l-4 border-blue-500">{trimmed}</div>;
             }
-            // Warning
-            if (line.startsWith('WARNING:')) {
-                return <div key={i} className="mt-2 text-sm font-bold bg-red-50 text-red-700 px-2 py-1.5 rounded-lg">{line}</div>;
+
+            // Ordinal action items: "First:", "Second:", "Third:", "Fourth:", "Fifth:"
+            if (/^(First|Second|Third|Fourth|Fifth|Sixth|Action|Step [0-9]+):/i.test(trimmed)) {
+                return <div key={i} className="text-sm font-black text-emerald-800 bg-emerald-50 px-3 py-2 rounded-lg mt-3 mb-1 border-l-4 border-emerald-500">{trimmed}</div>;
             }
-            // Market alert
-            if (line.startsWith('MARKET ALERT:')) {
-                return <div key={i} className="mt-2 text-sm font-bold bg-amber-50 text-amber-800 px-2 py-1.5 rounded-lg">{line}</div>;
+
+            // WARNING lines
+            if (/^(WARNING|CAUTION|IMPORTANT|CRITICAL):/i.test(trimmed)) {
+                return <div key={i} className="text-sm font-black text-red-700 bg-red-50 px-3 py-2 rounded-lg mt-2 border-l-4 border-red-500">{trimmed}</div>;
             }
-            // Numbered list
-            if (/^[0-9]+\./.test(line)) {
-                return <div key={i} className="mt-1.5 text-sm font-bold text-gray-800">{line}</div>;
+
+            // MARKET ALERT lines
+            if (/^(MARKET ALERT|MARKET INTELLIGENCE|ALERT):/i.test(trimmed)) {
+                return <div key={i} className="text-sm font-black text-amber-800 bg-amber-50 px-3 py-2 rounded-lg mt-2 border-l-4 border-amber-500">{trimmed}</div>;
             }
-            if (line === '') return <div key={i} className="h-1" />;
-            return <div key={i} className="text-sm">{line}</div>;
+
+            // Lines ending with colon that are short headings (e.g. "WHY THIS MATTERS", "ACTION ITEMS TODAY")
+            if (trimmed.endsWith(':') && trimmed.length < 60 && trimmed.length > 4) {
+                return <div key={i} className="text-xs font-black text-orange-600 uppercase tracking-widest mt-3 mb-1 border-b border-orange-100 pb-1">{trimmed}</div>;
+            }
+
+            // Regular text
+            return <div key={i} className="text-sm text-gray-700 leading-relaxed">{trimmed}</div>;
         });
     };
 
@@ -382,11 +436,20 @@ DATA RULES:
                                                     {copiedIdx === i ? '✓ Copied' : 'Copy'}
                                                 </button>
                                                 <button
-                                                    onClick={() => downloadAsPDF(msg.content, i)}
-                                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-black bg-orange-50 hover:bg-orange-100 text-orange-700 rounded-lg border border-orange-200 transition-all"
+                                                    onClick={() => downloadAsPDF(msg.content)}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-black bg-red-50 hover:bg-red-100 text-red-700 rounded-lg border border-red-200 transition-all"
+                                                    title="Print or save as PDF"
                                                 >
-                                                    <Download size={12} />
-                                                    Download
+                                                    <FileText size={12} />
+                                                    PDF
+                                                </button>
+                                                <button
+                                                    onClick={() => downloadAsExcel(msg.content)}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-black bg-green-50 hover:bg-green-100 text-green-700 rounded-lg border border-green-200 transition-all"
+                                                    title="Download as Excel"
+                                                >
+                                                    <FileSpreadsheet size={12} />
+                                                    Excel
                                                 </button>
                                             </div>
                                         )}
