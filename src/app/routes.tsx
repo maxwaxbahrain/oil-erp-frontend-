@@ -58,6 +58,7 @@ import OutstandingBills from '../pages/Reports/OutstandingBills';
 import DayBook from '../pages/Reports/DayBook';
 import TrialBalance from '../pages/Reports/TrialBalance';
 import Banking from '../pages/Accounts/Banking';
+import DemandForecasting from '../pages/Reports/DemandForecasting';
 import DriverApp from '../pages/POD/DriverApp';
 import ManagementDashboard from '../pages/POD/ManagementDashboard';
 import PODTestRunner from '../pages/POD/PODTestRunner';
@@ -193,6 +194,7 @@ export const AppRoutes = () => {
 
             {/* Reports */}
             <Route path="/reports/sales" element={<ProfitabilityReports />} />
+            <Route path="/reports/demand-forecast" element={<DemandForecasting />} />
             <Route path="/sales/price-lists" element={<CustomerPriceLists />} />
             <Route path="/sales/recurring" element={<RecurringInvoices />} />
             <Route path="/reports/aged-receivable" element={<AgedReceivable />} />
