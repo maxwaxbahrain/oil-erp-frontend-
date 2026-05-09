@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ShoppingCart, Plus, Trash2, Save, X, User, Truck, Package, Calendar } from 'lucide-react';
 import { createSalesOrder, type SalesOrderItem } from '../../services/salesService';
-import { getCustomers, getVans, getProducts, type Customer, type Van, type Product } from '../../services/api';
+import { getCustomers, getVans, getProducts, getCustomerPrice, type Customer, type Van, type Product } from '../../services/api';
 import FormInput from '../../components/forms/FormInput';
 import { getSystemSettings } from '../../services/settingsService';
 
@@ -61,7 +61,7 @@ export default function SalesOrderForm({ onSave, onCancel }: SalesOrderFormProps
             if (product) {
                 item.product_id = product.id;
                 item.product_name = product.name;
-                item.unit_price = product.unit_price;
+                item.unit_price = getCustomerPrice(customerId, product.id, product.unit_price);
             }
         } else {
             (item as any)[field] = value;

@@ -816,3 +816,121 @@ export const customersAPI = { getAll: getCustomers, getById: getCustomer, create
 export const productsAPI = { getAll: getProducts, getById: getProduct, create: createProduct, update: updateProduct };
 
 export default { vans: vansAPI, customers: customersAPI, products: productsAPI };
+// ── Customer Price Lists ─────────────────────────────────────────────────────
+
+export interface CustomerPriceList {
+    customerId: string;
+    customerName: string;
+    prices: Array<{
+        productId: string;
+        productName: string;
+        customPrice: number;
+        discountPct: number;
+    }>;
+    updatedAt: string;
+}
+
+const PRICE_LIST_KEY = 'customer_price_lists';
+
+export const getCustomerPriceLists = (): CustomerPriceList[] => {
+    try {
+        return JSON.parse(localStorage.getItem(PRICE_LIST_KEY) || '[]');
+    } catch { return []; }
+};
+
+export const getCustomerPrice = (customerId: string, productId: string, defaultPrice: number): number => {
+    const lists = getCustomerPriceLists();
+    const list = lists.find(l => l.customerId === customerId);
+    if (!list) return defaultPrice;
+    const entry = list.prices.find(p => p.productId === productId);
+    if (!entry) return defaultPrice;
+    if (entry.customPrice > 0) return entry.customPrice;
+    if (entry.discountPct > 0) return defaultPrice * (1 - entry.discountPct / 100);
+    return defaultPrice;
+};
+
+export const saveCustomerPriceList = (list: CustomerPriceList): void => {
+    const lists = getCustomerPriceLists();
+    const idx = lists.findIndex(l => l.customerId === list.customerId);
+    if (idx >= 0) lists[idx] = list;
+    else lists.push(list);
+    localStorage.setItem(PRICE_LIST_KEY, JSON.stringify(lists));
+};
+
+// ── Recurring Invoices ───────────────────────────────────────────────────────
+
+export interface RecurringInvoice {
+    id: string;
+    customerId: string;
+    customerName: string;
+    frequency: 'weekly' | 'monthly' | 'quarterly';
+    nextRunDate: string;
+    lastRunDate?: string;
+    lineItems: Array<{ product: string; description: string; quantity: number; rate: number; amount: number }>;
+    subtotal: number;
+    taxRate: number;
+    discount: number;
+    grandTotal: number;
+    notes: string;
+    active: boolean;
+    createdAt: string;
+}
+
+const RECURRING_KEY = 'recurring_invoices';
+
+export const getRecurringInvoices = (): RecurringInvoice[] => {
+    try {
+        return JSON.parse(localStorage.getItem(RECURRING_KEY) || '[]');
+    } catch { return []; }
+};
+
+export const saveRecurringInvoice = (inv: RecurringInvoice): void => {
+    const list = getRecurringInvoices();
+    const idx = list.findIndex(r => r.id === inv.id);
+    if (idx >= 0) list[idx] = inv;
+    else list.push(inv);
+    localStorage.setItem(RECURRING_KEY, JSON.stringify(list));
+};
+
+export const deleteRecurringInvoice = (id: string): void => {
+    const list = getRecurringInvoices().filter(r => r.id !== id);
+    localStorage.setItem(RECURRING_KEY, JSON.stringify(list));
+};
+
+export const runDueRecurringInvoices = async (): Promise<number> => {
+    const list = getRecurringInvoices();
+    const today = new Date().toISOString().slice(0, 10);
+    let count = 0;
+    for (const rec of list) {
+        if (!rec.active || rec.nextRunDate > today) continue;
+        try {
+            await createInvoice({
+                invoiceNumber: '',
+                customerId: rec.customerId,
+                customerName: rec.customerName,
+                invoiceDate: today,
+                dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+                lineItems: rec.lineItems,
+                subtotal: rec.subtotal,
+                taxRate: rec.taxRate,
+                taxAmount: rec.subtotal * rec.taxRate / 100,
+                discount: rec.discount,
+                grandTotal: rec.grandTotal,
+                notes: rec.notes || `Recurring invoice — ${rec.frequency}`,
+                status: 'Unpaid',
+            });
+            // Advance next run date
+            const next = new Date(rec.nextRunDate);
+            if (rec.frequency === 'weekly') next.setDate(next.getDate() + 7);
+            else if (rec.frequency === 'monthly') next.setMonth(next.getMonth() + 1);
+            else next.setMonth(next.getMonth() + 3);
+            rec.nextRunDate = next.toISOString().slice(0, 10);
+            rec.lastRunDate = today;
+            saveRecurringInvoice(rec);
+            count++;
+        } catch (e) {
+            console.error('Failed to run recurring invoice:', rec.id, e);
+        }
+    }
+    return count;
+};

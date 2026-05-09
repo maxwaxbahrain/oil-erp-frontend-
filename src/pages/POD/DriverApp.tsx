@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, CheckCircle2, ChevronRight, MapPin, Truck } from 'lucide-react';
 import { createInvoice, createPayment, getCustomers, getVans, type Van } from '../../services/api';
 import { getRoutes, getRouteStops, type RouteStop } from '../../services/routeService';
@@ -37,6 +37,10 @@ export default function DriverApp() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMode>('CASH');
   const [amountReceived, setAmountReceived] = useState<number>(0);
   const [notes, setNotes] = useState('');
+  const [signatureData, setSignatureData] = useState<string>('');
+  const [isSigning, setIsSigning] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const isDrawing = useRef(false);
   const [successInfo, setSuccessInfo] = useState<{ customer: string; invoice: string; amount: number } | null>(null);
   const [driverName, setDriverName] = useState('Driver');
 
@@ -149,7 +153,62 @@ export default function DriverApp() {
     setPaymentMethod(stop.paymentMethod);
     setAmountReceived(stop.amount);
     setNotes('');
+    setSignatureData('');
+    setIsSigning(false);
+    setTimeout(() => {
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+    }, 50);
     setStep('confirm');
+  }
+
+  function startDraw(e: React.TouchEvent | React.MouseEvent) {
+    isDrawing.current = true;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = 'touches' in e ? e.touches[0].clientX - rect.left : (e as React.MouseEvent).clientX - rect.left;
+    const y = 'touches' in e ? e.touches[0].clientY - rect.top : (e as React.MouseEvent).clientY - rect.top;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+  }
+
+  function draw(e: React.TouchEvent | React.MouseEvent) {
+    if (!isDrawing.current) return;
+    e.preventDefault();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = 'touches' in e ? e.touches[0].clientX - rect.left : (e as React.MouseEvent).clientX - rect.left;
+    const y = 'touches' in e ? e.touches[0].clientY - rect.top : (e as React.MouseEvent).clientY - rect.top;
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#1a1a1a';
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    setIsSigning(true);
+  }
+
+  function endDraw() {
+    isDrawing.current = false;
+    const canvas = canvasRef.current;
+    if (canvas) setSignatureData(canvas.toDataURL());
+  }
+
+  function clearSignature() {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setSignatureData('');
+    setIsSigning(false);
   }
 
   async function confirmDelivery() {
@@ -305,12 +364,45 @@ export default function DriverApp() {
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Notes (optional)"
             />
+            {/* Signature Pad */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-sm font-black uppercase text-gray-500">Customer Signature</div>
+                {isSigning && (
+                  <button onClick={clearSignature} className="text-xs font-bold text-red-500 underline">Clear</button>
+                )}
+              </div>
+              <div className="relative border-2 border-dashed border-gray-300 rounded-xl bg-gray-50 overflow-hidden" style={{touchAction:'none'}}>
+                <canvas
+                  ref={canvasRef}
+                  width={380}
+                  height={140}
+                  className="w-full block"
+                  style={{touchAction:'none'}}
+                  onMouseDown={startDraw}
+                  onMouseMove={draw}
+                  onMouseUp={endDraw}
+                  onMouseLeave={endDraw}
+                  onTouchStart={startDraw}
+                  onTouchMove={draw}
+                  onTouchEnd={endDraw}
+                />
+                {!isSigning && (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <p className="text-gray-400 text-sm font-bold">✍️ Customer signs here</p>
+                  </div>
+                )}
+              </div>
+              {!isSigning && (
+                <p className="text-xs text-orange-600 font-bold mt-1">⚠️ Signature required for proof of delivery</p>
+              )}
+            </div>
             <button
               onClick={confirmDelivery}
-              disabled={loading}
-              className="w-full min-h-12 bg-green-600 text-white rounded-lg text-lg font-black"
+              disabled={loading || !isSigning}
+              className="w-full min-h-12 bg-green-600 text-white rounded-lg text-lg font-black disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? 'Confirming...' : 'CONFIRM DELIVERY'}
+              {loading ? 'Confirming...' : !isSigning ? 'GET SIGNATURE FIRST' : 'CONFIRM DELIVERY ✓'}
             </button>
           </div>
         </div>
@@ -328,6 +420,12 @@ export default function DriverApp() {
             <div>Customer: {successInfo.customer}</div>
             <div>Invoice: {successInfo.invoice}</div>
             <div>Amount: ${successInfo.amount.toFixed(2)}</div>
+            {signatureData && (
+              <div className="mt-3">
+                <p className="text-xs text-gray-400 mb-1 font-bold uppercase">Signature captured</p>
+                <img src={signatureData} alt="Customer signature" className="border border-gray-200 rounded-lg bg-white mx-auto max-w-[200px]" />
+              </div>
+            )}
           </div>
           <button
             onClick={() => {

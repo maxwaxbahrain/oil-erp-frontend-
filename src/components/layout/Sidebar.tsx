@@ -18,7 +18,7 @@ import {
     TrendingUp,
     User,
     MapPin
- } from 'lucide-react';
+, Tag } from 'lucide-react';
 import clsx from 'clsx';
 
 
@@ -222,6 +222,8 @@ export default function Sidebar() {
                 </div>
 
                 <NavItem to="/reports/sales" icon={TrendingUp} label="Profitability Reports" />
+                <NavItem to="/sales/price-lists" icon={Tag} label="Customer Price Lists" />
+                <NavItem to="/sales/recurring" icon={RefreshCw} label="Recurring Invoices" />
 
                 <div className="h-px bg-white/5 my-3 mx-2" />
 
