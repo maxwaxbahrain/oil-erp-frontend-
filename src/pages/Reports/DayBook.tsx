@@ -35,12 +35,12 @@ export default function DayBook() {
                         description: `Sales Invoice to ${inv.customerName || 'Customer'}`,
                         reference: inv.invoiceNumber || String(inv.id),
                         debit: 0,
-                        credit: inv.total || inv.subtotal || 0,
+                        credit: inv.grandTotal || inv.subtotal || 0,
                         party: inv.customerName || 'Customer'
                     })),
                 ...payments
                     .filter(p => {
-                        const d = p.date || '';
+                        const d = p.payment_date || '';
                         return d === selectedDate;
                     })
                     .map(p => ({
@@ -48,6 +48,7 @@ export default function DayBook() {
                         time: '—',
                         type: 'Payment' as const,
                         description: `Payment received`,
+                        // customer_id available but no name in Payment interface
                         reference: `PAY-${String(p.id).slice(0, 6).toUpperCase()}`,
                         debit: p.amount || 0,
                         credit: 0,

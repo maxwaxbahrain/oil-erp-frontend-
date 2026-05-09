@@ -37,7 +37,7 @@ export default function AgedReceivable() {
                 }
                 const due = inv.dueDate ? new Date(inv.dueDate) : new Date(inv.invoiceDate || inv.createdAt || today);
                 const daysOverdue = Math.floor((today.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
-                const balance = (inv.total || inv.subtotal || 0) - (inv.amount_paid || 0);
+                const balance = (inv.grandTotal || inv.subtotal || 0) - (inv.amount_paid || 0);
                 if (balance <= 0) return;
                 if (daysOverdue <= 0) customerMap[id].current += balance;
                 else if (daysOverdue <= 30) customerMap[id].days30 += balance;
@@ -167,7 +167,7 @@ export default function AgedReceivable() {
                                                                     <span className="text-gray-500">{inv.invoiceDate}</span>
                                                                     <span className="text-gray-500">Due: {inv.dueDate || 'N/A'}</span>
                                                                     <span className={`font-black ${inv.status === 'Overdue' ? 'text-red-600' : 'text-orange-600'}`}>{inv.status}</span>
-                                                                    <span className="font-black font-mono text-gray-900">{formatCurrency((inv.total || 0) - (inv.amount_paid || 0))}</span>
+                                                                    <span className="font-black font-mono text-gray-900">{formatCurrency((inv.grandTotal || 0) - (inv.amount_paid || 0))}</span>
                                                                 </div>
                                                             ))}
                                                         </div>

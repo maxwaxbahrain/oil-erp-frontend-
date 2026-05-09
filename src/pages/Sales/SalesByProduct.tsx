@@ -27,11 +27,11 @@ export default function SalesByProductReport() {
             return d >= dateFrom && d <= dateTo;
         })
         .forEach(inv => {
-            (inv.items || []).forEach((item: any) => {
-                const name = item.productName || item.description || 'Unknown Product';
+            (inv.lineItems || []).forEach((item: any) => {
+                const name = item.product || item.description || 'Unknown Product';
                 if (!productMap[name]) productMap[name] = { product: name, qty_sold: 0, revenue: 0, cost: 0, profit: 0, margin: 0 };
                 const qty = item.quantity || 0;
-                const rev = (item.unitPrice || item.rate || 0) * qty;
+                const rev = (item.rate || 0) * qty;
                 const cost = (item.cost || 0) * qty;
                 productMap[name].qty_sold += qty;
                 productMap[name].revenue += rev;

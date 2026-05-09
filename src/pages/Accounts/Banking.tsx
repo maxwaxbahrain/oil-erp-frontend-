@@ -51,7 +51,7 @@ export default function Banking() {
                 date: inv.invoiceDate || inv.createdAt?.slice(0, 10) || new Date().toISOString().split('T')[0],
                 description: `Invoice ${inv.invoiceNumber || ''} — ${inv.customerName || 'Customer'}`,
                 type: 'Debit' as const,
-                amount: inv.total || inv.subtotal || 0,
+                amount: inv.grandTotal || inv.subtotal || 0,
                 balance: 0,
                 reference: inv.invoiceNumber || `INV-${idx}`,
                 category: 'Sales Invoice'

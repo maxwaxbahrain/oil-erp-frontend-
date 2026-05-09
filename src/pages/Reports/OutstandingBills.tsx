@@ -30,9 +30,9 @@ export default function OutstandingBills() {
             return new Date(b.invoiceDate || 0).getTime() - new Date(a.invoiceDate || 0).getTime();
         });
 
-    const totalOutstanding = filtered.reduce((s, i) => s + (i.total || 0) - (i.amount_paid || 0), 0);
-    const totalOverdue = filtered.filter(i => i.status === 'Overdue').reduce((s, i) => s + (i.total || 0), 0);
-    const totalPartial = filtered.filter(i => i.status === 'Partial').reduce((s, i) => s + (i.total || 0) - (i.amount_paid || 0), 0);
+    const totalOutstanding = filtered.reduce((s, i) => s + (i.grandTotal || 0) - (i.amount_paid || 0), 0);
+    const totalOverdue = filtered.filter(i => i.status === 'Overdue').reduce((s, i) => s + (i.grandTotal || 0), 0);
+    const totalPartial = filtered.filter(i => i.status === 'Partial').reduce((s, i) => s + (i.grandTotal || 0) - (i.amount_paid || 0), 0);
 
     const statusStyle = (s?: string) => {
         switch (s) {
@@ -136,7 +136,7 @@ export default function OutstandingBills() {
                             </thead>
                             <tbody className="divide-y divide-gray-50">
                                 {filtered.map(inv => {
-                                    const balance = (inv.total || 0) - (inv.amount_paid || 0);
+                                    const balance = (inv.grandTotal || 0) - (inv.amount_paid || 0);
                                     const overdueDays = daysOverdue(inv);
                                     return (
                                         <tr key={inv.id} className="hover:bg-gray-50 transition-all">
@@ -158,7 +158,7 @@ export default function OutstandingBills() {
                                             <td className="px-5 py-4">
                                                 <span className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase ${statusStyle(inv.status)}`}>{inv.status}</span>
                                             </td>
-                                            <td className="px-5 py-4 text-sm font-black font-mono text-gray-900">{formatCurrency(inv.total || 0)}</td>
+                                            <td className="px-5 py-4 text-sm font-black font-mono text-gray-900">{formatCurrency(inv.grandTotal || 0)}</td>
                                             <td className="px-5 py-4 text-sm font-mono text-emerald-600">{inv.amount_paid ? formatCurrency(inv.amount_paid) : '—'}</td>
                                             <td className="px-5 py-4 text-sm font-black font-mono text-red-700">{formatCurrency(balance)}</td>
                                         </tr>
@@ -168,7 +168,7 @@ export default function OutstandingBills() {
                             <tfoot>
                                 <tr className="bg-gray-900 text-white">
                                     <td colSpan={5} className="px-5 py-4 text-xs font-black uppercase">Total — {filtered.length} invoices</td>
-                                    <td className="px-5 py-4 text-sm font-black font-mono">{formatCurrency(filtered.reduce((s, i) => s + (i.total || 0), 0))}</td>
+                                    <td className="px-5 py-4 text-sm font-black font-mono">{formatCurrency(filtered.reduce((s, i) => s + (i.grandTotal || 0), 0))}</td>
                                     <td className="px-5 py-4 text-sm font-black font-mono">{formatCurrency(filtered.reduce((s, i) => s + (i.amount_paid || 0), 0))}</td>
                                     <td className="px-5 py-4 text-sm font-black font-mono">{formatCurrency(totalOutstanding)}</td>
                                 </tr>

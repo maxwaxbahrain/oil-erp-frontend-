@@ -29,13 +29,13 @@ export default function TrialBalance() {
                 return d.getFullYear() === now.getFullYear();
             };
 
-            const validInvoices = invoices.filter(i => i.status !== 'Cancelled' && filterDate(i.invoiceDate || i.createdAt || ''));
-            const validPayments = payments.filter(p => filterDate(p.date || ''));
+            const validInvoices = invoices.filter(i => i.status !== 'Cancelled' && filterDate(i.invoiceDate || i.createdAt?.slice(0,10) || ''));
+            const validPayments = payments.filter(p => filterDate(p.payment_date || ''));
             const validPOs = pos.filter(po => filterDate(po.date || ''));
 
-            const totalRevenue = validInvoices.reduce((s, i) => s + (i.total || i.subtotal || 0), 0);
+            const totalRevenue = validInvoices.reduce((s, i) => s + (i.grandTotal || i.subtotal || 0), 0);
             const totalReceived = validPayments.reduce((s, p) => s + (p.amount || 0), 0);
-            const totalReceivable = validInvoices.filter(i => ['Unpaid', 'Partial', 'Overdue'].includes(i.status || '')).reduce((s, i) => s + ((i.total || 0) - (i.amount_paid || 0)), 0);
+            const totalReceivable = validInvoices.filter(i => ['Unpaid', 'Partial', 'Overdue'].includes(i.status || '')).reduce((s, i) => s + ((i.grandTotal || 0) - (i.amount_paid || 0)), 0);
             const totalPurchases = validPOs.reduce((s, po) => s + (po.grandTotal || 0), 0);
             const totalPayable = validPOs.filter(po => po.payment_status !== 'Paid').reduce((s, po) => s + (po.grandTotal || 0) - (po.amount_paid || 0), 0);
             const cogs = totalPurchases;
