@@ -43,7 +43,13 @@ export default function TrialBalance() {
             const totalPurchases = validPOs.reduce((s, po) => s + (po.grandTotal || 0), 0);
             const totalPayable = validPOs.filter(po => po.payment_status !== 'Paid').reduce((s, po) => s + (po.grandTotal || 0) - (po.amount_paid || 0), 0);
             const cogs = totalPurchases;
-            const grossProfit = totalRevenue - cogs;
+
+            // For a balanced trial balance:
+            // Total Debits = AR + Cash + COGS
+            // Total Credits = Revenue + AP + Retained Earnings (plug to balance)
+            const totalDebitSide = totalReceivable + totalReceived + cogs;
+            const totalCreditSide = totalRevenue + totalPayable;
+            const retainedEarnings = totalDebitSide - totalCreditSide; // plug to balance
 
             const trialEntries: TrialEntry[] = [
                 { account: 'Sales Revenue', category: 'Income', debit: 0, credit: totalRevenue },
@@ -51,7 +57,7 @@ export default function TrialBalance() {
                 { account: 'Cash / Bank Receipts', category: 'Assets', debit: totalReceived, credit: 0 },
                 { account: 'Cost of Goods Sold', category: 'Expenses', debit: cogs, credit: 0 },
                 { account: 'Accounts Payable', category: 'Liabilities', debit: 0, credit: totalPayable },
-                { account: 'Gross Profit', category: 'Equity', debit: grossProfit < 0 ? Math.abs(grossProfit) : 0, credit: grossProfit > 0 ? grossProfit : 0 },
+                { account: 'Retained Earnings / Equity', category: 'Equity', debit: retainedEarnings < 0 ? Math.abs(retainedEarnings) : 0, credit: retainedEarnings >= 0 ? retainedEarnings : 0 },
             ];
 
             setEntries(trialEntries);

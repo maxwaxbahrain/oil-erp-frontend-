@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
     BarChart3, PieChart, TrendingUp, DollarSign,
     ArrowUpRight, ArrowDownRight, Activity, Calendar,
@@ -23,9 +24,10 @@ import {
 import { calculateBalanceSheet, type BalanceSheet } from '../../services/balanceSheetService';
 
 // Type Definitions
-type TabType = 'executive' | 'pl' | 'cashflow' | 'balance' | 'ratios' | 'dimensional';
+type TabType = 'executive' | 'pl' | 'cashflow' | 'balance' | 'ratios' | 'dimensional' | 'reports';
 
 export default function ProfitabilityReports() {
+    const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState<TabType>('executive');
     const [, setLoading] = useState(true);
 
@@ -232,6 +234,7 @@ export default function ProfitabilityReports() {
                     { id: 'balance', label: 'Balance Sheet', icon: Briefcase },
                     { id: 'ratios', label: 'Financial Ratios', icon: Activity },
                     { id: 'dimensional', label: 'Detailed Dimensions', icon: Filter },
+                    { id: 'reports', label: 'All Reports', icon: Layers },
                 ].map((tab) => (
                     <button
                         key={tab.id}
@@ -585,6 +588,60 @@ export default function ProfitabilityReports() {
                                             <div className={clsx("text-sm font-bold mb-1", metric.severity === 'high' ? 'text-rose-400' : 'text-amber-400')}>{metric.rate}</div>
                                         </div>
                                         <p className="text-xs text-white/60 font-medium leading-relaxed">{metric.text}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === 'reports' && (
+                    <div className="space-y-6 animate-in slide-in-from-bottom-2 duration-500">
+                        <div>
+                            <h2 className="text-sm font-black text-gray-700 uppercase tracking-widest mb-1">Accounts & Receivables</h2>
+                            <p className="text-xs text-gray-400 mb-4">Track who owes you and what you owe suppliers</p>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                {[
+                                    { title: 'Aged Receivable', desc: 'Customers grouped by 0–30, 31–60, 61–90, 90+ days overdue', icon: '📅', color: 'border-red-200 bg-red-50', btn: 'bg-red-600', path: '/reports/aged-receivable' },
+                                    { title: 'Aged Payable', desc: 'Supplier POs grouped by age — know what you owe Kenzol etc.', icon: '📤', color: 'border-amber-200 bg-amber-50', btn: 'bg-amber-600', path: '/reports/aged-payable' },
+                                    { title: 'Outstanding Bills', desc: 'All unpaid & partial invoices in one place with filters', icon: '🧾', color: 'border-orange-200 bg-orange-50', btn: 'bg-orange-600', path: '/reports/outstanding-bills' },
+                                ].map((r, i) => (
+                                    <div key={i} className={`border-2 ${r.color} rounded-2xl p-5 flex flex-col justify-between gap-4`}>
+                                        <div>
+                                            <div className="text-3xl mb-3">{r.icon}</div>
+                                            <h3 className="text-sm font-black text-gray-900 mb-1">{r.title}</h3>
+                                            <p className="text-xs text-gray-500 leading-relaxed">{r.desc}</p>
+                                        </div>
+                                        <button
+                                            onClick={() => navigate(r.path)}
+                                            className={`${r.btn} text-white text-xs font-black uppercase px-4 py-2 rounded-xl hover:opacity-80 transition-all`}
+                                        >
+                                            Open Report →
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                        <div>
+                            <h2 className="text-sm font-black text-gray-700 uppercase tracking-widest mb-1">Financial Statements</h2>
+                            <p className="text-xs text-gray-400 mb-4">Core accounting reports for month-end and audits</p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {[
+                                    { title: 'Day Book', desc: 'Every transaction for any selected date. Navigate day by day. Used by accountants daily.', icon: '📖', color: 'border-purple-200 bg-purple-50', btn: 'bg-purple-600', path: '/reports/day-book' },
+                                    { title: 'Trial Balance', desc: 'All debits vs credits for month/quarter/year. Shows if books are balanced.', icon: '⚖️', color: 'border-indigo-200 bg-indigo-50', btn: 'bg-indigo-600', path: '/reports/trial-balance' },
+                                ].map((r, i) => (
+                                    <div key={i} className={`border-2 ${r.color} rounded-2xl p-5 flex flex-col justify-between gap-4`}>
+                                        <div>
+                                            <div className="text-3xl mb-3">{r.icon}</div>
+                                            <h3 className="text-sm font-black text-gray-900 mb-1">{r.title}</h3>
+                                            <p className="text-xs text-gray-500 leading-relaxed">{r.desc}</p>
+                                        </div>
+                                        <button
+                                            onClick={() => navigate(r.path)}
+                                            className={`${r.btn} text-white text-xs font-black uppercase px-4 py-2 rounded-xl hover:opacity-80 transition-all`}
+                                        >
+                                            Open Report →
+                                        </button>
                                     </div>
                                 ))}
                             </div>
