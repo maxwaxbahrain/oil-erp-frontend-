@@ -145,6 +145,10 @@ RULES:
 
         try {
             const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+
+            // Wake up backend if sleeping (free Render plan spins down)
+            try { await fetch(`${API_HOST}/health`, { signal: AbortSignal.timeout(8000) }); } catch {}
+
             const response = await fetch(`${API_HOST}/ai/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -169,7 +173,7 @@ RULES:
         } catch (e) {
             setMessages(prev => [...prev, {
                 role: 'assistant',
-                content: '⚠️ Connection error. Please check your internet and try again.'
+                content: '⚠️ The server is waking up (free plan sleeps after inactivity). Please wait 30 seconds and try again.'
             }]);
         } finally {
             setLoading(false);
@@ -267,7 +271,7 @@ RULES:
                                     <div className="flex justify-start">
                                         <div className="bg-gray-50 border border-gray-100 rounded-xl rounded-bl-none px-3 py-2 flex items-center gap-2">
                                             <Loader size={14} className="animate-spin text-orange-500" />
-                                            <span className="text-xs text-gray-500 font-medium">Analyzing your data...</span>
+                                            <span className="text-xs text-gray-500 font-medium">Thinking... (may take 10-30s if server just woke up)</span>
                                         </div>
                                     </div>
                                 )}
