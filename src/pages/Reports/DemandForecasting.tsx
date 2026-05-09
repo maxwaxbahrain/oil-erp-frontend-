@@ -51,6 +51,9 @@ export default function DemandForecasting() {
     const [loading, setLoading] = useState(true);
     const [sortBy, setSortBy] = useState<'urgency' | 'sales' | 'stock'>('urgency');
     const [selected, setSelected] = useState<string | null>(null);
+    const [aiInsight, setAiInsight] = useState<string>('');
+    const [aiLoading, setAiLoading] = useState(false);
+    const [aiError, setAiError] = useState('');
 
     useEffect(() => {
         Promise.all([getInvoices(), getProducts()]).then(([invoices, products]) => {
@@ -160,6 +163,80 @@ export default function DemandForecasting() {
     const warning = forecasts.filter(f => f.urgency === 'warning').length;
     const totalForecastValue = forecasts.reduce((s, f) => s + f.forecastNextMonth * f.unitPrice, 0);
 
+    const getAIForecast = async () => {
+        if (forecasts.length === 0) return;
+        setAiLoading(true);
+        setAiError('');
+        setAiInsight('');
+
+        const today = new Date().toISOString().slice(0, 10);
+        const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+
+        // Build concise data summary for Claude
+        const summary = forecasts.map(f => ({
+            product: f.productName,
+            avgMonthlySales: f.avgMonthlySales,
+            currentStock: f.currentStock,
+            daysLeft: f.daysUntilStockout >= 999 ? 'unlimited' : f.daysUntilStockout,
+            trend: f.trend,
+            trendPct: f.trendPct,
+            forecastNext: f.forecastNextMonth,
+            last6Months: f.monthlyHistory.map(h => `${h.month}:${h.qty}`).join(', ')
+        }));
+
+        const systemPrompt = `You are Marcus, an expert business advisor specializing in distribution and inventory management.
+Today: ${today}. Business: Oil/lubricant distribution in New York City.
+
+Analyze this real sales + inventory data and give AI-powered demand forecasting insights.
+Be specific, practical, and mention relevant external factors (weather, market, economy, geopolitics).
+Write in plain English - NO markdown symbols. Use CAPS for section headings.
+Keep total response under 400 words.`;
+
+        const userMsg = `Here is my current inventory and sales data:
+${JSON.stringify(summary, null, 2)}
+
+Give me:
+1. Which products to order urgently and how much (with reasoning)
+2. Which products will see demand increase next month and why
+3. Any market or seasonal factors affecting my NYC oil distribution business right now
+4. One specific action I should take today`;
+
+        try {
+            const res = await fetch(`${API_HOST}/ai/chat`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    system: systemPrompt,
+                    max_tokens: 800,
+                    messages: [{ role: 'user', content: userMsg }]
+                })
+            });
+            if (!res.ok) throw new Error('Server error');
+            const data = await res.json();
+            setAiInsight(data.reply || 'No insight received.');
+        } catch (e) {
+            setAiError('Could not connect to AI. Please try again.');
+        } finally {
+            setAiLoading(false);
+        }
+    };
+
+    const renderAIText = (text: string) => {
+        return text.split('\n').map((line, i) => {
+            const t = line.trim();
+            if (!t) return <div key={i} className="h-2" />;
+            if (t === t.toUpperCase() && t.length > 4 && /[A-Z]{3}/.test(t))
+                return <div key={i} className="text-xs font-black text-orange-600 uppercase tracking-widest mt-3 mb-1 border-b border-orange-100 pb-1">{t}</div>;
+            if (/^[0-9]+\./.test(t))
+                return <div key={i} className="text-sm font-black text-blue-700 mt-2">{t}</div>;
+            if (t.startsWith('•') || t.startsWith('-'))
+                return <div key={i} className="flex gap-2 text-sm mt-1"><span className="text-orange-400">•</span><span>{t.slice(1).trim()}</span></div>;
+            if (/^(WARNING|MARKET ALERT|ACTION|ALERT):/i.test(t))
+                return <div key={i} className="mt-2 text-sm font-bold bg-amber-50 text-amber-800 px-3 py-2 rounded-lg border-l-4 border-amber-400">{t}</div>;
+            return <div key={i} className="text-sm text-gray-700 leading-relaxed">{t}</div>;
+        });
+    };
+
     const TrendIcon = ({ trend, pct }: { trend: string; pct: number }) => {
         if (trend === 'up') return <span className="flex items-center gap-1 text-emerald-600 font-black text-xs"><ChevronUp size={14} />+{pct}%</span>;
         if (trend === 'down') return <span className="flex items-center gap-1 text-red-500 font-black text-xs"><ChevronDown size={14} />-{pct}%</span>;
@@ -211,6 +288,53 @@ export default function DemandForecasting() {
                         <p className={`text-2xl font-black ${k.color}`}>{loading ? '...' : k.value}</p>
                     </div>
                 ))}
+            </div>
+
+            {/* AI Forecast Panel */}
+            <div className="bg-gray-900 rounded-2xl p-5 text-white">
+                <div className="flex items-center justify-between flex-wrap gap-4 mb-4">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-orange-500/20 rounded-xl flex items-center justify-center text-xl">🧠</div>
+                        <div>
+                            <p className="text-sm font-black">AI Demand Intelligence</p>
+                            <p className="text-xs text-gray-400">Marcus analyzes your sales patterns + market conditions</p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={getAIForecast}
+                        disabled={aiLoading || forecasts.length === 0}
+                        className="flex items-center gap-2 px-5 py-2.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white rounded-xl text-sm font-black transition-all"
+                    >
+                        {aiLoading ? (
+                            <><RefreshCw size={16} className="animate-spin" /> Analyzing...</>
+                        ) : (
+                            <><TrendingUp size={16} /> Get AI Forecast</>
+                        )}
+                    </button>
+                </div>
+
+                {aiError && (
+                    <div className="bg-red-500/20 text-red-300 px-4 py-3 rounded-xl text-sm font-bold">{aiError}</div>
+                )}
+
+                {!aiInsight && !aiLoading && !aiError && (
+                    <div className="bg-white/5 rounded-xl px-4 py-8 text-center">
+                        <p className="text-gray-400 text-sm">Click "Get AI Forecast" — Marcus will analyze your data and give specific ordering recommendations, demand predictions, and market intelligence for NYC oil distribution.</p>
+                    </div>
+                )}
+
+                {aiLoading && (
+                    <div className="bg-white/5 rounded-xl px-4 py-8 text-center">
+                        <RefreshCw size={24} className="animate-spin text-orange-400 mx-auto mb-3" />
+                        <p className="text-gray-400 text-sm">Analyzing 6 months of sales data, market conditions, and NYC distribution trends...</p>
+                    </div>
+                )}
+
+                {aiInsight && !aiLoading && (
+                    <div className="bg-white/5 rounded-xl px-5 py-4 space-y-1">
+                        {renderAIText(aiInsight)}
+                    </div>
+                )}
             </div>
 
             {/* Sort Controls */}
