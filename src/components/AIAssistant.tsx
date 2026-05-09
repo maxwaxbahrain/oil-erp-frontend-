@@ -19,14 +19,14 @@ interface AIAssistantProps {
 }
 
 const SUGGESTED_QUERIES = [
-    "Which customers haven't ordered in 30 days?",
     "What are my top 5 customers by revenue?",
-    "Which products are running low on stock?",
-    "How much revenue did I make this month?",
     "Which invoices are overdue?",
-    "What did I buy from suppliers this month?",
-    "Show me unpaid invoices over $500",
-    "Which product sells the most?",
+    "Which products are running low on stock?",
+    "How should I market to NYC distributors?",
+    "How do I collect overdue payments from customers?",
+    "What pricing strategy works best for oil distribution?",
+    "Which customers haven't ordered in 30 days?",
+    "How can I grow my distribution business?",
 ];
 
 export default function AIAssistant({ context }: AIAssistantProps) {
@@ -124,11 +124,14 @@ RULES:
 - Answer in plain English, be concise and direct
 - Use bullet points for lists
 - Show amounts with $ and 2 decimal places
-- Always calculate from the actual data above
+- Always calculate from the actual data above when asked about business data
 - If asked about a specific customer, search the data carefully
 - For "last X days/months" calculate from today: ${today}
 - Keep answers under 200 words unless a full list is needed
-- Never say "I don't have access" — you have the data above`;
+- Never say "I don't have access" — you have the data above
+- You can also answer ANY general question — marketing, pricing strategy, industry advice, sales tips, accounting questions, or anything else the business owner asks
+- For general questions not related to the data, answer from your broad knowledge as a business advisor
+- You are both a DATA ANALYST and a BUSINESS ADVISOR — wear both hats`;
     };
 
     const sendMessage = async (text?: string) => {
@@ -195,7 +198,7 @@ RULES:
                     className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-5 py-4 bg-gray-900 text-white rounded-2xl shadow-2xl hover:bg-gray-800 transition-all hover:scale-105 border border-orange-500/30"
                 >
                     <BrainCircuit size={20} className="text-orange-400" />
-                    <span className="text-base font-black tracking-tight">Ask AI Accountant</span>
+                    <span className="text-base font-black tracking-tight">AI Business Advisor</span>
                     {context.invoices.length > 0 && (
                         <span className="w-2 h-2 bg-green-400 rounded-full"></span>
                     )}
@@ -210,7 +213,7 @@ RULES:
                     <div className="flex items-center justify-between px-4 py-3 bg-gray-900 rounded-t-2xl">
                         <div className="flex items-center gap-2">
                             <BrainCircuit size={16} className="text-orange-400" />
-                            <span className="text-sm font-black text-white">AI Accountant</span>
+                            <span className="text-sm font-black text-white">AI Business Advisor</span>
                             <span className="text-[10px] px-2 py-0.5 bg-orange-500 text-white rounded-full font-black">LIVE DATA</span>
                         </div>
                         <div className="flex items-center gap-2">
@@ -231,7 +234,7 @@ RULES:
                                     <div className="space-y-3">
                                         <div className="bg-orange-50 rounded-xl p-3">
                                             <p className="text-sm font-bold text-gray-800">👋 Ask me anything about your business data.</p>
-                                            <p className="text-xs text-gray-500 mt-1">I can see your invoices, customers, products, payments and orders in real time.</p>
+                                            <p className="text-xs text-gray-500 mt-1">I can see your live business data AND answer marketing, pricing, and strategy questions.</p>
                                         </div>
                                         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Try asking:</p>
                                         <div className="space-y-1.5">
@@ -279,7 +282,7 @@ RULES:
                                         value={input}
                                         onChange={e => setInput(e.target.value)}
                                         onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-                                        placeholder="Ask your accountant anything..."
+                                        placeholder="Ask about your data, marketing, strategy..."
                                         disabled={loading}
                                         className="flex-1 text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:border-orange-400 disabled:opacity-50"
                                     />
