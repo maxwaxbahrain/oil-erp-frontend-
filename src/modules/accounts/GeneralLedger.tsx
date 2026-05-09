@@ -8,7 +8,7 @@ interface BankAccount {
 }
 
 const banks: BankAccount[] = [
-    { bank: 'HABIB BANK LIMITED (PKR)', account: '77-1092-2-CORPORATE', balance: '1,500,000', status: 'Reconciled' },
+    { bank: 'MAIN OPERATING ACCOUNT', account: 'BETTANO-LLC-PRIMARY', balance: 'Live', status: 'Reconciled' },
     { bank: 'MEEZAN ISLAMIC BUSINESS', account: '99-8821-4-OPERATIONS', balance: '4,285,420', status: 'In Review' },
     { bank: 'STANDARD CHARTERED CORE', account: '11-4412-1-SUPPLY', balance: '2,800,000', status: 'Reconciled' },
     { bank: 'CENTRAL OPERATIONAL FUND', account: '00-0000-0-DRAWER', balance: '45,000', status: 'Manual' },

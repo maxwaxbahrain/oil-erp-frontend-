@@ -1,7 +1,6 @@
 import {
     Wallet,
     TrendingUp,
-
     ArrowUpCircle,
     FileText,
     ChevronRight,
@@ -9,9 +8,31 @@ import {
     Link2,
     Activity
 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import GeneralLedger from '../../modules/accounts/GeneralLedger';
+import { getInvoices, getPayments } from '../../services/api';
+import { formatCurrency } from '../../services/settingsService';
 
 const AccountsDashboard = () => {
+    const navigate = useNavigate();
+    const [totalReceivable, setTotalReceivable] = useState(0);
+    const [totalRevenue, setTotalRevenue] = useState(0);
+    const [cashReceived, setCashReceived] = useState(0);
+    const [overdueCount, setOverdueCount] = useState(0);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        Promise.all([getInvoices(), getPayments()]).then(([invoices, payments]) => {
+            const unpaid = invoices.filter(i => ['Unpaid', 'Partial', 'Overdue'].includes(i.status || ''));
+            setTotalReceivable(unpaid.reduce((s, i) => s + (i.total || i.subtotal || 0), 0));
+            setTotalRevenue(invoices.filter(i => i.status !== 'Cancelled').reduce((s, i) => s + (i.total || i.subtotal || 0), 0));
+            setCashReceived(payments.reduce((s, p) => s + (p.amount || 0), 0));
+            setOverdueCount(invoices.filter(i => i.status === 'Overdue').length);
+            setLoading(false);
+        });
+    }, []);
+
     return (
         <div className="space-y-8 animate-in fade-in duration-700 max-w-[1600px] mx-auto pb-10">
             {/* Financial Orchestration Header */}
@@ -51,7 +72,7 @@ const AccountsDashboard = () => {
                         <div className="text-redwood-secondary text-[10px] font-black uppercase tracking-[0.3em] mb-3 flex items-center gap-2">
                             <Wallet size={14} className="text-redwood-brand" /> Cash Equities
                         </div>
-                        <div className="text-3xl font-black tracking-tighter font-mono">14.28M</div>
+                        <div className="text-3xl font-black tracking-tighter font-mono">{loading ? "..." : formatCurrency(cashReceived)}</div>
                         <div className="mt-4 text-emerald-400 text-[10px] font-black uppercase tracking-[0.2em] flex items-center gap-2 bg-white/5 w-fit px-3 py-1.5 rounded-sm">
                             <TrendingUp size={12} /> +12.4% Variance
                         </div>
@@ -62,8 +83,8 @@ const AccountsDashboard = () => {
                 </div>
 
                 {[
-                    { label: 'Accounts Receivable', value: '2.45M', alert: '4 Entities Overdue', color: 'text-rose-500' },
-                    { label: 'Accounts Payable', value: '0.85M', alert: 'Settle in 5 Days', color: 'text-redwood-text-muted' },
+                    { label: 'Accounts Receivable', value: loading ? '...' : formatCurrency(totalReceivable), alert: `${overdueCount} Entities Overdue`, color: 'text-rose-500' },
+                    { label: 'Total Revenue', value: loading ? '...' : formatCurrency(totalRevenue), alert: 'From all invoices', color: 'text-redwood-text-muted' },
                     { label: 'Tax Liability Est.', value: '0.31M', alert: 'Fiscal Provision Set', color: 'text-redwood-primary' },
                 ].map((stat, i) => (
                     <div key={i} className="bg-white p-8 rounded-sm border border-redwood-border shadow-sm flex flex-col justify-between">

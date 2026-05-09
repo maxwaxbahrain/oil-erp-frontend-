@@ -1226,7 +1226,7 @@ export default function SupplierDetail() {
                                                         <option>USD</option>
                                                         <option>AED</option>
                                                         <option>BHD</option>
-                                                        <option>PKR</option>
+                                                        <option>{getSystemSettings().defaultCurrencyCode}</option>
                                                         <option>GBP</option>
                                                         <option>EUR</option>
                                                     </select>

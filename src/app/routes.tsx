@@ -50,6 +50,7 @@ import InvoiceImport from '../pages/Inventory/InvoiceImport';
 import AIStockControl from '../pages/Inventory/AIStockControl';
 import EmployeePortal from '../pages/Portal/EmployeePortal';
 import ProfitabilityReports from '../pages/Reports/ProfitabilityReports';
+import Banking from '../pages/Accounts/Banking';
 import DriverApp from '../pages/POD/DriverApp';
 import ManagementDashboard from '../pages/POD/ManagementDashboard';
 import PODTestRunner from '../pages/POD/PODTestRunner';
@@ -153,7 +154,7 @@ export const AppRoutes = () => {
             <Route path="/finance/expenses" element={<ExpenseManagement />} />
             <Route path="/finance/payroll" element={<PayrollManagement />} />
             <Route path="/finance/accounting" element={<AccountsDashboard />} />
-            <Route path="/finance/banking" element={<PlaceholderPage title="Banking & Reconciliation" />} />
+            <Route path="/finance/banking" element={<Banking />} />
 
             {/* Employee Portal - Module 15 */}
             <Route path="/portal" element={<EmployeePortal />} />

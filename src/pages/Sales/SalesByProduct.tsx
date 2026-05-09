@@ -1,15 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { getInvoices, type Invoice } from '../../services/api';
+import { formatCurrency } from '../../services/settingsService';
 import { Package, Download, FileText, Filter, Calendar } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import FormInput from '../../components/forms/FormInput';
-
-const productSalesData = [
-    { product: 'Product A', qty_sold: 342, revenue: 410400, cost: 273600, profit: 136800, margin: 33.3 },
-    { product: 'Product B', qty_sold: 289, revenue: 245650, cost: 173400, profit: 72250, margin: 29.4 },
-    { product: 'Product C', qty_sold: 215, revenue: 322500, cost: 215000, profit: 107500, margin: 33.3 },
-    { product: 'Product D', qty_sold: 178, revenue: 213600, cost: 142400, profit: 71200, margin: 33.3 },
-    { product: 'Product E', qty_sold: 142, revenue: 170400, cost: 113600, profit: 56800, margin: 33.3 },
-];
 
 export default function SalesByProductReport() {
     const [dateFrom, setDateFrom] = useState('2024-01-01');
@@ -17,6 +11,38 @@ export default function SalesByProductReport() {
     const [selectedProduct, setSelectedProduct] = useState('all');
     const [selectedWarehouse, setSelectedWarehouse] = useState('all');
     const [selectedSalesman, setSelectedSalesman] = useState('all');
+    const [invoices, setInvoices] = useState<Invoice[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        getInvoices().then(inv => { setInvoices(inv); setLoading(false); });
+    }, []);
+
+    // Build product sales from real invoices
+    const productMap: Record<string, { product: string; qty_sold: number; revenue: number; cost: number; profit: number; margin: number }> = {};
+    invoices
+        .filter(inv => inv.status !== 'Cancelled')
+        .filter(inv => {
+            const d = inv.invoiceDate || inv.createdAt?.slice(0, 10) || '';
+            return d >= dateFrom && d <= dateTo;
+        })
+        .forEach(inv => {
+            (inv.items || []).forEach((item: any) => {
+                const name = item.productName || item.description || 'Unknown Product';
+                if (!productMap[name]) productMap[name] = { product: name, qty_sold: 0, revenue: 0, cost: 0, profit: 0, margin: 0 };
+                const qty = item.quantity || 0;
+                const rev = (item.unitPrice || item.rate || 0) * qty;
+                const cost = (item.cost || 0) * qty;
+                productMap[name].qty_sold += qty;
+                productMap[name].revenue += rev;
+                productMap[name].cost += cost;
+                productMap[name].profit += rev - cost;
+            });
+        });
+    Object.values(productMap).forEach(p => {
+        p.margin = p.revenue > 0 ? Math.round((p.profit / p.revenue) * 1000) / 10 : 0;
+    });
+    const productSalesData = Object.values(productMap).sort((a, b) => b.revenue - a.revenue);
 
     const handleExportExcel = () => {
         alert('Exporting to Excel...');
