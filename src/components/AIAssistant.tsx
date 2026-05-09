@@ -5,6 +5,8 @@ import * as XLSX from 'xlsx';
 interface Message {
     role: 'user' | 'assistant';
     content: string;
+    tokens?: number;
+    cost?: number;
 }
 
 interface ERPContext {
@@ -245,6 +247,32 @@ DATA RULES:
         XLSX.writeFile(wb, `marcus-advice-${Date.now()}.xlsx`);
     };
 
+    const downloadAsWord = (text: string) => {
+        const date = new Date().toLocaleDateString();
+        const rtf = `{\\rtf1\\ansi\\deff0
+{\\fonttbl{\\f0 Arial;}}
+{\\colortbl;\\red234\\green88\\blue12;\\red30\\green64\\blue175;\\red5\\green150\\blue105;}
+\\f0\\fs24
+{\\b\\fs32\\cf1 Marcus Reid — AI Business Advisor}\\line
+{\\fs20 Generated: ${date}}\\line\\line
+${text.split('\n').map(line => {
+    const t = line.trim();
+    if (!t) return '\\line';
+    if (t === t.toUpperCase() && t.length > 6 && /[A-Z]{3}/.test(t)) return '{\\b\\cf1 ' + t.replace(/[{}\\]/g, '') + '}\\line';
+    if (/^[0-9]+\.\s/.test(t)) return '{\\b\\cf2 ' + t.replace(/[{}\\]/g, '') + '}\\line';
+    if (/^(First|Second|Third|Fourth|Fifth|Action):/i.test(t)) return '{\\b\\cf3 ' + t.replace(/[{}\\]/g, '') + '}\\line';
+    return t.replace(/[{}\\]/g, '') + '\\line';
+}).join('\n')}
+}`;
+        const blob = new Blob([rtf], { type: 'application/rtf' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `marcus-advice-${Date.now()}.doc`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
     const sendMessage = async (text?: string) => {
         const query = text || input.trim();
         if (!query || loading) return;
@@ -287,7 +315,16 @@ DATA RULES:
 
             const data = await response.json();
             const reply = data.reply || 'Sorry, I could not process that. Please try again.';
-            setMessages(prev => [...prev, { role: 'assistant', content: reply }]);
+            // Estimate tokens: system ~2500 + question ~15 + reply chars/4
+            const estInputTokens = 2515;
+            const estOutputTokens = Math.ceil(reply.length / 4);
+            const estCost = (estInputTokens * 0.00000025) + (estOutputTokens * 0.00000125);
+            setMessages(prev => [...prev, {
+                role: 'assistant',
+                content: reply,
+                tokens: estInputTokens + estOutputTokens,
+                cost: estCost
+            }]);
         } catch (e: any) {
             const errMsg = e?.message || 'Unknown error';
             setMessages(prev => [...prev, {
@@ -451,6 +488,17 @@ DATA RULES:
                                                     <FileSpreadsheet size={12} />
                                                     Excel
                                                 </button>
+                                                <button
+                                                    onClick={() => downloadAsWord(msg.content)}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-black bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg border border-blue-200 transition-all"
+                                                    title="Download as Word document"
+                                                >
+                                                    <FileText size={12} className="text-blue-600" />
+                                                    Word
+                                                </button>
+                                                <span className="flex items-center px-2 py-1.5 text-[10px] text-gray-300 font-mono">
+                                                    ~{msg.tokens?.toLocaleString() || '—'} tokens · ${msg.cost?.toFixed(4) || '—'}
+                                                </span>
                                             </div>
                                         )}
                                     </div>
