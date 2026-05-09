@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Landmark, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownLeft, RefreshCw, Download, Search, DollarSign, CreditCard, Building2 } from 'lucide-react';
 import { getPayments, getInvoices, type Payment, type Invoice } from '../../services/api';
+import { getCompanyProfile } from '../../services/settingsService';
 import { formatCurrency } from '../../services/settingsService';
 
 interface Transaction {
@@ -84,7 +85,7 @@ export default function Banking() {
                     </div>
                     <div>
                         <h1 className="text-2xl font-black tracking-tight uppercase">Banking & Reconciliation</h1>
-                        <p className="text-gray-400 text-sm mt-1">Real-time transaction ledger • Bettano LLC</p>
+                        <p className="text-gray-400 text-sm mt-1">Real-time transaction ledger • {getCompanyProfile().name}</p>
                     </div>
                 </div>
                 <button className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 rounded-xl text-sm font-bold transition-all">

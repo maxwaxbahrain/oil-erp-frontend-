@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Plus, Trash2, Save, FileText } from 'lucide-react';
 import { getCustomers, createInvoice, getProducts, type Customer, type Product } from '../../services/api';
+import { getCustomerPrice } from '../../services/api';
 import { SALESMEN, VANS, PAYMENT_METHODS } from '../../constants/data';
 import SearchableSelect from '../../components/common/SearchableSelect';
 
@@ -151,7 +152,7 @@ export default function InvoiceFormPage() {
 
         if (!selectedProduct) return;
 
-        const rate = selectedProduct.unit_price;
+        const rate = getCustomerPrice(formData.customerId, String(selectedProduct.id), selectedProduct.unit_price);
         const unitSuffix = selectedProduct.unit ? ` (${selectedProduct.unit})` : '';
 
         setFormData(prev => ({

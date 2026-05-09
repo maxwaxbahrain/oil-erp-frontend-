@@ -18,6 +18,7 @@ export interface CompanyProfile {
     website: string;
     logo?: string;
     taxId?: string;
+    category?: string;
 }
 
 /** Flat shape for invoices / sharing (localStorage `company_settings`). */

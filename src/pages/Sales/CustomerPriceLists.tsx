@@ -34,9 +34,18 @@ export default function CustomerPriceLists() {
         !search || l.customerName.toLowerCase().includes(search.toLowerCase())
     );
 
-    const startEdit = (list: CustomerPriceList) => {
+    const startEdit = (list: CustomerPriceList, allProducts: Product[]) => {
+        // Auto-add any new products not yet in list
+        const existingIds = new Set(list.prices.map(p => p.productId));
+        const newEntries = allProducts
+            .filter(p => !existingIds.has(p.id))
+            .map(p => ({ productId: p.id, productName: p.name, customPrice: 0, discountPct: 0 }));
+        const updatedList = {
+            ...list,
+            prices: [...list.prices, ...newEntries]
+        };
         setEditingId(list.customerId);
-        setEditForm(JSON.parse(JSON.stringify(list)));
+        setEditForm(JSON.parse(JSON.stringify(updatedList)));
     };
 
     const saveEdit = () => {
@@ -71,7 +80,7 @@ export default function CustomerPriceLists() {
         setPriceLists(getCustomerPriceLists());
         setShowAdd(false);
         setSelectedCustomer('');
-        startEdit(newList);
+        startEdit(newList, products);
         setExpanded(newList.customerId);
     };
 
@@ -215,7 +224,7 @@ export default function CustomerPriceLists() {
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <button
-                                            onClick={e => { e.stopPropagation(); startEdit(list); setExpanded(list.customerId); }}
+                                            onClick={e => { e.stopPropagation(); startEdit(list, products); setExpanded(list.customerId); }}
                                             className="p-2 hover:bg-blue-50 rounded-lg transition-all"
                                         >
                                             <Edit2 size={14} className="text-blue-600" />

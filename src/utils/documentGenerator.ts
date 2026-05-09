@@ -19,7 +19,7 @@ export const generateStandardPDF = (title: string, filename: string, contentCall
         doc.setFontSize(18);
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(20, 20, 20);
-        doc.text("ZAVI ERP", 14, currentY + 10);
+        doc.text("ERP System", 14, currentY + 10);
     }
 
     doc.setFontSize(20);

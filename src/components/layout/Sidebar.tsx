@@ -20,6 +20,7 @@ import {
     MapPin
 , Tag } from 'lucide-react';
 import clsx from 'clsx';
+import { getCompanyProfile } from '../../services/settingsService';
 
 
 export default function Sidebar() {
@@ -78,11 +79,11 @@ export default function Sidebar() {
             <div className="h-[64px] flex items-center px-6 border-b border-white/5 bg-redwood-midnight/50 backdrop-blur-md shrink-0">
                 <div className="flex items-center gap-3">
                     <div className="w-9 h-9 bg-redwood-brand rounded-sm flex items-center justify-center text-white font-bold text-lg shadow-lg rotate-3">
-                        <span className="drop-shadow-sm">Z</span>
+                        <span className="drop-shadow-sm">{(getCompanyProfile().name || 'E')[0].toUpperCase()}</span>
                     </div>
                     <div className="flex flex-col">
-                        <span className="text-[14px] font-black tracking-tight leading-none text-white uppercase italic">ZAVI ERP 2.0</span>
-                        <span className="text-[9px] text-redwood-brand font-black uppercase tracking-[0.2em] mt-0.5">Oil Distribution</span>
+                        <span className="text-[14px] font-black tracking-tight leading-none text-white uppercase italic">{getCompanyProfile().name || 'ERP System'}</span>
+                        <span className="text-[9px] text-redwood-brand font-black uppercase tracking-[0.2em] mt-0.5">{(getCompanyProfile() as any).category || 'Distribution'}</span>
                     </div>
                 </div>
             </div>

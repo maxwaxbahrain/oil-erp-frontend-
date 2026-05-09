@@ -237,7 +237,7 @@ export default function DriverApp() {
         taxAmount: 0,
         discount: 0,
         grandTotal: selectedStop.amount,
-        notes: notes || 'Created from POD Driver App',
+        notes: (notes ? notes + ' | ' : '') + (signatureData ? 'POD_SIGNATURE:YES' : 'POD_SIGNATURE:NO') + ' | POD Driver App',
         status: 'Unpaid',
         payment_status: 'Unpaid',
         payment_method: paymentMethod,
@@ -375,8 +375,8 @@ export default function DriverApp() {
               <div className="relative border-2 border-dashed border-gray-300 rounded-xl bg-gray-50 overflow-hidden" style={{touchAction:'none'}}>
                 <canvas
                   ref={canvasRef}
-                  width={380}
-                  height={140}
+                  width={340}
+                  height={150}
                   className="w-full block"
                   style={{touchAction:'none'}}
                   onMouseDown={startDraw}

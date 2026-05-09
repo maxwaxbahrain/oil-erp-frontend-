@@ -7,7 +7,7 @@ import { Printer } from 'lucide-react';
 const MAROON = '#800020';
 const CREAM = '#FDF8F0';
 /** QR always points to company site (not the invoice URL). */
-const BETTANO_QR_TARGET_URL = 'https://www.bettanoglobal.com';
+const BETTANO_QR_TARGET_URL = 'https://www.bettanoglobal.com'; // TODO: update via Settings
 
 function formatMoney(n: number): string {
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -263,7 +263,7 @@ export default function PublicInvoice() {
               height={120}
               className="w-[120px] h-[120px]"
             />
-            <p className="text-[11px] text-gray-500 text-center">Visit us at bettanoglobal.com</p>
+            
           </div>
         ) : null}
 
