@@ -20,7 +20,7 @@ export interface Account {
 
 const COA_KEY = 'chart_of_accounts';
 
-const DEFAULT_ACCOUNTS: Account[] = [
+export const DEFAULT_ACCOUNTS: Account[] = [
     // Assets
     { id: '1000', code: '1000', name: 'Assets', type: 'Asset', nature: 'Debit', parentId: null, description: 'All assets', isSystem: true, balance: 0 },
     { id: '1100', code: '1100', name: 'Current Assets', type: 'Asset', nature: 'Debit', parentId: '1000', description: 'Short-term assets', isSystem: true, balance: 0 },
@@ -68,7 +68,7 @@ const DEFAULT_ACCOUNTS: Account[] = [
     { id: '5270', code: '5270', name: 'Depreciation', type: 'Expense', nature: 'Debit', parentId: '5200', description: 'Asset depreciation', isSystem: false, balance: 0 },
 ];
 
-const getAccounts = (): Account[] => {
+export const getAccounts = (): Account[] => {
     try {
         const stored = localStorage.getItem(COA_KEY);
         if (stored) return JSON.parse(stored);

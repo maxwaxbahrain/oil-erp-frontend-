@@ -203,6 +203,7 @@ export default function Sidebar() {
 
                 <NavItem to="/finance/banking" icon={Globe} label="Banking" />
                 <NavItem to="/finance/chart-of-accounts" icon={BookOpen} label="Chart of Accounts" />
+                <NavItem to="/finance/journal-voucher" icon={FileText} label="Journal Voucher (JV)" />
 
                 <div className="h-px bg-white/5 my-3 mx-2" />
 
