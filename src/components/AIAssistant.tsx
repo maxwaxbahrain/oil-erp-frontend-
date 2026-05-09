@@ -373,22 +373,20 @@ DATA RULES:
                                             {msg.role === 'assistant' ? formatMessage(msg.content) : msg.content}
                                         </div>
                                         {msg.role === 'assistant' && (
-                                            <div className="flex gap-2 mt-1 ml-1">
+                                            <div className="flex gap-2 mt-2 ml-1">
                                                 <button
                                                     onClick={() => copyToClipboard(msg.content, i)}
-                                                    className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-all"
-                                                    title="Copy to clipboard"
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-black bg-gray-100 hover:bg-gray-200 text-gray-600 hover:text-gray-900 rounded-lg border border-gray-200 transition-all"
                                                 >
-                                                    {copiedIdx === i ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
-                                                    {copiedIdx === i ? 'Copied!' : 'Copy'}
+                                                    {copiedIdx === i ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
+                                                    {copiedIdx === i ? '✓ Copied' : 'Copy'}
                                                 </button>
                                                 <button
                                                     onClick={() => downloadAsPDF(msg.content, i)}
-                                                    className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-all"
-                                                    title="Download as text file"
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-black bg-orange-50 hover:bg-orange-100 text-orange-700 rounded-lg border border-orange-200 transition-all"
                                                 >
-                                                    <Download size={11} />
-                                                    Save
+                                                    <Download size={12} />
+                                                    Download
                                                 </button>
                                             </div>
                                         )}
