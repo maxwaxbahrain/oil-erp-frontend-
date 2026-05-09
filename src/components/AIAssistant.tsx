@@ -210,10 +210,10 @@ RULES:
 
             {/* Chat Panel */}
             {open && (
-                <div className={`fixed bottom-0 right-0 md:bottom-6 md:right-6 z-50 bg-white md:rounded-2xl shadow-2xl border border-gray-200 flex flex-col transition-all ${minimized ? 'w-full md:w-80 h-14' : 'w-full md:w-[420px] h-[85vh] md:h-[620px]'}`}>
+                <div className={`fixed bottom-6 right-6 z-50 bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col transition-all ${minimized ? 'w-80 h-14' : 'w-[400px] h-[600px]'}`} style={{maxWidth: 'calc(100vw - 48px)', maxHeight: 'calc(100vh - 48px)'}}>
 
                     {/* Header */}
-                    <div className="flex items-center justify-between px-4 py-3 bg-gray-900 md:rounded-t-2xl flex-shrink-0">
+                    <div className="flex items-center justify-between px-4 py-3 bg-gray-900 rounded-t-2xl flex-shrink-0">
                         <div className="flex items-center gap-2">
                             <BrainCircuit size={18} className="text-orange-400" />
                             <span className="text-sm font-black text-white">AI Business Advisor</span>
