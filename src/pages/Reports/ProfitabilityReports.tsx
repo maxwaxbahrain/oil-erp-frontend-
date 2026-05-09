@@ -7,7 +7,7 @@ import {
     ArrowUpRight, ArrowDownRight, Activity, Calendar,
     Download, Target, Layers, Briefcase, Filter,
     Brain, Users, AlertTriangle, Star, Package, Bell
-} from 'lucide-react';
+, ArrowLeft } from 'lucide-react';
 import {
     AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
     BarChart, Bar, Cell, Pie, Legend
@@ -345,6 +345,7 @@ export default function ProfitabilityReports() {
             {/* HEADER */}
             <div className="bg-white p-6 border border-redwood-border rounded-sm shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                 <div>
+                    <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all"><ArrowLeft size={14} /> Back</button>
                     <h1 className="text-2xl font-black text-redwood-text-main tracking-tighter uppercase flex items-center gap-3">
                         <TrendingUp className="text-redwood-brand" size={28} />
                         Profitability & Financial Intelligence

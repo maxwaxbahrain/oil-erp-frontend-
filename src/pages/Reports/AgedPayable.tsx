@@ -1,5 +1,6 @@
+import { useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { Clock, Download, Search, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Clock, Download, Search, AlertTriangle, CheckCircle , ArrowLeft } from 'lucide-react';
 import { getPurchaseOrders } from '../../services/purchasesService';
 import { formatCurrency } from '../../services/settingsService';
 
@@ -15,6 +16,7 @@ interface AgedSupplier {
 }
 
 export default function AgedPayable() {
+    const navigate = useNavigate();
     const [data, setData] = useState<AgedSupplier[]>([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
@@ -77,7 +79,8 @@ export default function AgedPayable() {
                         <Clock size={24} className="text-amber-600" />
                     </div>
                     <div>
-                        <h1 className="text-xl font-black text-gray-900 uppercase tracking-tight">Aged Payable</h1>
+                        <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all"><ArrowLeft size={14} /> Back</button>
+                    <h1 className="text-xl font-black text-gray-900 uppercase tracking-tight">Aged Payable</h1>
                         <p className="text-xs text-gray-500 mt-0.5">As of {new Date().toLocaleDateString()} · Outstanding supplier balances by age</p>
                     </div>
                 </div>

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Plus, Trash2, Save, ShoppingCart } from 'lucide-react';
-import { getSuppliers, getSupplierBalance, createPurchaseOrder, type Supplier, type PurchaseOrderItem } from '../../services/purchasesService';
+import { getSuppliers, createSupplier, getSupplierBalance, createPurchaseOrder, type Supplier, type PurchaseOrderItem } from '../../services/purchasesService';
 import { getProducts, type Product } from '../../services/api';
 import { PAYMENT_METHODS } from '../../constants/data';
 import SearchableSelect from '../../components/common/SearchableSelect';
@@ -44,6 +44,11 @@ export default function PurchaseOrderForm() {
     const [products, setProducts] = useState<Product[]>([]);
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
+    const [showNewSupplier, setShowNewSupplier] = useState(false);
+    const [newSupName, setNewSupName] = useState('');
+    const [newSupPhone, setNewSupPhone] = useState('');
+    const [newSupAddress, setNewSupAddress] = useState('');
+    const [savingSup, setSavingSup] = useState(false);
 
     const prefilledSupplier = location.state as { supplierId?: string; supplierName?: string; isPending?: boolean } | null;
 
@@ -193,6 +198,19 @@ export default function PurchaseOrderForm() {
         }));
     };
 
+    const createNewSupplier = async () => {
+        if (!newSupName.trim()) return;
+        setSavingSup(true);
+        try {
+            const s = await createSupplier({ name: newSupName, phone: newSupPhone, address: newSupAddress, email: '', taxId: '', paymentTerms: 'Net 30', currency: 'USD', rating: 'A', status: 'Active', code: `SUP-${Date.now().toString().slice(-6)}` });
+            setSuppliers((prev: any[]) => [...prev, s]);
+            setFormData((p: any) => ({ ...p, supplierId: s.id, supplierName: s.name }));
+            setShowNewSupplier(false);
+            setNewSupName(''); setNewSupPhone(''); setNewSupAddress('');
+        } catch { alert('Failed to create supplier. Try again.'); }
+        finally { setSavingSup(false); }
+    };
+
     const handleSupplierChange = (supplierId: string) => {
         const supplier = suppliers.find(s => s.id === supplierId);
         setFormData(prev => ({
@@ -305,9 +323,13 @@ export default function PurchaseOrderForm() {
             <div className="bg-white border-2 border-gray-200 rounded-xl shadow-md p-8 space-y-8">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pb-8 border-b-2 border-gray-100">
                     <div>
-                        <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">
-                            Authorised Vendor <span className="text-red-500">*</span>
-                        </label>
+                        <div className="flex items-center justify-between mb-2">
+                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Authorised Vendor <span className="text-red-500">*</span></label>
+                            <button type="button" onClick={() => setShowNewSupplier(true)}
+                                className="flex items-center gap-1 text-xs font-black text-orange-600 hover:text-orange-800 transition-all">
+                                + New Supplier
+                            </button>
+                        </div>
                         <SearchableSelect
                             options={suppliers}
                             value={formData.supplierId}
@@ -316,6 +338,24 @@ export default function PurchaseOrderForm() {
                             displayKey="name"
                             disabled={loading}
                         />
+                        {showNewSupplier && (
+                            <div className="mt-2 p-3 bg-orange-50 border border-orange-200 rounded-xl space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <p className="text-xs font-black text-orange-700 uppercase">New Supplier</p>
+                                    <button onClick={() => setShowNewSupplier(false)} className="text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
+                                </div>
+                                <input type="text" placeholder="Supplier Name *" value={newSupName} onChange={e => setNewSupName(e.target.value)}
+                                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400"/>
+                                <input type="text" placeholder="Phone" value={newSupPhone} onChange={e => setNewSupPhone(e.target.value)}
+                                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400"/>
+                                <input type="text" placeholder="Address" value={newSupAddress} onChange={e => setNewSupAddress(e.target.value)}
+                                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400"/>
+                                <button onClick={createNewSupplier} disabled={savingSup || !newSupName.trim()}
+                                    className="w-full py-2 bg-orange-500 text-white text-xs font-black rounded-lg hover:bg-orange-600 disabled:opacity-40 transition-all">
+                                    {savingSup ? 'Creating...' : 'Create & Select Supplier'}
+                                </button>
+                            </div>
+                        )}
                     </div>
                     <div>
                         <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">

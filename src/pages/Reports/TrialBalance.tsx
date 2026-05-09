@@ -1,5 +1,6 @@
+import { useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { Scale, Download, CheckCircle, XCircle } from 'lucide-react';
+import { Scale, Download, CheckCircle, XCircle , ArrowLeft } from 'lucide-react';
 import { getInvoices, getPayments } from '../../services/api';
 import { getPurchaseOrders } from '../../services/purchasesService';
 import { formatCurrency } from '../../services/settingsService';
@@ -12,6 +13,7 @@ interface TrialEntry {
 }
 
 export default function TrialBalance() {
+    const navigate = useNavigate();
     const [entries, setEntries] = useState<TrialEntry[]>([]);
     const [loading, setLoading] = useState(true);
     const [period, setPeriod] = useState<'month' | 'quarter' | 'year'>('month');
@@ -91,7 +93,8 @@ export default function TrialBalance() {
                         <Scale size={24} className="text-indigo-600" />
                     </div>
                     <div>
-                        <h1 className="text-xl font-black text-gray-900 uppercase tracking-tight">Trial Balance</h1>
+                        <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all"><ArrowLeft size={14} /> Back</button>
+                    <h1 className="text-xl font-black text-gray-900 uppercase tracking-tight">Trial Balance</h1>
                         <p className="text-xs text-gray-500 mt-0.5">All debits must equal all credits · {periodLabel[period]}</p>
                     </div>
                 </div>

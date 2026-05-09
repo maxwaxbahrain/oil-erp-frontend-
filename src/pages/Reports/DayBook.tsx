@@ -1,5 +1,6 @@
+import { useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { BookOpen, Download, ChevronLeft, ChevronRight, TrendingUp, TrendingDown } from 'lucide-react';
+import { BookOpen, Download, ChevronLeft, ChevronRight, TrendingUp, TrendingDown , ArrowLeft } from 'lucide-react';
 import { getInvoices, getPayments } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
 import { getPurchaseOrders } from '../../services/purchasesService';
@@ -16,6 +17,7 @@ interface DayEntry {
 }
 
 export default function DayBook() {
+    const navigate = useNavigate();
     const [entries, setEntries] = useState<DayEntry[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
@@ -110,7 +112,8 @@ export default function DayBook() {
                         <BookOpen size={24} className="text-purple-600" />
                     </div>
                     <div>
-                        <h1 className="text-xl font-black text-gray-900 uppercase tracking-tight">Day Book</h1>
+                        <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all"><ArrowLeft size={14} /> Back</button>
+                    <h1 className="text-xl font-black text-gray-900 uppercase tracking-tight">Day Book</h1>
                         <p className="text-xs text-gray-500 mt-0.5">All transactions for a single day · used by accountants daily</p>
                     </div>
                 </div>

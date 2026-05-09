@@ -59,6 +59,7 @@ import DayBook from '../pages/Reports/DayBook';
 import TrialBalance from '../pages/Reports/TrialBalance';
 import Banking from '../pages/Accounts/Banking';
 import DemandForecasting from '../pages/Reports/DemandForecasting';
+import InventoryAdjustment from '../pages/Inventory/InventoryAdjustment';
 import DriverApp from '../pages/POD/DriverApp';
 import ManagementDashboard from '../pages/POD/ManagementDashboard';
 import PODTestRunner from '../pages/POD/PODTestRunner';
@@ -104,7 +105,7 @@ export const AppRoutes = () => {
 
             <Route path="/inventory" element={<Navigate to="/products" replace />} />
             <Route path="/inventory/transfer" element={<StockTransfer />} />
-            <Route path="/inventory/adjustments" element={<Navigate to="/products" replace />} />
+            <Route path="/inventory/adjustments" element={<InventoryAdjustment />} />
             <Route path="/inventory/ai-stock-control" element={<AIStockControl />} />
 
             {/* Procurement */}

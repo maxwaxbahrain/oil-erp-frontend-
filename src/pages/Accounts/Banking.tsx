@@ -21,6 +21,8 @@ export default function Banking() {
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
     const [filter, setFilter] = useState<'all' | 'Credit' | 'Debit'>('all');
+    const [dateFrom, setDateFrom] = useState('');
+    const [dateTo, setDateTo] = useState('');
 
     useEffect(() => {
         Promise.all([getPayments(), getInvoices()])
@@ -70,6 +72,8 @@ export default function Banking() {
     const netBalance = totalCredits - totalDebits;
 
     const filtered = transactions.filter(t => {
+        if (dateFrom && t.date < dateFrom) return false;
+        if (dateTo && t.date > dateTo) return false;
         const matchFilter = filter === 'all' || t.type === filter;
         const matchSearch = !search || t.description.toLowerCase().includes(search.toLowerCase()) || t.reference.toLowerCase().includes(search.toLowerCase());
         return matchFilter && matchSearch;
@@ -154,6 +158,17 @@ export default function Banking() {
                                 onChange={e => setSearch(e.target.value)}
                                 className="pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-orange-400 w-56"
                             />
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                                className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400" />
+                            <span className="text-xs text-gray-400">to</span>
+                            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+                                className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400" />
+                            {(dateFrom || dateTo) && (
+                                <button onClick={() => { setDateFrom(''); setDateTo(''); }}
+                                    className="text-xs text-red-500 font-bold hover:text-red-700">Clear</button>
+                            )}
                         </div>
                         {(['all', 'Credit', 'Debit'] as const).map(f => (
                             <button

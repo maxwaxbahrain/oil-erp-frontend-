@@ -152,6 +152,7 @@ export default function Sidebar() {
                         <div className="space-y-0.5 pl-2 border-l-2 border-white/5 ml-2">
                             <NavItem to="/products" icon={Package} label="Product Catalog" />
                             <NavItem to="/products/reports" icon={PieChart} label="Inventory Reports" />
+                <NavItem to="/inventory/adjustments" icon={Package} label="Stock Adjustment" />
                         </div>
                     )}
                 </div>

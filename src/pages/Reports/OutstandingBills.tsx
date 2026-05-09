@@ -1,9 +1,11 @@
+import { useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { FileText, Search, Download, Filter, AlertCircle, CheckCircle } from 'lucide-react';
+import { FileText, Search, Download, Filter, AlertCircle, CheckCircle , ArrowLeft } from 'lucide-react';
 import { getInvoices, type Invoice } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
 
 export default function OutstandingBills() {
+    const navigate = useNavigate();
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
@@ -57,7 +59,8 @@ export default function OutstandingBills() {
                         <FileText size={24} className="text-orange-600" />
                     </div>
                     <div>
-                        <h1 className="text-xl font-black text-gray-900 uppercase tracking-tight">Outstanding Bills</h1>
+                        <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all"><ArrowLeft size={14} /> Back</button>
+                    <h1 className="text-xl font-black text-gray-900 uppercase tracking-tight">Outstanding Bills</h1>
                         <p className="text-xs text-gray-500 mt-0.5">All unpaid & partial invoices · {new Date().toLocaleDateString()}</p>
                     </div>
                 </div>

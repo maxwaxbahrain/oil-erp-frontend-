@@ -1,5 +1,6 @@
+import { useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { TrendingUp, Package, AlertTriangle, RefreshCw, ChevronUp, ChevronDown, Minus } from 'lucide-react';
+import { TrendingUp, Package, AlertTriangle, RefreshCw, ChevronUp, ChevronDown, Minus , ArrowLeft } from 'lucide-react';
 import { getInvoices, getProducts } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
 
@@ -47,6 +48,7 @@ function calcTrend(history: Array<{ qty: number }>): { trend: 'up' | 'down' | 's
 }
 
 export default function DemandForecasting() {
+    const navigate = useNavigate();
     const [forecasts, setForecasts] = useState<ProductForecast[]>([]);
     const [loading, setLoading] = useState(true);
     const [sortBy, setSortBy] = useState<'urgency' | 'sales' | 'stock'>('urgency');
@@ -265,7 +267,8 @@ Give me:
                         <TrendingUp size={24} className="text-orange-400" />
                     </div>
                     <div>
-                        <h1 className="text-xl font-black uppercase tracking-tight">Demand Forecasting</h1>
+                        <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all"><ArrowLeft size={14} /> Back</button>
+                    <h1 className="text-xl font-black uppercase tracking-tight">Demand Forecasting</h1>
                         <p className="text-gray-400 text-xs mt-0.5">AI-powered predictions based on your last 6 months of sales</p>
                     </div>
                 </div>

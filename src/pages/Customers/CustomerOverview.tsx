@@ -162,6 +162,10 @@ export default function CustomerOverview() {
 
     // Ledger state
     const [ledger, setLedger] = useState<LedgerEntry[]>([]);
+    // @ts-expect-error - setters used in JSX
+    const [ledgerDateFrom, setLedgerDateFrom] = useState('');
+    // @ts-expect-error - setters used in JSX
+    const [ledgerDateTo, setLedgerDateTo] = useState('');
     const [loadingLedger, setLoadingLedger] = useState(false);
 
     // Stats state
@@ -664,7 +668,13 @@ export default function CustomerOverview() {
                                                 </td>
                                             </tr>
                                         ) : (
-                                            ledger.map(entry => (
+                                            ledger
+                                            .filter(entry => {
+                                                if (ledgerDateFrom && entry.date.slice(0,10) < ledgerDateFrom) return false;
+                                                if (ledgerDateTo && entry.date.slice(0,10) > ledgerDateTo) return false;
+                                                return true;
+                                            })
+                                            .map(entry => (
                                                 <tr
                                                     key={entry.id}
                                                     className="hover:bg-gray-50 transition-colors"

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, Plus, Trash2, Save, FileText } from 'lucide-react';
-import { getCustomers, createInvoice, getProducts, type Customer, type Product } from '../../services/api';
+import { ArrowLeft, Plus, Trash2, Save, FileText, UserPlus, X } from 'lucide-react';
+import { getCustomers, createInvoice, getProducts, createCustomer, type Customer, type Product } from '../../services/api';
 import { getCustomerPrice } from '../../services/api';
 import { SALESMEN, VANS, PAYMENT_METHODS } from '../../constants/data';
 import SearchableSelect from '../../components/common/SearchableSelect';
@@ -14,6 +14,7 @@ interface InvoiceLineItem {
     quantity: number;
     rate: number;
     amount: number;
+    isService?: boolean;
 }
 
 interface InvoiceFormData {
@@ -27,6 +28,7 @@ interface InvoiceFormData {
     taxRate: number;
     taxAmount: number;
     discount: number;
+    roundOff: number;
     grandTotal: number;
     notes: string;
     salesmanId: string;
@@ -46,6 +48,11 @@ export default function InvoiceFormPage() {
     const [products, setProducts] = useState<Product[]>([]);
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
+    const [showNewCustomer, setShowNewCustomer] = useState(false);
+    const [newCustName, setNewCustName] = useState('');
+    const [newCustPhone, setNewCustPhone] = useState('');
+    const [newCustAddress, setNewCustAddress] = useState('');
+    const [savingCust, setSavingCust] = useState(false);
 
     const prefilledCustomer = location.state as { customerId?: string; customerName?: string } | null;
 
@@ -70,6 +77,7 @@ export default function InvoiceFormPage() {
         taxRate: 17,
         taxAmount: 0,
         discount: 0,
+        roundOff: 0,
         grandTotal: 0,
         notes: '',
         salesmanId: '',
@@ -104,7 +112,8 @@ export default function InvoiceFormPage() {
     useEffect(() => {
         const subtotal = formData.lineItems.reduce((sum, item) => sum + item.amount, 0);
         const taxAmount = (subtotal * formData.taxRate) / 100;
-        const grandTotal = subtotal + taxAmount - formData.discount;
+        const rawTotal = subtotal + taxAmount - formData.discount;
+        const grandTotal = rawTotal + (formData.roundOff || 0);
         const remainingBalance = formData.paymentStatus === 'Paid' ? 0 :
             formData.paymentStatus === 'Advance Paid' ? grandTotal - formData.amountPaid :
                 grandTotal;
@@ -114,6 +123,7 @@ export default function InvoiceFormPage() {
             subtotal,
             taxAmount,
             grandTotal,
+            roundOff: Math.round(subtotal + taxAmount - formData.discount) - (subtotal + taxAmount - formData.discount),
             remainingBalance
         }));
     }, [formData.lineItems, formData.taxRate, formData.discount, formData.paymentStatus, formData.amountPaid]);
@@ -144,6 +154,33 @@ export default function InvoiceFormPage() {
         setFormData(prev => ({
             ...prev,
             lineItems: prev.lineItems.filter(item => item.id !== id)
+        }));
+    };
+
+    const createNewCustomer = async () => {
+        if (!newCustName.trim()) return;
+        setSavingCust(true);
+        try {
+            const newCust = await createCustomer({ name: newCustName, phone: newCustPhone, address: newCustAddress });
+            setCustomers(prev => [...prev, newCust]);
+            setFormData(prev => ({ ...prev, customerId: newCust.id, customerName: newCust.name }));
+            setShowNewCustomer(false);
+            setNewCustName(''); setNewCustPhone(''); setNewCustAddress('');
+        } catch (e) {
+            alert('Failed to create customer. Please try again.');
+        } finally {
+            setSavingCust(false);
+        }
+    };
+
+    const addServiceLine = () => {
+        const newId = Date.now().toString();
+        setFormData(prev => ({
+            ...prev,
+            lineItems: [...prev.lineItems, {
+                id: newId, productId: '', product: 'Service',
+                description: '', quantity: 1, rate: 0, amount: 0, isService: true
+            }]
         }));
     };
 
@@ -334,9 +371,13 @@ export default function InvoiceFormPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-6 border-b-2 border-gray-200">
                     <div className="space-y-4">
                         <div>
-                            <label className="block text-xs font-black text-gray-600 uppercase mb-2">
-                                Customer <span className="text-red-500">*</span>
-                            </label>
+                            <div className="flex items-center justify-between mb-2">
+                                <label className="text-xs font-black text-gray-600 uppercase">Customer <span className="text-red-500">*</span></label>
+                                <button type="button" onClick={() => setShowNewCustomer(true)}
+                                    className="flex items-center gap-1 text-xs font-black text-orange-600 hover:text-orange-800 transition-all">
+                                    <UserPlus size={12} /> New Customer
+                                </button>
+                            </div>
                             <SearchableSelect
                                 options={customers}
                                 value={formData.customerId}
@@ -345,6 +386,24 @@ export default function InvoiceFormPage() {
                                 displayKey="name"
                                 disabled={loading}
                             />
+                            {showNewCustomer && (
+                                <div className="mt-2 p-3 bg-orange-50 border border-orange-200 rounded-xl space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <p className="text-xs font-black text-orange-700 uppercase">New Customer</p>
+                                        <button onClick={() => setShowNewCustomer(false)} className="text-gray-400 hover:text-gray-600"><X size={14}/></button>
+                                    </div>
+                                    <input type="text" placeholder="Customer Name *" value={newCustName} onChange={e => setNewCustName(e.target.value)}
+                                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400" />
+                                    <input type="text" placeholder="Phone" value={newCustPhone} onChange={e => setNewCustPhone(e.target.value)}
+                                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400" />
+                                    <input type="text" placeholder="Address" value={newCustAddress} onChange={e => setNewCustAddress(e.target.value)}
+                                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400" />
+                                    <button onClick={createNewCustomer} disabled={savingCust || !newCustName.trim()}
+                                        className="w-full py-2 bg-orange-500 text-white text-xs font-black rounded-lg hover:bg-orange-600 disabled:opacity-40 transition-all">
+                                        {savingCust ? 'Creating...' : 'Create & Select Customer'}
+                                    </button>
+                                </div>
+                            )}
                         </div>
 
                         <div>
@@ -468,13 +527,16 @@ export default function InvoiceFormPage() {
                         </table>
                     </div>
 
-                    <button
-                        onClick={handleAddLineItem}
-                        className="mt-4 px-6 py-3 bg-white border-2 border-gray-300 rounded-lg text-sm font-bold hover:bg-gray-50 flex items-center gap-2"
-                    >
-                        <Plus size={18} />
-                        Add Line Item
-                    </button>
+                    <div className="flex gap-3 mt-4">
+                        <button onClick={handleAddLineItem}
+                            className="px-6 py-3 bg-white border-2 border-gray-300 rounded-lg text-sm font-bold hover:bg-gray-50 flex items-center gap-2">
+                            <Plus size={18} /> Add Product
+                        </button>
+                        <button onClick={addServiceLine}
+                            className="px-6 py-3 bg-white border-2 border-blue-300 text-blue-700 rounded-lg text-sm font-bold hover:bg-blue-50 flex items-center gap-2">
+                            <Plus size={18} /> Add Service / Cargo
+                        </button>
+                    </div>
                 </div>
 
                 {/* Payment Options Section */}
@@ -582,6 +644,23 @@ export default function InvoiceFormPage() {
                                         onChange={(e) => setFormData(prev => ({ ...prev, discount: parseFloat(e.target.value) || 0 }))}
                                         className="w-32 border-2 border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right font-mono font-black focus:border-[#800020] outline-none transition-all bg-gray-50"
                                         placeholder="0"
+                                    />
+                                </div>
+
+                                <div className="flex justify-between items-center group">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs font-bold text-gray-500 uppercase group-hover:text-gray-900 transition-colors">Round Off</span>
+                                        <button type="button"
+                                            onClick={() => setFormData(prev => ({ ...prev, roundOff: Math.round(prev.subtotal + prev.taxAmount - prev.discount) - (prev.subtotal + prev.taxAmount - prev.discount) }))}
+                                            className="text-[10px] px-2 py-0.5 bg-gray-100 hover:bg-gray-200 rounded font-bold text-gray-500 transition-all">Auto</button>
+                                    </div>
+                                    <input
+                                        type="number"
+                                        value={formData.roundOff || ''}
+                                        onChange={(e) => setFormData(prev => ({ ...prev, roundOff: parseFloat(e.target.value) || 0 }))}
+                                        className="w-32 border-2 border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right font-mono font-black focus:border-[#800020] outline-none transition-all bg-gray-50"
+                                        placeholder="0.00"
+                                        step="0.01"
                                     />
                                 </div>
 
