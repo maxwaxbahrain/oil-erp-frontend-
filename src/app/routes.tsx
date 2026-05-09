@@ -50,6 +50,11 @@ import InvoiceImport from '../pages/Inventory/InvoiceImport';
 import AIStockControl from '../pages/Inventory/AIStockControl';
 import EmployeePortal from '../pages/Portal/EmployeePortal';
 import ProfitabilityReports from '../pages/Reports/ProfitabilityReports';
+import AgedReceivable from '../pages/Reports/AgedReceivable';
+import AgedPayable from '../pages/Reports/AgedPayable';
+import OutstandingBills from '../pages/Reports/OutstandingBills';
+import DayBook from '../pages/Reports/DayBook';
+import TrialBalance from '../pages/Reports/TrialBalance';
 import Banking from '../pages/Accounts/Banking';
 import DriverApp from '../pages/POD/DriverApp';
 import ManagementDashboard from '../pages/POD/ManagementDashboard';
@@ -186,6 +191,11 @@ export const AppRoutes = () => {
 
             {/* Reports */}
             <Route path="/reports/sales" element={<ProfitabilityReports />} />
+            <Route path="/reports/aged-receivable" element={<AgedReceivable />} />
+            <Route path="/reports/aged-payable" element={<AgedPayable />} />
+            <Route path="/reports/outstanding-bills" element={<OutstandingBills />} />
+            <Route path="/reports/day-book" element={<DayBook />} />
+            <Route path="/reports/trial-balance" element={<TrialBalance />} />
             <Route path="/reports" element={<ReportsDashboard />} />
             <Route path="/reports/*" element={<ReportsDashboard />} />
 
