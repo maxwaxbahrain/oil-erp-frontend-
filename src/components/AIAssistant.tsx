@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { BrainCircuit, Send, X, Minimize2, Maximize2, Loader } from 'lucide-react';
+import { BrainCircuit, Send, X, Minimize2, Maximize2, Loader, Download, Copy, Check } from 'lucide-react';
 
 interface Message {
     role: 'user' | 'assistant';
@@ -35,6 +35,23 @@ export default function AIAssistant({ context }: AIAssistantProps) {
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
+    const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+    const DAILY_LIMIT = 20;
+
+    const getTodayCount = () => {
+        const today = new Date().toISOString().slice(0, 10);
+        const stored = JSON.parse(localStorage.getItem('ai_usage') || '{}');
+        return stored[today] || 0;
+    };
+
+    const incrementCount = () => {
+        const today = new Date().toISOString().slice(0, 10);
+        const stored = JSON.parse(localStorage.getItem('ai_usage') || '{}');
+        stored[today] = (stored[today] || 0) + 1;
+        localStorage.setItem('ai_usage', JSON.stringify(stored));
+    };
+
+
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -171,9 +188,38 @@ DATA RULES:
 - Never say you don't have access to data — you have everything above`;
     };
 
+    const copyToClipboard = (text: string, idx: number) => {
+        navigator.clipboard.writeText(text).then(() => {
+            setCopiedIdx(idx);
+            setTimeout(() => setCopiedIdx(null), 2000);
+        });
+    };
+
+    const downloadAsPDF = (text: string, _idx: number) => {
+        const date = new Date().toLocaleDateString();
+        const content = `AI Business Advisor — Marcus Reid\nGenerated: ${date}\n\n${text}`;
+        const blob = new Blob([content], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `marcus-advice-${Date.now()}.txt`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
     const sendMessage = async (text?: string) => {
         const query = text || input.trim();
         if (!query || loading) return;
+
+        // Rate limit check
+        if (getTodayCount() >= DAILY_LIMIT) {
+            setMessages(prev => [...prev, {
+                role: 'assistant',
+                content: 'You have used all 20 free queries for today. Your limit resets tomorrow at midnight. Upgrade to Pro for unlimited daily queries.'
+            }]);
+            return;
+        }
+        incrementCount();
 
         const userMsg: Message = { role: 'user', content: query };
         setMessages(prev => [...prev, userMsg]);
@@ -318,7 +364,7 @@ DATA RULES:
                                 )}
 
                                 {messages.map((msg, i) => (
-                                    <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                    <div key={i} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                                         <div className={`max-w-[85%] rounded-xl px-3 py-2 text-sm leading-relaxed ${
                                             msg.role === 'user'
                                                 ? 'bg-gray-900 text-white rounded-br-none'
@@ -326,6 +372,26 @@ DATA RULES:
                                         }`}>
                                             {msg.role === 'assistant' ? formatMessage(msg.content) : msg.content}
                                         </div>
+                                        {msg.role === 'assistant' && (
+                                            <div className="flex gap-2 mt-1 ml-1">
+                                                <button
+                                                    onClick={() => copyToClipboard(msg.content, i)}
+                                                    className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-all"
+                                                    title="Copy to clipboard"
+                                                >
+                                                    {copiedIdx === i ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
+                                                    {copiedIdx === i ? 'Copied!' : 'Copy'}
+                                                </button>
+                                                <button
+                                                    onClick={() => downloadAsPDF(msg.content, i)}
+                                                    className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-all"
+                                                    title="Download as text file"
+                                                >
+                                                    <Download size={11} />
+                                                    Save
+                                                </button>
+                                            </div>
+                                        )}
                                     </div>
                                 ))}
 
