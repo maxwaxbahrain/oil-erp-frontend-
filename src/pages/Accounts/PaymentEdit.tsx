@@ -53,7 +53,7 @@ export default function PaymentEdit() {
         setSaving(true);
         try {
             const API = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
-            const res = await fetch(`${API}/payments/${editId}`, {
+            const res = await fetch(`${API}/ledger/payment/${editId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(editForm)

@@ -101,6 +101,40 @@ export default function InvoiceFormPage() {
                 ]);
                 setCustomers(customersData);
                 setProducts(productsData);
+                // Populate form when editing
+                if (isEditMode && existingInvoice) {
+                    const inv = existingInvoice;
+                    setFormData({
+                        customerId: String(inv.customerId || ''),
+                        customerName: inv.customerName || '',
+                        invoiceNumber: inv.invoiceNumber || '',
+                        invoiceDate: inv.invoiceDate || new Date().toISOString().split('T')[0],
+                        dueDate: inv.dueDate || '',
+                        lineItems: (inv.lineItems || []).map((item: any, idx: number) => ({
+                            id: String(idx + 1),
+                            productId: item.productId || '',
+                            product: item.product || '',
+                            description: item.description || '',
+                            quantity: Number(item.quantity) || 1,
+                            rate: Number(item.rate) || 0,
+                            amount: Number(item.amount) || 0,
+                            isService: false
+                        })),
+                        subtotal: Number(inv.subtotal) || 0,
+                        taxRate: Number(inv.taxRate) || 17,
+                        taxAmount: Number(inv.taxAmount) || 0,
+                        discount: Number(inv.discount) || 0,
+                        roundOff: 0,
+                        grandTotal: Number(inv.grandTotal) || 0,
+                        notes: inv.notes || '',
+                        salesmanId: inv.salesman || '',
+                        vanId: inv.van || '',
+                        paymentStatus: inv.payment_status || 'Unpaid',
+                        paymentMethod: inv.payment_method || 'Cash',
+                        amountPaid: Number(inv.amount_paid) || 0,
+                        remainingBalance: Number(inv.remaining_balance) || 0,
+                    });
+                }
             } catch (error) {
                 console.error('Failed to load data:', error);
                 alert('Failed to load customers/products');
