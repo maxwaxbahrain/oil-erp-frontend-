@@ -130,26 +130,34 @@ IMPORTANT:
             const data = await res.json();
             const reply = data.reply || '';
 
-            // Parse JSON
-            const jsonStart = reply.indexOf('{');
-            const jsonEnd = reply.lastIndexOf('}') + 1;
-            if (jsonStart >= 0 && jsonEnd > jsonStart) {
+            // Parse JSON safely
+            try {
+                const jsonStart = reply.indexOf('{');
+                const jsonEnd = reply.lastIndexOf('}') + 1;
+                if (jsonStart < 0 || jsonEnd <= jsonStart) throw new Error('No JSON in response');
                 const parsed = JSON.parse(reply.slice(jsonStart, jsonEnd));
                 const contents: GeneratedContent[] = (parsed.contents || []).map((item: any) => ({
                     channelId: item.channel,
-                    content: item.subject ? `Subject: ${item.subject}\n\n${item.content}` : item.content,
+                    content: item.subject ? `Subject: ${item.subject}\n\n${item.content}` : (item.content || ''),
                     copied: false,
                 }));
-                // Add any missing channels
+                // Fill missing channels with placeholder
                 channels.forEach(ch => {
                     if (!contents.find(c => c.channelId === ch.id)) {
-                        contents.push({ channelId: ch.id, content: 'Content generation failed for this channel. Try regenerating.', copied: false });
+                        contents.push({ channelId: ch.id, content: `[${ch.label} content not generated. Try again or reduce channel count.]`, copied: false });
                     }
                 });
                 setGenerated(contents);
                 if (contents.length > 0) setActiveContent(contents[0].channelId);
-            } else {
-                alert('AI returned unexpected format. Please try again.');
+            } catch (parseErr) {
+                // AI returned plain text or malformed JSON - show as-is for first channel
+                const fallback: GeneratedContent[] = channels.map((ch, i) => ({
+                    channelId: ch.id,
+                    content: i === 0 ? reply : '[Regenerate to get content for this channel]',
+                    copied: false,
+                }));
+                setGenerated(fallback);
+                setActiveContent(channels[0].id);
             }
         } catch (e: any) {
             alert(`Generation failed: ${e.message}`);

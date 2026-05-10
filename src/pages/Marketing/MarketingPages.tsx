@@ -41,7 +41,10 @@ export function CustomerSegments() {
     const [aiLoading, setAiLoading] = useState(false);
 
     useEffect(() => {
-        Promise.all([getCustomers(), getInvoices()]).then(([custs, invs]) => {
+        Promise.all([
+            getCustomers().catch(() => []),
+            getInvoices().catch(() => [])
+        ]).then(([custs, invs]) => {
             const today = new Date();
             const spend: Record<string, number> = {};
             const lastOrder: Record<string, Date> = {};
@@ -95,7 +98,7 @@ export function CustomerSegments() {
             ];
             setSegments(built);
             setLoading(false);
-        });
+        }).catch(() => setLoading(false));
     }, []);
 
     const getAISegmentIdeas = async () => {
