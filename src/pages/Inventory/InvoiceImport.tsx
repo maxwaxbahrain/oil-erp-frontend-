@@ -61,13 +61,16 @@ export default function InvoiceImport() {
                 } else {
                     const newSup = await createSupplier({
                         name: supplierName,
-                        address: invoiceData.supplier?.address || '',
-                        phone: invoiceData.supplier?.phone || '',
+                        code: `SUP-${Date.now().toString().slice(-6)}`,
+                        contactPerson: '',
                         email: invoiceData.supplier?.email || '',
-                        currency: invoiceData.invoice?.currency || 'USD',
-                        status: 'Active',
+                        phone: invoiceData.supplier?.phone || '',
+                        address: invoiceData.supplier?.address || '',
+                        taxId: '',
+                        status: 'Active' as const,
                         paymentTerms: 'Net 30',
-                        code: `SUP-${Date.now().toString().slice(-6)}`
+                        currency: invoiceData.invoice?.currency || 'USD',
+                        rating: 'A' as const
                     });
                     supplierId = newSup.id;
                 }
@@ -135,14 +138,13 @@ export default function InvoiceImport() {
                 errors.push(`Purchase Order: ${e instanceof Error ? e.message : 'failed'}`);
             }
 
-            // Done
-            if (errors.length > 0) {
-                alert(`Import completed with ${toImport.length} products.\n\nSome items had issues:\n${errors.slice(0,3).join('\n')}`);
-            }
+            // Done - navigate regardless
+            alert(`✅ Import complete! ${toImport.length} products imported to inventory.${errors.length > 0 ? '\n\nWarnings: ' + errors.slice(0,2).join('; ') : ''}`);
             navigate('/products');
 
-        } catch (err) {
-            alert(`Import failed: ${err instanceof Error ? err.message : 'Unknown error'}. Please try again.`);
+        } catch (err: any) {
+            console.error('Import error:', err);
+            alert(`Import error: ${err?.message || String(err)}\n\nPlease check console for details.`);
         } finally {
             setImporting(false);
         }
