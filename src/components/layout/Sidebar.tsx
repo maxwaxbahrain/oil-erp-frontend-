@@ -18,7 +18,7 @@ import {
     TrendingUp,
     User,
     MapPin
-, Tag , BookOpen , AlertTriangle , Edit2 , Brain , ShoppingCart } from 'lucide-react';
+, Tag , BookOpen , AlertTriangle , Edit2 , Brain , ShoppingCart , DollarSign } from 'lucide-react';
 import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
 
@@ -251,6 +251,7 @@ export default function Sidebar() {
                             <NavItem to="/ai/auto-po" icon={ShoppingCart} label="Auto PO Generation" />
                             <NavItem to="/ai/anomaly" icon={AlertTriangle} label="Anomaly Detection" />
                             <NavItem to="/ai/customer-forecast" icon={Users} label="Customer Forecast" />
+                            <NavItem to="/ai/revenue-forecast" icon={DollarSign} label="Revenue Forecast" />
                             <NavItem to="/reports/demand-forecast" icon={TrendingUp} label="Demand Forecast" />
                         </div>
                     )}

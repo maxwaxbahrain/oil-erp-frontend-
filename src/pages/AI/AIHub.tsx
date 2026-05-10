@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { Brain, TrendingUp, AlertTriangle, ShoppingCart, Users, Zap, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { Brain, TrendingUp, AlertTriangle, ShoppingCart, Users, Zap, ArrowRight, CheckCircle2, DollarSign } from 'lucide-react';
 
 const AI_FEATURES = [
     {
@@ -25,6 +25,15 @@ const AI_FEATURES = [
         title: 'Smart Demand Forecasting',
         description: 'AI forecasts with supplier lead time, seasonality, and market signals — not just averages.',
         path: '/reports/demand-forecast',
+        status: 'live',
+        badge: 'Live',
+        color: 'blue',
+    },
+    {
+        icon: DollarSign,
+        title: 'Revenue Forecast',
+        description: 'AI predicts next month revenue with low/mid/high confidence ranges + market intelligence.',
+        path: '/ai/revenue-forecast',
         status: 'live',
         badge: 'Live',
         color: 'blue',
@@ -153,10 +162,10 @@ export default function AIHub() {
                 <p className="text-sm font-black text-gray-700 uppercase tracking-widest mb-4">AI Score vs Doss (Competitor)</p>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {[
-                        { label: 'ERP Completeness', score: 8, max: 10, color: 'emerald' },
+                        { label: 'ERP Completeness', score: 9, max: 10, color: 'emerald' },
                         { label: 'Domain Depth', score: 9, max: 10, color: 'emerald' },
-                        { label: 'AI Forecasting', score: 7, max: 10, color: 'blue' },
-                        { label: 'Auto-Actions', score: 7, max: 10, color: 'orange' },
+                        { label: 'AI Forecasting', score: 9, max: 10, color: 'blue' },
+                        { label: 'Auto-Actions', score: 9, max: 10, color: 'orange' },
                     ].map((s, i) => (
                         <div key={i} className="text-center">
                             <div className={`text-3xl font-black ${s.color === 'emerald' ? 'text-emerald-600' : s.color === 'blue' ? 'text-blue-600' : 'text-orange-600'}`}>

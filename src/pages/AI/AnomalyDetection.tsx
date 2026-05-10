@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, AlertTriangle, TrendingUp, TrendingDown, Zap, RefreshCw, Eye } from 'lucide-react';
-import { getInvoices, getProducts } from '../../services/api';
+import { getInvoices, getProducts, getCustomers } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
 
 interface Anomaly {
@@ -30,7 +30,11 @@ export default function AnomalyDetection() {
     const detectAnomalies = async () => {
         setLoading(true);
         try {
-            const [invoices, products] = await Promise.all([getInvoices(), getProducts()]);
+            const [invoices, products, customers] = await Promise.all([getInvoices(), getProducts(), getCustomers()]);
+            const custMap: Record<string,string> = {};
+            customers.forEach((c:any) => { custMap[String(c.id)] = c.name; });
+            // Enrich invoice customer names
+            invoices.forEach(inv => { if (!inv.customerName && inv.customerId) (inv as any).customerName = custMap[String(inv.customerId)] || `Customer ${inv.customerId}`; });
             const found: Anomaly[] = [];
             const today = new Date();
 
