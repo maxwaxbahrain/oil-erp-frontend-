@@ -2,244 +2,226 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     Shield, Search, AlertTriangle, CheckCircle, XCircle,
-    TrendingUp, Zap, RefreshCw, Building2,
-    ArrowLeft, ExternalLink, Star, Clock, DollarSign, FileText
+    Zap, RefreshCw, Building2,
+    ArrowLeft, ExternalLink, Star, DollarSign,
+    ChevronDown, ChevronUp
 } from 'lucide-react';
-import { getCustomers, type Customer } from '../../services/api';
-import { getInvoices } from '../../services/api';
+import { getCustomers, getInvoices, type Customer } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
 
 const API = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
 const CREDIT_CACHE_KEY = 'bettano_credit_reports';
 const SETTINGS_KEY = 'bettano_credit_settings';
 
-interface CreditReport {
+const US_STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC'];
+
+const INDUSTRIES = [
+    'Auto Repair / Mechanic Shop','Fleet Management','Trucking / Logistics',
+    'Construction','Manufacturing','Retail','Wholesale Distribution',
+    'Agriculture','Mining','Government / Municipal','Other'
+];
+
+const BUSINESS_TYPES = ['Corporation','LLC','Partnership','Sole Proprietor','Government','Non-Profit','Unknown'];
+
+interface ProspectForm {
     company_name: string;
-    credit_score: number;
-    risk_level: string;
-    credit_limit_suggestion: number;
-    payment_behavior: string;
-    years_in_business: number;
-    employees: string;
-    annual_revenue: string;
-    outstanding_liens: number;
-    bankruptcies: number;
-    judgments: number;
-    days_beyond_terms: number;
-    industry_risk: string;
-    payment_trend: string;
-    trade_lines: number;
-    negative_marks: number;
-    key_factors: string[];
-    ai_analysis: string;
-    ai_recommendation: string;
-    risk_flags: string[];
-    data_source: string;
-    confidence: string;
-    searched_at: string;
-    // Internal ERP data
-    erp_balance?: number;
-    erp_invoices?: number;
-    erp_last_payment?: string;
-    erp_payment_history?: string;
+    dba_name: string;
+    business_type: string;
+    industry: string;
+    address: string;
+    city: string;
+    state: string;
+    zip: string;
+    country: string;
+    phone: string;
+    email: string;
+    website: string;
+    duns_number: string;
+    years_in_business: string;
+    estimated_annual_revenue: string;
+    contact_person: string;
+    contact_title: string;
+    requested_credit_limit: string;
+    payment_terms_requested: string;
+    notes: string;
 }
 
-interface CreditSettings {
-    creditsafe_key: string;
-    dnb_key: string;
-    auto_check: boolean;
-    alert_threshold: number;
+const emptyForm = (): ProspectForm => ({
+    company_name: '', dba_name: '', business_type: 'LLC', industry: 'Auto Repair / Mechanic Shop',
+    address: '', city: '', state: 'NY', zip: '', country: 'US',
+    phone: '', email: '', website: '', duns_number: '',
+    years_in_business: '', estimated_annual_revenue: '',
+    contact_person: '', contact_title: '',
+    requested_credit_limit: '', payment_terms_requested: 'Net 30', notes: ''
+});
+
+interface CreditReport {
+    company_name: string; credit_score: number; risk_level: string;
+    credit_limit_suggestion: number; payment_behavior: string;
+    years_in_business: number; employees: string; annual_revenue: string;
+    outstanding_liens: number; bankruptcies: number; judgments: number;
+    days_beyond_terms: number; industry_risk: string; payment_trend: string;
+    trade_lines: number; negative_marks: number; key_factors: string[];
+    ai_analysis: string; ai_recommendation: string; risk_flags: string[];
+    data_source: string; confidence: string; searched_at: string;
+    erp_balance?: number; erp_invoices?: number;
+    erp_last_payment?: string; prospect_data?: ProspectForm;
+    sell_decision?: 'approve' | 'conditional' | 'decline';
+    sell_conditions?: string[];
+    sell_max_order?: number;
 }
+
+interface CreditSettings { creditsafe_key: string; dnb_key: string; alert_threshold: number; }
 
 function getCache(): Record<string, CreditReport> {
     try { return JSON.parse(localStorage.getItem(CREDIT_CACHE_KEY) || '{}'); } catch { return {}; }
 }
-function saveCache(name: string, report: CreditReport) {
-    const cache = getCache();
-    cache[name.toLowerCase()] = report;
+function saveCache(key: string, report: CreditReport) {
+    const cache = getCache(); cache[key.toLowerCase()] = report;
     localStorage.setItem(CREDIT_CACHE_KEY, JSON.stringify(cache));
 }
 function getSettings(): CreditSettings {
-    try { return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); } catch { return { creditsafe_key: '', dnb_key: '', auto_check: false, alert_threshold: 500 }; }
+    try { return { creditsafe_key: '', dnb_key: '', alert_threshold: 500, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; }
+    catch { return { creditsafe_key: '', dnb_key: '', alert_threshold: 500 }; }
 }
-function saveSettings(s: CreditSettings) { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); }
 
 const SCORE_COLOR = (score: number) => {
-    if (score >= 750) return { text: 'text-emerald-600', bg: 'bg-emerald-100', border: 'border-emerald-300', label: 'Excellent' };
-    if (score >= 650) return { text: 'text-blue-600', bg: 'bg-blue-100', border: 'border-blue-300', label: 'Good' };
-    if (score >= 550) return { text: 'text-amber-600', bg: 'bg-amber-100', border: 'border-amber-300', label: 'Fair' };
-    if (score >= 400) return { text: 'text-orange-600', bg: 'bg-orange-100', border: 'border-orange-300', label: 'Poor' };
-    return { text: 'text-red-600', bg: 'bg-red-100', border: 'border-red-300', label: 'Very Poor' };
+    if (score >= 750) return { text: 'text-emerald-600', bg: 'bg-emerald-50', ring: 'ring-emerald-400', label: 'Excellent', hex: '#059669' };
+    if (score >= 650) return { text: 'text-blue-600', bg: 'bg-blue-50', ring: 'ring-blue-400', label: 'Good', hex: '#2563eb' };
+    if (score >= 550) return { text: 'text-amber-600', bg: 'bg-amber-50', ring: 'ring-amber-400', label: 'Fair', hex: '#d97706' };
+    if (score >= 400) return { text: 'text-orange-600', bg: 'bg-orange-50', ring: 'ring-orange-400', label: 'Poor', hex: '#ea580c' };
+    return { text: 'text-red-600', bg: 'bg-red-50', ring: 'ring-red-500', label: 'Very Poor', hex: '#dc2626' };
 };
 
-const RISK_STYLE: Record<string, string> = {
-    'Low': 'bg-emerald-100 text-emerald-700 border-emerald-300',
-    'Low-Medium': 'bg-blue-100 text-blue-700 border-blue-300',
-    'Medium': 'bg-amber-100 text-amber-700 border-amber-300',
-    'High': 'bg-orange-100 text-orange-700 border-orange-300',
-    'Very High': 'bg-red-100 text-red-700 border-red-300',
+const SELL_DECISION_UI = {
+    approve:     { bg: 'bg-emerald-50', border: 'border-emerald-400', text: 'text-emerald-700', icon: '✅', label: 'APPROVED — SAFE TO SELL' },
+    conditional: { bg: 'bg-amber-50',   border: 'border-amber-400',   text: 'text-amber-700',   icon: '⚠️', label: 'CONDITIONAL — SELL WITH TERMS' },
+    decline:     { bg: 'bg-red-50',     border: 'border-red-400',     text: 'text-red-700',     icon: '❌', label: 'DECLINE — HIGH RISK' },
 };
 
 export default function CreditIntelligence() {
     const navigate = useNavigate();
-    const [customers, setCustomers] = useState<Customer[]>([]);
-    const [searchQuery, setSearchQuery] = useState('');
-    const [searchResults, setSearchResults] = useState<Customer[]>([]);
-    const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-    const [report, setReport] = useState<CreditReport | null>(null);
+    const [activeTab, setActiveTab] = useState<'check' | 'erp' | 'history' | 'settings'>('check');
+    const [form, setForm] = useState<ProspectForm>(emptyForm());
+    const [formExpanded, setFormExpanded] = useState(true);
     const [loading, setLoading] = useState(false);
-    const [settings, setSettings] = useState<CreditSettings>(getSettings());
+    const [report, setReport] = useState<CreditReport | null>(null);
+    const [erpCustomers, setErpCustomers] = useState<Customer[]>([]);
+    const [erpInvoices, setErpInvoices] = useState<any[]>([]);
+    const [erpSearch, setErpSearch] = useState('');
     const [cachedReports, setCachedReports] = useState<Record<string, CreditReport>>({});
-    const [invoices, setInvoices] = useState<any[]>([]);
-    const [activeTab, setActiveTab] = useState<'report' | 'history' | 'settings'>('report');
+    const [settings, setSettings] = useState<CreditSettings>(getSettings());
 
     useEffect(() => {
-        Promise.all([getCustomers().catch(() => []), getInvoices().catch(() => [])]).then(([custs, invs]) => {
-            setCustomers(custs);
-            setInvoices(invs);
-            setCachedReports(getCache());
+        Promise.all([getCustomers().catch(() => []), getInvoices().catch(() => [])]).then(([c, i]) => {
+            setErpCustomers(c); setErpInvoices(i); setCachedReports(getCache());
         });
     }, []);
 
-    const handleSearch = (q: string) => {
-        setSearchQuery(q);
-        if (q.length < 2) { setSearchResults([]); return; }
-        const results = customers.filter(c => c.name.toLowerCase().includes(q.toLowerCase())).slice(0, 8);
-        setSearchResults(results);
-    };
+    const upd = (field: keyof ProspectForm, val: string) => setForm(p => ({ ...p, [field]: val }));
 
-    const checkCredit = async (customer: Customer) => {
-        setSelectedCustomer(customer);
-        setSearchResults([]);
-        setSearchQuery(customer.name);
-        setActiveTab('report');
+    const runCreditCheck = async (overrideForm?: ProspectForm) => {
+        const f = overrideForm || form;
+        if (!f.company_name.trim()) { alert('Company name is required.'); return; }
+        setLoading(true); setReport(null); setFormExpanded(false);
 
-        // Check cache first
-        const cached = getCache()[customer.name.toLowerCase()];
-        if (cached && (Date.now() - new Date(cached.searched_at).getTime()) < 24 * 60 * 60 * 1000) {
-            setReport(cached);
-            return;
-        }
-
-        setLoading(true);
-        setReport(null);
-
-        // Get ERP data for this customer
-        const custInvoices = invoices.filter(i => String(i.customerId) === String(customer.id));
-        const totalBalance = custInvoices.filter(i => i.status !== 'Paid').reduce((s, i) => s + i.grandTotal, 0);
-        const paidInvoices = custInvoices.filter(i => i.status === 'Paid');
-        const lastPayment = paidInvoices.sort((a, b) => new Date(b.invoiceDate).getTime() - new Date(a.invoiceDate).getTime())[0];
+        // ERP data for this company if exists
+        const erpCust = erpCustomers.find(c => c.name.toLowerCase().includes(f.company_name.toLowerCase().slice(0, 6)));
+        const custInvoices = erpCust ? erpInvoices.filter(i => String(i.customerId) === String(erpCust.id)) : [];
+        const erpBalance = custInvoices.filter(i => i.status !== 'Paid').reduce((s: number, i: any) => s + i.grandTotal, 0);
 
         try {
             const res = await fetch(`${API}/ai/credit/search`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    company_name: customer.name,
-                    country: 'US',
-                    city: customer.address?.split(',').slice(-2, -1)[0]?.trim() || '',
+                    company_name: f.company_name,
+                    country: f.country || 'US',
+                    city: f.city,
+                    state: f.state,
+                    industry: f.industry,
+                    business_type: f.business_type,
+                    years_in_business: f.years_in_business,
+                    estimated_revenue: f.estimated_annual_revenue,
+                    requested_credit: f.requested_credit_limit,
+                    duns_number: f.duns_number,
                     creditsafe_api_key: settings.creditsafe_key,
                     dnb_api_key: settings.dnb_key,
                 })
             });
-
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const data = await res.json();
-
-            // Enrich with ERP data
-            data.erp_balance = totalBalance;
+            if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+            const data: CreditReport = await res.json();
+            data.prospect_data = f;
+            data.erp_balance = erpBalance;
             data.erp_invoices = custInvoices.length;
-            data.erp_last_payment = lastPayment?.invoiceDate;
-            data.erp_payment_history = paidInvoices.length > 0 ? `${paidInvoices.length} invoices paid` : 'No payment history';
+
+            // Determine sell decision
+            if (data.credit_score >= 650 && data.bankruptcies === 0 && data.risk_level !== 'High' && data.risk_level !== 'Very High') {
+                data.sell_decision = 'approve';
+                data.sell_max_order = data.credit_limit_suggestion;
+                data.sell_conditions = [];
+            } else if (data.credit_score >= 450) {
+                data.sell_decision = 'conditional';
+                data.sell_max_order = data.credit_limit_suggestion * 0.5;
+                data.sell_conditions = [
+                    'Prepayment or 50% deposit required',
+                    `Maximum order value: ${formatCurrency(data.credit_limit_suggestion * 0.5)}`,
+                    'Review after 3 successful orders',
+                    data.days_beyond_terms > 30 ? 'Strict payment terms: Net 15 only' : 'Net 30 terms',
+                ];
+            } else {
+                data.sell_decision = 'decline';
+                data.sell_max_order = 0;
+                data.sell_conditions = [
+                    'Cash upfront only — no credit',
+                    data.bankruptcies > 0 ? 'Bankruptcy history detected' : '',
+                    data.judgments > 0 ? 'Outstanding judgments on file' : '',
+                    'Escalate to management for approval',
+                ].filter(Boolean);
+            }
 
             setReport(data);
-            saveCache(customer.name, data);
+            saveCache(f.company_name, data);
             setCachedReports(getCache());
         } catch (e: any) {
-            alert(`Credit check failed: ${e.message}. Please ensure backend is running.`);
-        } finally {
-            setLoading(false);
-        }
+            alert(`Credit check failed: ${e.message}`);
+        } finally { setLoading(false); }
     };
 
     const scoreStyle = report ? SCORE_COLOR(report.credit_score) : null;
+    const decisionUI = report?.sell_decision ? SELL_DECISION_UI[report.sell_decision] : null;
+    const filteredErp = erpCustomers.filter(c => !erpSearch || c.name.toLowerCase().includes(erpSearch.toLowerCase())).slice(0, 20);
 
     return (
-        <div className="space-y-5 max-w-[1400px] mx-auto pb-10 animate-in fade-in duration-300">
+        <div className="space-y-4 max-w-[1300px] mx-auto pb-10 animate-in fade-in duration-300">
 
             {/* Header */}
-            <div className="bg-gray-900 rounded-2xl p-6 text-white">
+            <div className="bg-gray-900 rounded-2xl p-5 text-white">
                 <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-white mb-3 transition-all">
                     <ArrowLeft size={14} /> Back
                 </button>
-                <div className="flex items-center justify-between flex-wrap gap-4">
-                    <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-blue-500/20 rounded-xl flex items-center justify-center">
-                            <Shield size={24} className="text-blue-400" />
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-blue-500/20 rounded-xl flex items-center justify-center">
+                            <Shield size={20} className="text-blue-400" />
                         </div>
                         <div>
-                            <h1 className="text-xl font-black uppercase tracking-tight">Credit Intelligence</h1>
-                            <p className="text-gray-400 text-xs mt-0.5">CreditSafe · D&B · AI Analysis · Risk Assessment</p>
+                            <h1 className="text-lg font-black uppercase tracking-tight">Credit Intelligence</h1>
+                            <p className="text-gray-400 text-[11px]">Research any company before selling · CreditSafe · D&B · AI Analysis</p>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <span className={`text-[10px] font-black px-3 py-1.5 rounded-full ${settings.creditsafe_key ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
-                            {settings.creditsafe_key ? '✓ CreditSafe Connected' : '⚠ CreditSafe: AI Mode'}
-                        </span>
-                        <button onClick={() => setActiveTab('settings')}
-                            className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-black transition-all">
-                            ⚙ API Settings
-                        </button>
-                    </div>
-                </div>
-
-                {/* Search bar */}
-                <div className="mt-5 relative">
-                    <div className="flex items-center gap-3 bg-white/10 border border-white/20 rounded-xl px-4 py-3">
-                        <Search size={18} className="text-gray-400 flex-shrink-0" />
-                        <input
-                            value={searchQuery}
-                            onChange={e => handleSearch(e.target.value)}
-                            placeholder="Search customer name to run credit check... e.g. KENZOL MULTI INDUSTRIES"
-                            className="flex-1 bg-transparent text-white placeholder-gray-400 text-sm focus:outline-none"
-                        />
-                        {loading && <RefreshCw size={16} className="text-blue-400 animate-spin flex-shrink-0" />}
-                    </div>
-                    {searchResults.length > 0 && (
-                        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-2xl z-50 overflow-hidden">
-                            {searchResults.map(c => {
-                                const cached = getCache()[c.name.toLowerCase()];
-                                const style = cached ? SCORE_COLOR(cached.credit_score) : null;
-                                return (
-                                    <button key={c.id} onClick={() => checkCredit(c)}
-                                        className="w-full flex items-center justify-between px-4 py-3 hover:bg-blue-50 text-left border-b border-gray-50 transition-all">
-                                        <div className="flex items-center gap-3">
-                                            <Building2 size={16} className="text-gray-400" />
-                                            <div>
-                                                <p className="text-sm font-bold text-gray-900">{c.name}</p>
-                                                <p className="text-[10px] text-gray-400">{c.phone || c.email || 'No contact'}</p>
-                                            </div>
-                                        </div>
-                                        {cached && style ? (
-                                            <span className={`text-xs font-black px-2 py-0.5 rounded-full ${style.bg} ${style.text}`}>
-                                                {cached.credit_score} · {style.label}
-                                            </span>
-                                        ) : (
-                                            <span className="text-[10px] text-blue-600 font-bold">Run Check →</span>
-                                        )}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    )}
+                    <span className={`text-[10px] font-black px-3 py-1.5 rounded-full ${settings.creditsafe_key ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                        {settings.creditsafe_key ? '✓ CreditSafe Connected' : 'AI Mode (no API key)'}
+                    </span>
                 </div>
             </div>
 
             {/* Tabs */}
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
                 {[
-                    { id: 'report', label: '📊 Credit Report' },
-                    { id: 'history', label: `📋 Checked Customers (${Object.keys(cachedReports).length})` },
+                    { id: 'check', label: '🔍 New Credit Check' },
+                    { id: 'erp', label: `👥 Check ERP Customer (${erpCustomers.length})` },
+                    { id: 'history', label: `📋 History (${Object.keys(cachedReports).length})` },
                     { id: 'settings', label: '⚙️ API Settings' },
                 ].map(tab => (
                     <button key={tab.id} onClick={() => setActiveTab(tab.id as any)}
@@ -249,199 +231,417 @@ export default function CreditIntelligence() {
                 ))}
             </div>
 
-            {/* ── CREDIT REPORT TAB ── */}
-            {activeTab === 'report' && (
-                <>
-                    {!report && !loading && (
-                        <div className="bg-white rounded-2xl border border-gray-100 p-16 text-center shadow-sm">
-                            <Shield size={56} className="mx-auto text-gray-200 mb-4" />
-                            <p className="text-gray-500 font-black text-lg">Search a customer to run credit check</p>
-                            <p className="text-gray-400 text-sm mt-2">Uses CreditSafe API when key provided, otherwise AI analysis</p>
-                            <div className="flex justify-center gap-3 mt-5 flex-wrap">
-                                {customers.slice(0, 5).map(c => (
-                                    <button key={c.id} onClick={() => checkCredit(c)}
-                                        className="px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold text-gray-600 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 transition-all">
-                                        {c.name.slice(0, 25)}
-                                    </button>
-                                ))}
+            {/* ── NEW CREDIT CHECK TAB ── */}
+            {activeTab === 'check' && (
+                <div className="space-y-4">
+                    {/* Research Form */}
+                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                        <button onClick={() => setFormExpanded(!formExpanded)}
+                            className="w-full flex items-center justify-between px-6 py-4 hover:bg-gray-50 transition-all">
+                            <div className="flex items-center gap-3">
+                                <Search size={18} className="text-blue-600" />
+                                <div className="text-left">
+                                    <p className="text-sm font-black text-gray-900">Company Research Form</p>
+                                    <p className="text-[10px] text-gray-400">Fill in details for a more accurate credit assessment</p>
+                                </div>
                             </div>
-                        </div>
-                    )}
+                            {formExpanded ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
+                        </button>
 
-                    {loading && (
-                        <div className="bg-white rounded-2xl border border-gray-100 p-16 text-center shadow-sm">
-                            <RefreshCw size={40} className="animate-spin text-blue-500 mx-auto mb-4" />
-                            <p className="text-gray-700 font-black">Running credit check for {selectedCustomer?.name}...</p>
-                            <p className="text-gray-400 text-sm mt-1">Checking CreditSafe · D&B · Payment history · AI Risk analysis</p>
-                        </div>
-                    )}
-
-                    {report && !loading && scoreStyle && (
-                        <div className="space-y-4">
-                            {/* Score Banner */}
-                            <div className={`rounded-2xl p-6 border-2 ${scoreStyle.border} ${scoreStyle.bg}`}>
-                                <div className="flex items-center justify-between flex-wrap gap-4">
-                                    <div className="flex items-center gap-5">
-                                        {/* Score circle */}
-                                        <div className={`w-24 h-24 rounded-2xl ${scoreStyle.bg} border-4 ${scoreStyle.border} flex flex-col items-center justify-center shadow-sm`}>
-                                            <span className={`text-3xl font-black ${scoreStyle.text}`}>{report.credit_score}</span>
-                                            <span className={`text-[10px] font-black ${scoreStyle.text} uppercase tracking-widest`}>{scoreStyle.label}</span>
+                        {formExpanded && (
+                            <div className="px-6 pb-6 space-y-5">
+                                {/* Section 1: Company Identity */}
+                                <div>
+                                    <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                                        <Building2 size={12} /> Company Identity
+                                    </p>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                        <div className="md:col-span-2">
+                                            <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Company / Business Name *</label>
+                                            <input value={form.company_name} onChange={e => upd('company_name', e.target.value)}
+                                                placeholder="e.g. ABC Auto Parts LLC"
+                                                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400" />
                                         </div>
                                         <div>
-                                            <h2 className="text-xl font-black text-gray-900">{report.company_name}</h2>
-                                            <div className="flex items-center gap-2 mt-1 flex-wrap">
-                                                <span className={`text-xs font-black px-3 py-1 rounded-full border ${RISK_STYLE[report.risk_level] || RISK_STYLE['Medium']}`}>
-                                                    {report.risk_level === 'Low' ? '✅' : report.risk_level === 'Medium' ? '⚠️' : '🔴'} {report.risk_level} Risk
-                                                </span>
-                                                <span className="text-xs text-gray-500">Source: {report.data_source}</span>
-                                                <span className="text-xs text-gray-400">Confidence: {report.confidence}</span>
+                                            <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">DBA / Trading Name</label>
+                                            <input value={form.dba_name} onChange={e => upd('dba_name', e.target.value)}
+                                                placeholder="Also known as..."
+                                                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-blue-400" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Business Type</label>
+                                            <select value={form.business_type} onChange={e => upd('business_type', e.target.value)}
+                                                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-blue-400">
+                                                {BUSINESS_TYPES.map(t => <option key={t}>{t}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Industry</label>
+                                            <select value={form.industry} onChange={e => upd('industry', e.target.value)}
+                                                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-blue-400">
+                                                {INDUSTRIES.map(i => <option key={i}>{i}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">D-U-N-S Number</label>
+                                            <input value={form.duns_number} onChange={e => upd('duns_number', e.target.value)}
+                                                placeholder="9-digit D&B number"
+                                                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-mono focus:outline-none focus:border-blue-400" />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Section 2: Address */}
+                                <div>
+                                    <p className="text-[10px] font-black text-purple-600 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                                        📍 Business Address
+                                    </p>
+                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                        <div className="md:col-span-2">
+                                            <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Street Address</label>
+                                            <input value={form.address} onChange={e => upd('address', e.target.value)}
+                                                placeholder="123 Main Street"
+                                                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-purple-400" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">City</label>
+                                            <input value={form.city} onChange={e => upd('city', e.target.value)}
+                                                placeholder="New York"
+                                                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-purple-400" />
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <div>
+                                                <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">State</label>
+                                                <select value={form.state} onChange={e => upd('state', e.target.value)}
+                                                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-400">
+                                                    {US_STATES.map(s => <option key={s}>{s}</option>)}
+                                                </select>
                                             </div>
-                                            <p className="text-xs text-gray-500 mt-1">
-                                                Checked: {new Date(report.searched_at).toLocaleString()}
-                                            </p>
+                                            <div>
+                                                <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">ZIP</label>
+                                                <input value={form.zip} onChange={e => upd('zip', e.target.value)}
+                                                    placeholder="10001"
+                                                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-400" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Section 3: Contact */}
+                                <div>
+                                    <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                                        📞 Contact Information
+                                    </p>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                        {[
+                                            { field: 'contact_person', label: 'Contact Person', ph: 'John Smith' },
+                                            { field: 'contact_title', label: 'Title', ph: 'Owner / Manager' },
+                                            { field: 'phone', label: 'Phone', ph: '+1 212 000 0000' },
+                                            { field: 'email', label: 'Email', ph: 'john@company.com' },
+                                            { field: 'website', label: 'Website', ph: 'www.company.com' },
+                                        ].map(f2 => (
+                                            <div key={f2.field}>
+                                                <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">{f2.label}</label>
+                                                <input value={(form as any)[f2.field]} onChange={e => upd(f2.field as keyof ProspectForm, e.target.value)}
+                                                    placeholder={f2.ph}
+                                                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-400" />
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Section 4: Credit Request */}
+                                <div>
+                                    <p className="text-[10px] font-black text-orange-600 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                                        <DollarSign size={12} /> Credit Request Details
+                                    </p>
+                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                        <div>
+                                            <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Credit Limit Requested</label>
+                                            <input type="number" value={form.requested_credit_limit} onChange={e => upd('requested_credit_limit', e.target.value)}
+                                                placeholder="e.g. 25000"
+                                                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-orange-400" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Payment Terms Wanted</label>
+                                            <select value={form.payment_terms_requested} onChange={e => upd('payment_terms_requested', e.target.value)}
+                                                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-orange-400">
+                                                {['COD','Net 7','Net 15','Net 30','Net 45','Net 60','2/10 Net 30'].map(t => <option key={t}>{t}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Years in Business</label>
+                                            <input value={form.years_in_business} onChange={e => upd('years_in_business', e.target.value)}
+                                                placeholder="e.g. 5"
+                                                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-orange-400" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Est. Annual Revenue</label>
+                                            <input value={form.estimated_annual_revenue} onChange={e => upd('estimated_annual_revenue', e.target.value)}
+                                                placeholder="e.g. $500,000"
+                                                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-orange-400" />
+                                        </div>
+                                        <div className="md:col-span-4">
+                                            <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Additional Notes</label>
+                                            <textarea value={form.notes} onChange={e => upd('notes', e.target.value)} rows={2}
+                                                placeholder="Any additional context (referral, existing relationship, etc.)"
+                                                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-gray-400 resize-none" />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="flex gap-3 pt-2">
+                                    <button onClick={() => runCreditCheck()} disabled={loading || !form.company_name.trim()}
+                                        className="flex items-center gap-2 px-8 py-3 bg-gray-900 text-white rounded-xl font-black text-sm hover:bg-gray-700 disabled:opacity-50 transition-all shadow-md">
+                                        {loading ? <RefreshCw size={16} className="animate-spin" /> : <Shield size={16} />}
+                                        {loading ? 'Running Credit Check...' : 'Run Credit Check'}
+                                    </button>
+                                    <button onClick={() => { setForm(emptyForm()); setReport(null); setFormExpanded(true); }}
+                                        className="px-5 py-3 text-sm font-black text-gray-400 hover:text-gray-700 transition-all">
+                                        Clear Form
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Loading */}
+                    {loading && (
+                        <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center shadow-sm">
+                            <RefreshCw size={36} className="animate-spin text-blue-500 mx-auto mb-3" />
+                            <p className="text-gray-700 font-black">Checking {form.company_name}...</p>
+                            <p className="text-gray-400 text-sm mt-1">Analyzing credit history · Payment behavior · Public records · Risk factors</p>
+                        </div>
+                    )}
+
+                    {/* Results */}
+                    {report && !loading && scoreStyle && decisionUI && (
+                        <div className="space-y-4">
+                            {/* SELL DECISION BANNER - Most important */}
+                            <div className={`rounded-2xl p-5 border-2 ${decisionUI.border} ${decisionUI.bg}`}>
+                                <div className="flex items-center justify-between flex-wrap gap-4">
+                                    <div className="flex items-center gap-4">
+                                        <span className="text-4xl">{decisionUI.icon}</span>
+                                        <div>
+                                            <p className={`text-xl font-black ${decisionUI.text}`}>{decisionUI.label}</p>
+                                            <p className="text-gray-600 text-sm mt-0.5">{report.company_name}</p>
                                         </div>
                                     </div>
                                     <div className="text-right">
-                                        <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Recommended Credit Limit</p>
-                                        <p className={`text-3xl font-black ${scoreStyle.text}`}>{formatCurrency(report.credit_limit_suggestion)}</p>
-                                        {report.erp_balance !== undefined && report.erp_balance > 0 && (
-                                            <p className="text-xs text-red-500 font-bold mt-1">Current ERP Balance: {formatCurrency(report.erp_balance)}</p>
-                                        )}
+                                        <p className="text-[10px] font-black text-gray-500 uppercase mb-0.5">Max Credit / Order Value</p>
+                                        <p className={`text-2xl font-black ${decisionUI.text}`}>{report.sell_max_order ? formatCurrency(report.sell_max_order) : '$0'}</p>
                                     </div>
                                 </div>
+                                {report.sell_conditions && report.sell_conditions.length > 0 && (
+                                    <div className="mt-3 pt-3 border-t border-current border-opacity-20">
+                                        <p className="text-[10px] font-black uppercase tracking-widest mb-1.5">Terms & Conditions</p>
+                                        <div className="flex flex-wrap gap-2">
+                                            {report.sell_conditions.map((c2, i) => (
+                                                <span key={i} className={`text-[11px] font-bold px-3 py-1 rounded-full bg-white/60 ${decisionUI.text}`}>
+                                                    {c2}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
 
-                            {/* Main Grid */}
-                            <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-
-                                {/* Left: Key Metrics */}
-                                <div className="xl:col-span-2 grid grid-cols-2 md:grid-cols-3 gap-3">
-                                    {[
-                                        { label: 'Years in Business', value: report.years_in_business, icon: Building2, color: 'text-blue-600', bg: 'bg-blue-50' },
-                                        { label: 'Employees', value: report.employees, icon: Shield, color: 'text-purple-600', bg: 'bg-purple-50' },
-                                        { label: 'Annual Revenue', value: report.annual_revenue, icon: DollarSign, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-                                        { label: 'Trade Lines', value: report.trade_lines, icon: FileText, color: 'text-gray-700', bg: 'bg-gray-50' },
-                                        { label: 'Days Beyond Terms', value: `${report.days_beyond_terms}d`, icon: Clock, color: report.days_beyond_terms > 30 ? 'text-red-600' : 'text-emerald-600', bg: report.days_beyond_terms > 30 ? 'bg-red-50' : 'bg-emerald-50' },
-                                        { label: 'Payment Trend', value: report.payment_trend, icon: TrendingUp, color: report.payment_trend === 'Improving' ? 'text-emerald-600' : report.payment_trend === 'Declining' ? 'text-red-600' : 'text-amber-600', bg: 'bg-amber-50' },
-                                    ].map((m, i) => {
-                                        const Icon = m.icon;
-                                        return (
-                                            <div key={i} className={`${m.bg} rounded-2xl p-4 border border-gray-100`}>
-                                                <Icon size={18} className={`${m.color} mb-2`} />
-                                                <p className={`text-lg font-black ${m.color}`}>{m.value}</p>
-                                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-0.5">{m.label}</p>
+                            {/* Score + Details */}
+                            <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+                                <div className="xl:col-span-8 space-y-3">
+                                    {/* Score bar */}
+                                    <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+                                        <div className="flex items-center gap-5 mb-4">
+                                            <div className={`w-20 h-20 rounded-2xl ${scoreStyle.bg} ring-4 ${scoreStyle.ring} flex flex-col items-center justify-center flex-shrink-0`}>
+                                                <span className={`text-2xl font-black ${scoreStyle.text}`}>{report.credit_score}</span>
+                                                <span className={`text-[9px] font-black ${scoreStyle.text} uppercase`}>{scoreStyle.label}</span>
                                             </div>
-                                        );
-                                    })}
+                                            <div className="flex-1">
+                                                <div className="flex justify-between text-[10px] text-gray-400 mb-1">
+                                                    <span>300</span><span>Poor</span><span>Fair</span><span>Good</span><span>850</span>
+                                                </div>
+                                                <div className="w-full bg-gray-100 rounded-full h-3 relative">
+                                                    <div className="h-3 rounded-full transition-all" style={{ width: `${((report.credit_score - 300) / 550) * 100}%`, background: `linear-gradient(to right, #ef4444, #f97316, #eab308, #22c55e)` }} />
+                                                    <div className="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-white border-2 border-gray-700 rounded-full shadow-sm" style={{ left: `calc(${((report.credit_score - 300) / 550) * 100}% - 8px)` }} />
+                                                </div>
+                                                <div className="flex justify-between text-[10px] text-gray-400 mt-1">
+                                                    <span>Very Poor</span><span>Excellent</span>
+                                                </div>
+                                            </div>
+                                        </div>
 
-                                    {/* Negative marks */}
-                                    <div className={`col-span-3 rounded-2xl p-4 border ${report.bankruptcies > 0 || report.judgments > 0 ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'}`}>
-                                        <p className="text-xs font-black text-gray-600 uppercase tracking-widest mb-3">Public Records & Negative Marks</p>
-                                        <div className="grid grid-cols-3 gap-3">
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                                             {[
-                                                { label: 'Bankruptcies', value: report.bankruptcies, danger: report.bankruptcies > 0 },
-                                                { label: 'Judgments', value: report.judgments, danger: report.judgments > 0 },
-                                                { label: 'Liens', value: report.outstanding_liens, danger: report.outstanding_liens > 0 },
-                                            ].map((r, i) => (
-                                                <div key={i} className="text-center">
-                                                    <div className={`text-2xl font-black ${r.danger ? 'text-red-600' : 'text-emerald-600'}`}>{r.value}</div>
-                                                    <p className="text-[10px] text-gray-500 font-bold">{r.label}</p>
-                                                    {r.danger ? <XCircle size={14} className="text-red-500 mx-auto mt-0.5" /> : <CheckCircle size={14} className="text-emerald-500 mx-auto mt-0.5" />}
+                                                { label: 'Risk Level', value: report.risk_level, warning: ['High','Very High'].includes(report.risk_level) },
+                                                { label: 'Days Beyond Terms', value: `${report.days_beyond_terms}d`, warning: report.days_beyond_terms > 30 },
+                                                { label: 'Payment Trend', value: report.payment_trend, warning: report.payment_trend === 'Declining' },
+                                                { label: 'Industry Risk', value: report.industry_risk, warning: report.industry_risk === 'High' },
+                                            ].map((m, i) => (
+                                                <div key={i} className={`rounded-xl p-3 text-center ${m.warning ? 'bg-red-50 border border-red-200' : 'bg-gray-50 border border-gray-100'}`}>
+                                                    <p className={`text-sm font-black ${m.warning ? 'text-red-600' : 'text-gray-800'}`}>{m.value}</p>
+                                                    <p className="text-[9px] text-gray-400 uppercase tracking-widest mt-0.5">{m.label}</p>
                                                 </div>
                                             ))}
                                         </div>
                                     </div>
 
-                                    {/* ERP Payment History */}
-                                    {report.erp_invoices !== undefined && (
-                                        <div className="col-span-3 bg-blue-50 rounded-2xl p-4 border border-blue-100">
-                                            <p className="text-xs font-black text-blue-700 uppercase tracking-widest mb-2">Internal ERP Payment Record</p>
-                                            <div className="grid grid-cols-3 gap-3 text-center">
-                                                <div><p className="text-xl font-black text-gray-900">{report.erp_invoices}</p><p className="text-[10px] text-gray-500">Total Invoices</p></div>
-                                                <div><p className="text-xl font-black text-red-600">{report.erp_balance ? formatCurrency(report.erp_balance) : '$0'}</p><p className="text-[10px] text-gray-500">Outstanding</p></div>
-                                                <div><p className="text-xs font-black text-gray-700">{report.erp_last_payment || 'N/A'}</p><p className="text-[10px] text-gray-500">Last Payment</p></div>
-                                            </div>
+                                    {/* Negatives */}
+                                    <div className={`bg-white rounded-2xl border p-4 shadow-sm ${(report.bankruptcies + report.judgments + report.outstanding_liens) > 0 ? 'border-red-200' : 'border-gray-100'}`}>
+                                        <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-3">Public Records</p>
+                                        <div className="grid grid-cols-3 gap-3">
+                                            {[
+                                                { label: 'Bankruptcies', value: report.bankruptcies },
+                                                { label: 'Judgments', value: report.judgments },
+                                                { label: 'Liens', value: report.outstanding_liens },
+                                            ].map((r2, i) => (
+                                                <div key={i} className={`text-center p-3 rounded-xl ${r2.value > 0 ? 'bg-red-50' : 'bg-emerald-50'}`}>
+                                                    <p className={`text-2xl font-black ${r2.value > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{r2.value}</p>
+                                                    <p className="text-[10px] text-gray-500 font-bold">{r2.label}</p>
+                                                    {r2.value > 0 ? <XCircle size={14} className="text-red-500 mx-auto mt-0.5" /> : <CheckCircle size={14} className="text-emerald-500 mx-auto mt-0.5" />}
+                                                </div>
+                                            ))}
                                         </div>
-                                    )}
+                                    </div>
+
+                                    {/* Company info */}
+                                    <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
+                                        <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-3">Company Profile</p>
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
+                                            {[
+                                                { label: 'Years in Business', value: report.years_in_business },
+                                                { label: 'Employees', value: report.employees },
+                                                { label: 'Annual Revenue', value: report.annual_revenue },
+                                                { label: 'Trade Lines', value: report.trade_lines },
+                                            ].map((m, i) => (
+                                                <div key={i} className="bg-gray-50 rounded-xl p-3">
+                                                    <p className="text-sm font-black text-gray-800">{m.value}</p>
+                                                    <p className="text-[9px] text-gray-400 uppercase tracking-widest mt-0.5">{m.label}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
                                 </div>
 
-                                {/* Right: AI Analysis */}
-                                <div className="space-y-3">
-                                    {/* AI Analysis */}
+                                {/* Right: AI */}
+                                <div className="xl:col-span-4 space-y-3">
                                     <div className="bg-gray-900 rounded-2xl p-5 text-white">
                                         <div className="flex items-center gap-2 mb-3">
                                             <Zap size={16} className="text-orange-400" />
-                                            <p className="text-xs font-black text-orange-400 uppercase tracking-widest">AI Risk Analysis</p>
+                                            <p className="text-xs font-black text-orange-400 uppercase tracking-widest">AI Analysis</p>
                                         </div>
                                         <p className="text-sm text-gray-300 leading-relaxed">{report.ai_analysis}</p>
                                     </div>
-
-                                    {/* Recommendation */}
-                                    <div className={`rounded-2xl p-5 border-2 ${report.risk_level === 'Low' ? 'bg-emerald-50 border-emerald-300' : report.risk_level === 'High' || report.risk_level === 'Very High' ? 'bg-red-50 border-red-300' : 'bg-amber-50 border-amber-300'}`}>
-                                        <p className="text-xs font-black uppercase tracking-widest mb-2 text-gray-600">AI Recommendation</p>
-                                        <p className="text-sm font-bold text-gray-800 leading-relaxed">{report.ai_recommendation}</p>
+                                    <div className={`rounded-2xl p-4 border-2 ${decisionUI.border} ${decisionUI.bg}`}>
+                                        <p className="text-[10px] font-black uppercase tracking-widest mb-2 text-gray-600">Recommendation</p>
+                                        <p className="text-sm font-bold leading-relaxed text-gray-800">{report.ai_recommendation}</p>
                                     </div>
-
-                                    {/* Risk Flags */}
                                     {report.risk_flags && report.risk_flags.length > 0 && (
                                         <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-4">
-                                            <div className="flex items-center gap-2 mb-2">
-                                                <AlertTriangle size={16} className="text-red-600" />
-                                                <p className="text-xs font-black text-red-700 uppercase tracking-widest">Risk Flags</p>
-                                            </div>
-                                            {report.risk_flags.map((flag, i) => (
-                                                <div key={i} className="flex items-start gap-2 text-xs text-red-700 mt-1">
-                                                    <span className="flex-shrink-0 mt-0.5">⚠</span> {flag}
-                                                </div>
+                                            <div className="flex items-center gap-2 mb-2"><AlertTriangle size={14} className="text-red-600" /><p className="text-xs font-black text-red-700 uppercase tracking-widest">Risk Flags</p></div>
+                                            {report.risk_flags.map((f2, i) => (
+                                                <p key={i} className="text-xs text-red-700 mt-1 flex gap-1.5"><span>⚠</span>{f2}</p>
                                             ))}
                                         </div>
                                     )}
-
-                                    {/* Key Factors */}
                                     {report.key_factors && report.key_factors.length > 0 && (
                                         <div className="bg-white border border-gray-100 rounded-2xl p-4">
-                                            <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-2">Key Factors</p>
-                                            {report.key_factors.map((f, i) => (
-                                                <div key={i} className="flex items-start gap-2 text-xs text-gray-600 mt-1.5">
-                                                    <Star size={11} className="text-amber-400 flex-shrink-0 mt-0.5" />
-                                                    {f}
-                                                </div>
+                                            <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Key Factors</p>
+                                            {report.key_factors.map((f2, i) => (
+                                                <p key={i} className="text-xs text-gray-600 mt-1.5 flex gap-1.5 items-start"><Star size={10} className="text-amber-400 flex-shrink-0 mt-0.5" />{f2}</p>
                                             ))}
                                         </div>
                                     )}
+                                    <div className="bg-white border border-gray-100 rounded-2xl p-4 text-[10px] text-gray-400 space-y-1">
+                                        <p><span className="font-black text-gray-600">Source:</span> {report.data_source}</p>
+                                        <p><span className="font-black text-gray-600">Confidence:</span> {report.confidence}</p>
+                                        <p><span className="font-black text-gray-600">Checked:</span> {new Date(report.searched_at).toLocaleString()}</p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     )}
-                </>
+                </div>
+            )}
+
+            {/* ── ERP CUSTOMERS TAB ── */}
+            {activeTab === 'erp' && (
+                <div className="space-y-3">
+                    <input value={erpSearch} onChange={e => setErpSearch(e.target.value)}
+                        placeholder="Filter existing customers..."
+                        className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-400" />
+                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                        <table className="w-full">
+                            <thead className="bg-gray-50 border-b border-gray-100">
+                                <tr>{['Customer','Phone','Balance','Credit Status','Action'].map(h => (
+                                    <th key={h} className="px-5 py-3 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">{h}</th>
+                                ))}</tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50">
+                                {filteredErp.map(c2 => {
+                                    const cached = getCache()[c2.name.toLowerCase()];
+                                    const style = cached ? SCORE_COLOR(cached.credit_score) : null;
+                                    const custInvs = erpInvoices.filter(i => String(i.customerId) === String(c2.id));
+                                    const balance = custInvs.filter(i => i.status !== 'Paid').reduce((s: number, i: any) => s + i.grandTotal, 0);
+                                    return (
+                                        <tr key={c2.id} className="hover:bg-gray-50">
+                                            <td className="px-5 py-4">
+                                                <p className="text-sm font-black text-gray-900">{c2.name}</p>
+                                                <p className="text-[10px] text-gray-400">{c2.email || ''}</p>
+                                            </td>
+                                            <td className="px-5 py-4 text-sm text-gray-500 font-mono">{c2.phone || '—'}</td>
+                                            <td className="px-5 py-4 text-sm font-black font-mono text-gray-700">{formatCurrency(balance)}</td>
+                                            <td className="px-5 py-4">
+                                                {cached && style ? (
+                                                    <span className={`text-[10px] font-black px-2 py-1 rounded-full ${style.bg} ${style.text}`}>
+                                                        {cached.credit_score} · {style.label}
+                                                    </span>
+                                                ) : <span className="text-[10px] text-gray-400">Not checked</span>}
+                                            </td>
+                                            <td className="px-5 py-4">
+                                                <button onClick={() => {
+                                                    setActiveTab('check');
+                                                    setForm({ ...emptyForm(), company_name: c2.name, phone: c2.phone || '', email: c2.email || '', address: c2.address || '' });
+                                                    setFormExpanded(true);
+                                                    setReport(null);
+                                                }} className="flex items-center gap-1 text-xs font-black text-blue-600 hover:text-blue-800 transition-all">
+                                                    <Shield size={12} /> Check Credit
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             )}
 
             {/* ── HISTORY TAB ── */}
             {activeTab === 'history' && (
                 <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                     {Object.keys(cachedReports).length === 0 ? (
-                        <div className="p-12 text-center text-gray-400">No credit checks yet. Search a customer to run your first check.</div>
+                        <div className="p-12 text-center text-gray-400">No credit checks yet.</div>
                     ) : (
                         <table className="w-full">
                             <thead className="bg-gray-50 border-b border-gray-100">
-                                <tr>{['Company', 'Credit Score', 'Risk Level', 'Credit Limit', 'DBT', 'Source', 'Checked'].map(h => (
-                                    <th key={h} className="px-5 py-3 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">{h}</th>
+                                <tr>{['Company','Score','Risk','Decision','Max Credit','DBT','Source','Date'].map(h => (
+                                    <th key={h} className="px-4 py-3 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">{h}</th>
                                 ))}</tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">
-                                {Object.values(cachedReports).sort((a, b) => new Date(b.searched_at).getTime() - new Date(a.searched_at).getTime()).map((r, i) => {
-                                    const style = SCORE_COLOR(r.credit_score);
+                                {Object.values(cachedReports).sort((a,b)=>new Date(b.searched_at).getTime()-new Date(a.searched_at).getTime()).map((r2,i) => {
+                                    const s2 = SCORE_COLOR(r2.credit_score);
+                                    const d2 = r2.sell_decision ? SELL_DECISION_UI[r2.sell_decision] : null;
                                     return (
-                                        <tr key={i} className="hover:bg-gray-50 cursor-pointer" onClick={() => { setReport(r); setActiveTab('report'); setSearchQuery(r.company_name); }}>
-                                            <td className="px-5 py-4 font-black text-sm text-gray-900">{r.company_name}</td>
-                                            <td className="px-5 py-4">
-                                                <span className={`text-sm font-black ${style.text} ${style.bg} px-2 py-1 rounded-lg`}>{r.credit_score}</span>
-                                            </td>
-                                            <td className="px-5 py-4"><span className={`text-[10px] font-black px-2 py-1 rounded-full border ${RISK_STYLE[r.risk_level] || ''}`}>{r.risk_level}</span></td>
-                                            <td className="px-5 py-4 font-mono text-sm font-black text-gray-700">{formatCurrency(r.credit_limit_suggestion)}</td>
-                                            <td className="px-5 py-4 text-sm font-mono text-gray-500">{r.days_beyond_terms}d</td>
-                                            <td className="px-5 py-4 text-xs text-gray-400">{r.data_source}</td>
-                                            <td className="px-5 py-4 text-xs text-gray-400 font-mono">{new Date(r.searched_at).toLocaleDateString()}</td>
+                                        <tr key={i} className="hover:bg-gray-50 cursor-pointer" onClick={() => { setReport(r2); setActiveTab('check'); setFormExpanded(false); if(r2.prospect_data) setForm(r2.prospect_data); }}>
+                                            <td className="px-4 py-3 font-black text-sm text-gray-900">{r2.company_name}</td>
+                                            <td className="px-4 py-3"><span className={`text-xs font-black px-2 py-0.5 rounded ${s2.bg} ${s2.text}`}>{r2.credit_score}</span></td>
+                                            <td className="px-4 py-3 text-xs text-gray-500">{r2.risk_level}</td>
+                                            <td className="px-4 py-3">{d2 && <span className="text-lg">{d2.icon}</span>}</td>
+                                            <td className="px-4 py-3 text-sm font-mono font-black text-gray-700">{formatCurrency(r2.credit_limit_suggestion)}</td>
+                                            <td className="px-4 py-3 text-sm text-gray-500">{r2.days_beyond_terms}d</td>
+                                            <td className="px-4 py-3 text-xs text-gray-400">{r2.data_source}</td>
+                                            <td className="px-4 py-3 text-xs font-mono text-gray-400">{new Date(r2.searched_at).toLocaleDateString()}</td>
                                         </tr>
                                     );
                                 })}
@@ -453,59 +653,45 @@ export default function CreditIntelligence() {
 
             {/* ── SETTINGS TAB ── */}
             {activeTab === 'settings' && (
-                <div className="space-y-4 max-w-[700px]">
-                    <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm space-y-5">
-                        <p className="text-sm font-black text-gray-700 uppercase tracking-widest">API Configuration</p>
-
-                        {/* CreditSafe */}
-                        <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl">
-                            <div className="flex items-center gap-2 mb-3">
-                                <span className="text-lg">🏦</span>
-                                <div>
-                                    <p className="text-sm font-black text-gray-900">CreditSafe API</p>
-                                    <a href="https://www.creditsafe.com/gb/en/products/api.html" target="_blank" rel="noopener noreferrer"
-                                        className="text-[10px] text-blue-600 hover:underline flex items-center gap-1">Get API Key <ExternalLink size={9} /></a>
+                <div className="max-w-[600px] space-y-4">
+                    <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm space-y-4">
+                        <p className="text-sm font-black text-gray-700 uppercase tracking-widest">Credit API Keys</p>
+                        {[
+                            { key: 'creditsafe_key', label: 'CreditSafe API', emoji: '🏦', url: 'https://www.creditsafe.com/gb/en/products/api.html', ph: 'Enter CreditSafe API key', note: 'Covers 365M+ companies worldwide' },
+                            { key: 'dnb_key', label: 'Dun & Bradstreet', emoji: '📊', url: 'https://developer.dnb.com', ph: 'Enter D&B API key', note: 'Covers 500M+ businesses, DUNS number lookup' },
+                        ].map(api => (
+                            <div key={api.key} className="p-4 bg-gray-50 border border-gray-200 rounded-xl">
+                                <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xl">{api.emoji}</span>
+                                        <div>
+                                            <p className="text-sm font-black text-gray-900">{api.label}</p>
+                                            <p className="text-[10px] text-gray-400">{api.note}</p>
+                                        </div>
+                                    </div>
+                                    <a href={api.url} target="_blank" rel="noopener noreferrer"
+                                        className="flex items-center gap-1 text-[10px] font-black text-blue-600 hover:underline">
+                                        Get API Key <ExternalLink size={9} />
+                                    </a>
                                 </div>
+                                <input value={(settings as any)[api.key]} onChange={e => setSettings(p => ({ ...p, [api.key]: e.target.value }))}
+                                    type="password" placeholder={api.ph}
+                                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-blue-400" />
                             </div>
-                            <input value={settings.creditsafe_key} onChange={e => setSettings(p => ({ ...p, creditsafe_key: e.target.value }))}
-                                type="password" placeholder="Enter CreditSafe API key..."
-                                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-blue-400" />
-                        </div>
-
-                        {/* D&B */}
-                        <div className="p-4 bg-amber-50 border border-amber-100 rounded-xl">
-                            <div className="flex items-center gap-2 mb-3">
-                                <span className="text-lg">📊</span>
-                                <div>
-                                    <p className="text-sm font-black text-gray-900">Dun & Bradstreet (D&B) API</p>
-                                    <a href="https://developer.dnb.com" target="_blank" rel="noopener noreferrer"
-                                        className="text-[10px] text-amber-600 hover:underline flex items-center gap-1">Get D&B Developer Access <ExternalLink size={9} /></a>
-                                </div>
-                            </div>
-                            <input value={settings.dnb_key} onChange={e => setSettings(p => ({ ...p, dnb_key: e.target.value }))}
-                                type="password" placeholder="Enter D&B API key..."
-                                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-amber-400" />
-                        </div>
-
-                        {/* Alert threshold */}
+                        ))}
                         <div>
-                            <label className="block text-xs font-black text-gray-500 uppercase mb-1.5">Auto-Alert if Credit Score Below</label>
-                            <input type="number" value={settings.alert_threshold} onChange={e => setSettings(p => ({ ...p, alert_threshold: parseInt(e.target.value) || 500 }))}
-                                min={300} max={850}
-                                className="w-32 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none" />
-                            <p className="text-[10px] text-gray-400 mt-1">Scores below this will be flagged as high risk automatically</p>
+                            <label className="block text-xs font-black text-gray-500 uppercase mb-1.5">Alert if Score Below</label>
+                            <input type="number" value={settings.alert_threshold} onChange={e => setSettings(p => ({...p, alert_threshold: parseInt(e.target.value)||500}))}
+                                min={300} max={850} className="w-24 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none" />
                         </div>
-
-                        <button onClick={() => { saveSettings(settings); alert('Settings saved!'); }}
+                        <button onClick={() => { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); alert('Saved!'); }}
                             className="px-6 py-3 bg-gray-900 text-white rounded-xl text-sm font-black hover:bg-gray-700 transition-all">
                             Save Settings
                         </button>
                     </div>
-
-                    <div className="bg-gray-50 rounded-2xl p-5 border border-gray-100">
-                        <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-3">Without API Keys</p>
-                        <p className="text-sm text-gray-600">Claude AI generates a realistic credit assessment based on company name, industry patterns, and your ERP payment history. Results are clearly marked as "AI Analysis".</p>
-                        <p className="text-xs text-gray-400 mt-2">For enterprise accuracy, connect CreditSafe (covers 365M+ companies) or D&B (covers 500M+ companies).</p>
+                    <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-800">
+                        <p className="font-black mb-1">Without API keys — AI Mode</p>
+                        <p>Claude generates realistic credit assessment from company details, industry patterns, and your ERP payment history. Results marked "AI Analysis".</p>
                     </div>
                 </div>
             )}
