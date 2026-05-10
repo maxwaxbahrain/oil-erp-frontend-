@@ -119,13 +119,14 @@ export default function InvoiceImport() {
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
                                 name: item.name,
-                                sku: item.sku || `SKU-${Date.now()}`,
+                                sku: item.sku || `SKU-${Date.now().toString().slice(-6)}`,
                                 category: 'Imported',
-                                unit_price: item.unitPrice * 1.3,
-                                cost_price: item.unitPrice,
-                                current_stock: item.quantity,
-                                minimum_stock: 10,
-                                unit: item.unit || 'units'
+                                price: Math.round(item.unitPrice * 1.3 * 100) / 100,
+                                cost: item.unitPrice,
+                                stock: item.quantity,
+                                min_stock: 10,
+                                unit: item.unit || 'units',
+                                description: `Imported via AI — ${new Date().toLocaleDateString()}`
                             })
                         });
                         if (backendRes.ok) {
