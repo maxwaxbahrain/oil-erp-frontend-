@@ -111,6 +111,7 @@ export default function Sidebar() {
                     Sales
                 </div>
                 <NavItem to="/customers" icon={Users} label="Customers" />
+                <NavItem to="/credit" icon={Shield} label="Credit Intelligence" />
                 <NavItem to="/sales/orders" icon={FileText} label="Orders" />
 
                 <div>
