@@ -16,6 +16,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { FreeInvoiceProcessor, type InvoiceData } from '../../services/invoiceProcessor';
 import { createSupplier, createPurchaseOrder, getSuppliers, type PurchaseOrderItem } from '../../services/purchasesService';
+import { saveImportedProduct } from '../../services/productService';
 
 type ImportStep = 'upload' | 'processing' | 'review' | 'success';
 type UploadedFile = {
@@ -108,6 +109,44 @@ export default function InvoiceImport() {
                         throw new Error(`Backend error ${res.status}: ${errText.slice(0, 100)}`);
                     }
                     const prod = await res.json();
+
+                    // Save to localStorage so product persists even if backend resets
+                    saveImportedProduct(({
+                        id: String(prod.id),
+                        name: item.name,
+                        sku: prod.sku || uniqueSku,
+                        category: 'Imported',
+                        status: 'Active',
+                        uom: item.unit || 'units',
+                        description: '',
+                        shortDescription: '',
+                        velocityStatus: 'Medium' as const,
+                        salesVelocity: 0, salesTrend: 0, revenueContribution: 0,
+                        grossMarginPercent: 30, netProfitPerUnit: 0,
+                        avgDailySales: 0, daysStockRemaining: 0,
+                        reorderLevel: 10, overstockRisk: 'Low' as const,
+                        leadTimeDays: 7, minOrderQty: 1,
+                        images: [], specifications: [], tags: ['Imported'],
+                        seo: { metaTitle: '', metaDescription: '', keywords: '' },
+                        leakageRate: 0, returnRate: 0,
+                        primarySupplierId: supplierId,
+                        primarySupplierName: supplierName,
+                        pricing: {
+                            purchasePriceExWorks: item.unitPrice || 0,
+                            freightShipping: 0, importDuty: 0, otherDirectCosts: 0,
+                            landedCost: item.unitPrice || 0,
+                            operatingExpenseAllocation: 0,
+                            sellingPrice: Math.round((item.unitPrice || 0) * 1.3 * 100) / 100,
+                            taxRate: 0, taxIncluded: false
+                        },
+                        locations: [{
+                            id: 'LOC-WH-001', name: 'Main Warehouse',
+                            type: 'Warehouse' as const,
+                            currentStock: item.quantity || 0,
+                            reorderPoint: 10, maxStock: 1000
+                        }]
+                    } as any));
+
                     poItems.push({
                         productId: prod?.id ? String(prod.id) : `P-${Date.now()}`,
                         productName: item.name,

@@ -300,14 +300,45 @@ const getInitialProducts = (): Product[] => {
     return initialMocks;
 };
 
-export async function getProducts(): Promise<Product[]> {
-    const response = await fetch(apiUrl('products/'), { cache: 'no-store' });
-    if (!response.ok) {
-        throw new Error(`Products API HTTP ${response.status}`);
+export const IMPORTED_PRODUCTS_KEY = 'bettano_imported_products';
+
+export function getImportedProducts(): Product[] {
+    try {
+        const raw = localStorage.getItem(IMPORTED_PRODUCTS_KEY);
+        return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+}
+
+export function saveImportedProduct(product: Product): void {
+    const existing = getImportedProducts();
+    const idx = existing.findIndex(p => p.name.toLowerCase() === product.name.toLowerCase());
+    if (idx >= 0) {
+        // Update stock
+        existing[idx] = { ...existing[idx], ...product };
+    } else {
+        existing.unshift(product);
     }
-    const payload = await response.json().catch(() => null);
-    const rows = parseProductsJson(payload);
-    return rows.map(mapApiProductToProduct);
+    localStorage.setItem(IMPORTED_PRODUCTS_KEY, JSON.stringify(existing));
+}
+
+export async function getProducts(): Promise<Product[]> {
+    // Always get localStorage imported products first (persists across deploys)
+    const imported = getImportedProducts();
+
+    try {
+        const response = await fetch(apiUrl('products/'), { cache: 'no-store' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const payload = await response.json().catch(() => null);
+        const backendProducts = parseProductsJson(payload).map(mapApiProductToProduct);
+
+        // Merge: backend first, then imported products not in backend
+        const backendNames = new Set(backendProducts.map(p => p.name.toLowerCase()));
+        const extraImported = imported.filter(p => !backendNames.has(p.name.toLowerCase()));
+        return [...backendProducts, ...extraImported];
+    } catch {
+        // Backend unavailable - return imported products
+        return imported;
+    }
 }
 
 export async function getProductById(id: string): Promise<Product | undefined> {
