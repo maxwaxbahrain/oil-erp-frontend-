@@ -252,13 +252,14 @@ Return this exact JSON structure:
   },
   "products": [
     {
-      "name": "exact product name",
-      "sku": "SKU or product code — if column is PACKING or SIZE (like 12X1USQ, 220 USQ) put it in the unit field NOT sku",
+      "name": "exact full product name as written on invoice",
+      "sku": "the SKU code (e.g. LUBBETTANOSAE5W30SP1USQ) — NOT the packing size",
       "quantity": 1,
-      "unit": "packing size or unit e.g. 12X1USQ or 220USQ or liters or drums",
+      "unit": "packing/size format e.g. 12X1USQ or 220USQ or CARTON or liters",
       "unitPrice": 0.00,
       "lineTotal": 0.00,
-      "total": 0.00
+      "total": 0.00,
+      "description": "product name + packing + any spec details"
     }
   ],
   "totals": {
@@ -273,7 +274,9 @@ CRITICAL PRICE RULES — READ CAREFULLY:
 - If columns are labelled: Last Price / New EXW / New CFR — use "New EXW" as unitPrice
 - If only one price column exists, use that
 - NEVER use CFR, CIF, or freight-included prices as the unit price
-- PACKING column (e.g. 12X1USQ, 220 USQ) = the unit/size, NOT the SKU
+- PACKING column (e.g. 12X1USQ, 220 USQ) = put in unit field, NOT sku field
+- SKU field = the actual product code (e.g. LUBBETTANOSAE5W30SP1USQ)
+- unitPrice = the per-unit Rate/Price column value EXACTLY as shown (e.g. 24.00, 26.50)
 - SR NO. or row numbers are NOT quantities — quantity defaults to 1 unless explicitly stated
 - Extract EVERY product row, do not skip any
 - grandTotal = sum of all lineTotal values

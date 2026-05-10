@@ -97,7 +97,7 @@ export default function InvoiceImport() {
                             name: item.name,
                             sku: uniqueSku,
                             category: 'Imported',
-                            price: Math.round((item.unitPrice || 0) * 1.3 * 100) / 100,
+                            price: item.unitPrice || 0,  // Actual invoice price
                             cost: item.unitPrice || 0,
                             stock: item.quantity || 0,
                             min_stock: 10,
@@ -118,8 +118,8 @@ export default function InvoiceImport() {
                         category: 'Imported',
                         status: 'Active',
                         uom: item.unit || 'units',
-                        description: '',
-                        shortDescription: '',
+                        description: `${item.name} — ${item.unit || ''} — Supplier: ${supplierName}`,
+                        shortDescription: `${item.unit || ''} | ${supplierName}`,
                         velocityStatus: 'Medium' as const,
                         salesVelocity: 0, salesTrend: 0, revenueContribution: 0,
                         grossMarginPercent: 30, netProfitPerUnit: 0,
@@ -136,14 +136,14 @@ export default function InvoiceImport() {
                             freightShipping: 0, importDuty: 0, otherDirectCosts: 0,
                             landedCost: item.unitPrice || 0,
                             operatingExpenseAllocation: 0,
-                            sellingPrice: Math.round((item.unitPrice || 0) * 1.3 * 100) / 100,
+                            sellingPrice: item.unitPrice || 0,
                             taxRate: 0, taxIncluded: false
                         },
                         locations: [{
                             id: 'LOC-WH-001', name: 'Main Warehouse',
                             type: 'Warehouse' as const,
                             currentStock: item.quantity || 0,
-                            reorderPoint: 10, maxStock: 1000
+                            reorderPoint: Math.floor((item.quantity || 0) * 0.2) || 10, maxStock: Math.max((item.quantity || 0) * 3, 500)
                         }]
                     } as any));
 
