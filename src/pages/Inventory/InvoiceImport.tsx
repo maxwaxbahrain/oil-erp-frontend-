@@ -88,12 +88,13 @@ export default function InvoiceImport() {
             for (const item of toImport) {
                 try {
                     // Create in backend
+                    const uniqueSku = item.sku || `IMP-${Date.now()}-${Math.random().toString(36).slice(2,5).toUpperCase()}`;
                     const res = await fetch(`${API}/api/products/`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             name: item.name,
-                            sku: item.sku || `SKU-${Date.now().toString().slice(-6)}`,
+                            sku: uniqueSku,
                             category: 'Imported',
                             price: Math.round((item.unitPrice || 0) * 1.3 * 100) / 100,
                             cost: item.unitPrice || 0,
@@ -102,7 +103,11 @@ export default function InvoiceImport() {
                             unit: item.unit || 'units'
                         })
                     });
-                    const prod = res.ok ? await res.json() : null;
+                    if (!res.ok) {
+                        const errText = await res.text();
+                        throw new Error(`Backend error ${res.status}: ${errText.slice(0, 100)}`);
+                    }
+                    const prod = await res.json();
                     poItems.push({
                         productId: prod?.id ? String(prod.id) : `P-${Date.now()}`,
                         productName: item.name,
