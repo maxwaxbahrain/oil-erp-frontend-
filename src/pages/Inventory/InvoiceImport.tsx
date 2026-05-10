@@ -138,9 +138,9 @@ export default function InvoiceImport() {
                 errors.push(`Purchase Order: ${e instanceof Error ? e.message : 'failed'}`);
             }
 
-            // Done - navigate regardless
-            alert(`✅ Import complete! ${toImport.length} products imported to inventory.${errors.length > 0 ? '\n\nWarnings: ' + errors.slice(0,2).join('; ') : ''}`);
-            navigate('/products');
+            // Done - show success then redirect
+            setStep('success');
+            setTimeout(() => navigate('/products'), 2000);
 
         } catch (err: any) {
             console.error('Import error:', err);
@@ -278,6 +278,27 @@ export default function InvoiceImport() {
                     </div>
                 )}
             </div>
+
+            {step === 'success' && (
+                <div className="flex flex-col items-center justify-center py-24 animate-in fade-in duration-500">
+                    <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mb-6">
+                        <CheckCircle2 size={48} className="text-emerald-600" />
+                    </div>
+                    <h2 className="text-2xl font-black text-gray-900 mb-2">Import Successful!</h2>
+                    <p className="text-gray-500 mb-6">Products have been added to your inventory</p>
+                    <div className="flex gap-3">
+                        <button onClick={() => navigate('/products')}
+                            className="px-6 py-3 bg-gray-900 text-white rounded-xl font-black text-sm hover:bg-gray-700 transition-all">
+                            View Products →
+                        </button>
+                        <button onClick={() => navigate('/purchases')}
+                            className="px-6 py-3 border border-gray-200 rounded-xl font-black text-sm hover:bg-gray-50 transition-all">
+                            View Purchase Orders
+                        </button>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-4">Redirecting to products in 2 seconds...</p>
+                </div>
+            )}
 
             {step === 'upload' && (
                 <div className="space-y-10">
