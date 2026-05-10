@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Plus, Trash2, Check, X, FileText, Download, Eye } from 'lucide-react';
-import { getAccounts, type Account } from './ChartOfAccounts';
+import { getAccounts, DEFAULT_ACCOUNTS, type Account } from './ChartOfAccounts';
 import { formatCurrency } from '../../services/settingsService';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -85,6 +85,17 @@ function JVForm({ accounts, editJV, onSave, onCancel }: JVFormProps) {
     const [lines, setLines] = useState<JVLine[]>(editJV?.lines || [emptyLine(), emptyLine()]);
     const [acSearch, setAcSearch] = useState<Record<string, string>>({});
     const [showAcDrop, setShowAcDrop] = useState<string | null>(null);
+
+    useEffect(() => {
+        const handleClick = (e: MouseEvent) => {
+            const target = e.target as HTMLElement;
+            if (!target.closest('.ac-dropdown-container')) {
+                setShowAcDrop(null);
+            }
+        };
+        document.addEventListener('mousedown', handleClick);
+        return () => document.removeEventListener('mousedown', handleClick);
+    }, []);
 
     const totalDebit = lines.reduce((s, l) => s + (l.debit || 0), 0);
     const totalCredit = lines.reduce((s, l) => s + (l.credit || 0), 0);
@@ -195,7 +206,7 @@ function JVForm({ accounts, editJV, onSave, onCancel }: JVFormProps) {
                         {lines.map((line) => (
                             <tr key={line.id} className="hover:bg-gray-50">
                                 {/* Account selector */}
-                                <td className="px-3 py-2 relative">
+                                <td className="px-3 py-2 relative ac-dropdown-container">
                                     <div className="relative">
                                         <input
                                             value={acSearch[line.id] !== undefined ? acSearch[line.id] : line.accountName}
@@ -424,7 +435,12 @@ export default function JournalVoucher() {
     const [statusFilter, setStatusFilter] = useState<'All' | 'Draft' | 'Posted'>('All');
 
     useEffect(() => {
-        setAccounts(getAccounts());
+        let accs = getAccounts();
+        if (accs.length === 0) {
+            localStorage.setItem('chart_of_accounts', JSON.stringify(DEFAULT_ACCOUNTS));
+            accs = DEFAULT_ACCOUNTS;
+        }
+        setAccounts(accs);
         setVouchers(getJournalVouchers());
     }, []);
 

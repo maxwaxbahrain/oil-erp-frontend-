@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Zap, RefreshCw, DollarSign } from 'lucide-react';
-import { getInvoices, getProducts, getCustomers } from '../../services/api';
+import { getInvoices } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
 
 interface MonthData { month: string; revenue: number; orders: number; }
@@ -23,7 +23,7 @@ export default function RevenueForecast() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        Promise.all([getInvoices(), getProducts(), getCustomers()]).then(([invoices]) => {
+        getInvoices().then((invoices) => {
             // Build 12-month history
             const monthMap: Record<string, { revenue: number; orders: number }> = {};
             invoices.forEach(inv => {
@@ -130,10 +130,10 @@ Give me:
             {forecast && (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     {[
-                        { label: 'Next Month', data: forecast.nextMonth, color: 'blue' },
-                        { label: 'Next 3 Months', data: forecast.next3Months, color: 'purple' },
-                        { label: 'Next 6 Months', data: forecast.next6Months, color: 'indigo' },
-                    ].map(({ label, data, color }) => (
+                        { label: 'Next Month', data: forecast.nextMonth, midBg: 'bg-blue-50 border-blue-200', midText: 'text-blue-700' },
+                        { label: 'Next 3 Months', data: forecast.next3Months, midBg: 'bg-purple-50 border-purple-200', midText: 'text-purple-700' },
+                        { label: 'Next 6 Months', data: forecast.next6Months, midBg: 'bg-indigo-50 border-indigo-200', midText: 'text-indigo-700' },
+                    ].map(({ label, data, midBg, midText }) => (
                         <div key={label} className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
                             <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-4">{label}</p>
                             <div className="space-y-3">
@@ -141,9 +141,9 @@ Give me:
                                     <span className="text-xs font-bold text-red-500 bg-red-50 px-2 py-1 rounded-lg">Low</span>
                                     <span className="text-sm font-black font-mono text-red-600">{formatCurrency(data.low)}</span>
                                 </div>
-                                <div className={`flex items-center justify-between bg-${color}-50 px-3 py-2 rounded-xl border-2 border-${color}-200`}>
-                                    <span className={`text-xs font-black text-${color}-700`}>Mid (Most Likely)</span>
-                                    <span className={`text-lg font-black font-mono text-${color}-700`}>{formatCurrency(data.mid)}</span>
+                                <div className={`flex items-center justify-between px-3 py-2 rounded-xl border-2 ${midBg}`}>
+                                    <span className={`text-xs font-black ${midText}`}>Mid (Most Likely)</span>
+                                    <span className={`text-lg font-black font-mono ${midText}`}>{formatCurrency(data.mid)}</span>
                                 </div>
                                 <div className="flex items-center justify-between">
                                     <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg">High</span>

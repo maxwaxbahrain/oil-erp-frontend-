@@ -135,7 +135,7 @@ export default function AIHub() {
                             className={`bg-white border-2 rounded-2xl p-5 shadow-sm transition-all ${colorClass} ${feature.path ? 'cursor-pointer hover:shadow-md hover:-translate-y-0.5' : 'cursor-default opacity-90'}`}
                         >
                             <div className="flex items-start justify-between mb-3">
-                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${COLOR_MAP[feature.color].split(' ')[0]}`}>
+                                <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-white/60">
                                     <Icon size={20} />
                                 </div>
                                 <span className={`text-[10px] font-black px-2 py-1 rounded-full ${badgeClass}`}>

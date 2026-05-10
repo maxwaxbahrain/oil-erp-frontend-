@@ -154,7 +154,7 @@ Give me:
             supplierName: supplier?.name || 'Unknown Supplier',
             date: new Date().toISOString().slice(0, 10),
             items: selectedItems.map(p => ({
-                productId: p.id,
+                productId: String(p.id),
                 name: p.name,
                 quantity: p.suggestedQty,
                 rate: p.unitPrice,

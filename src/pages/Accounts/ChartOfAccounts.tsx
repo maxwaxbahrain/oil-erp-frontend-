@@ -187,13 +187,24 @@ export default function ChartOfAccounts() {
         setAccounts(getAccounts());
     }, []);
 
-    const tree = buildTree(
-        accounts.filter(a => {
+    const tree = buildTree((() => {
+        if (!search && typeFilter === 'All') return accounts;
+        const matched = new Set<string>();
+        accounts.forEach(a => {
             const matchSearch = !search || a.name.toLowerCase().includes(search.toLowerCase()) || a.code.includes(search);
             const matchType = typeFilter === 'All' || a.type === typeFilter;
-            return matchSearch && matchType;
-        })
-    );
+            if (matchSearch && matchType) {
+                matched.add(a.id);
+                // Include all parents
+                let parentId = a.parentId;
+                while (parentId) {
+                    matched.add(parentId);
+                    parentId = accounts.find(x => x.id === parentId)?.parentId || null;
+                }
+            }
+        });
+        return accounts.filter(a => matched.has(a.id));
+    })());
 
     const toggleExpand = (id: string) => {
         setExpanded(prev => {

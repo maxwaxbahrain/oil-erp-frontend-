@@ -29,6 +29,7 @@ export default function PaymentEdit() {
     customers.forEach(c => { custMap[String(c.id)] = c.name; });
 
     const filtered = payments.filter(p => {
+        if (!p || !p.id) return false;
         if (!search) return true;
         const name = custMap[String(p.customer_id)] || '';
         return name.toLowerCase().includes(search.toLowerCase()) ||

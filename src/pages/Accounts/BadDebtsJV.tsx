@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, AlertTriangle, Check, RefreshCw } from 'lucide-react';
 import { getCustomers, getInvoices, type Customer, type Invoice } from '../../services/api';
-import { getAccounts } from './ChartOfAccounts';
+import { getAccounts, DEFAULT_ACCOUNTS } from './ChartOfAccounts';
 import { formatCurrency } from '../../services/settingsService';
 
 // Helper to generate JV number
@@ -87,7 +87,12 @@ export default function BadDebtsJV() {
         }
         setSaving(true);
         try {
-            const accounts = getAccounts();
+            // Initialize default accounts if none exist
+            let accounts = getAccounts();
+            if (accounts.length === 0) {
+                localStorage.setItem('chart_of_accounts', JSON.stringify(DEFAULT_ACCOUNTS));
+                accounts = DEFAULT_ACCOUNTS;
+            }
             const badDebtAcc = accounts.find(a => a.code === '5250' || a.name.toLowerCase().includes('bad debt'));
             const arAcc = accounts.find(a => a.code === '1120' || a.name.toLowerCase().includes('receivable'));
 
