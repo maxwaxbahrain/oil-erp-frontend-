@@ -38,6 +38,9 @@ export default function ExpenseManagement() {
     // Custom category creator state
     const [showCategoryCreator, setShowCategoryCreator] = useState(false);
     const [categoryDescription, setCategoryDescription] = useState('');
+    const [expDateFrom, setExpDateFrom] = useState('');
+    const [expDateTo, setExpDateTo] = useState('');
+    const [expSearch, setExpSearch] = useState('');
     const [aiCategorySuggestion, setAiCategorySuggestion] = useState<any>(null);
     const [generatingCategory, setGeneratingCategory] = useState(false);
 
@@ -484,7 +487,29 @@ export default function ExpenseManagement() {
                             <h4 className="text-lg font-black text-gray-900 uppercase tracking-tighter">Recent Expenses</h4>
                         </div>
                         <div className="divide-y divide-gray-50">
-                            {expenses.slice(0, 10).map(expense => (
+                            {/* Date range filter */}
+                            <div className="flex items-center gap-2 mb-3 flex-wrap">
+                                <input type="text" value={expSearch} onChange={e => setExpSearch(e.target.value)}
+                                    placeholder="Search expenses..."
+                                    className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-orange-400 flex-1 min-w-[150px]" />
+                                <input type="date" value={expDateFrom} onChange={e => setExpDateFrom(e.target.value)}
+                                    className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-orange-400" />
+                                <span className="text-xs text-gray-400">to</span>
+                                <input type="date" value={expDateTo} onChange={e => setExpDateTo(e.target.value)}
+                                    className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-orange-400" />
+                                {(expDateFrom || expDateTo || expSearch) && (
+                                    <button onClick={() => { setExpDateFrom(''); setExpDateTo(''); setExpSearch(''); }}
+                                        className="text-xs text-red-500 font-bold hover:text-red-700">Clear</button>
+                                )}
+                            </div>
+                            {expenses.filter(expense => {
+                                if (expDateFrom && (expense.date || '') < expDateFrom) return false;
+                                if (expDateTo && (expense.date || '') > expDateTo) return false;
+                                if (expSearch && !expense.vendor?.toLowerCase().includes(expSearch.toLowerCase()) &&
+                                    !expense.category?.toLowerCase().includes(expSearch.toLowerCase()) &&
+                                    !String(expense.amount).includes(expSearch)) return false;
+                                return true;
+                            }).slice(0, 50).map(expense => (
                                 <div key={expense.id} className="p-8 hover:bg-gray-50 transition-colors group">
                                     <div className="flex items-center justify-between">
                                         <div className="flex-1">
