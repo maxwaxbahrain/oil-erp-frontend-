@@ -18,7 +18,7 @@ import {
     TrendingUp,
     User,
     MapPin
-, Tag , BookOpen , AlertTriangle , Edit2 , Brain , ShoppingCart , DollarSign } from 'lucide-react';
+, Tag , BookOpen , AlertTriangle , Edit2 , Brain , ShoppingCart , DollarSign , Bot , Headphones } from 'lucide-react';
 import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
 
@@ -33,7 +33,8 @@ export default function Sidebar() {
         products: true,
         finance: false,
         reports: false,
-        ai: true
+        ai: true,
+        agents: true
     });
 
     const toggleSection = (section: string) => {
@@ -233,6 +234,21 @@ export default function Sidebar() {
                 <NavItem to="/sales/recurring" icon={RefreshCw} label="Recurring Invoices" />
 
                 <div className="h-px bg-white/5 my-3 mx-2" />
+
+                {/* AGENTS */}
+                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-blue-400/80 px-4 py-2 mt-1 flex items-center gap-1.5">
+                    <span>🤖</span> AI Agents
+                </div>
+                <div>
+                    <SectionHeader label="Agents" isOpen={sections.agents} onClick={() => toggleSection('agents')} />
+                    {sections.agents && (
+                        <div className="space-y-0.5 pl-2 border-l-2 border-blue-500/20 ml-2">
+                            <NavItem to="/agents" icon={Bot} label="Agent Hub" />
+                            <NavItem to="/agents/customer-service" icon={Headphones} label="ARIA — Customer Service" />
+                            <NavItem to="/agents/business-advisor" icon={Brain} label="Marcus — Advisor" />
+                        </div>
+                    )}
+                </div>
 
                 {/* AI INTELLIGENCE */}
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-orange-400/80 px-4 py-2 mt-1 flex items-center gap-1.5">

@@ -67,6 +67,9 @@ import AutoPOGeneration from '../pages/AI/AutoPOGeneration';
 import AnomalyDetection from '../pages/AI/AnomalyDetection';
 import CustomerForecast from '../pages/AI/CustomerForecast';
 import RevenueForecast from '../pages/AI/RevenueForecast';
+import AgentHub from '../pages/Agents/AgentHub';
+import CustomerServiceAgent from '../pages/Agents/CustomerServiceAgent';
+import BusinessAdvisorAgent from '../pages/Agents/BusinessAdvisorAgent';
 import DemandForecasting from '../pages/Reports/DemandForecasting';
 import InventoryAdjustment from '../pages/Inventory/InventoryAdjustment';
 import DriverApp from '../pages/POD/DriverApp';
@@ -182,6 +185,9 @@ export const AppRoutes = () => {
             <Route path="/ai/anomaly" element={<AnomalyDetection />} />
             <Route path="/ai/customer-forecast" element={<CustomerForecast />} />
             <Route path="/ai/revenue-forecast" element={<RevenueForecast />} />
+            <Route path="/agents" element={<AgentHub />} />
+            <Route path="/agents/customer-service" element={<CustomerServiceAgent />} />
+            <Route path="/agents/business-advisor" element={<BusinessAdvisorAgent />} />
 
             {/* Employee Portal - Module 15 */}
             <Route path="/portal" element={<EmployeePortal />} />
