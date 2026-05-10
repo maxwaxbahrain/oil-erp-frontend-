@@ -193,7 +193,9 @@ export class FreeInvoiceProcessor {
 
         if (isExcelFile) {
             onProgress?.(20, 'Reading Excel file...');
-            fileContent = await this.extractExcelText(file);
+            const rawContent = await this.extractExcelText(file);
+            // Trim to 8000 chars to keep API fast while preserving all product data
+            fileContent = rawContent.slice(0, 8000);
             messageContent = [{ type: 'text', text: `EXCEL SPREADSHEET DATA — Extract all product/invoice information:\n\n${fileContent}\n\nIMPORTANT: Look carefully at column headers to identify: product names, packing/unit sizes, and prices. If multiple price columns exist, use EXW (ex-works) price not CFR/CIF price.` }];
         } else if (isCsvFile || isTextFile) {
             onProgress?.(20, 'Reading text file...');
@@ -282,7 +284,7 @@ CRITICAL PRICE RULES — READ CAREFULLY:
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 system: systemPrompt,
-                max_tokens: 4000,
+                max_tokens: 2000,
                 messages: [{ role: 'user', content: messageContent }]
             })
         });

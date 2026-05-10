@@ -41,11 +41,15 @@ export default function InvoiceImport() {
 
     const handleFullImport = async () => {
         if (!invoiceData) return;
+        if (!invoiceData.products || invoiceData.products.length === 0) {
+            alert('No products to import. Please re-process the file.');
+            return;
+        }
         setImporting(true);
         try {
             // 2. Identify or Create Supplier
-            let supplierId = '';
-            let supplierName = invoiceData.supplier.name;
+            let supplierId = `SUP-${Date.now()}`;
+            let supplierName = invoiceData.supplier?.name || 'Unknown Supplier';
             const suppliers = await getSuppliers();
 
             // Fuzzy match (case-insensitive check)
@@ -78,7 +82,22 @@ export default function InvoiceImport() {
             const allProducts = await getProducts();
             const poItems: PurchaseOrderItem[] = [];
 
-            for (const item of invoiceData.products) {
+            // Filter out non-product lines (freight, charges, fees)
+            const productItems = invoiceData.products.filter(item => {
+                const nameLower = (item.name || '').toLowerCase();
+                return !nameLower.includes('freight') && 
+                       !nameLower.includes('charge') && 
+                       !nameLower.includes('reimburs') &&
+                       !nameLower.includes('shipping') &&
+                       !nameLower.includes('handling') &&
+                       item.name.trim() !== '';
+            });
+
+            if (productItems.length === 0) {
+                throw new Error('No valid products found to import after filtering.');
+            }
+
+            for (const item of productItems) {
                 // Find existing product
                 let product = allProducts.find(p =>
                     p.name.toLowerCase() === item.name.toLowerCase() ||
@@ -163,7 +182,7 @@ export default function InvoiceImport() {
                 }
 
                 // Add to PO Items
-                poItems.push({
+                if (product) poItems.push({
                     productId: product.id,
                     productName: product.name,
                     quantity: item.quantity,
@@ -630,32 +649,28 @@ export default function InvoiceImport() {
                                 <table className="w-full text-left">
                                     <thead>
                                         <tr className="border-b border-gray-100">
-                                            <th className="px-4 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest w-24">SKU</th>
-                                            <th className="px-4 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Extracted Product</th>
-                                            <th className="px-4 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center w-24">Qty</th>
-                                            <th className="px-4 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right w-32">Price ({invoiceData?.invoice.currency || 'USD'})</th>
-                                            <th className="px-4 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Total</th>
+                                            <th className="px-3 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">#</th>
+                                            <th className="px-3 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Product Name</th>
+                                            <th className="px-3 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Unit/Pack</th>
+                                            <th className="px-3 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center w-20">Qty</th>
+                                            <th className="px-3 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right w-28">Price</th>
+                                            <th className="px-3 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right w-28">Total</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-50">
                                         {invoiceData?.products.map((item, i) => (
                                             <tr key={i} className="hover:bg-gray-50 transition-colors group">
-                                                <td className="px-4 py-4">
-                                                    <input
-                                                        value={item.sku || ''}
-                                                        onChange={e => updateProduct(i, 'sku', e.target.value)}
-                                                        className="w-full bg-transparent font-bold text-xs text-gray-500 focus:bg-white focus:ring-2 focus:ring-emerald-500 rounded p-2 border border-transparent focus:border-emerald-200 outline-none transition-all"
-                                                        placeholder="-"
-                                                    />
-                                                </td>
-                                                <td className="px-4 py-4">
+                                                <td className="px-3 py-3 text-center text-xs font-black text-gray-400">{i + 1}</td>
+                                                <td className="px-3 py-3">
                                                     <input
                                                         value={item.name}
                                                         onChange={e => updateProduct(i, 'name', e.target.value)}
-                                                        className="w-full bg-transparent font-bold text-sm text-gray-900 focus:bg-white focus:ring-2 focus:ring-emerald-500 rounded p-2 border border-transparent focus:border-emerald-200 outline-none transition-all"
+                                                        className="w-full bg-transparent font-bold text-sm text-gray-900 focus:bg-white focus:ring-1 focus:ring-emerald-400 rounded px-2 py-1 border border-transparent focus:border-emerald-200 outline-none transition-all"
                                                     />
+                                                    {item.sku && <p className="text-[10px] text-gray-400 px-2 mt-0.5 font-mono truncate">{item.sku}</p>}
                                                 </td>
-                                                <td className="px-4 py-4">
+                                                <td className="px-3 py-3 text-xs text-gray-500 font-mono">{item.unit || '—'}</td>
+                                                <td className="px-3 py-3">
                                                     <input
                                                         type="number"
                                                         value={item.quantity || ''}
@@ -663,7 +678,7 @@ export default function InvoiceImport() {
                                                         className="w-full bg-transparent font-black text-gray-900 text-center focus:bg-white focus:ring-2 focus:ring-emerald-500 rounded p-2 border border-transparent focus:border-emerald-200 outline-none transition-all"
                                                     />
                                                 </td>
-                                                <td className="px-4 py-4">
+                                                <td className="px-3 py-3">
                                                     <input
                                                         type="number"
                                                         value={item.unitPrice || ''}
@@ -671,7 +686,7 @@ export default function InvoiceImport() {
                                                         className="w-full bg-transparent font-black text-gray-900 text-right focus:bg-white focus:ring-2 focus:ring-emerald-500 rounded p-2 border border-transparent focus:border-emerald-200 outline-none transition-all"
                                                     />
                                                 </td>
-                                                <td className="px-4 py-6 font-black text-blue-600 text-right">
+                                                <td className="px-3 py-3 font-black text-blue-600 text-right text-sm">
                                                     {invoiceData.invoice.currency || 'USD'} {item.lineTotal?.toLocaleString()}
                                                 </td>
                                             </tr>
@@ -688,7 +703,7 @@ export default function InvoiceImport() {
                         </div>
 
                         {/* Invoice Intel Sidebar */}
-                        <div className="lg:col-span-4 space-y-8">
+                        <div className="lg:col-span-4 space-y-4 min-w-0">
                             <div className="bg-gray-900 p-10 rounded-[40px] shadow-2xl relative overflow-hidden group">
                                 <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:rotate-12 transition-transform duration-700">
                                     <FileText size={120} className="text-white" />
