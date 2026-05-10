@@ -15,7 +15,6 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { FreeInvoiceProcessor, type InvoiceData } from '../../services/invoiceProcessor';
-import { saveProduct, getProducts } from '../../services/productService';
 import { createSupplier, createPurchaseOrder, getSuppliers, type PurchaseOrderItem } from '../../services/purchasesService';
 
 type ImportStep = 'upload' | 'processing' | 'review' | 'success';
@@ -41,182 +40,109 @@ export default function InvoiceImport() {
 
     const handleFullImport = async () => {
         if (!invoiceData) return;
-        if (!invoiceData.products || invoiceData.products.length === 0) {
-            alert('No products to import. Please re-process the file.');
-            return;
-        }
         setImporting(true);
+
+        const errors: string[] = [];
+
         try {
-            // 2. Identify or Create Supplier
+            const API = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+            const supplierName = invoiceData.supplier?.name || 'Unknown Supplier';
             let supplierId = `SUP-${Date.now()}`;
-            let supplierName = invoiceData.supplier?.name || 'Unknown Supplier';
-            const suppliers = await getSuppliers();
 
-            // Fuzzy match (case-insensitive check)
-            const existingSupplier = suppliers.find(s =>
-                s.name.toLowerCase() === supplierName.toLowerCase() ||
-                s.name.toLowerCase().includes(supplierName.toLowerCase()) ||
-                (invoiceData.supplier.email && s.email === invoiceData.supplier.email)
-            );
-
-            if (existingSupplier) {
-                supplierId = existingSupplier.id;
-                supplierName = existingSupplier.name; // Use canonical name
-            } else {
-                // Create New Supplier
-                const newSup = await createSupplier({
-                    name: supplierName,
-                    address: invoiceData.supplier.address,
-                    phone: invoiceData.supplier.phone,
-                    email: invoiceData.supplier.email,
-                    taxId: invoiceData.supplier.taxId,
-                    currency: invoiceData.invoice.currency || 'USD',
-                    status: 'Active',
-                    paymentTerms: 'Net 30',
-                    contactPerson: 'Imported Contact'
-                });
-                supplierId = newSup.id;
-            }
-
-            // 3. Process Products & Inventory
-            const allProducts = await getProducts();
-            const poItems: PurchaseOrderItem[] = [];
-
-            // Filter out non-product lines (freight, charges, fees)
-            const productItems = invoiceData.products.filter(item => {
-                const nameLower = (item.name || '').toLowerCase();
-                return !nameLower.includes('freight') && 
-                       !nameLower.includes('charge') && 
-                       !nameLower.includes('reimburs') &&
-                       !nameLower.includes('shipping') &&
-                       !nameLower.includes('handling') &&
-                       item.name.trim() !== '';
-            });
-
-            if (productItems.length === 0) {
-                throw new Error('No valid products found to import after filtering.');
-            }
-
-            for (const item of productItems) {
-                // Find existing product
-                let product = allProducts.find(p =>
-                    p.name.toLowerCase() === item.name.toLowerCase() ||
-                    (p.supplierProductCode && p.supplierProductCode === item.name) // naive code match
+            // Step 1: Create or find supplier
+            try {
+                const suppliers = await getSuppliers();
+                const existing = suppliers.find(s =>
+                    s.name.toLowerCase() === supplierName.toLowerCase() ||
+                    supplierName.toLowerCase().includes(s.name.toLowerCase().slice(0, 5))
                 );
-
-                if (product) {
-                    // Update existing product stock via backend
-                    const API = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
-                    try {
-                        await fetch(`${API}/products/${product.id}/add-stock`, {
-                            method: 'PATCH',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ quantity: item.quantity, reference: `AI-IMPORT-${invoiceData.invoice.number}` })
-                        });
-                    } catch (e) { console.warn('Backend stock update failed:', e); }
-
-                    // Also update localStorage
-                    const currentStock = product.locations?.[0]?.currentStock || 0;
-                    product = await saveProduct({
-                        ...product,
-                        pricing: { ...product.pricing, purchasePriceExWorks: item.unitPrice },
-                        locations: [{
-                            id: 'LOC-001', name: 'Main Warehouse', type: 'Warehouse',
-                            currentStock: currentStock + item.quantity,
-                            reorderPoint: product.locations?.[0]?.reorderPoint || 10,
-                            maxStock: product.locations?.[0]?.maxStock || 1000
-                        }]
-                    });
+                if (existing) {
+                    supplierId = existing.id;
                 } else {
-                    // Create New Product
-                    // Create product in backend first
-                    const API2 = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
-                    let backendProductId: string | null = null;
-                    try {
-                        const backendRes = await fetch(`${API2}/products/`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                name: item.name,
-                                sku: item.sku || `SKU-${Date.now().toString().slice(-6)}`,
-                                category: 'Imported',
-                                price: Math.round(item.unitPrice * 1.3 * 100) / 100,
-                                cost: item.unitPrice,
-                                stock: item.quantity,
-                                min_stock: 10,
-                                unit: item.unit || 'units',
-                                description: `Imported via AI — ${new Date().toLocaleDateString()}`
-                            })
-                        });
-                        if (backendRes.ok) {
-                            const backendProd = await backendRes.json();
-                            backendProductId = String(backendProd.id);
-                        }
-                    } catch (e) { console.warn('Backend product create failed:', e); }
-
-                    product = await saveProduct({
-                        id: backendProductId || undefined,
-                        name: item.name,
-                        uom: item.unit || 'Unit',
+                    const newSup = await createSupplier({
+                        name: supplierName,
+                        address: invoiceData.supplier?.address || '',
+                        phone: invoiceData.supplier?.phone || '',
+                        email: invoiceData.supplier?.email || '',
+                        currency: invoiceData.invoice?.currency || 'USD',
                         status: 'Active',
-                        pricing: {
-                            sellingPrice: item.unitPrice * 1.5, // 50% Markup Rule
-                            purchasePriceExWorks: item.unitPrice,
-                            freightShipping: 0, importDuty: 0, otherDirectCosts: 0, landedCost: item.unitPrice,
-                            operatingExpenseAllocation: 0, taxRate: 0, taxIncluded: false
-                        },
-                        primarySupplierId: supplierId,
-                        primarySupplierName: supplierName,
-                        velocityStatus: 'Medium',
-                        salesVelocity: 0, salesTrend: 0, revenueContribution: 0, grossMarginPercent: 33, netProfitPerUnit: item.unitPrice * 0.5,
-                        avgDailySales: 0, daysStockRemaining: 0, reorderLevel: 10, overstockRisk: 'Low',
-                        leadTimeDays: 7, minOrderQty: 10,
-                        description: `Imported via AI from invoice ${invoiceData.invoice.number}`,
-                        images: [],
-                        specifications: [],
-                        tags: ['Imported', 'AI'],
-                        seo: { metaTitle: '', metaDescription: '', keywords: '' },
-                        leakageRate: 0, returnRate: 0,
-                        locations: [{ id: 'LOC-001', name: 'Main Warehouse', type: 'Warehouse', currentStock: item.quantity, reorderPoint: 10, maxStock: 1000 }]
+                        paymentTerms: 'Net 30',
+                        code: `SUP-${Date.now().toString().slice(-6)}`
                     });
+                    supplierId = newSup.id;
                 }
-
-                // Add to PO Items
-                if (product) poItems.push({
-                    productId: product.id,
-                    productName: product.name,
-                    quantity: item.quantity,
-                    unitPrice: item.unitPrice,
-                    uom: item.unit || 'Unit',
-                    total: item.lineTotal,
-                    taxRate: 0,
-                    discount: 0
-                });
+            } catch (e) {
+                errors.push(`Supplier: ${e instanceof Error ? e.message : 'failed'}`);
             }
 
-            // 4. Create Purchase Order (Received)
-            await createPurchaseOrder({
-                poNumber: invoiceData.invoice.poNumber || `PO-${Date.now()}`,
-                supplierId,
-                supplierName,
-                date: new Date().toISOString(),
-                expectedDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-                status: 'Received', // Auto-receive since we updated inventory
-                items: poItems,
-                subtotal: invoiceData.totals.subtotal,
-                taxTotal: invoiceData.totals.tax,
-                grandTotal: invoiceData.totals.grandTotal,
-                notes: `Auto-generated from NetSuite-Style AI Import. Currency: ${invoiceData.invoice.currency}`,
-                payment_status: 'Unpaid'
+            // Step 2: Create products and update stock
+            const poItems: PurchaseOrderItem[] = [];
+            const toImport = invoiceData.products.filter(item => {
+                const n = (item.name || '').toLowerCase();
+                return item.name?.trim() && !n.includes('freight') && !n.includes('charge') && !n.includes('reimburs');
             });
 
-            // Success Delay
-            await new Promise(resolve => setTimeout(resolve, 800));
+            for (const item of toImport) {
+                try {
+                    // Create in backend
+                    const res = await fetch(`${API}/products/`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            name: item.name,
+                            sku: item.sku || `SKU-${Date.now().toString().slice(-6)}`,
+                            category: 'Imported',
+                            price: Math.round((item.unitPrice || 0) * 1.3 * 100) / 100,
+                            cost: item.unitPrice || 0,
+                            stock: item.quantity || 0,
+                            min_stock: 10,
+                            unit: item.unit || 'units'
+                        })
+                    });
+                    const prod = res.ok ? await res.json() : null;
+                    poItems.push({
+                        productId: prod?.id ? String(prod.id) : `P-${Date.now()}`,
+                        productName: item.name,
+                        quantity: item.quantity || 0,
+                        unitPrice: item.unitPrice || 0,
+                        uom: item.unit || 'Unit',
+                        total: item.lineTotal || 0,
+                        taxRate: 0,
+                        discount: 0
+                    });
+                } catch (e) {
+                    errors.push(`Product "${item.name}": ${e instanceof Error ? e.message : 'failed'}`);
+                }
+            }
+
+            // Step 3: Create Purchase Order
+            try {
+                const today = new Date().toISOString().slice(0, 10);
+                await createPurchaseOrder({
+                    poNumber: invoiceData.invoice?.number || invoiceData.invoice?.poNumber || `PO-${Date.now()}`,
+                    supplierId,
+                    supplierName,
+                    date: today,
+                    expectedDate: today,
+                    status: 'Received',
+                    items: poItems,
+                    subtotal: invoiceData.totals?.subtotal || 0,
+                    taxTotal: invoiceData.totals?.tax || 0,
+                    grandTotal: invoiceData.totals?.grandTotal || 0,
+                    notes: `AI Import — ${supplierName} — ${invoiceData.invoice?.number || ''}`
+                });
+            } catch (e) {
+                errors.push(`Purchase Order: ${e instanceof Error ? e.message : 'failed'}`);
+            }
+
+            // Done
+            if (errors.length > 0) {
+                alert(`Import completed with ${toImport.length} products.\n\nSome items had issues:\n${errors.slice(0,3).join('\n')}`);
+            }
             navigate('/products');
 
         } catch (err) {
-            console.error('Import Workflow Failed:', err);
-            alert('Failed to process invoice workflow. Check console for details.');
+            alert(`Import failed: ${err instanceof Error ? err.message : 'Unknown error'}. Please try again.`);
         } finally {
             setImporting(false);
         }
@@ -636,9 +562,9 @@ export default function InvoiceImport() {
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                    <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
                         {/* Extracted Data Table */}
-                        <div className="lg:col-span-8 bg-white rounded-[40px] border border-gray-100 shadow-sm overflow-hidden">
+                        <div className="xl:col-span-8 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-x-auto">
                             <div className="p-8 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
                                 <h4 className="text-[12px] font-black text-gray-900 uppercase tracking-widest">Extracted Line Items</h4>
                                 <span className="text-[10px] font-black bg-blue-100 text-blue-600 px-3 py-1 rounded-full uppercase tracking-widest">
@@ -703,8 +629,8 @@ export default function InvoiceImport() {
                         </div>
 
                         {/* Invoice Intel Sidebar */}
-                        <div className="lg:col-span-4 space-y-4 min-w-0">
-                            <div className="bg-gray-900 p-10 rounded-[40px] shadow-2xl relative overflow-hidden group">
+                        <div className="xl:col-span-4 space-y-4">
+                            <div className="bg-gray-900 p-6 rounded-2xl shadow-sm relative overflow-hidden">
                                 <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:rotate-12 transition-transform duration-700">
                                     <FileText size={120} className="text-white" />
                                 </div>
