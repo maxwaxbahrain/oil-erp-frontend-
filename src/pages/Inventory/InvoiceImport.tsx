@@ -88,7 +88,7 @@ export default function InvoiceImport() {
             for (const item of toImport) {
                 try {
                     // Create in backend
-                    const res = await fetch(`${API}/products/`, {
+                    const res = await fetch(`${API}/api/products/`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
