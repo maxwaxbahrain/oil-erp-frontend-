@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { FileText, Search, Download, Filter, AlertCircle, CheckCircle , ArrowLeft } from 'lucide-react';
+import { FileText, Download, Filter, AlertCircle, CheckCircle , ArrowLeft } from 'lucide-react';
 import { getInvoices, type Invoice } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
 
@@ -89,13 +89,12 @@ export default function OutstandingBills() {
             {/* Filters */}
             <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm flex items-center gap-4 flex-wrap">
                 <div className="relative flex-1 min-w-[200px]">
-                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                     <input
                         type="text"
                         placeholder="Search by customer or invoice #..."
                         value={search}
                         onChange={e => setSearch(e.target.value)}
-                        className="w-full pl-8 pr-4 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-orange-400"
+                        className="w-full pr-4 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-orange-400"
                     />
                 </div>
                 <div className="flex items-center gap-2">

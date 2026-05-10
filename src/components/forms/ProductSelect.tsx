@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search, Package, DollarSign, AlertTriangle, ChevronDown, BarChart3 } from 'lucide-react';
+import { Package, DollarSign, AlertTriangle, ChevronDown, BarChart3 } from 'lucide-react';
 
 interface Product {
     id: string;
@@ -184,13 +184,12 @@ export default function ProductSelect({
                         {/* Search Box */}
                         <div className="p-4 border-b-2 border-gray-200 bg-gray-50">
                             <div className="relative">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                                 <input
                                     type="text"
                                     placeholder="Search by name, SKU, or category..."
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
-                                    className="w-full pl-10 pr-4 py-2.5 border-2 border-gray-300 rounded-lg text-sm font-medium focus:border-[#800020] focus:ring-2 focus:ring-[#F4E4E6] outline-none"
+                                    className="w-full pr-4 py-2.5 border-2 border-gray-300 rounded-lg text-sm font-medium focus:border-[#800020] focus:ring-2 focus:ring-[#F4E4E6] outline-none"
                                     autoFocus
                                 />
                             </div>

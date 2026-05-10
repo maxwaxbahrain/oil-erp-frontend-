@@ -1,6 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Search } from 'lucide-react';
 
 export default function SearchableSelect({
     options,
@@ -66,7 +65,6 @@ export default function SearchableSelect({
                 <span className={selectedOption ? 'text-gray-900' : 'text-gray-400'}>
                     {selectedOption ? selectedOption[displayKey] : placeholder}
                 </span>
-                <Search size={16} className="text-gray-400 flex-shrink-0" />
             </button>
 
             {isOpen && createPortal(

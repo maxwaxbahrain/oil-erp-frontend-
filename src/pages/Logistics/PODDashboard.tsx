@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
     LayoutDashboard, Map, Truck, Package, FileText,
-    Settings, Search, Filter,
+    Settings, Filter,
     CheckCircle, XCircle, Clock, Download, Printer,
     BarChart2, Bell, LogOut, Shield, MessageSquare
 } from 'lucide-react';
@@ -255,8 +255,7 @@ export default function PODDashboard() {
                         <div className="p-4 border-b border-redwood-border flex flex-wrap gap-4 items-center justify-between bg-redwood-bg-light/30">
                             <div className="flex gap-2">
                                 <div className="relative">
-                                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-redwood-text-muted" />
-                                    <input type="text" placeholder="Search orders..." className="pl-9 pr-4 py-2 bg-white border border-redwood-border rounded-sm text-sm focus:outline-none focus:border-redwood-brand w-64" />
+                                    <input type="text" placeholder="Search orders..." className="pr-4 py-2 bg-white border border-redwood-border rounded-sm text-sm focus:outline-none focus:border-redwood-brand w-64" />
                                 </div>
                                 <button className="px-4 py-2 bg-white border border-redwood-border rounded-sm text-xs font-bold uppercase tracking-wide flex items-center gap-2 hover:bg-redwood-bg-light">
                                     <Filter size={14} /> Filter

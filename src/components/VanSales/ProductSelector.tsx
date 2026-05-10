@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Search, X, Package } from 'lucide-react';
+import { X, Package } from 'lucide-react';
 import { getProducts, type Product } from '../../services/productService';
 import type { VanSaleItem } from '../../types/vanSales';
 
@@ -116,7 +116,6 @@ export default function ProductSelector({
             {/* Product Search */}
             <div className="search-container" style={{ position: 'relative', marginBottom: '1rem' }}>
                 <div className="search-input-wrapper">
-                    <Search className="search-icon" size={18} />
                     <input
                         type="text"
                         placeholder="Search products by name, SKU, or category..."

@@ -1,5 +1,5 @@
 import {
-    Search, Filter, Plus, Users, Mail, Phone, MapPin,
+    Filter, Plus, Users, Mail, Phone, MapPin,
     Shield, Briefcase, Download, CornerUpLeft
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -58,8 +58,7 @@ export default function UserDirectory() {
                     {/* Filter Bar */}
                     <div className="p-4 border-b border-redwood-border flex gap-4 items-center bg-gray-50">
                         <div className="relative flex-1 max-w-md">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-                            <input type="text" placeholder="Search by name, email, ID..." className="w-full pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-sm text-sm focus:outline-none focus:border-redwood-brand" />
+                            <input type="text" placeholder="Search by name, email, ID..." className="w-full pr-4 py-2 bg-white border border-gray-200 rounded-sm text-sm focus:outline-none focus:border-redwood-brand" />
                         </div>
                         <div className="h-6 w-px bg-gray-300 mx-2"></div>
                         <div className="flex gap-2">

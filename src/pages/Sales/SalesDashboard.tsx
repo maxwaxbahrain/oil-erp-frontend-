@@ -6,7 +6,6 @@ import {
   BarChart3,
   ShoppingCart,
   Plus,
-  Search,
   Filter,
   Download,
   ChevronRight
@@ -87,11 +86,10 @@ export default function SalesDashboard() {
           <div className="p-5 border-b border-redwood-bg-light bg-white flex flex-wrap gap-4 justify-between items-center">
             <div className="flex items-center gap-4 flex-1 min-w-[350px]">
               <div className="relative flex-1 group">
-                <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-redwood-text-muted group-focus-within:text-redwood-brand transition-colors" />
                 <input
                   type="text"
                   placeholder="Global Audit: Search by Customer Entity, Order Reference, or GL Code..."
-                  className="w-full pl-10 pr-4 py-2.5 bg-redwood-bg-light border border-redwood-border rounded-sm text-[12px] font-semibold focus:bg-white focus:border-redwood-brand focus:ring-4 focus:ring-redwood-brand/5 outline-none transition-all"
+                  className="w-full pr-4 py-2.5 bg-redwood-bg-light border border-redwood-border rounded-sm text-[12px] font-semibold focus:bg-white focus:border-redwood-brand focus:ring-4 focus:ring-redwood-brand/5 outline-none transition-all"
                 />
               </div>
             </div>

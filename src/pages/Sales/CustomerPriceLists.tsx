@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Tag, Plus, Save, Search, Trash2, ChevronDown, ChevronUp, Edit2 } from 'lucide-react';
+import { Tag, Plus, Save, Trash2, ChevronDown, ChevronUp, Edit2 } from 'lucide-react';
 import {
     getCustomers, getProducts, type Customer, type Product
 } from '../../services/api';
@@ -163,13 +163,12 @@ export default function CustomerPriceLists() {
 
             {/* Search */}
             <div className="relative">
-                <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
                     type="text"
                     placeholder="Search customer..."
                     value={search}
                     onChange={e => setSearch(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:border-blue-400 text-sm"
+                    className="w-full pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:border-blue-400 text-sm"
                 />
             </div>
 

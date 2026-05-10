@@ -7,7 +7,6 @@ import {
     Clock,
     TrendingUp,
     FileText,
-    Search,
     Filter,
     Truck,
     AlertCircle
@@ -176,13 +175,12 @@ export default function GoodsReceivedList() {
             <div className="bg-white p-4 rounded-sm border border-redwood-border shadow-sm mb-6">
                 <div className="flex flex-col md:flex-row gap-4">
                     <div className="flex-1 relative">
-                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                         <input
                             type="text"
                             placeholder="Search by GRN number, PO reference, or warehouse..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-sm text-[13px] focus:border-redwood-brand outline-none"
+                            className="w-full pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-sm text-[13px] focus:border-redwood-brand outline-none"
                         />
                     </div>
                     <div className="flex items-center gap-2">

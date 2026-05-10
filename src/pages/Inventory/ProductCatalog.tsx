@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import {
     Plus,
     Download,
-    Search,
     LayoutGrid,
     List,
     AlertTriangle,
@@ -152,7 +151,6 @@ export default function ProductCatalog() {
             <div className="bg-white p-8 rounded-3xl border border-gray-100 shadow-sm">
                 <div className="flex flex-col lg:flex-row gap-6 items-center">
                     <div className="flex-1 w-full relative">
-                        <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
                         <input
                             type="text"
                             placeholder="Search products by name or SKU..."

@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { Clock, Download, Search, AlertTriangle, CheckCircle , ArrowLeft } from 'lucide-react';
+import { Clock, Download, AlertTriangle, CheckCircle , ArrowLeft } from 'lucide-react';
 import { getInvoices, type Invoice } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
 
@@ -110,13 +110,12 @@ export default function AgedReceivable() {
                 <div className="p-5 border-b border-gray-100 flex items-center justify-between gap-4">
                     <p className="text-sm font-black text-gray-700 uppercase tracking-wide">{filtered.length} Customers with Outstanding Balances</p>
                     <div className="relative">
-                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                         <input
                             type="text"
                             placeholder="Search customer..."
                             value={search}
                             onChange={e => setSearch(e.target.value)}
-                            className="pl-8 pr-4 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-orange-400 w-52"
+                            className="pr-4 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-orange-400 w-52"
                         />
                     </div>
                 </div>

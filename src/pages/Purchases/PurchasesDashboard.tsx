@@ -8,7 +8,6 @@ import {
     Truck,
     Download,
     ShieldCheck,
-    Search,
     Filter,
     CheckCircle
 } from 'lucide-react';
@@ -174,7 +173,6 @@ const PurchasesDashboard = () => {
             <div className="bg-white border border-redwood-border rounded-sm shadow-sm overflow-hidden flex flex-col min-h-[600px]">
                 <div className="px-8 py-6 border-b border-redwood-bg-light bg-white flex flex-wrap gap-8 justify-between items-center">
                     <div className="relative flex-1 max-w-[500px] group">
-                        <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-redwood-text-muted group-focus-within:text-redwood-brand transition-colors" />
                         <input
                             type="text"
                             placeholder="Query Supplier Master, PO Reference, or Fiscal Date..."

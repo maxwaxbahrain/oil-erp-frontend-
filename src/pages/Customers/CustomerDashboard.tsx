@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Users, Plus, FileText, Receipt, AlertCircle, Search, Filter, ArrowLeft, Download } from 'lucide-react';
+import { Users, Plus, FileText, Receipt, AlertCircle, Filter, ArrowLeft, Download } from 'lucide-react';
 import { type Customer } from '../../services/customerService';
 import CustomerListPage from './CustomerList';  // ← FIXED: Changed from CustomerList to CustomerListPage
 import CustomerForm from './CustomerForm';
@@ -118,11 +118,10 @@ export default function CustomerDashboard() {
         {view === 'list' && (
           <div className="px-6 py-5 border-b border-redwood-bg-light flex justify-between items-center bg-white">
             <div className="relative group w-96">
-              <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-redwood-text-muted group-focus-within:text-redwood-brand transition-all" />
               <input
                 type="text"
                 placeholder="Query Global Customer Registry..."
-                className="w-full pl-10 pr-4 py-2.5 bg-redwood-bg-light border border-redwood-border rounded-sm text-[12px] font-semibold focus:bg-white focus:border-redwood-brand focus:ring-4 focus:ring-redwood-brand/5 outline-none transition-all"
+                className="w-full pr-4 py-2.5 bg-redwood-bg-light border border-redwood-border rounded-sm text-[12px] font-semibold focus:bg-white focus:border-redwood-brand focus:ring-4 focus:ring-redwood-brand/5 outline-none transition-all"
               />
             </div>
             <div className="flex gap-4">

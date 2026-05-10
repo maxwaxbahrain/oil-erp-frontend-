@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CalendarClock, FileText, Plus, Search } from 'lucide-react';
+import { CalendarClock, FileText, Plus } from 'lucide-react';
 import { getCreditNotes, getCreditNoteStats, updateCreditNote, type CreditNote } from '../../services/creditNoteService';
 
 const THEME = '#800020';
@@ -105,8 +105,7 @@ export default function CreditNotes() {
           ))}
         </div>
         <div className="relative">
-          <Search className="absolute left-3 top-3 text-gray-400" size={18} />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search CN number, customer, invoice" className="w-full border rounded-lg pl-10 pr-3 py-2.5 text-sm" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search CN number, customer, invoice" className="w-full border rounded-lg pr-3 py-2.5 text-sm" />
         </div>
       </div>
 

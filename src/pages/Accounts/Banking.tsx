@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Landmark, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownLeft, RefreshCw, Download, Search, DollarSign, CreditCard, Building2 } from 'lucide-react';
+import { Landmark, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownLeft, RefreshCw, Download, DollarSign, CreditCard, Building2 } from 'lucide-react';
 import { getPayments, getInvoices, type Payment, type Invoice } from '../../services/api';
 import { getCompanyProfile } from '../../services/settingsService';
 import { formatCurrency } from '../../services/settingsService';
@@ -150,13 +150,12 @@ export default function Banking() {
                     </h2>
                     <div className="flex items-center gap-3">
                         <div className="relative">
-                            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                             <input
                                 type="text"
                                 placeholder="Search transactions..."
                                 value={search}
                                 onChange={e => setSearch(e.target.value)}
-                                className="pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-orange-400 w-56"
+                                className="pr-4 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-orange-400 w-56"
                             />
                         </div>
                         <div className="flex items-center gap-2">
