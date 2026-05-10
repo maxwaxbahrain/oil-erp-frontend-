@@ -196,7 +196,7 @@ export class FreeInvoiceProcessor {
             const rawContent = await this.extractExcelText(file);
             // Trim to 8000 chars to keep API fast while preserving all product data
             fileContent = rawContent.slice(0, 8000);
-            messageContent = [{ type: 'text', text: `EXCEL SPREADSHEET DATA — Extract all product/invoice information:\n\n${fileContent}\n\nIMPORTANT: Look carefully at column headers to identify: product names, packing/unit sizes, and prices. If multiple price columns exist, use EXW (ex-works) price not CFR/CIF price.` }];
+            messageContent = [{ type: 'text', text: `EXCEL PRICE LIST / INVOICE DATA:\n\n${fileContent}\n\nCRITICAL INSTRUCTIONS:\n1. PRODUCT NAME = column "PRODUCT NAME"\n2. UNIT/PACKING = column "PACKING" (e.g. 12X1USQ, 220 USQ)\n3. PRICE = use ONLY the "New prices US$ EXW" or "EXW" column — NEVER use CFR or Last Price\n4. QUANTITY = default to 1 if no quantity column exists (this is a price list)\n5. SKU = use the product code if given, otherwise leave empty\n6. Extract EVERY product row — do not skip any` }];
         } else if (isCsvFile || isTextFile) {
             onProgress?.(20, 'Reading text file...');
             fileContent = await file.text();
@@ -270,10 +270,12 @@ Return this exact JSON structure:
 }
 
 CRITICAL PRICE RULES — READ CAREFULLY:
-- If the document has MULTIPLE price columns (e.g. Last Price, EXW Price, CFR Price), ALWAYS use the EXW price (Ex-Works / factory price without freight)
-- If columns are labelled: Last Price / New EXW / New CFR — use "New EXW" as unitPrice
-- If only one price column exists, use that
-- NEVER use CFR, CIF, or freight-included prices as the unit price
+- If the document has MULTIPLE price columns, ALWAYS use the EXW price (Ex-Works / factory gate price)
+- Column priority: "New EXW" > "EXW" > "Last Price" > "CFR" — pick the LEFTMOST EXW column
+- If columns are: Last Prices CFR | New EXW | New CFR — use "New EXW" column value
+- NEVER use CFR, CIF, or any freight-included price — freight adds $12,000+ per container
+- Example: if row shows Last=$26, EXW=$35, CFR=$40.5 — unitPrice MUST be $35.00 (EXW)
+- Quantities: if no quantity column exists (price list only), default quantity to 1
 - PACKING column (e.g. 12X1USQ, 220 USQ) = put in unit field, NOT sku field
 - SKU field = the actual product code (e.g. LUBBETTANOSAE5W30SP1USQ)
 - unitPrice = the per-unit Rate/Price column value EXACTLY as shown (e.g. 24.00, 26.50)

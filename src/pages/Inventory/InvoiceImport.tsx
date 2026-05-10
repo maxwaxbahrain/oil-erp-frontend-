@@ -29,6 +29,7 @@ type UploadedFile = {
 
 export default function InvoiceImport() {
     const navigate = useNavigate();
+
     const [step, setStep] = useState<ImportStep>('upload');
     const [isDragging, setIsDragging] = useState(false);
     const [progress, setProgress] = useState(0);
