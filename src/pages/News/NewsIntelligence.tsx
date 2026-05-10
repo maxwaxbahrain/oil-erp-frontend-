@@ -4,8 +4,7 @@ import {
     ArrowLeft, Newspaper, RefreshCw, Send, ExternalLink,
     Globe, Zap, Clock, Bot, User
 } from 'lucide-react';
-import { getProducts } from '../../services/productService';
-import { getImportedProducts } from '../../services/productService';
+import { getProducts, getImportedProducts } from '../../services/productService';
 
 const API = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
 const NEWS_CACHE_KEY = 'bettano_news_cache';
@@ -108,14 +107,15 @@ export default function NewsIntelligence() {
     const bottomRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
+        setLoading(true); // Show loading immediately
         getBusinessContext().then(ctx => {
             setBusinessCtx(ctx);
-            // Try cache first
             const cached = getCache();
-            if (cached) {
+            if (cached && cached.articles && cached.articles.length > 0) {
                 setNews(cached);
+                setLoading(false);
             } else {
-                fetchNews(ctx);
+                fetchNews(ctx); // Auto-fetch if no valid cache
             }
         });
     }, []);
@@ -263,7 +263,7 @@ Your role: Answer questions about business news, tariffs, oil prices, market con
                         <div className="bg-white rounded-2xl border border-gray-100 p-16 text-center shadow-sm">
                             <RefreshCw size={32} className="animate-spin text-gray-400 mx-auto mb-3" />
                             <p className="text-gray-500 font-bold">AI is searching real-time news...</p>
-                            <p className="text-gray-400 text-sm mt-1">Searching: oil tariffs, lubricant prices, NYC distribution, OPEC...</p>
+                            <p className="text-gray-400 text-sm mt-1">Reading your product catalog · Searching oil tariffs · Lubricant prices · NYC regulations · OPEC...</p>
                         </div>
                     )}
 
