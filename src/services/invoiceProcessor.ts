@@ -194,7 +194,7 @@ export class FreeInvoiceProcessor {
         if (isExcelFile) {
             onProgress?.(20, 'Reading Excel file...');
             fileContent = await this.extractExcelText(file);
-            messageContent = [{ type: 'text', text: `Excel Invoice Data:\n${fileContent}` }];
+            messageContent = [{ type: 'text', text: `EXCEL SPREADSHEET DATA — Extract all product/invoice information:\n\n${fileContent}\n\nIMPORTANT: Look carefully at column headers to identify: product names, packing/unit sizes, and prices. If multiple price columns exist, use EXW (ex-works) price not CFR/CIF price.` }];
         } else if (isCsvFile || isTextFile) {
             onProgress?.(20, 'Reading text file...');
             fileContent = await file.text();
@@ -232,31 +232,31 @@ export class FreeInvoiceProcessor {
 
         onProgress?.(40, 'Sending to Claude AI...');
 
-        const systemPrompt = `You are an expert invoice and purchase order data extractor.
+        const systemPrompt = `You are an expert invoice and purchase order data extractor for a distribution company.
 Extract ALL data from the provided file and return ONLY valid JSON, no other text.
 
 Return this exact JSON structure:
 {
   "supplier": {
-    "name": "exact supplier company name",
-    "address": "full address",
-    "phone": "phone number",
-    "email": "email"
+    "name": "supplier/seller company name",
+    "address": "full address if available",
+    "phone": "phone number if available",
+    "email": "email if available"
   },
   "invoice": {
-    "number": "invoice/PO number",
-    "date": "YYYY-MM-DD",
+    "number": "invoice/PO/quotation number if found",
+    "date": "YYYY-MM-DD format",
     "currency": "USD"
   },
   "products": [
     {
-      "name": "exact product name as written",
-      "sku": "product code/SKU if available",
-      "quantity": 10,
-      "unit": "units/liters/drums/cases",
-      "unitPrice": 45.00,
-      "lineTotal": 450.00,
-      "total": 450.00
+      "name": "exact product name",
+      "sku": "SKU or product code — if column is PACKING or SIZE (like 12X1USQ, 220 USQ) put it in the unit field NOT sku",
+      "quantity": 1,
+      "unit": "packing size or unit e.g. 12X1USQ or 220USQ or liters or drums",
+      "unitPrice": 0.00,
+      "lineTotal": 0.00,
+      "total": 0.00
     }
   ],
   "totals": {
@@ -266,13 +266,16 @@ Return this exact JSON structure:
   }
 }
 
-CRITICAL RULES:
-- Extract EVERY product line item, do not miss any
-- Use exact product names as they appear in the document
-- If quantity is missing, default to 1
-- If price is missing, default to 0
-- grandTotal must be sum of all line items
-- Return ONLY the JSON object, nothing else`;
+CRITICAL PRICE RULES — READ CAREFULLY:
+- If the document has MULTIPLE price columns (e.g. Last Price, EXW Price, CFR Price), ALWAYS use the EXW price (Ex-Works / factory price without freight)
+- If columns are labelled: Last Price / New EXW / New CFR — use "New EXW" as unitPrice
+- If only one price column exists, use that
+- NEVER use CFR, CIF, or freight-included prices as the unit price
+- PACKING column (e.g. 12X1USQ, 220 USQ) = the unit/size, NOT the SKU
+- SR NO. or row numbers are NOT quantities — quantity defaults to 1 unless explicitly stated
+- Extract EVERY product row, do not skip any
+- grandTotal = sum of all lineTotal values
+- Return ONLY the JSON object, no explanation text`;
 
         const response = await fetch(`${API_HOST}/ai/chat`, {
             method: 'POST',
