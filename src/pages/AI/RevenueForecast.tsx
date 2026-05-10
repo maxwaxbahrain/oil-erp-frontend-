@@ -180,8 +180,8 @@ Give me:
                             if (/^[0-9]+\./.test(t))
                                 return <p key={i} className="font-bold text-white mt-2">{t}</p>;
                             if (t.startsWith('•') || t.startsWith('-'))
-                                return <p key={i} className="text-gray-300 pl-3">• {t.slice(1).trim()}</p>;
-                            return <p key={i} className="text-gray-300 text-sm leading-relaxed">{t}</p>;
+                                return <p key={i} className="text-sm text-gray-600 pl-3">• {t.slice(1).trim()}</p>;
+                            return <p key={i} className="text-sm text-gray-700 leading-relaxed">{t}</p>;
                         })}
                     </div>
                 </div>

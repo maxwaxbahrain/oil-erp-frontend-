@@ -229,7 +229,6 @@ export default function Sidebar() {
                 </div>
 
                 <NavItem to="/reports/sales" icon={TrendingUp} label="Profitability Reports" />
-                <NavItem to="/reports/demand-forecast" icon={TrendingUp} label="Demand Forecast" />
                 <NavItem to="/sales/price-lists" icon={Tag} label="Customer Price Lists" />
                 <NavItem to="/sales/recurring" icon={RefreshCw} label="Recurring Invoices" />
 

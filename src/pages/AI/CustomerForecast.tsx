@@ -210,13 +210,13 @@ Which customers should I contact TODAY and what should I say?`
                         <Zap size={16} className="text-orange-400" />
                         <p className="text-sm font-black text-orange-400 uppercase tracking-widest">Marcus — Customer Intelligence</p>
                     </div>
-                    <div className="text-sm text-gray-300 leading-relaxed space-y-1">
+                    <div className="text-sm leading-relaxed space-y-1">
                         {aiInsight.split('\n').map((line, i) => {
                             const t = line.trim();
                             if (!t) return <div key={i} className="h-1" />;
                             if (t === t.toUpperCase() && t.length > 4)
                                 return <p key={i} className="font-black text-orange-400 text-xs uppercase tracking-widest mt-3">{t}</p>;
-                            return <p key={i}>{t}</p>;
+                            return <p key={i} className="text-sm text-gray-700 leading-relaxed">{t}</p>;
                         })}
                     </div>
                 </div>

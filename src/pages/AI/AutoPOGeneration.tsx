@@ -244,7 +244,7 @@ Give me:
                         <Zap size={16} className="text-orange-400" />
                         <p className="text-sm font-black text-orange-400 uppercase tracking-widest">Marcus — AI Analysis</p>
                     </div>
-                    <div className="text-sm text-gray-300 leading-relaxed space-y-1">
+                    <div className="text-sm leading-relaxed space-y-1">
                         {aiAnalysis.split('\n').map((line, i) => {
                             const t = line.trim();
                             if (!t) return <div key={i} className="h-1" />;

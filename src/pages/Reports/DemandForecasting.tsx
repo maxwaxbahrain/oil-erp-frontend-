@@ -294,19 +294,19 @@ Give me:
             </div>
 
             {/* AI Forecast Panel */}
-            <div className="bg-gray-900 rounded-2xl p-5 text-white">
+            <div className="bg-white border-2 border-orange-200 rounded-2xl p-5 shadow-sm">
                 <div className="flex items-center justify-between flex-wrap gap-4 mb-4">
                     <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-orange-500/20 rounded-xl flex items-center justify-center text-xl">🧠</div>
+                        <div className="w-10 h-10 bg-orange-100 rounded-xl flex items-center justify-center text-xl">🧠</div>
                         <div>
-                            <p className="text-sm font-black">AI Demand Intelligence</p>
-                            <p className="text-xs text-gray-400">Marcus analyzes your sales patterns + market conditions</p>
+                            <p className="text-sm font-black text-gray-900">AI Demand Intelligence</p>
+                            <p className="text-xs text-gray-500">Marcus analyzes your sales patterns + NYC market conditions</p>
                         </div>
                     </div>
                     <button
                         onClick={getAIForecast}
                         disabled={aiLoading || forecasts.length === 0}
-                        className="flex items-center gap-2 px-5 py-2.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white rounded-xl text-sm font-black transition-all"
+                        className="flex items-center gap-2 px-5 py-2.5 bg-gray-900 hover:bg-gray-700 disabled:opacity-50 text-white rounded-xl text-sm font-black transition-all"
                     >
                         {aiLoading ? (
                             <><RefreshCw size={16} className="animate-spin" /> Analyzing...</>
@@ -317,24 +317,24 @@ Give me:
                 </div>
 
                 {aiError && (
-                    <div className="bg-red-500/20 text-red-300 px-4 py-3 rounded-xl text-sm font-bold">{aiError}</div>
+                    <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm font-bold">{aiError}</div>
                 )}
 
                 {!aiInsight && !aiLoading && !aiError && (
-                    <div className="bg-white/5 rounded-xl px-4 py-8 text-center">
-                        <p className="text-gray-400 text-sm">Click "Get AI Forecast" — Marcus will analyze your data and give specific ordering recommendations, demand predictions, and market intelligence for NYC oil distribution.</p>
+                    <div className="bg-orange-50 rounded-xl px-4 py-6 text-center border border-orange-100">
+                        <p className="text-gray-500 text-sm">Click <strong className="text-gray-900">"Get AI Forecast"</strong> — Marcus analyzes your 6-month sales history and gives specific ordering recommendations with NYC market intelligence.</p>
                     </div>
                 )}
 
                 {aiLoading && (
-                    <div className="bg-white/5 rounded-xl px-4 py-8 text-center">
-                        <RefreshCw size={24} className="animate-spin text-orange-400 mx-auto mb-3" />
-                        <p className="text-gray-400 text-sm">Analyzing 6 months of sales data, market conditions, and NYC distribution trends...</p>
+                    <div className="bg-orange-50 rounded-xl px-4 py-8 text-center border border-orange-100">
+                        <RefreshCw size={24} className="animate-spin text-orange-500 mx-auto mb-3" />
+                        <p className="text-gray-600 text-sm font-medium">Analyzing sales data, market conditions, and NYC distribution trends...</p>
                     </div>
                 )}
 
                 {aiInsight && !aiLoading && (
-                    <div className="bg-white/5 rounded-xl px-5 py-4 space-y-1">
+                    <div className="bg-gray-50 rounded-xl px-5 py-4 space-y-1 border border-gray-200">
                         {renderAIText(aiInsight)}
                     </div>
                 )}
