@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import NewsTicker from '../NewsTicker';
 import { useAuth } from '../../store/authStore';
 import {
     LayoutDashboard,
@@ -19,7 +20,7 @@ import {
     TrendingUp,
     User,
     MapPin
-, Tag , BookOpen , AlertTriangle , Edit2 , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield } from 'lucide-react';
+, Tag , BookOpen , AlertTriangle , Edit2 , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper } from 'lucide-react';
 import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
 
@@ -251,6 +252,10 @@ export default function Sidebar() {
                         </div>
                     )}
                 </div>
+
+                {/* NEWS */}
+                <NewsTicker />
+                <NavItem to="/news" icon={Newspaper} label="Business News" />
 
                 {/* AI INTELLIGENCE */}
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-orange-400/80 px-4 py-2 mt-1 flex items-center gap-1.5">
