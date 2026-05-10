@@ -44,15 +44,16 @@ export default function ProductCatalog() {
         }
     };
 
-    const handleDelete = async (id: string) => {
-        if (window.confirm('Are you sure you want to delete this product? This action cannot be undone.')) {
-            try {
-                await deleteProduct(id);
-                loadProducts();
-            } catch (error) {
-                console.error('Failed to delete product:', error);
-            }
-        }
+    const handleDelete = async (id: string, name?: string) => {
+        if (!window.confirm('Delete this product? Cannot be undone.')) return;
+        try { await deleteProduct(id); } catch { /* ignore */ }
+        // Remove from localStorage imported products
+        try {
+            const stored = JSON.parse(localStorage.getItem("bettano_imported_products") || "[]");
+            const filtered = stored.filter((p: any) => p.id !== id && p.name !== name);
+            localStorage.setItem("bettano_imported_products", JSON.stringify(filtered));
+        } catch { /* ignore */ }
+        setProducts(prev => prev.filter(p => p.id !== id));
     };
 
     const categories = ['All Categories', ...Array.from(new Set(products.map(p => p.category)))];
@@ -241,12 +242,14 @@ export default function ProductCatalog() {
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                                     {catProducts.map(product => {
                                         const totalStock = product.locations.reduce((a, b) => a + (b.currentStock ?? 0), 0);
-                                        const status = totalStock === 0 ? 'Out of Stock' : totalStock <= product.reorderLevel ? 'Low Stock' : totalStock > 100 ? 'Overstock' : 'Good';
+                                        const maxStock = product.locations[0]?.maxStock || 1000;
+                                        const reorderLevel = product.reorderLevel || 10;
+                                        const status = totalStock === 0 ? 'Out of Stock' : totalStock <= reorderLevel ? 'Low Stock' : totalStock > maxStock ? 'Overstock' : 'Good';
 
                                         return (
                                             <div
                                                 key={product.id}
-                                                className="bg-white rounded-3xl border border-gray-100 shadow-sm hover:shadow-2xl transition-all group overflow-hidden flex flex-col cursor-pointer"
+                                                className="bg-white rounded-3xl border border-gray-100 shadow-sm hover:shadow-2xl transition-all group flex flex-col cursor-pointer"
                                                 onClick={() => navigate(`/products/${product.id}`)}
                                             >
                                                 <div className="aspect-[4/3] bg-gray-50 relative flex items-center justify-center overflow-hidden">
@@ -319,7 +322,7 @@ export default function ProductCatalog() {
                                                             <Edit2 size={16} />
                                                         </button>
                                                         <button
-                                                            onClick={(e) => { e.stopPropagation(); handleDelete(product.id); }}
+                                                            onClick={(e) => { e.stopPropagation(); handleDelete(product.id, product.name); }}
                                                             className="p-3 bg-gray-50 text-gray-400 rounded-xl hover:bg-rose-500 hover:text-white transition-all shadow-sm"
                                                         >
                                                             <Trash2 size={16} />
@@ -348,7 +351,9 @@ export default function ProductCatalog() {
                                         <tbody className="divide-y divide-gray-50">
                                             {catProducts.map(product => {
                                                 const totalStock = product.locations.reduce((a, b) => a + (b.currentStock ?? 0), 0);
-                                                const status = totalStock === 0 ? 'Out of Stock' : totalStock <= product.reorderLevel ? 'Low Stock' : totalStock > 100 ? 'Overstock' : 'Good';
+                                                const maxStock = product.locations[0]?.maxStock || 1000;
+                                        const reorderLevel = product.reorderLevel || 10;
+                                        const status = totalStock === 0 ? 'Out of Stock' : totalStock <= reorderLevel ? 'Low Stock' : totalStock > maxStock ? 'Overstock' : 'Good';
 
                                                 return (
                                                     <tr
@@ -409,7 +414,7 @@ export default function ProductCatalog() {
                                                             <div className="flex justify-center gap-1">
                                                                 <button className="p-2 text-gray-400 hover:text-gray-900 transition-all"><Eye size={18} /></button>
                                                                 <button className="p-2 text-gray-400 hover:text-gray-900 transition-all"><Edit2 size={18} /></button>
-                                                                <button className="p-2 text-gray-400 hover:text-rose-600 transition-all"><Trash2 size={18} /></button>
+                                                                <button onClick={(e)=>{e.stopPropagation();handleDelete(product.id,product.name);}} className="p-2 text-gray-400 hover:text-rose-600 transition-all"><Trash2 size={18} /></button>
                                                             </div>
                                                         </td>
                                                     </tr>
