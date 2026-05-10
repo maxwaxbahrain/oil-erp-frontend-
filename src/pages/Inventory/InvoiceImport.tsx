@@ -86,28 +86,56 @@ export default function InvoiceImport() {
                 );
 
                 if (product) {
-                    // Update existing product
-                    const currentStock = product.locations?.[0]?.currentStock || 0;
-                    const newStock = currentStock + item.quantity;
+                    // Update existing product stock via backend
+                    const API = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+                    try {
+                        await fetch(`${API}/products/${product.id}/add-stock`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ quantity: item.quantity, reference: `AI-IMPORT-${invoiceData.invoice.number}` })
+                        });
+                    } catch (e) { console.warn('Backend stock update failed:', e); }
 
+                    // Also update localStorage
+                    const currentStock = product.locations?.[0]?.currentStock || 0;
                     product = await saveProduct({
                         ...product,
-                        pricing: {
-                            ...product.pricing,
-                            purchasePriceExWorks: item.unitPrice
-                        },
+                        pricing: { ...product.pricing, purchasePriceExWorks: item.unitPrice },
                         locations: [{
-                            id: 'LOC-001',
-                            name: 'Main Warehouse',
-                            type: 'Warehouse',
-                            currentStock: newStock, // Add stock logic (PO Receipt)
+                            id: 'LOC-001', name: 'Main Warehouse', type: 'Warehouse',
+                            currentStock: currentStock + item.quantity,
                             reorderPoint: product.locations?.[0]?.reorderPoint || 10,
                             maxStock: product.locations?.[0]?.maxStock || 1000
                         }]
                     });
                 } else {
                     // Create New Product
+                    // Create product in backend first
+                    const API2 = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+                    let backendProductId: string | null = null;
+                    try {
+                        const backendRes = await fetch(`${API2}/products/`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                name: item.name,
+                                sku: item.sku || `SKU-${Date.now()}`,
+                                category: 'Imported',
+                                unit_price: item.unitPrice * 1.3,
+                                cost_price: item.unitPrice,
+                                current_stock: item.quantity,
+                                minimum_stock: 10,
+                                unit: item.unit || 'units'
+                            })
+                        });
+                        if (backendRes.ok) {
+                            const backendProd = await backendRes.json();
+                            backendProductId = String(backendProd.id);
+                        }
+                    } catch (e) { console.warn('Backend product create failed:', e); }
+
                     product = await saveProduct({
+                        id: backendProductId || undefined,
                         name: item.name,
                         uom: item.unit || 'Unit',
                         status: 'Active',
@@ -380,7 +408,7 @@ export default function InvoiceImport() {
                                     <h3 className="text-sm font-black text-indigo-900 uppercase tracking-wide mb-1">Unlock GPT-4 Precision</h3>
                                     <p className="text-[11px] text-indigo-700 mb-4 leading-relaxed">
                                         For perfect extraction of complex invoice tables, specific product codes (SKUs), and correct formatting, enter your OpenAI API Key.
-                                        This switches the engine from Tesseract (Left-to-Right basic) to <b>GPT-4 Vision</b> (Human-level).
+                                        This switches the engine from Tesseract (Left-to-Right basic) to <b>Claude AI</b> (Human-level).
                                     </p>
                                     <input
                                         type="password"
