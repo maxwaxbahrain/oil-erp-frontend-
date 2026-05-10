@@ -79,26 +79,27 @@ export class FreeInvoiceProcessor {
         const isCsv = file.type === 'text/csv' || file.name.endsWith('.csv');
         const isPdf = file.type === 'application/pdf' || file.name.endsWith('.pdf');
         const isImage = file.type.startsWith('image/');
+        const isWord = file.type.includes('word') || file.type.includes('officedocument.wordprocessing') || file.name.endsWith('.docx') || file.name.endsWith('.doc');
+        const isTxt = file.type === 'text/plain' || file.name.endsWith('.txt');
+        const isRtf = file.type === 'text/rtf' || file.type === 'application/rtf' || file.name.endsWith('.rtf');
+        const isSupported = isExcel || isCsv || isPdf || isImage || isWord || isTxt || isRtf;
+
+        if (!isSupported) {
+            throw new Error(`File type not supported: ${file.name}. Please upload: PDF, Word (.docx/.doc), Excel (.xlsx/.xls), CSV, Images (JPG/PNG/WEBP), or Text files.`);
+        }
 
         // Always try Claude first (backend proxy - no CORS, API key secure)
-        if (isExcel || isCsv || isPdf || isImage) {
-            try {
-                onProgress?.(5, 'Connecting to Claude AI...');
-                return await this.processWithClaude(file, onProgress);
-            } catch (e: any) {
-                console.warn('Claude processing failed:', e);
-                const errMsg = e?.message || 'Unknown error';
-                if (isExcel || isCsv) {
-                    throw new Error(`Could not read Excel/CSV file with AI. Error: ${errMsg}. Please ensure your Anthropic API key is set in Render backend environment variables.`);
-                }
-                if (isPdf) {
-                    throw new Error(`Could not process PDF with AI. Error: ${errMsg}. Please ensure your Anthropic API key is configured.`);
-                }
-                // Images only: fall through to OCR
-                console.warn('Falling back to OCR for image...');
+        try {
+            onProgress?.(5, 'Connecting to Claude AI...');
+            return await this.processWithClaude(file, onProgress);
+        } catch (e: any) {
+            console.warn('Claude processing failed:', e);
+            const errMsg = e?.message || 'Unknown error';
+            if (!isImage) {
+                throw new Error(`AI processing failed for ${file.name}. ${errMsg}. Please ensure ANTHROPIC_API_KEY is set in your Render backend.`);
             }
-        } else {
-            throw new Error(`Unsupported file type: ${file.type}. Please upload PDF, Excel (.xlsx), CSV, or an image file.`);
+            // Images only: fall through to OCR as last resort
+            console.warn('Falling back to OCR for image...');
         }
 
         if (apiKey && apiKey.startsWith('sk-')) {
@@ -180,42 +181,53 @@ export class FreeInvoiceProcessor {
         onProgress?.(10, 'Reading file...');
         const API_HOST = String((import.meta as any).env?.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
 
-        const isExcel = file.type.includes('spreadsheet') || file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
-        const isCsv = file.type === 'text/csv' || file.name.endsWith('.csv');
+        const isExcelFile = file.type.includes('spreadsheet') || file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
+        const isCsvFile = file.type === 'text/csv' || file.name.endsWith('.csv');
+        const isPdfFile = file.type === 'application/pdf' || file.name.endsWith('.pdf');
+        const isWordFile = file.type.includes('word') || file.type.includes('wordprocessing') || file.name.endsWith('.docx') || file.name.endsWith('.doc');
+        const isTextFile = file.type === 'text/plain' || file.name.endsWith('.txt') || file.type === 'text/rtf' || file.name.endsWith('.rtf');
+        const isImageFile = file.type.startsWith('image/');
 
         let fileContent = '';
         let messageContent: any;
 
-        if (isExcel) {
+        if (isExcelFile) {
             onProgress?.(20, 'Reading Excel file...');
-            // Read Excel as base64 and send to Claude
-            // Extract text rows using XLSX parsing
             fileContent = await this.extractExcelText(file);
-            messageContent = [{ type: 'text', text: fileContent }];
-        } else if (isCsv) {
-            onProgress?.(20, 'Reading CSV file...');
+            messageContent = [{ type: 'text', text: `Excel Invoice Data:\n${fileContent}` }];
+        } else if (isCsvFile || isTextFile) {
+            onProgress?.(20, 'Reading text file...');
             fileContent = await file.text();
-            messageContent = [{ type: 'text', text: fileContent }];
-        } else {
-            // Image or PDF - send as base64
-            onProgress?.(20, 'Encoding file...');
+            messageContent = [{ type: 'text', text: `Document Content:\n${fileContent}` }];
+        } else if (isWordFile) {
+            onProgress?.(20, 'Reading Word document...');
+            fileContent = await this.extractWordText(file);
+            messageContent = [{ type: 'text', text: `Word Document Content:\n${fileContent}` }];
+        } else if (isPdfFile) {
+            onProgress?.(20, 'Encoding PDF...');
             const buffer = await file.arrayBuffer();
             const bytes = new Uint8Array(buffer);
             let binary = '';
             bytes.forEach(b => binary += String.fromCharCode(b));
             const base64 = btoa(binary);
-            const mediaType = file.type === 'application/pdf' ? 'application/pdf' : file.type;
-            if (file.type === 'application/pdf') {
-                messageContent = [
-                    { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
-                    { type: 'text', text: 'Extract all supplier invoice data from this PDF.' }
-                ];
-            } else {
-                messageContent = [
-                    { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
-                    { type: 'text', text: 'Extract all supplier invoice data from this image.' }
-                ];
-            }
+            messageContent = [
+                { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
+                { type: 'text', text: 'Extract all products, quantities, prices and supplier info from this invoice/purchase order PDF.' }
+            ];
+        } else if (isImageFile) {
+            onProgress?.(20, 'Encoding image...');
+            const buffer = await file.arrayBuffer();
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            bytes.forEach(b => binary += String.fromCharCode(b));
+            const base64 = btoa(binary);
+            const mediaType = file.type as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+            messageContent = [
+                { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+                { type: 'text', text: 'Extract all products, quantities, prices and supplier info from this invoice/purchase order image.' }
+            ];
+        } else {
+            throw new Error(`Cannot process file type: ${file.type}`);
         }
 
         onProgress?.(40, 'Sending to Claude AI...');
@@ -262,19 +274,13 @@ CRITICAL RULES:
 - grandTotal must be sum of all line items
 - Return ONLY the JSON object, nothing else`;
 
-        const userMessage = isExcel || isCsv
-            ? `Extract all invoice/purchase order data from this spreadsheet data:
-
-${fileContent}`
-            : 'Extract all invoice/purchase order data from this document.';
-
         const response = await fetch(`${API_HOST}/ai/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 system: systemPrompt,
                 max_tokens: 2000,
-                messages: [{ role: 'user', content: isExcel || isCsv ? [{ type: 'text', text: userMessage }] : messageContent }]
+                messages: [{ role: 'user', content: messageContent }]
             })
         });
 
@@ -495,6 +501,35 @@ VALIDATION: Before returning, verify:
             reader.onload = () => resolve(reader.result as string);
             reader.onerror = error => reject(error);
         });
+    }
+
+    private async extractWordText(file: File): Promise<string> {
+        // Try XLSX library (can parse docx XML structure)
+        try {
+            const XLSX = await import('xlsx');
+            const buffer = await file.arrayBuffer();
+            const zip = XLSX.read(buffer, { type: 'array' });
+            // Try to extract from word/document.xml inside docx
+            let text = '';
+            // Read sheet names as text
+            if (zip.SheetNames) {
+                zip.SheetNames.forEach(name => {
+                    const sheet = zip.Sheets[name];
+                    if (sheet) text += XLSX.utils.sheet_to_csv(sheet) + '\n';
+                });
+            }
+            if (text && text.trim()) return text;
+        } catch { /* fall through */ }
+        
+        // Last resort: read as raw text (works for .doc, .rtf, .txt)
+        try {
+            const text = await file.text();
+            // Strip binary garbage, keep readable text
+            return text.replace(/[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f-\xff]/g, ' ')
+                      .replace(/\s+/g, ' ').trim();
+        } catch {
+            return `File: ${file.name} - Please convert to PDF for best results.`;
+        }
     }
 
     /**

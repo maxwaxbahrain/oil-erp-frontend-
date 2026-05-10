@@ -297,6 +297,8 @@ export default function InvoiceImport() {
         if (type.includes('image')) return <ImageIcon size={20} className="text-blue-500" />;
         if (type.includes('spreadsheet') || type.includes('excel') || type.includes('csv'))
             return <FileSpreadsheet size={20} className="text-emerald-500" />;
+        if (type.includes('word') || type.includes('wordprocessing'))
+            return <FileText size={20} className="text-blue-700" />;
         return <File size={20} className="text-gray-400" />;
     };
 
@@ -358,7 +360,7 @@ export default function InvoiceImport() {
                                 </div>
                                 <h3 className="text-lg font-black text-gray-900 uppercase tracking-tighter mb-2">📄 Upload Invoice</h3>
                                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-relaxed mb-4">
-                                    PDF, Image, Excel - AI extracts data
+                                    PDF, Word, Excel, CSV, Images — AI extracts all data
                                 </p>
                                 <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Current Selection ✓</span>
                             </div>
@@ -439,7 +441,7 @@ export default function InvoiceImport() {
                                 multiple
                                 className="absolute inset-0 opacity-0 cursor-pointer"
                                 onChange={(e) => handleFileUpload(e.target.files)}
-                                accept=".pdf,.xlsx,.xls,.csv,.jpg,.jpeg,.png"
+                                accept=".pdf,.xlsx,.xls,.csv,.doc,.docx,.txt,.rtf,.jpg,.jpeg,.png,.webp,.gif"
                             />
 
                             <div className="text-center space-y-6">
