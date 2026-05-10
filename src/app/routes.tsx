@@ -62,6 +62,10 @@ import ChartOfAccounts from '../pages/Accounts/ChartOfAccounts';
 import JournalVoucher from '../pages/Accounts/JournalVoucher';
 import PaymentEdit from '../pages/Accounts/PaymentEdit';
 import BadDebtsJV from '../pages/Accounts/BadDebtsJV';
+import AIHub from '../pages/AI/AIHub';
+import AutoPOGeneration from '../pages/AI/AutoPOGeneration';
+import AnomalyDetection from '../pages/AI/AnomalyDetection';
+import CustomerForecast from '../pages/AI/CustomerForecast';
 import DemandForecasting from '../pages/Reports/DemandForecasting';
 import InventoryAdjustment from '../pages/Inventory/InventoryAdjustment';
 import DriverApp from '../pages/POD/DriverApp';
@@ -172,6 +176,10 @@ export const AppRoutes = () => {
             <Route path="/finance/journal-voucher" element={<JournalVoucher />} />
             <Route path="/finance/payment-edit" element={<PaymentEdit />} />
             <Route path="/finance/bad-debts" element={<BadDebtsJV />} />
+            <Route path="/ai" element={<AIHub />} />
+            <Route path="/ai/auto-po" element={<AutoPOGeneration />} />
+            <Route path="/ai/anomaly" element={<AnomalyDetection />} />
+            <Route path="/ai/customer-forecast" element={<CustomerForecast />} />
 
             {/* Employee Portal - Module 15 */}
             <Route path="/portal" element={<EmployeePortal />} />

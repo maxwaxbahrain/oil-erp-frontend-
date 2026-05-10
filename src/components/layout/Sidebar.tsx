@@ -18,7 +18,7 @@ import {
     TrendingUp,
     User,
     MapPin
-, Tag , BookOpen , AlertTriangle , Edit2 } from 'lucide-react';
+, Tag , BookOpen , AlertTriangle , Edit2 , Brain , ShoppingCart } from 'lucide-react';
 import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
 
@@ -32,7 +32,8 @@ export default function Sidebar() {
         purchase: true,
         products: true,
         finance: false,
-        reports: false
+        reports: false,
+        ai: true
     });
 
     const toggleSection = (section: string) => {
@@ -231,6 +232,29 @@ export default function Sidebar() {
                 <NavItem to="/reports/demand-forecast" icon={TrendingUp} label="Demand Forecast" />
                 <NavItem to="/sales/price-lists" icon={Tag} label="Customer Price Lists" />
                 <NavItem to="/sales/recurring" icon={RefreshCw} label="Recurring Invoices" />
+
+                <div className="h-px bg-white/5 my-3 mx-2" />
+
+                {/* AI INTELLIGENCE */}
+                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-orange-400/80 px-4 py-2 mt-1 flex items-center gap-1.5">
+                    <span>⚡</span> AI Intelligence
+                </div>
+                <div>
+                    <SectionHeader
+                        label="AI Features"
+                        isOpen={sections.ai}
+                        onClick={() => toggleSection('ai')}
+                    />
+                    {sections.ai && (
+                        <div className="space-y-0.5 pl-2 border-l-2 border-orange-500/20 ml-2">
+                            <NavItem to="/ai" icon={Brain} label="AI Hub" />
+                            <NavItem to="/ai/auto-po" icon={ShoppingCart} label="Auto PO Generation" />
+                            <NavItem to="/ai/anomaly" icon={AlertTriangle} label="Anomaly Detection" />
+                            <NavItem to="/ai/customer-forecast" icon={Users} label="Customer Forecast" />
+                            <NavItem to="/reports/demand-forecast" icon={TrendingUp} label="Demand Forecast" />
+                        </div>
+                    )}
+                </div>
 
                 <div className="h-px bg-white/5 my-3 mx-2" />
 
