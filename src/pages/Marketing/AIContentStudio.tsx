@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Zap, Copy, Check, RefreshCw, Download } from 'lucide-react';
 import { getProducts, getImportedProducts } from '../../services/productService';
 import { getCustomers } from '../../services/api';
@@ -36,6 +36,7 @@ interface GeneratedContent {
 
 export default function AIContentStudio() {
     const navigate = useNavigate();
+    const location = useLocation();
     const [products, setProducts] = useState<string[]>([]);
     const [customerCount, setCustomerCount] = useState(0);
     const [campaignType, setCampaignType] = useState('product_promo');
@@ -47,6 +48,15 @@ export default function AIContentStudio() {
     const [generated, setGenerated] = useState<GeneratedContent[]>([]);
     const [activeContent, setActiveContent] = useState<string | null>(null);
     const [brandVoice, setBrandVoice] = useState('professional, trustworthy, expertise in premium lubricants');
+
+    useEffect(() => {
+        // Pre-select channel from URL param e.g. /marketing/studio?channel=whatsapp
+        const params = new URLSearchParams(location.search);
+        const preChannel = params.get('channel');
+        if (preChannel && CHANNELS.find(c => c.id === preChannel)) {
+            setSelectedChannels(new Set([preChannel]));
+        }
+    }, [location.search]);
 
     useEffect(() => {
         Promise.all([
