@@ -60,6 +60,8 @@ import TrialBalance from '../pages/Reports/TrialBalance';
 import Banking from '../pages/Accounts/Banking';
 import ChartOfAccounts from '../pages/Accounts/ChartOfAccounts';
 import JournalVoucher from '../pages/Accounts/JournalVoucher';
+import PaymentEdit from '../pages/Accounts/PaymentEdit';
+import BadDebtsJV from '../pages/Accounts/BadDebtsJV';
 import DemandForecasting from '../pages/Reports/DemandForecasting';
 import InventoryAdjustment from '../pages/Inventory/InventoryAdjustment';
 import DriverApp from '../pages/POD/DriverApp';
@@ -168,6 +170,8 @@ export const AppRoutes = () => {
             <Route path="/finance/banking" element={<Banking />} />
             <Route path="/finance/chart-of-accounts" element={<ChartOfAccounts />} />
             <Route path="/finance/journal-voucher" element={<JournalVoucher />} />
+            <Route path="/finance/payment-edit" element={<PaymentEdit />} />
+            <Route path="/finance/bad-debts" element={<BadDebtsJV />} />
 
             {/* Employee Portal - Module 15 */}
             <Route path="/portal" element={<EmployeePortal />} />

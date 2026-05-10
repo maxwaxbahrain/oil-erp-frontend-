@@ -16,7 +16,7 @@ import {
   Share2,
   Smartphone,
   X,
-} from 'lucide-react';
+  Edit2 } from 'lucide-react';
 import clsx from 'clsx';
 import { getInvoices, type Invoice } from '../../services/api';
 import { getCustomers, type Customer } from '../../services/customerService';
@@ -619,6 +619,14 @@ export default function Invoices() {
                         </td>
                         <td className="px-3 sm:px-4 py-3">
                           <div className="flex items-center justify-center gap-0.5 sm:gap-1 flex-nowrap">
+                            <button
+                              type="button"
+                              title="Edit Invoice"
+                              onClick={() => navigate(`/sales/invoices/${inv.id}`, { state: { editMode: true, invoice: inv } })}
+                              className="p-1.5 sm:p-2 rounded-lg text-orange-600 hover:bg-orange-50 transition-colors"
+                            >
+                              <Edit2 size={17} className="sm:w-[18px] sm:h-[18px]" />
+                            </button>
                             <button
                               type="button"
                               title="View"

@@ -1,0 +1,295 @@
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { ArrowLeft, AlertTriangle, Check, RefreshCw } from 'lucide-react';
+import { getCustomers, getInvoices, type Customer, type Invoice } from '../../services/api';
+import { getAccounts } from './ChartOfAccounts';
+import { formatCurrency } from '../../services/settingsService';
+
+// Helper to generate JV number
+const nextBDJVNumber = (): string => {
+    const stored = JSON.parse(localStorage.getItem('journal_vouchers') || '[]');
+    const last = stored[0]?.jvNumber;
+    if (!last) return 'JV-0001';
+    const num = parseInt(last.replace('JV-', '')) + 1;
+    return `JV-${String(num).padStart(4, '0')}`;
+};
+
+interface BadDebtCandidate {
+    invoice: Invoice;
+    customer: Customer | undefined;
+    daysPastDue: number;
+    amount: number;
+}
+
+export default function BadDebtsJV() {
+    const navigate = useNavigate();
+    const [candidates, setCandidates] = useState<BadDebtCandidate[]>([]);
+    const [selected, setSelected] = useState<Set<string>>(new Set());
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [success, setSuccess] = useState('');
+    const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+    const [notes, setNotes] = useState('');
+
+    useEffect(() => {
+        Promise.all([getInvoices(), getCustomers()]).then(([invoices, customers]) => {
+            const today = new Date();
+            const custMap: Record<string, Customer> = {};
+            customers.forEach(c => { custMap[String(c.id)] = c; });
+
+            // Find unpaid invoices that are overdue
+            const overdue: BadDebtCandidate[] = invoices
+                .filter(inv => inv.status === 'Unpaid' || inv.status === 'Overdue')
+                .map(inv => {
+                    const due = new Date(inv.dueDate);
+                    const daysPastDue = Math.floor((today.getTime() - due.getTime()) / 86400000);
+                    const remaining = inv.grandTotal - (inv.amount_paid || 0);
+                    return {
+                        invoice: inv,
+                        customer: custMap[String(inv.customerId)],
+                        daysPastDue,
+                        amount: remaining
+                    };
+                })
+                .filter(c => c.daysPastDue > 0 && c.amount > 0)
+                .sort((a, b) => b.daysPastDue - a.daysPastDue);
+
+            setCandidates(overdue);
+            setLoading(false);
+        });
+    }, []);
+
+    const toggleSelect = (id: string) => {
+        setSelected(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+        });
+    };
+
+    const selectedCandidates = candidates.filter(c => selected.has(c.invoice.id));
+    const totalAmount = selectedCandidates.reduce((s, c) => s + c.amount, 0);
+
+    const urgencyColor = (days: number) => {
+        if (days > 90) return 'bg-red-100 text-red-700 border-red-200';
+        if (days > 60) return 'bg-orange-100 text-orange-700 border-orange-200';
+        return 'bg-amber-100 text-amber-700 border-amber-200';
+    };
+
+    const createBadDebtJV = async () => {
+        if (selectedCandidates.length === 0) {
+            alert('Select at least one invoice to write off.');
+            return;
+        }
+        if (!notes.trim()) {
+            alert('Please add a narration for this bad debt write-off.');
+            return;
+        }
+        setSaving(true);
+        try {
+            const accounts = getAccounts();
+            const badDebtAcc = accounts.find(a => a.code === '5250' || a.name.toLowerCase().includes('bad debt'));
+            const arAcc = accounts.find(a => a.code === '1120' || a.name.toLowerCase().includes('receivable'));
+
+            if (!badDebtAcc || !arAcc) {
+                alert('Required accounts not found. Please ensure "Bad Debts" (5250) and "Accounts Receivable" (1120) exist in Chart of Accounts.');
+                setSaving(false);
+                return;
+            }
+
+            const jv = {
+                id: Date.now().toString(),
+                jvNumber: nextBDJVNumber(),
+                date,
+                reference: selectedCandidates.map(c => c.invoice.invoiceNumber).join(', '),
+                narration: notes || `Bad debt write-off: ${selectedCandidates.map(c => c.customer?.name || 'Unknown').join(', ')}`,
+                type: 'Bad Debt' as const,
+                lines: selectedCandidates.flatMap(c => [
+                    {
+                        id: `${Date.now()}-dr-${c.invoice.id}`,
+                        accountId: badDebtAcc.id,
+                        accountCode: badDebtAcc.code,
+                        accountName: badDebtAcc.name,
+                        description: `Bad debt: ${c.invoice.invoiceNumber} — ${c.customer?.name}`,
+                        debit: c.amount,
+                        credit: 0
+                    },
+                    {
+                        id: `${Date.now()}-cr-${c.invoice.id}`,
+                        accountId: arAcc.id,
+                        accountCode: arAcc.code,
+                        accountName: arAcc.name,
+                        description: `Write off: ${c.invoice.invoiceNumber} — ${c.customer?.name}`,
+                        debit: 0,
+                        credit: c.amount
+                    }
+                ]),
+                totalDebit: totalAmount,
+                totalCredit: totalAmount,
+                isBalanced: true,
+                createdAt: new Date().toISOString(),
+                status: 'Posted' as const
+            };
+
+            // Save JV
+            const existing = JSON.parse(localStorage.getItem('journal_vouchers') || '[]');
+            localStorage.setItem('journal_vouchers', JSON.stringify([jv, ...existing]));
+
+            setSuccess(`✅ Bad Debt JV ${jv.jvNumber} posted for ${formatCurrency(totalAmount)}`);
+            setSelected(new Set());
+            setTimeout(() => setSuccess(''), 5000);
+        } catch (e) {
+            alert('Failed to create JV. Please try again.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div className="space-y-6 max-w-[1200px] mx-auto pb-10 animate-in fade-in duration-500">
+
+            {/* Header */}
+            <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
+                <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all">
+                    <ArrowLeft size={14} /> Back
+                </button>
+                <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-red-50 rounded-xl flex items-center justify-center">
+                        <AlertTriangle size={22} className="text-red-600" />
+                    </div>
+                    <div>
+                        <h1 className="text-xl font-black text-gray-900 uppercase tracking-tight">Bad Debts Write-Off</h1>
+                        <p className="text-xs text-gray-500 mt-0.5">Write off uncollectable invoices — automatically creates balanced JV entry</p>
+                    </div>
+                </div>
+            </div>
+
+            {success && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl px-5 py-4 flex items-center gap-3">
+                    <Check size={20} className="text-emerald-600 flex-shrink-0" />
+                    <div>
+                        <p className="text-sm font-black text-emerald-700">{success}</p>
+                        <p className="text-xs text-emerald-600 mt-0.5">JV is now visible in Journal Vouchers. The accounts receivable has been reduced.</p>
+                    </div>
+                    <button onClick={() => navigate('/finance/journal-voucher')} className="ml-auto text-xs font-black text-emerald-600 underline hover:text-emerald-800">
+                        View JV →
+                    </button>
+                </div>
+            )}
+
+            {/* JV Settings */}
+            <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
+                <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-4">Journal Entry Settings</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-xs font-black text-gray-500 uppercase mb-1.5">Write-off Date</label>
+                        <input type="date" value={date} onChange={e => setDate(e.target.value)}
+                            className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-red-400" />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-black text-gray-500 uppercase mb-1.5">Narration *</label>
+                        <input type="text" value={notes} onChange={e => setNotes(e.target.value)}
+                            placeholder="e.g. Bad debt write-off Q1 2026"
+                            className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-red-400" />
+                    </div>
+                </div>
+                <div className="mt-4 bg-gray-50 rounded-xl p-4 text-xs text-gray-500 space-y-1">
+                    <p className="font-black text-gray-700">Auto-generated Journal Entry:</p>
+                    <p>Dr 5250 Bad Debts Expense ············ <span className="font-black text-red-600">{formatCurrency(totalAmount)}</span></p>
+                    <p>Cr 1120 Accounts Receivable ·········· <span className="font-black text-emerald-600">{formatCurrency(totalAmount)}</span></p>
+                </div>
+            </div>
+
+            {/* Invoice List */}
+            <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
+                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                    <div>
+                        <p className="text-sm font-black text-gray-900">Overdue Invoices</p>
+                        <p className="text-xs text-gray-400 mt-0.5">{candidates.length} overdue invoices found — select to write off</p>
+                    </div>
+                    {selectedCandidates.length > 0 && (
+                        <button onClick={createBadDebtJV} disabled={saving}
+                            className="flex items-center gap-2 px-5 py-2.5 bg-red-600 text-white rounded-xl text-sm font-black hover:bg-red-700 disabled:opacity-50 transition-all">
+                            {saving ? <RefreshCw size={14} className="animate-spin" /> : <AlertTriangle size={14} />}
+                            Write Off {selectedCandidates.length} Invoice{selectedCandidates.length !== 1 ? 's' : ''} ({formatCurrency(totalAmount)})
+                        </button>
+                    )}
+                </div>
+
+                {loading ? (
+                    <div className="p-12 text-center text-gray-400 font-bold">Loading overdue invoices...</div>
+                ) : candidates.length === 0 ? (
+                    <div className="p-12 text-center">
+                        <Check size={48} className="mx-auto text-emerald-200 mb-4" />
+                        <p className="text-gray-400 font-bold">No overdue invoices</p>
+                        <p className="text-gray-300 text-sm mt-1">All invoices are paid or not yet due</p>
+                    </div>
+                ) : (
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left">
+                            <thead className="bg-gray-50 border-b border-gray-100">
+                                <tr>
+                                    <th className="px-5 py-3 w-10">
+                                        <input type="checkbox"
+                                            checked={selected.size === candidates.length && candidates.length > 0}
+                                            onChange={e => setSelected(e.target.checked ? new Set(candidates.map(c => c.invoice.id)) : new Set())}
+                                            className="rounded" />
+                                    </th>
+                                    {['Customer', 'Invoice', 'Due Date', 'Days Overdue', 'Amount', 'Risk'].map(h => (
+                                        <th key={h} className="px-5 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">{h}</th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50">
+                                {candidates.map(c => (
+                                    <tr key={c.invoice.id}
+                                        className={`transition-all cursor-pointer ${selected.has(c.invoice.id) ? 'bg-red-50' : 'hover:bg-gray-50'}`}
+                                        onClick={() => toggleSelect(c.invoice.id)}>
+                                        <td className="px-5 py-4">
+                                            <input type="checkbox" checked={selected.has(c.invoice.id)}
+                                                onChange={() => toggleSelect(c.invoice.id)} className="rounded"
+                                                onClick={e => e.stopPropagation()} />
+                                        </td>
+                                        <td className="px-5 py-4">
+                                            <p className="text-sm font-black text-gray-900">{c.customer?.name || `Customer ${c.invoice.customerId}`}</p>
+                                            <p className="text-xs text-gray-400">{c.customer?.phone || ''}</p>
+                                        </td>
+                                        <td className="px-5 py-4">
+                                            <p className="text-sm font-mono font-bold text-gray-700">{c.invoice.invoiceNumber}</p>
+                                        </td>
+                                        <td className="px-5 py-4 text-sm font-mono text-gray-500">{c.invoice.dueDate}</td>
+                                        <td className="px-5 py-4">
+                                            <span className={`px-2 py-1 rounded-full text-xs font-black border ${urgencyColor(c.daysPastDue)}`}>
+                                                {c.daysPastDue} days
+                                            </span>
+                                        </td>
+                                        <td className="px-5 py-4 text-sm font-black font-mono text-red-600">{formatCurrency(c.amount)}</td>
+                                        <td className="px-5 py-4">
+                                            <span className={`text-xs font-black ${c.daysPastDue > 90 ? 'text-red-600' : c.daysPastDue > 60 ? 'text-orange-600' : 'text-amber-600'}`}>
+                                                {c.daysPastDue > 90 ? '🔴 High' : c.daysPastDue > 60 ? '🟠 Medium' : '🟡 Low'}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                            {selectedCandidates.length > 0 && (
+                                <tfoot>
+                                    <tr className="bg-red-50 border-t-2 border-red-200">
+                                        <td colSpan={5} className="px-5 py-3 text-sm font-black text-red-700">
+                                            {selectedCandidates.length} invoice{selectedCandidates.length !== 1 ? 's' : ''} selected for write-off
+                                        </td>
+                                        <td className="px-5 py-3 text-sm font-black font-mono text-red-700">{formatCurrency(totalAmount)}</td>
+                                        <td></td>
+                                    </tr>
+                                </tfoot>
+                            )}
+                        </table>
+                    </div>
+                )}
+            </div>
+            <p className="text-xs text-gray-400 text-center">
+                Writing off a bad debt creates: Dr Bad Debts Expense / Cr Accounts Receivable · This is permanent and posts immediately
+            </p>
+        </div>
+    );
+}

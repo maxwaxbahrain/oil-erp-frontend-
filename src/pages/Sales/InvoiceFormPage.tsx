@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Plus, Trash2, Save, FileText, UserPlus, X } from 'lucide-react';
-import { getCustomers, createInvoice, getProducts, createCustomer, type Customer, type Product } from '../../services/api';
+import { getCustomers, createInvoice, updateInvoice, getProducts, createCustomer, type Customer, type Product } from '../../services/api';
 import { getCustomerPrice } from '../../services/api';
 import { SALESMEN, VANS, PAYMENT_METHODS } from '../../constants/data';
 import SearchableSelect from '../../components/common/SearchableSelect';
@@ -54,7 +54,10 @@ export default function InvoiceFormPage() {
     const [newCustAddress, setNewCustAddress] = useState('');
     const [savingCust, setSavingCust] = useState(false);
 
-    const prefilledCustomer = location.state as { customerId?: string; customerName?: string } | null;
+    const locationState = location.state as { customerId?: string; customerName?: string; editMode?: boolean; invoice?: any } | null;
+    const isEditMode = !!(locationState?.editMode && locationState?.invoice);
+    const existingInvoice = locationState?.invoice || null;
+    const prefilledCustomer = locationState;
 
     const [formData, setFormData] = useState<InvoiceFormData>({
         customerId: prefilledCustomer?.customerId || '',
@@ -282,7 +285,9 @@ export default function InvoiceFormPage() {
                 status: (formData.paymentStatus === 'Paid' ? 'Paid' : formData.paymentStatus === 'Advance Paid' ? 'Partial' : 'Unpaid') as any
             };
 
-            const savedInvoice = await createInvoice(invoiceData);
+            const savedInvoice = isEditMode && existingInvoice?.id
+                ? await updateInvoice(String(existingInvoice.id), invoiceData)
+                : await createInvoice(invoiceData);
 
             console.log('✅ Invoice saved:', savedInvoice);
 

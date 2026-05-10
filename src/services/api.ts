@@ -564,6 +564,44 @@ export async function createInvoice(
 }
 
 /** Public invoice by share token — no auth. */
+export async function updateInvoice(id: string, invoice: Partial<Invoice>): Promise<Invoice> {
+  const payload = {
+    invoiceNumber: invoice.invoiceNumber,
+    customerId: String(invoice.customerId),
+    customerName: invoice.customerName || '',
+    invoiceDate: invoice.invoiceDate,
+    dueDate: invoice.dueDate || null,
+    lineItems: (invoice.lineItems || []).map((item: any) => ({
+      product: item.product || '',
+      description: item.description || '',
+      quantity: Number(item.quantity) || 1,
+      rate: Number(item.rate) || 0,
+      amount: Number(item.amount) || 0,
+      productId: item.productId || null,
+    })),
+    subtotal: Number(invoice.subtotal) || 0,
+    taxRate: Number(invoice.taxRate) || 0,
+    taxAmount: Number(invoice.taxAmount) || 0,
+    discount: Number(invoice.discount) || 0,
+    grandTotal: Number(invoice.grandTotal) || 0,
+    notes: invoice.notes || '',
+    status: invoice.status,
+  };
+  const raw = await apiRequest<any>(`/invoices/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+  return { ...invoice, id: String(raw.id || id), ...raw } as Invoice;
+}
+
+export async function updatePayment(id: string, data: Partial<Payment>): Promise<Payment> {
+  const raw = await apiRequest<any>(`/payments/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+  return raw as Payment;
+}
+
 export async function fetchPublicInvoiceByToken(token: string): Promise<PublicInvoicePayload> {
   const url = `https://ferocity-virtual-smog.ngrok-free.dev/api/invoices/view/${encodeURIComponent(token)}`;
   const res = await fetch(url);

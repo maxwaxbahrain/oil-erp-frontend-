@@ -18,7 +18,7 @@ import {
     TrendingUp,
     User,
     MapPin
-, Tag , BookOpen } from 'lucide-react';
+, Tag , BookOpen , AlertTriangle , Edit2 } from 'lucide-react';
 import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
 
@@ -204,6 +204,8 @@ export default function Sidebar() {
                 <NavItem to="/finance/banking" icon={Globe} label="Banking" />
                 <NavItem to="/finance/chart-of-accounts" icon={BookOpen} label="Chart of Accounts" />
                 <NavItem to="/finance/journal-voucher" icon={FileText} label="Journal Voucher (JV)" />
+                <NavItem to="/finance/bad-debts" icon={AlertTriangle} label="Bad Debts Write-Off" />
+                <NavItem to="/finance/payment-edit" icon={Edit2} label="Edit Payments" />
 
                 <div className="h-px bg-white/5 my-3 mx-2" />
 
