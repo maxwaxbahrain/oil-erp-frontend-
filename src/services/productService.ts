@@ -342,14 +342,41 @@ export async function getProducts(): Promise<Product[]> {
 }
 
 export async function getProductById(id: string): Promise<Product | undefined> {
-    const response = await fetch(apiUrl(`products/${encodeURIComponent(id)}`), { cache: 'no-store' });
-    if (response.status === 404) return undefined;
-    if (!response.ok) {
-        throw new Error(`Product API HTTP ${response.status}`);
-    }
-    const raw = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-    if (!raw || typeof raw !== 'object') return undefined;
-    return mapApiProductToProduct(raw);
+    // Check localStorage imported products first (always available)
+    const imported = getImportedProducts();
+    const localProduct = imported.find(p => p.id === id || String(p.id) === String(id));
+
+    // Try backend
+    try {
+        const response = await fetch(apiUrl(`products/${encodeURIComponent(id)}`), { cache: 'no-store' });
+        if (response.ok) {
+            const raw = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+            if (raw && typeof raw === 'object') {
+                const backendProduct = mapApiProductToProduct(raw);
+                // Merge: backend data + localStorage pricing/supplier info
+                if (localProduct) {
+                    return {
+                        ...localProduct,
+                        ...backendProduct,
+                        pricing: localProduct.pricing,
+                        primarySupplierName: localProduct.primarySupplierName,
+                        description: localProduct.description || backendProduct.description,
+                    };
+                }
+                return backendProduct;
+            }
+        }
+    } catch { /* backend unavailable */ }
+
+    // Fall back to localStorage
+    if (localProduct) return localProduct;
+
+    // Try old PRODUCTS_KEY (demo products)
+    try {
+        const stored = localStorage.getItem(PRODUCTS_KEY);
+        const products: Product[] = stored ? JSON.parse(stored) : [];
+        return products.find(p => p.id === id);
+    } catch { return undefined; }
 }
 
 export async function saveProduct(product: Partial<Product>): Promise<Product> {

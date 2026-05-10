@@ -26,7 +26,7 @@ import {
     MessageSquare,
     Phone
 } from 'lucide-react';
-import { getProductById, saveProduct, getAIInsights, type Product } from '../../services/productService';
+import { getProductById, getProducts, saveProduct, getAIInsights, type Product } from '../../services/productService';
 import { formatCurrency } from '../../services/settingsService';
 import clsx from 'clsx';
 
@@ -63,7 +63,12 @@ export default function ProductOverview() {
     async function loadProduct(prodId: string) {
         try {
             setLoading(true);
-            const data = await getProductById(prodId);
+            let data = await getProductById(prodId);
+            if (!data) {
+                // Try finding in all products (handles ID mismatch after redeploy)
+                const allProducts = await getProducts();
+                data = allProducts.find((p: Product) => String(p.id) === String(prodId));
+            }
             if (data) setProduct(data);
         } catch (error) {
             console.error('Failed to load product details:', error);
