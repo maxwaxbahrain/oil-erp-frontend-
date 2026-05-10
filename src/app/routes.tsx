@@ -70,6 +70,9 @@ import RevenueForecast from '../pages/AI/RevenueForecast';
 import AgentHub from '../pages/Agents/AgentHub';
 import UserAccessManagement from '../pages/UserManagement/UserAccessManagement';
 import NewsIntelligence from '../pages/News/NewsIntelligence';
+import MarketingHub from '../pages/Marketing/MarketingHub';
+import AIContentStudio from '../pages/Marketing/AIContentStudio';
+import { CustomerSegments, CampaignManager, MarketingAnalytics } from '../pages/Marketing/MarketingPages';
 import CustomerServiceAgent from '../pages/Agents/CustomerServiceAgent';
 import BusinessAdvisorAgent from '../pages/Agents/BusinessAdvisorAgent';
 import DemandForecasting from '../pages/Reports/DemandForecasting';
@@ -192,6 +195,11 @@ export const AppRoutes = () => {
             <Route path="/agents/business-advisor" element={<BusinessAdvisorAgent />} />
             <Route path="/access-management" element={<UserAccessManagement />} />
             <Route path="/news" element={<NewsIntelligence />} />
+            <Route path="/marketing" element={<MarketingHub />} />
+            <Route path="/marketing/studio" element={<AIContentStudio />} />
+            <Route path="/marketing/segments" element={<CustomerSegments />} />
+            <Route path="/marketing/campaigns" element={<CampaignManager />} />
+            <Route path="/marketing/analytics" element={<MarketingAnalytics />} />
 
             {/* Employee Portal - Module 15 */}
             <Route path="/portal" element={<EmployeePortal />} />

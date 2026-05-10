@@ -20,7 +20,7 @@ import {
     TrendingUp,
     User,
     MapPin
-, Tag , BookOpen , AlertTriangle , Edit2 , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper } from 'lucide-react';
+, Tag , BookOpen , AlertTriangle , Edit2 , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send } from 'lucide-react';
 import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
 
@@ -37,6 +37,7 @@ export default function Sidebar() {
         finance: false,
         reports: false,
         ai: true,
+        marketing: true,
         agents: true
     });
 
@@ -256,6 +257,23 @@ export default function Sidebar() {
                 {/* NEWS */}
                 <NewsTicker />
                 <NavItem to="/news" icon={Newspaper} label="Business News" />
+
+                {/* MARKETING */}
+                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-pink-400/80 px-4 py-2 mt-1 flex items-center gap-1.5">
+                    <span>📣</span> Marketing
+                </div>
+                <div>
+                    <SectionHeader label="AI Marketing" isOpen={sections.marketing} onClick={() => toggleSection('marketing')} />
+                    {sections.marketing && (
+                        <div className="space-y-0.5 pl-2 border-l-2 border-pink-500/20 ml-2">
+                            <NavItem to="/marketing" icon={Megaphone} label="Marketing Hub" />
+                            <NavItem to="/marketing/studio" icon={Zap} label="AI Content Studio" />
+                            <NavItem to="/marketing/segments" icon={Users} label="Customer Segments" />
+                            <NavItem to="/marketing/campaigns" icon={Send} label="Campaign Manager" />
+                            <NavItem to="/marketing/analytics" icon={BarChart2} label="Analytics" />
+                        </div>
+                    )}
+                </div>
 
                 {/* AI INTELLIGENCE */}
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-orange-400/80 px-4 py-2 mt-1 flex items-center gap-1.5">
