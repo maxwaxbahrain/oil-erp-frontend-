@@ -326,34 +326,58 @@ export default function ProductOverview() {
                                 </div>
                             </div>
 
-                            <div className="space-y-6">
-                                <div className="grid grid-cols-2 gap-6 bg-gray-50 p-8 rounded-2xl">
-                                    <div>
-                                        <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">Units Sold</span>
-                                        <p className="text-3xl font-black text-gray-900 tracking-tighter">450</p>
+                            {(() => {
+                                const unitsSold = n(product.salesVelocity) * 30;
+                                const sellingPrice = n(product.pricing?.sellingPrice);
+                                const costPrice = n(product.pricing?.purchasePriceExWorks || product.pricing?.landedCost);
+                                const revenue = unitsSold * sellingPrice;
+                                const grossProfit = unitsSold * (sellingPrice - costPrice);
+                                const grossMargin = sellingPrice > 0 ? ((sellingPrice - costPrice) / sellingPrice * 100) : 0;
+                                return (
+                                    <div className="space-y-6">
+                                        <div className="grid grid-cols-2 gap-6 bg-gray-50 p-8 rounded-2xl">
+                                            <div>
+                                                <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">Units Sold (30d)</span>
+                                                <p className="text-3xl font-black text-gray-900 tracking-tighter">{unitsSold > 0 ? Math.round(unitsSold) : '—'}</p>
+                                                <p className="text-[9px] text-gray-400 mt-1">{unitsSold === 0 ? 'No sales recorded yet' : `${n(product.salesVelocity).toFixed(1)} units/day avg`}</p>
+                                            </div>
+                                            <div>
+                                                <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">Total Revenue (30d)</span>
+                                                <p className="text-3xl font-black text-gray-900 tracking-tighter">{revenue > 0 ? formatCurrency(revenue) : '—'}</p>
+                                                <p className="text-[9px] text-gray-400 mt-1">{sellingPrice > 0 ? `${formatCurrency(sellingPrice)}/unit` : 'No price set'}</p>
+                                            </div>
+                                        </div>
+                                        <div className="space-y-4">
+                                            <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-gray-100">
+                                                <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Selling Price</span>
+                                                <span className="text-sm font-black text-gray-900">{sellingPrice > 0 ? formatCurrency(sellingPrice) : 'Not set'}</span>
+                                            </div>
+                                            <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-gray-100">
+                                                <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Cost Price (EXW)</span>
+                                                <span className="text-sm font-black text-gray-700">{costPrice > 0 ? formatCurrency(costPrice) : 'Not set'}</span>
+                                            </div>
+                                            {grossProfit > 0 && (
+                                                <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-gray-100">
+                                                    <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Gross Margin</span>
+                                                    <span className="text-sm font-black text-emerald-600">{grossMargin.toFixed(1)}%</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                        {unitsSold === 0 && (
+                                            <div className="mt-6 p-4 bg-blue-50 rounded-xl border border-blue-100">
+                                                <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest">New Product</p>
+                                                <p className="text-xs text-blue-700 mt-1">No sales recorded yet. Sales data will appear here once invoices are created for this product.</p>
+                                            </div>
+                                        )}
                                     </div>
-                                    <div>
-                                        <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">Total Revenue</span>
-                                        <p className="text-3xl font-black text-gray-900 tracking-tighter">$675,000</p>
-                                    </div>
-                                </div>
+                                );
+                            })()}
 
-                                <div className="space-y-4">
-                                    <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-gray-100">
-                                        <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Gross Profit</span>
-                                        <span className="text-sm font-black text-emerald-600">$216,000 (32%)</span>
-                                    </div>
-                                    <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-gray-100">
-                                        <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Net Profit</span>
-                                        <span className="text-sm font-black text-emerald-600">$157,500 (23.3%)</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="mt-12 pt-8 border-t border-gray-50">
-                                <div className="flex items-center gap-4 text-emerald-600">
-                                    <TrendingUp size={20} />
-                                    <p className="text-[11px] font-black uppercase tracking-widest">Growing Trend (+15% vs prev period)</p>
+                            <div className="mt-8 pt-6 border-t border-gray-50">
+                                <div className="flex items-center gap-3 text-gray-400">
+                                    <p className="text-[10px] font-black uppercase tracking-widest">
+                                        {n(product.salesVelocity) > 0 ? `Avg ${n(product.salesVelocity).toFixed(1)} units/day` : 'No sales history yet'}
+                                    </p>
                                 </div>
                             </div>
                         </div>
@@ -366,24 +390,33 @@ export default function ProductOverview() {
                                         <span>Revenue Stack</span>
                                         <span>100%</span>
                                     </div>
-                                    <div className="flex h-12 rounded-2xl overflow-hidden border-2 border-gray-50">
-                                        <div className="bg-gray-900 w-[68%] h-full flex items-center justify-center" title="COGS">
-                                            <span className="text-[8px] font-black text-white px-2">COGS (68%)</span>
-                                        </div>
-                                        <div className="bg-emerald-500 w-[23.3%] h-full flex items-center justify-center" title="Net Profit">
-                                            <span className="text-[8px] font-black text-white px-2">NET (23.3%)</span>
-                                        </div>
-                                        <div className="bg-blue-400 w-[8.7%] h-full flex items-center justify-center" title="OpEx">
-                                            <span className="text-[8px] font-black text-white px-2">OP (8.7%)</span>
-                                        </div>
-                                    </div>
+                                    {(() => {
+                                        const sp = n(product.pricing?.sellingPrice);
+                                        const cp = n(product.pricing?.purchasePriceExWorks || product.pricing?.landedCost);
+                                        const cogsPct = sp > 0 ? Math.round((cp / sp) * 100) : 0;
+                                        const netPct = sp > 0 ? Math.round(((sp - cp) / sp) * 100) : 0;
+                                        return sp > 0 ? (
+                                            <div className="flex h-12 rounded-2xl overflow-hidden border-2 border-gray-50">
+                                                <div className="bg-gray-900 h-full flex items-center justify-center" style={{width: `${cogsPct}%`}} title="COGS">
+                                                    <span className="text-[8px] font-black text-white px-2">COGS ({cogsPct}%)</span>
+                                                </div>
+                                                <div className="bg-emerald-500 h-full flex items-center justify-center" style={{width: `${netPct}%`}} title="Margin">
+                                                    <span className="text-[8px] font-black text-white px-2">MARGIN ({netPct}%)</span>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="h-12 rounded-2xl bg-gray-100 flex items-center justify-center">
+                                                <span className="text-[10px] text-gray-400 font-black">Set selling price to see margin</span>
+                                            </div>
+                                        );
+                                    })()}
                                 </div>
 
                                 <div className="grid grid-cols-1 gap-4">
-                                    <div className="p-6 bg-redwood-brand/5 border border-redwood-brand/10 rounded-2xl">
-                                        <p className="text-[10px] font-black text-redwood-brand uppercase tracking-widest mb-1">Company-Wide Impact</p>
-                                        <p className="text-xl font-black text-gray-900 tracking-tight">20.8% Contribution to Total Revenue</p>
-                                        <p className="text-[9px] font-bold text-gray-500 uppercase mt-2">This is a primary revenue driver for the enterprise.</p>
+                                    <div className="p-6 bg-orange-50 border border-orange-100 rounded-2xl">
+                                        <p className="text-[10px] font-black text-orange-600 uppercase tracking-widest mb-1">Supplier Info</p>
+                                        <p className="text-sm font-black text-gray-900">{product.primarySupplierName || 'No supplier linked'}</p>
+                                        <p className="text-[9px] font-bold text-gray-500 uppercase mt-2">Cost: {formatCurrency(n(product.pricing?.purchasePriceExWorks))} EXW · Stock: {product.locations?.reduce((a,b) => a + (b.currentStock||0), 0) || 0} units</p>
                                     </div>
                                 </div>
 
@@ -391,7 +424,7 @@ export default function ProductOverview() {
                                     <div className="flex items-start gap-4 p-4 bg-gray-900 rounded-2xl">
                                         <Zap className="text-amber-400 shrink-0 mt-1" size={20} />
                                         <p className="text-[10px] font-bold text-gray-400 leading-relaxed uppercase">
-                                            <span className="text-white">AI Analysis:</span> Gross margin is improving despite cost pressure due to successful price positioning strategy.
+                                            <span className="text-white">Pricing Note:</span> Set your selling price in Edit Product to track margin and profitability automatically.
                                         </p>
                                     </div>
                                 </div>
