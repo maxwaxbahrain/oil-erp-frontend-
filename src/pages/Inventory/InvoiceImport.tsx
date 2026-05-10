@@ -620,6 +620,13 @@ export default function InvoiceImport() {
                                 Discard & Retry
                             </button>
                             <button
+                                onClick={() => { localStorage.removeItem('bettano_imported_products'); setStep('upload'); setProgress(0); }}
+                                className="px-5 py-4 border-2 border-red-100 text-red-400 text-[11px] font-black uppercase tracking-widest rounded-2xl hover:border-red-400 hover:text-red-600 transition-all"
+                                title="Clears all previously imported products from browser storage"
+                            >
+                                🗑 Clear Cache
+                            </button>
+                            <button
                                 onClick={handleFullImport}
                                 disabled={importing}
                                 className="px-10 py-5 bg-emerald-500 text-white text-[11px] font-black uppercase tracking-widest rounded-2xl hover:bg-emerald-600 transition-all shadow-xl shadow-emerald-500/20 disabled:opacity-50 disabled:cursor-wait flex items-center gap-2"
