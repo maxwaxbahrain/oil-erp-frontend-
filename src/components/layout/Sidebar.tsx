@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { useAuth } from '../../store/authStore';
 import {
     LayoutDashboard,
     Package,
@@ -18,7 +19,7 @@ import {
     TrendingUp,
     User,
     MapPin
-, Tag , BookOpen , AlertTriangle , Edit2 , Brain , ShoppingCart , DollarSign , Bot , Headphones } from 'lucide-react';
+, Tag , BookOpen , AlertTriangle , Edit2 , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield } from 'lucide-react';
 import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
 
@@ -26,6 +27,7 @@ import { getCompanyProfile } from '../../services/settingsService';
 export default function Sidebar() {
     const location = useLocation();
 
+    const { isOwner } = useAuth();
     // State for collapsible sections
     const [sections, setSections] = useState<{ [key: string]: boolean }>({
         sales: true,
@@ -275,6 +277,7 @@ export default function Sidebar() {
                 <div className="h-px bg-white/5 my-3 mx-2" />
 
                 {/* SETTINGS (at bottom) */}
+                {isOwner && <NavItem to="/access-management" icon={Shield} label="User Access Management" />}
                 <NavItem to="/settings" icon={Settings} label="Settings" />
                 <NavItem to="/settings/users" icon={UserCheck} label="User Management" />
 
