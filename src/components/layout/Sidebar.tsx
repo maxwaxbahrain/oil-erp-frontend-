@@ -28,7 +28,7 @@ import { getCompanyProfile } from '../../services/settingsService';
 export default function Sidebar() {
     const location = useLocation();
 
-    const { isOwner } = useAuth();
+    const { isOwner: _isOwner } = useAuth();
     // State for collapsible sections
     const [sections, setSections] = useState<{ [key: string]: boolean }>({
         sales: true,
