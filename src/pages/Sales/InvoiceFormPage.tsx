@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { ArrowLeft, Plus, Trash2, Save, FileText, UserPlus, X } from 'lucide-react';
-import { getCustomers, createInvoice, updateInvoice, getProducts, createCustomer, type Customer, type Product } from '../../services/api';
+import { getCustomers, getInvoices, createInvoice, updateInvoice, getProducts, createCustomer, type Customer, type Product } from '../../services/api';
 import { getCustomerPrice } from '../../services/api';
 import { SALESMEN, VANS, PAYMENT_METHODS } from '../../constants/data';
 import SearchableSelect from '../../components/common/SearchableSelect';
@@ -54,8 +54,9 @@ export default function InvoiceFormPage() {
     const [newCustAddress, setNewCustAddress] = useState('');
     const [savingCust, setSavingCust] = useState(false);
 
+    const { id: invoiceIdParam } = useParams<{ id: string }>();
     const locationState = location.state as { customerId?: string; customerName?: string; editMode?: boolean; invoice?: any } | null;
-    const isEditMode = !!(locationState?.editMode && locationState?.invoice);
+    const isEditMode = !!(locationState?.editMode && locationState?.invoice) || !!(invoiceIdParam && invoiceIdParam !== 'new');
     const existingInvoice = locationState?.invoice || null;
     const prefilledCustomer = locationState;
 
@@ -101,9 +102,16 @@ export default function InvoiceFormPage() {
                 ]);
                 setCustomers(customersData);
                 setProducts(productsData);
-                // Populate form when editing
-                if (isEditMode && existingInvoice) {
-                    const inv = existingInvoice;
+                // Populate form when editing - fetch from API if navigated directly by URL
+                let invoiceToEdit = existingInvoice;
+                if (invoiceIdParam && invoiceIdParam !== 'new' && !invoiceToEdit) {
+                    try {
+                        const allInvoices = await getInvoices();
+                        invoiceToEdit = allInvoices.find((inv: any) => String(inv.id) === String(invoiceIdParam)) || null;
+                    } catch { /* ignore */ }
+                }
+                if (isEditMode && invoiceToEdit) {
+                    const inv = invoiceToEdit;
                     setFormData({
                         customerId: String(inv.customerId || ''),
                         customerName: inv.customerName || '',
@@ -273,7 +281,7 @@ export default function InvoiceFormPage() {
     };
 
     const handleSave = async () => {
-        if (!formData.customerId) {
+        if (!formData.customerId && !formData.customerName) {
             alert('Please select a customer');
             return;
         }
@@ -319,8 +327,9 @@ export default function InvoiceFormPage() {
                 status: (formData.paymentStatus === 'Paid' ? 'Paid' : formData.paymentStatus === 'Advance Paid' ? 'Partial' : 'Unpaid') as any
             };
 
-            const savedInvoice = isEditMode && existingInvoice?.id
-                ? await updateInvoice(String(existingInvoice.id), invoiceData)
+            const editId = existingInvoice?.id || invoiceIdParam;
+            const savedInvoice = isEditMode && editId && editId !== 'new'
+                ? await updateInvoice(String(editId), invoiceData)
                 : await createInvoice(invoiceData);
 
             console.log('✅ Invoice saved:', savedInvoice);
