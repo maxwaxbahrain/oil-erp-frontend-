@@ -163,7 +163,10 @@ export default function SettingsPage() {
 
                                         <div className="space-y-4">
                                             <div className="space-y-2">
-                                                <label className="text-[10px] font-black text-redwood-text-muted uppercase tracking-widest">Legal Entity Name</label>
+                                                <div className="flex items-center justify-between">
+                                                    <label className="text-[10px] font-black text-redwood-text-muted uppercase tracking-widest">Company Name</label>
+                                                    <span className="text-[9px] text-redwood-brand font-bold">Shows in sidebar under SOLTOL ONE</span>
+                                                </div>
                                                 <input
                                                     type="text"
                                                     value={profile.name}

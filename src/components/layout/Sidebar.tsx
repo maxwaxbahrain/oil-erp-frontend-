@@ -82,14 +82,17 @@ export default function Sidebar() {
     return (
         <aside className="w-[260px] bg-redwood-midnight text-white flex flex-col z-40 border-r border-white/5 shadow-2xl h-full">
             {/* Sidebar Header */}
-            <div className="h-[64px] flex items-center px-6 border-b border-white/5 bg-redwood-midnight/50 backdrop-blur-md shrink-0">
-                <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 bg-redwood-brand rounded-sm flex items-center justify-center text-white font-bold text-lg shadow-lg rotate-3">
-                        <span className="drop-shadow-sm">{(getCompanyProfile().name || 'E')[0].toUpperCase()}</span>
+            <div className="h-[64px] flex items-center px-4 border-b border-white/5 bg-redwood-midnight/50 backdrop-blur-md shrink-0">
+                <div className="flex items-center gap-3 w-full">
+                    {/* SOLTOL ONE Logo */}
+                    <div className="w-9 h-9 bg-redwood-brand rounded-sm flex items-center justify-center text-white font-black text-sm shadow-lg rotate-3 flex-shrink-0">
+                        <span className="drop-shadow-sm">S1</span>
                     </div>
-                    <div className="flex flex-col">
-                        <span className="text-[14px] font-black tracking-tight leading-none text-white uppercase italic">{getCompanyProfile().name || 'ERP System'}</span>
-                        <span className="text-[9px] text-redwood-brand font-black uppercase tracking-[0.2em] mt-0.5">{(getCompanyProfile() as any).category || 'Distribution'}</span>
+                    <div className="flex flex-col min-w-0">
+                        {/* Software brand — always fixed */}
+                        <span className="text-[11px] font-black tracking-widest leading-none text-redwood-brand uppercase">SOLTOL ONE</span>
+                        {/* Client company name — changes per customer */}
+                        <span className="text-[13px] font-black tracking-tight leading-tight text-white uppercase truncate mt-0.5">{getCompanyProfile().name || 'Your Company'}</span>
                     </div>
                 </div>
             </div>

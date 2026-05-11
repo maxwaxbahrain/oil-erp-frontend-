@@ -66,6 +66,7 @@ const DEFAULT_SETTINGS: SystemSettings = {
 
 const DEFAULT_PROFILE: CompanyProfile = {
     name: 'SOLTOL',
+    category: 'Distribution',
     address1: '184-10 Jamaica Ave',
     city: 'Jamaica',
     state: 'NY',
