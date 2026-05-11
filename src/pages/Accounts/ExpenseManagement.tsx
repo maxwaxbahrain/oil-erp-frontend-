@@ -24,6 +24,8 @@ export default function ExpenseManagement() {
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [categories, setCategories] = useState<ExpenseCategory[]>([]);
     const [loading, setLoading] = useState(true);
+    const [expFromDate, setExpFromDate] = useState('');
+    const [expToDate, setExpToDate] = useState('');
     const [saving, setSaving] = useState(false);
 
     // Manual entry state
@@ -236,7 +238,19 @@ export default function ExpenseManagement() {
     }
 
     return (
-        <div className="space-y-10 animate-in fade-in duration-700">
+        <>
+        <div className="flex items-center gap-3 mb-4 flex-wrap">
+                    <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2">
+                        <span className="text-xs text-gray-500 font-bold">From:</span>
+                        <input type="date" value={expFromDate} onChange={e => setExpFromDate(e.target.value)} className="text-xs font-mono focus:outline-none" />
+                    </div>
+                    <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2">
+                        <span className="text-xs text-gray-500 font-bold">To:</span>
+                        <input type="date" value={expToDate} onChange={e => setExpToDate(e.target.value)} className="text-xs font-mono focus:outline-none" />
+                    </div>
+                    {(expFromDate || expToDate) && <button onClick={() => { setExpFromDate(''); setExpToDate(''); }} className="text-xs text-red-400 hover:text-red-600 font-bold px-3 py-2 bg-white border border-red-200 rounded-xl">✕ Clear Date Filter</button>}
+                </div>
+                <div className="space-y-10 animate-in fade-in duration-700">
             {/* Header with KPIs */}
             <div className="bg-white p-12 rounded-3xl border border-gray-100 shadow-sm">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-8 mb-8">
@@ -775,5 +789,6 @@ export default function ExpenseManagement() {
                 </div>
             )}
         </div>
+    </>
     );
 }

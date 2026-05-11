@@ -28,6 +28,16 @@ function App() {
       setAiCtx({ invoices: inv, customers: cust, products: prod, payments: pays, purchaseOrders: pos });
     });
   }, []);
+
+  // Global keyboard shortcut: Escape key = go back
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') window.history.back();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const navigate = useNavigate();
 
   if (location.pathname.startsWith('/invoice/')) {

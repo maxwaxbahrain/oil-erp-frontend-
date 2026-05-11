@@ -443,6 +443,8 @@ function MovementReport({ data }: { data: StockMovement[] }) {
                         <th className="text-left p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Product</th>
                         <th className="text-left p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">SKU</th>
                         <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Opening</th>
+                                        <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Inward</th>
+                                        <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Outward</th>
                         <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Purchases</th>
                         <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Sales</th>
                         <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Closing</th>
@@ -456,6 +458,8 @@ function MovementReport({ data }: { data: StockMovement[] }) {
                             <td className="p-4 font-bold text-gray-900">{item.productName}</td>
                             <td className="p-4 font-mono text-sm text-gray-600">{item.sku}</td>
                             <td className="p-4 text-right font-bold text-gray-600">{item.openingStock}</td>
+                                            <td className="p-4 text-right font-bold text-emerald-600">{(item as any).inwardQty || (item as any).received || 0}</td>
+                                            <td className="p-4 text-right font-bold text-red-500">{(item as any).outwardQty || (item as any).sold || 0}</td>
                             <td className="p-4 text-right font-bold text-emerald-600">+{item.purchases}</td>
                             <td className="p-4 text-right font-bold text-red-600">-{item.sales}</td>
                             <td className="p-4 text-right font-bold text-gray-900">{item.closingStock}</td>
