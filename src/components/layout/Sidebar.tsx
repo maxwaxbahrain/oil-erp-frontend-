@@ -106,6 +106,7 @@ export default function Sidebar() {
                 </div>
                 <NavItem to="/" icon={LayoutDashboard} label="Dashboard" />
                 <NavItem to="/pulse" icon={Send} label="PULSE — Team Chat" />
+                <NavItem to="/migrate" icon={Database} label="📥 Data Migration" />
                 <NavItem to="/portal" icon={User} label="Employee Portal" />
 
                 <div className="h-px bg-white/5 my-3 mx-2" />
@@ -308,7 +309,6 @@ export default function Sidebar() {
                 <div className="h-px bg-white/5 my-3 mx-2" />
 
                 {/* SETTINGS (at bottom) */}
-                <NavItem to="/migrate" icon={Database} label="Data Migration" />
                 <NavItem to="/access-management" icon={Shield} label="User Access Management" />
                 <NavItem to="/settings" icon={Settings} label="Settings" />
                 <NavItem to="/settings/users" icon={UserCheck} label="User Management" />
