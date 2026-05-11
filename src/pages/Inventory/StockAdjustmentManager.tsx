@@ -547,7 +547,7 @@ export default function StockAdjustmentManager() {
                                                 Reject
                                             </button>
                                             <button
-                                                onClick={() => { if (window.confirm('Delete this adjustment record?')) { setAdjustments(prev => prev.filter(a => a.id !== adj.id)); const stored = JSON.parse(localStorage.getItem('soltol_adjustment_decisions') || '[]'); localStorage.setItem('soltol_adjustment_decisions', JSON.stringify(stored.filter((a:any) => a.id !== adj.id))); } }}
+                                                onClick={() => { if (window.confirm('Delete this adjustment record?')) { setAdjustments(prev => prev.filter(a => a.id !== adj.id)); const stored = JSON.parse(localStorage.getItem('zavi_stock_adjustment_decision_log') || '[]'); localStorage.setItem('zavi_stock_adjustment_decision_log', JSON.stringify(stored.filter((a:any) => a.id !== adj.id))); } }}
                                                 className="px-4 py-3 border-2 border-red-200 rounded-xl text-xs font-black uppercase text-red-500 hover:bg-red-50 transition-all flex items-center gap-1"
                                                 title="Delete this adjustment"
                                             >
