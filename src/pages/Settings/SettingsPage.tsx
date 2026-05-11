@@ -569,264 +569,272 @@ export default function SettingsPage() {
 
 
 // ── Embedded Data Migration (inside Settings) ────────────────
+// ── Embedded Data Migration ───────────────────────────────────
 function DataMigrationEmbed() {
-    const [selectedSource, setSelectedSource] = useState('soltol_db');
-    const [file, setFile] = useState<File | null>(null);
-    const [dragging, setDragging] = useState(false);
-    const [importing, setImporting] = useState(false);
-    const [progress, setProgress] = useState(0);
-    const [done, setDone] = useState<{imported:number; detail:string} | null>(null);
-    const [error, setError] = useState('');
-    const fileRef = useState<HTMLInputElement | null>(null);
+    const [sel, setSel]           = useState('soltol_db');
+    const [file, setFile]         = useState<File | null>(null);
+    const [drag, setDrag]         = useState(false);
+    const [busy, setBusy]         = useState(false);
+    const [pct, setPct]           = useState(0);
+    const [done, setDone]         = useState<string>('');
+    const [err, setErr]           = useState('');
+    const inputId                 = 'mig-file-input';
 
-    const SOURCES = [
-        { id:'soltol_db',    icon:'🗄️', label:'Soltol / Bettano DB', formats:'.db .sqlite',  hint:'Settings → Backup → Export Database' },
-        { id:'quickbooks',   icon:'📊', label:'QuickBooks',           formats:'.csv .iif .xlsx', hint:'File → Utilities → Export → Lists to IIF' },
-        { id:'dynamics',     icon:'🔷', label:'MS Dynamics 365',      formats:'.csv .xlsx .xml', hint:'Settings → Data Management → Export Data' },
-        { id:'netsuite',     icon:'🔴', label:'Oracle NetSuite',      formats:'.csv .xlsx',   hint:'Reports → Saved Searches → Export CSV' },
-        { id:'cin7',         icon:'📦', label:'Cin7 Core / DEAR',     formats:'.csv .xlsx',   hint:'Settings → Data Export tool' },
-        { id:'generic',      icon:'📋', label:'Generic CSV / Excel',  formats:'.csv .xlsx .xls', hint:'Use template below, fill in your data' },
+    const SRCS = [
+        { id:'soltol_db',  icon:'🗄️', name:'Soltol / Bettano .db',  fmt:'.db,.sqlite', tip:'Go to your old Soltol ERP → Settings → Backup → Export Database → save the .db file' },
+        { id:'quickbooks', icon:'📊', name:'QuickBooks',              fmt:'.csv,.iif,.xlsx', tip:'QuickBooks → File → Utilities → Export → Lists to IIF Files' },
+        { id:'dynamics',   icon:'🔷', name:'Microsoft Dynamics 365', fmt:'.csv,.xlsx,.xml', tip:'Dynamics → Settings → Data Management → Export Data → select Accounts/Products' },
+        { id:'netsuite',   icon:'🔴', name:'Oracle NetSuite',        fmt:'.csv,.xlsx', tip:'NetSuite → Reports → Saved Searches → run search → Export CSV' },
+        { id:'cin7',       icon:'📦', name:'Cin7 Core / DEAR',       fmt:'.csv,.xlsx', tip:'Cin7 → Settings → Data Export → select Customers/Products/Sales' },
+        { id:'csv',        icon:'📋', name:'Generic CSV / Excel',    fmt:'.csv,.xlsx,.xls', tip:'Download the template below, fill your data in, then upload here' },
     ];
 
-    const src = SOURCES.find(s => s.id === selectedSource)!;
-    const accept = src.formats.split(' ').join(',');
+    const src = SRCS.find(s => s.id === sel)!;
 
-    const CUSTOMERS_KEY = 'bettano_customers_imported';
-    const SUPPLIERS_KEY = 'bettano_suppliers_imported';
-    const PRODUCTS_KEY  = 'bettano_imported_products';
-    const INVOICES_KEY  = 'bettano_invoices_imported';
+    const CK = 'bettano_customers_imported';
+    const SK = 'bettano_suppliers_imported';
+    const PK = 'bettano_imported_products';
+    const IK = 'bettano_invoices_imported';
 
-    const importStats = () => {
-        const get = (k:string) => { try{ return JSON.parse(localStorage.getItem(k)||'[]').length; }catch{return 0;} };
-        return [
-            { label:'Customers', count: get(CUSTOMERS_KEY) },
-            { label:'Suppliers', count: get(SUPPLIERS_KEY) },
-            { label:'Products',  count: get(PRODUCTS_KEY)  },
-            { label:'Transactions', count: get(INVOICES_KEY) },
-        ];
+    const getCount = (k: string) => { try { return JSON.parse(localStorage.getItem(k) || '[]').length; } catch { return 0; } };
+    const [counts, setCounts] = useState({ c: getCount(CK), s: getCount(SK), p: getCount(PK), i: getCount(IK) });
+
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault(); setDrag(false);
+        const f = e.dataTransfer.files[0];
+        if (f) { setFile(f); setDone(''); setErr(''); }
     };
 
-    const [stats, setStats] = useState(importStats);
-
-    const handleFile = (f: File) => { setFile(f); setDone(null); setError(''); };
-
-    const runImport = async () => {
+    const doImport = async () => {
         if (!file) return;
-        setImporting(true); setProgress(10); setError(''); setDone(null);
+        setBusy(true); setPct(10); setErr(''); setDone('');
         try {
-            const ext = file.name.toLowerCase().split('.').pop();
-            let imported = 0; let detail = '';
-
-            setProgress(30);
+            const ext = file.name.toLowerCase().split('.').pop() || '';
+            const log: string[] = [];
 
             if (ext === 'db' || ext === 'sqlite') {
-                // Load SQL.js
-                const initSqlJs = await new Promise<any>((res) => {
+                setPct(20);
+                // Dynamically load SQL.js
+                const initSqlJs: any = await new Promise((res) => {
                     if ((window as any).initSqlJs) { res((window as any).initSqlJs); return; }
                     const s = document.createElement('script');
                     s.src = 'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/sql-wasm.js';
-                    s.onload = () => setTimeout(() => res((window as any).initSqlJs), 200);
+                    s.onload = () => setTimeout(() => res((window as any).initSqlJs), 300);
                     s.onerror = () => res(null);
                     document.head.appendChild(s);
                 });
-                if (!initSqlJs) throw new Error('SQL.js failed to load. Try refreshing and uploading again.');
+                if (!initSqlJs) throw new Error('SQL.js failed to load — check internet connection and try again');
 
                 const buf = await file.arrayBuffer();
-                const SQL = await initSqlJs({ locateFile: (f:string) => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/${f}` });
+                const SQL = await initSqlJs({ locateFile: (fn: string) => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/${fn}` });
                 const db = new SQL.Database(new Uint8Array(buf));
-                setProgress(50);
+                setPct(40);
 
                 // Customers
-                const custRows = db.exec(`SELECT aname, address, phone, email_id FROM account_detail WHERE a_type LIKE '%Debtors%' OR a_type LIKE '%Customer%'`);
-                if (custRows[0]) {
-                    const ex = JSON.parse(localStorage.getItem(CUSTOMERS_KEY)||'[]');
-                    const exNames = new Set(ex.map((c:any)=>c.name?.toLowerCase()));
-                    const newC = custRows[0].values.map((r:any[],i:number)=>({ id:`IMP-C-${Date.now()}-${i}`, name:r[0]||'', address:r[1]||'', phone:r[2]||'', email:r[3]||'', importedFrom:'Soltol DB' })).filter((c:any)=> c.name && !exNames.has(c.name.toLowerCase()));
-                    localStorage.setItem(CUSTOMERS_KEY, JSON.stringify([...ex,...newC]));
-                    imported += newC.length; detail += `${newC.length} customers, `;
+                const cr = db.exec("SELECT aname,address,phone,email_id FROM account_detail WHERE a_type LIKE '%Debtors%' OR a_type LIKE '%Customer%'");
+                if (cr[0]) {
+                    const ex: any[] = JSON.parse(localStorage.getItem(CK) || '[]');
+                    const exN = new Set(ex.map((x: any) => x.name?.toLowerCase()));
+                    const add = cr[0].values.map((r: any[], i: number) => ({ id:`C-${Date.now()}-${i}`, name:r[0]||'', address:r[1]||'', phone:r[2]||'', email:r[3]||'', from:'Soltol DB' })).filter((x: any) => x.name && !exN.has(x.name.toLowerCase()));
+                    localStorage.setItem(CK, JSON.stringify([...ex, ...add]));
+                    log.push(`${add.length} customers`);
                 }
-                setProgress(60);
+                setPct(55);
 
                 // Suppliers
-                const suppRows = db.exec(`SELECT aname, address, phone, email_id FROM account_detail WHERE a_type LIKE '%Creditors%' OR a_type LIKE '%Supplier%'`);
-                if (suppRows[0]) {
-                    const ex = JSON.parse(localStorage.getItem(SUPPLIERS_KEY)||'[]');
-                    const exN = new Set(ex.map((s:any)=>s.name?.toLowerCase()));
-                    const newS = suppRows[0].values.map((r:any[],i:number)=>({ id:`IMP-S-${Date.now()}-${i}`, name:r[0]||'', address:r[1]||'', phone:r[2]||'', importedFrom:'Soltol DB' })).filter((s:any)=>s.name&&!exN.has(s.name.toLowerCase()));
-                    localStorage.setItem(SUPPLIERS_KEY, JSON.stringify([...ex,...newS]));
-                    imported += newS.length; detail += `${newS.length} suppliers, `;
+                const sr = db.exec("SELECT aname,address,phone,email_id FROM account_detail WHERE a_type LIKE '%Creditors%' OR a_type LIKE '%Supplier%'");
+                if (sr[0]) {
+                    const ex: any[] = JSON.parse(localStorage.getItem(SK) || '[]');
+                    const exN = new Set(ex.map((x: any) => x.name?.toLowerCase()));
+                    const add = sr[0].values.map((r: any[], i: number) => ({ id:`S-${Date.now()}-${i}`, name:r[0]||'', address:r[1]||'', phone:r[2]||'', from:'Soltol DB' })).filter((x: any) => x.name && !exN.has(x.name.toLowerCase()));
+                    localStorage.setItem(SK, JSON.stringify([...ex, ...add]));
+                    log.push(`${add.length} suppliers`);
                 }
-                setProgress(70);
+                setPct(70);
 
                 // Products
-                const prodRows = db.exec(`SELECT item, units_name, sku, item_desc FROM item_measure WHERE item IS NOT NULL AND TRIM(item) != ''`);
-                if (prodRows[0]) {
-                    const ex = JSON.parse(localStorage.getItem(PRODUCTS_KEY)||'[]');
-                    const exN = new Set(ex.map((p:any)=>p.name?.toLowerCase()));
-                    const newP = prodRows[0].values.map((r:any[],i:number)=>({ id:`IMP-P-${Date.now()}-${i}`, name:r[0]||'', sku:r[2]||'', description:r[1]||'', category:'Imported', pricing:{sellingPrice:0,purchasePriceExWorks:0}, locations:[{name:'Main Warehouse',currentStock:0}], importedFrom:'Soltol DB' })).filter((p:any)=>p.name&&!exN.has(p.name.toLowerCase()));
-                    localStorage.setItem(PRODUCTS_KEY, JSON.stringify([...ex,...newP]));
-                    imported += newP.length; detail += `${newP.length} products, `;
+                const pr = db.exec("SELECT item,units_name,sku,item_desc FROM item_measure WHERE item IS NOT NULL AND TRIM(item)!=''");
+                if (pr[0]) {
+                    const ex: any[] = JSON.parse(localStorage.getItem(PK) || '[]');
+                    const exN = new Set(ex.map((x: any) => x.name?.toLowerCase()));
+                    const add = pr[0].values.map((r: any[], i: number) => ({ id:`P-${Date.now()}-${i}`, name:r[0]||'', sku:r[2]||'', description:r[1]||'', category:'Imported', pricing:{sellingPrice:0,purchasePriceExWorks:0}, locations:[{name:'Main Warehouse',currentStock:0}], from:'Soltol DB' })).filter((x: any) => x.name && !exN.has(x.name.toLowerCase()));
+                    localStorage.setItem(PK, JSON.stringify([...ex, ...add]));
+                    log.push(`${add.length} products`);
                 }
-                setProgress(85);
+                setPct(85);
 
                 // Transactions
-                const invRows = db.exec(`SELECT v_id, debit, credit, amount, date, narration, v_type, vch_no FROM vouchers WHERE v_type IN ('Sales','Receipt','Purchase','Sales Return','Payment','Journal') LIMIT 2000`);
-                if (invRows[0]) {
-                    const ex = JSON.parse(localStorage.getItem(INVOICES_KEY)||'[]');
-                    const exN = new Set(ex.map((i:any)=>i.vchNo));
-                    const newI = invRows[0].values.map((r:any[])=>({ id:`IMP-I-${r[0]}`, vchNo:r[7]||`IMP-${r[0]}`, amount:r[3]||0, date:r[4]||'', type:r[6]||'', narration:r[5]||'', importedFrom:'Soltol DB' })).filter((i:any)=>!exN.has(i.vchNo));
-                    localStorage.setItem(INVOICES_KEY, JSON.stringify([...ex,...newI]));
-                    imported += newI.length; detail += `${newI.length} transactions`;
+                const ir = db.exec("SELECT v_id,amount,date,narration,v_type,vch_no FROM vouchers WHERE v_type IN ('Sales','Receipt','Purchase','Sales Return','Payment','Journal') LIMIT 2000");
+                if (ir[0]) {
+                    const ex: any[] = JSON.parse(localStorage.getItem(IK) || '[]');
+                    const exN = new Set(ex.map((x: any) => x.vno));
+                    const add = ir[0].values.map((r: any[]) => ({ id:`I-${r[0]}`, vno:r[5]||`I-${r[0]}`, amount:r[1]||0, date:r[2]||'', type:r[4]||'', note:r[3]||'', from:'Soltol DB' })).filter((x: any) => !exN.has(x.vno));
+                    localStorage.setItem(IK, JSON.stringify([...ex, ...add]));
+                    log.push(`${add.length} transactions`);
                 }
-
                 db.close();
+
             } else if (ext === 'csv') {
                 const text = await file.text();
-                const lines = text.split('\n').filter(l=>l.trim());
-                const headers = lines[0].split(',').map(h=>h.trim().toLowerCase().replace(/[\'"]/g,''));
-                const rows = lines.slice(1).map(l=>{ const v=l.split(',').map(v=>v.trim().replace(/^[\'""]|[\'""]$/g,'')); return Object.fromEntries(headers.map((h,i)=>[h,v[i]||''])); }).filter(r=>Object.values(r).some(v=>v));
-                const nameF = headers.find(h=>h==='name'||h.includes('customer')||h.includes('company'))||'name';
-                const ex = JSON.parse(localStorage.getItem(CUSTOMERS_KEY)||'[]');
-                const exN = new Set(ex.map((c:any)=>c.name?.toLowerCase()));
-                const newC = rows.map((r,i)=>({ id:`CSV-${Date.now()}-${i}`, name:r[nameF]||'', email:r.email||'', phone:r.phone||'', importedFrom:`CSV: ${file.name}` })).filter((c:any)=>c.name&&!exN.has(c.name.toLowerCase()));
-                if (newC.length) { localStorage.setItem(CUSTOMERS_KEY, JSON.stringify([...ex,...newC])); imported+=newC.length; detail+=`${newC.length} records`; }
+                const lines = text.split(/\r?\n/).filter(l => l.trim());
+                if (lines.length < 2) throw new Error('CSV file is empty or has no data rows');
+                const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/['"]/g, ''));
+                const nameF = headers.find(h => h === 'name' || h.includes('company') || h.includes('customer')) || headers[0];
+                const rows = lines.slice(1).map(l => { const v = l.split(',').map(v => v.trim().replace(/^['"]|['"]$/g, '')); return Object.fromEntries(headers.map((h, i) => [h, v[i] || ''])); });
+                const ex: any[] = JSON.parse(localStorage.getItem(CK) || '[]');
+                const exN = new Set(ex.map((x: any) => x.name?.toLowerCase()));
+                const add = rows.map((r, i) => ({ id:`CSV-${Date.now()}-${i}`, name:r[nameF]||'', email:r.email||r['e-mail']||'', phone:r.phone||r.mobile||'', address:r.address||r.street||'', from:`CSV: ${file.name}` })).filter((x: any) => x.name && !exN.has(x.name.toLowerCase()));
+                if (add.length) { localStorage.setItem(CK, JSON.stringify([...ex, ...add])); log.push(`${add.length} records`); }
+
+            } else {
+                throw new Error(`Format .${ext} requires Excel conversion to CSV first. Save your Excel file as CSV and re-upload.`);
             }
 
-            setProgress(100);
-            setDone({ imported, detail: detail.replace(/,\s*$/, '') });
-            setStats(importStats());
-        } catch(e:any) {
-            setError(e.message || 'Import failed');
+            setPct(100);
+            setCounts({ c: getCount(CK), s: getCount(SK), p: getCount(PK), i: getCount(IK) });
+            setDone(log.length ? log.join(' · ') + ' imported successfully' : 'File read but no new records found (all may already exist)');
+        } catch (e: any) {
+            setErr(e.message || 'Import failed');
         } finally {
-            setImporting(false);
+            setBusy(false);
         }
     };
 
-    const downloadTemplate = () => {
-        const csv = 'Name,Email,Phone,Address,City,State,ZIP\nJohn Auto Shop,john@auto.com,555-0001,123 Main St,New York,NY,10001\n';
-        const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download='soltol_customers_template.csv'; a.click();
+    const tpl = () => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob(['Name,Email,Phone,Address\nJohn Auto,john@test.com,555-0001,123 Main St\n'], { type: 'text/csv' }));
+        a.download = 'soltol_import_template.csv';
+        a.click();
     };
 
     return (
-        <div className="space-y-6">
-            {/* Header */}
-            <div className="bg-gray-900 rounded-2xl p-5 text-white flex items-center gap-4">
-                <div className="w-11 h-11 bg-blue-500/20 rounded-xl flex items-center justify-center flex-shrink-0">
-                    <Database size={22} className="text-blue-400" />
+        <div className="space-y-5">
+            {/* Title */}
+            <div className="bg-gray-900 rounded-2xl p-5 flex items-center gap-4">
+                <div className="w-10 h-10 bg-blue-500/20 rounded-xl flex items-center justify-center">
+                    <Database size={20} className="text-blue-400" />
                 </div>
                 <div>
-                    <p className="text-base font-black uppercase tracking-tight">Data Migration Center</p>
-                    <p className="text-gray-400 text-xs mt-0.5">Import your data from any ERP — QuickBooks · Dynamics · NetSuite · Cin7 · Soltol DB · CSV</p>
+                    <p className="text-sm font-black text-white uppercase tracking-tight">Data Migration Center</p>
+                    <p className="text-gray-400 text-xs">Import from Soltol DB · QuickBooks · Dynamics · NetSuite · Cin7 · CSV</p>
                 </div>
             </div>
 
-            {/* Stats */}
+            {/* Imported counts */}
             <div className="grid grid-cols-4 gap-3">
-                {stats.map((s,i)=>(
-                    <div key={i} className="bg-white rounded-xl border border-gray-100 p-4 text-center shadow-sm">
-                        <p className="text-2xl font-black text-gray-900">{s.count}</p>
-                        <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">{s.label} Imported</p>
+                {[['Customers',counts.c],['Suppliers',counts.s],['Products',counts.p],['Transactions',counts.i]].map(([l,n]) => (
+                    <div key={l as string} className="bg-white rounded-xl border border-gray-100 p-3 text-center shadow-sm">
+                        <p className="text-xl font-black text-gray-900">{n}</p>
+                        <p className="text-[10px] text-gray-400 font-bold uppercase mt-0.5">{l} imported</p>
                     </div>
                 ))}
             </div>
 
-            {/* Source selection */}
+            {/* Source picker */}
             <div>
-                <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-3">Select Your Previous Software</p>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                    {SOURCES.map(s=>(
-                        <button key={s.id} onClick={()=>{ setSelectedSource(s.id); setFile(null); setDone(null); setError(''); }}
-                            className={`flex items-center gap-3 p-3 rounded-xl border-2 text-left transition-all ${selectedSource===s.id?'border-gray-900 bg-gray-50':'border-gray-100 bg-white hover:border-gray-300'}`}>
-                            <span className="text-xl flex-shrink-0">{s.icon}</span>
+                <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Step 1 — Select your previous software</p>
+                <div className="grid grid-cols-3 gap-2">
+                    {SRCS.map(s => (
+                        <button key={s.id} onClick={() => { setSel(s.id); setFile(null); setDone(''); setErr(''); }}
+                            className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-left transition-all ${sel===s.id ? 'border-gray-900 bg-gray-50' : 'border-gray-100 bg-white hover:border-gray-300'}`}>
+                            <span className="text-lg flex-shrink-0">{s.icon}</span>
                             <div className="min-w-0">
-                                <p className="text-xs font-black text-gray-900 truncate">{s.label}</p>
-                                <p className="text-[10px] text-gray-400">{s.formats}</p>
+                                <p className="text-xs font-black text-gray-900 leading-tight truncate">{s.name}</p>
+                                <p className="text-[9px] text-gray-400">{s.fmt}</p>
                             </div>
                         </button>
                     ))}
                 </div>
             </div>
 
-            {/* How to export hint */}
-            <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 flex items-start gap-2">
-                <span className="text-lg flex-shrink-0">💡</span>
+            {/* How to export */}
+            <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 flex gap-2 items-start">
+                <span className="text-base flex-shrink-0">💡</span>
                 <div>
-                    <p className="text-xs font-black text-blue-800">{src.label} — how to get your file:</p>
-                    <p className="text-xs text-blue-700 mt-0.5">{src.hint}</p>
+                    <p className="text-xs font-black text-blue-800">How to get your file from {src.name}:</p>
+                    <p className="text-xs text-blue-700 mt-0.5 leading-relaxed">{src.tip}</p>
                 </div>
             </div>
 
             {/* Drop zone */}
-            <div
-                onDragOver={e=>{e.preventDefault();setDragging(true);}}
-                onDragLeave={()=>setDragging(false)}
-                onDrop={e=>{e.preventDefault();setDragging(false);const f=e.dataTransfer.files[0];if(f)handleFile(f);}}
-                onClick={()=>document.getElementById('migration-file-input')?.click()}
-                className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${dragging?'border-blue-500 bg-blue-50':file?'border-emerald-400 bg-emerald-50':'border-gray-200 bg-gray-50 hover:border-gray-400 hover:bg-white'}`}>
-                <input id="migration-file-input" type="file" accept={accept} className="hidden"
-                    onChange={e=>e.target.files?.[0]&&handleFile(e.target.files[0])} />
-                {file ? (
-                    <div>
-                        <p className="text-2xl mb-1">✅</p>
-                        <p className="text-sm font-black text-gray-900">{file.name}</p>
-                        <p className="text-xs text-gray-400 mt-1">{(file.size/1024).toFixed(1)} KB ready to import</p>
-                        <button onClick={e=>{e.stopPropagation();setFile(null);setDone(null);}} className="mt-2 text-xs text-red-400 hover:text-red-600 font-bold">✕ Remove</button>
-                    </div>
-                ) : (
-                    <div>
-                        <Upload size={32} className="text-gray-300 mx-auto mb-2" />
-                        <p className="text-sm font-black text-gray-600">Drop file here or click to browse</p>
-                        <p className="text-xs text-gray-400 mt-1">Accepted: {src.formats}</p>
-                    </div>
-                )}
+            <div>
+                <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Step 2 — Upload your file</p>
+                <div
+                    onDragOver={e => { e.preventDefault(); setDrag(true); }}
+                    onDragLeave={() => setDrag(false)}
+                    onDrop={handleDrop}
+                    onClick={() => document.getElementById(inputId)?.click()}
+                    className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${drag ? 'border-blue-400 bg-blue-50' : file ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200 hover:border-gray-400 hover:bg-gray-50'}`}>
+                    <input id={inputId} type="file" accept={src.fmt} className="hidden"
+                        onChange={e => { const f = e.target.files?.[0]; if (f) { setFile(f); setDone(''); setErr(''); } }} />
+                    {file ? (
+                        <>
+                            <p className="text-2xl mb-1">✅</p>
+                            <p className="text-sm font-black text-gray-900">{file.name}</p>
+                            <p className="text-xs text-gray-400 mt-1">{(file.size / 1024).toFixed(1)} KB ready</p>
+                            <button onClick={e => { e.stopPropagation(); setFile(null); }} className="mt-1 text-xs text-red-400 font-bold">✕ Remove</button>
+                        </>
+                    ) : (
+                        <>
+                            <Upload size={28} className="text-gray-300 mx-auto mb-2" />
+                            <p className="text-sm font-black text-gray-500">Drop your file here or click to browse</p>
+                            <p className="text-xs text-gray-300 mt-1">Accepted: {src.fmt}</p>
+                        </>
+                    )}
+                </div>
             </div>
 
-            {/* Progress */}
-            {importing && (
-                <div className="bg-white border border-gray-100 rounded-xl p-4">
-                    <div className="flex items-center gap-2 mb-2">
+            {/* Progress bar */}
+            {busy && (
+                <div className="bg-white border border-gray-100 rounded-xl p-4 space-y-2">
+                    <div className="flex items-center gap-2">
                         <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                        <span className="text-sm font-black text-gray-700">Importing... {progress}%</span>
+                        <span className="text-sm font-black text-gray-700">Importing... {pct}%</span>
                     </div>
-                    <div className="w-full bg-gray-100 rounded-full h-2">
-                        <div className="bg-blue-500 h-2 rounded-full transition-all duration-500" style={{width:`${progress}%`}} />
+                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-blue-500 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
                     </div>
                 </div>
             )}
 
             {/* Success */}
-            {done && (
-                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center gap-3">
-                    <span className="text-2xl">✅</span>
+            {done && !busy && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex gap-3 items-start">
+                    <span className="text-xl">✅</span>
                     <div>
-                        <p className="text-sm font-black text-emerald-800">{done.imported} records imported successfully</p>
-                        <p className="text-xs text-emerald-600 mt-0.5">{done.detail} · Now available in Customers, Products and Suppliers</p>
+                        <p className="text-sm font-black text-emerald-800">Import Complete!</p>
+                        <p className="text-xs text-emerald-700 mt-0.5">{done}</p>
+                        <p className="text-xs text-emerald-600 mt-1">Go to Customers / Products / Suppliers to see your data.</p>
                     </div>
                 </div>
             )}
 
             {/* Error */}
-            {error && (
+            {err && !busy && (
                 <div className="bg-red-50 border border-red-200 rounded-xl p-4">
                     <p className="text-sm font-black text-red-800">❌ Import Failed</p>
-                    <p className="text-xs text-red-600 mt-1">{error}</p>
+                    <p className="text-xs text-red-700 mt-1">{err}</p>
                 </div>
             )}
 
             {/* Import button */}
-            <button onClick={runImport} disabled={!file||importing}
-                className="w-full flex items-center justify-center gap-3 py-4 bg-gray-900 text-white rounded-xl font-black text-sm hover:bg-gray-700 disabled:opacity-50 transition-all">
-                {importing ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Importing...</> : <><Upload size={16}/> Import from {src.label}</>}
+            <button onClick={doImport} disabled={!file || busy}
+                className="w-full flex items-center justify-center gap-3 py-4 bg-gray-900 text-white rounded-xl font-black text-sm hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+                {busy
+                    ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Importing, please wait...</>
+                    : <><Upload size={16} /> Import from {src.name}</>
+                }
             </button>
 
             {/* Template download */}
-            <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 flex items-center justify-between">
+            <div className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
                 <div>
-                    <p className="text-xs font-black text-gray-700">Don't have a supported file?</p>
-                    <p className="text-xs text-gray-400 mt-0.5">Download our CSV template, fill in your data, then upload</p>
+                    <p className="text-xs font-black text-gray-700">Need a CSV template?</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">Download, fill in your data, then upload</p>
                 </div>
-                <button onClick={downloadTemplate} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl text-xs font-black text-gray-700 hover:bg-gray-100 transition-all whitespace-nowrap">
-                    <ArrowRight size={12}/> Get Template
+                <button onClick={tpl}
+                    className="px-4 py-2 bg-white border border-gray-200 rounded-xl text-xs font-black text-gray-700 hover:bg-gray-100 transition-all">
+                    ↓ Download Template
                 </button>
             </div>
         </div>
