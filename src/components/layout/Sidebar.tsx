@@ -20,7 +20,7 @@ import {
     TrendingUp,
     User,
     MapPin
-, Tag , BookOpen , AlertTriangle , Edit2 , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send } from 'lucide-react';
+, Tag , BookOpen , AlertTriangle , Edit2 , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator } from 'lucide-react';
 import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
 
@@ -214,6 +214,7 @@ export default function Sidebar() {
                 <NavItem to="/finance/journal-voucher" icon={FileText} label="Journal Voucher (JV)" />
                 <NavItem to="/finance/bad-debts" icon={AlertTriangle} label="Bad Debts Write-Off" />
                 <NavItem to="/finance/payment-edit" icon={Edit2} label="Edit Payments" />
+                <NavItem to="/tax" icon={Calculator} label="Tax Management" />
 
                 <div className="h-px bg-white/5 my-3 mx-2" />
 

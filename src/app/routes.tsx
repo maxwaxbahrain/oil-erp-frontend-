@@ -73,6 +73,7 @@ import NewsIntelligence from '../pages/News/NewsIntelligence';
 import MarketingHub from '../pages/Marketing/MarketingHub';
 import CreditIntelligence from '../pages/Credit/CreditIntelligence';
 import CRMPage from '../pages/CRM/CRM'; // CRM exports as 'CRM'
+import TaxSettings from '../pages/TaxSystem/TaxSettings'; // CRM exports as 'CRM'
 import AIContentStudio from '../pages/Marketing/AIContentStudio';
 import { CustomerSegments, CampaignManager, MarketingAnalytics } from '../pages/Marketing/MarketingPages';
 import CustomerServiceAgent from '../pages/Agents/CustomerServiceAgent';
@@ -199,6 +200,7 @@ export const AppRoutes = () => {
             <Route path="/news" element={<NewsIntelligence />} />
             <Route path="/credit" element={<CreditIntelligence />} />
             <Route path="/crm" element={<CRMPage />} />
+            <Route path="/tax" element={<TaxSettings />} />
             <Route path="/marketing" element={<MarketingHub />} />
             <Route path="/marketing/studio" element={<AIContentStudio />} />
             <Route path="/marketing/segments" element={<CustomerSegments />} />
