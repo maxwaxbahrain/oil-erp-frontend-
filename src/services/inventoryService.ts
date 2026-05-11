@@ -450,3 +450,184 @@ export async function getInventoryMetrics(): Promise<InventoryMetrics> {
         growthRate
     };
 }
+
+
+// ── FIFO / LIFO / Average Cost Valuation ─────────────────────
+
+export interface CostMethodValuation {
+    method: 'FIFO' | 'LIFO' | 'Average';
+    totalValue: number;
+    totalUnits: number;
+    unitCost: number;
+    items: {
+        name: string;
+        sku: string;
+        units: number;
+        unitCost: number;
+        totalValue: number;
+        costLayers?: { qty: number; cost: number; date: string }[];
+    }[];
+}
+
+export async function calculateFIFOValuation(): Promise<CostMethodValuation> {
+    const products = await getProducts();
+    const pos = await getPurchaseOrders();
+
+    let totalValue = 0;
+    let totalUnits = 0;
+
+    const items = products.map(product => {
+        const stock = product.locations?.reduce((s, l) => s + (l.currentStock || 0), 0) || 0;
+        // Get PO receipts for this product sorted oldest first (FIFO = use oldest cost)
+        const productPOs = pos
+            .filter(po => po.items?.some((i: any) => i.productId === product.id || i.name === product.name))
+            .sort((a, b) => new Date(a.date || '').getTime() - new Date(b.date || '').getTime());
+
+        // Build cost layers (oldest first)
+        const layers: { qty: number; cost: number; date: string }[] = [];
+        productPOs.forEach(po => {
+            const item = po.items?.find((i: any) => i.productId === product.id || i.name === product.name);
+            if (item && item.quantity > 0) {
+                layers.push({
+                    qty: Number(item.quantity) || 0,
+                    cost: Number((item as any).unitPrice || (item as any).rate || product.pricing?.purchasePriceExWorks || product.pricing?.landedCost || 0),
+                    date: po.date || ''
+                });
+            }
+        });
+
+        // If no PO history, use current cost
+        if (layers.length === 0) {
+            layers.push({
+                qty: stock,
+                cost: product.pricing?.purchasePriceExWorks || product.pricing?.landedCost || 0,
+                date: new Date().toISOString().slice(0, 10)
+            });
+        }
+
+        // FIFO: use oldest layers first for current stock
+        let remaining = stock;
+        let fifoValue = 0;
+        for (const layer of layers) {
+            if (remaining <= 0) break;
+            const use = Math.min(remaining, layer.qty);
+            fifoValue += use * layer.cost;
+            remaining -= use;
+        }
+        // Any remaining stock not covered by PO layers - use latest cost
+        if (remaining > 0) {
+            const latestCost = layers[layers.length - 1]?.cost || 0;
+            fifoValue += remaining * latestCost;
+        }
+
+        const unitCost = stock > 0 ? fifoValue / stock : 0;
+        totalValue += fifoValue;
+        totalUnits += stock;
+
+        return {
+            name: product.name || 'Unknown',
+            sku: product.sku || '',
+            units: stock,
+            unitCost: Math.round(unitCost * 100) / 100,
+            totalValue: Math.round(fifoValue * 100) / 100,
+            costLayers: layers.slice(0, 5)
+        };
+    });
+
+    return {
+        method: 'FIFO',
+        totalValue: Math.round(totalValue * 100) / 100,
+        totalUnits,
+        unitCost: totalUnits > 0 ? Math.round((totalValue / totalUnits) * 100) / 100 : 0,
+        items
+    };
+}
+
+export async function calculateLIFOValuation(): Promise<CostMethodValuation> {
+    const products = await getProducts();
+    const pos = await getPurchaseOrders();
+
+    let totalValue = 0;
+    let totalUnits = 0;
+
+    const items = products.map(product => {
+        const stock = product.locations?.reduce((s, l) => s + (l.currentStock || 0), 0) || 0;
+        // LIFO: newest purchases first
+        const productPOs = pos
+            .filter(po => po.items?.some((i: any) => i.productId === product.id || i.name === product.name))
+            .sort((a, b) => new Date(b.date || '').getTime() - new Date(a.date || '').getTime()); // newest first
+
+        const layers: { qty: number; cost: number; date: string }[] = [];
+        productPOs.forEach(po => {
+            const item = po.items?.find((i: any) => i.productId === product.id || i.name === product.name);
+            if (item) {
+                layers.push({
+                    qty: Number(item.quantity) || 0,
+                    cost: Number((item as any).unitPrice || (item as any).rate || product.pricing?.purchasePriceExWorks || product.pricing?.landedCost || 0),
+                    date: po.date || ''
+                });
+            }
+        });
+
+        if (layers.length === 0) {
+            layers.push({
+                qty: stock,
+                cost: product.pricing?.purchasePriceExWorks || product.pricing?.landedCost || 0,
+                date: new Date().toISOString().slice(0, 10)
+            });
+        }
+
+        let remaining = stock;
+        let lifoValue = 0;
+        for (const layer of layers) {
+            if (remaining <= 0) break;
+            const use = Math.min(remaining, layer.qty);
+            lifoValue += use * layer.cost;
+            remaining -= use;
+        }
+        if (remaining > 0) {
+            lifoValue += remaining * (layers[layers.length - 1]?.cost || 0);
+        }
+
+        const unitCost = stock > 0 ? lifoValue / stock : 0;
+        totalValue += lifoValue;
+        totalUnits += stock;
+
+        return {
+            name: product.name || 'Unknown',
+            sku: product.sku || '',
+            units: stock,
+            unitCost: Math.round(unitCost * 100) / 100,
+            totalValue: Math.round(lifoValue * 100) / 100,
+            costLayers: layers.slice(0, 5)
+        };
+    });
+
+    return {
+        method: 'LIFO',
+        totalValue: Math.round(totalValue * 100) / 100,
+        totalUnits,
+        unitCost: totalUnits > 0 ? Math.round((totalValue / totalUnits) * 100) / 100 : 0,
+        items
+    };
+}
+
+export async function calculateAvgCostValuation(): Promise<CostMethodValuation> {
+    const products = await getProducts();
+    let totalValue = 0, totalUnits = 0;
+    const items = products.map(product => {
+        const stock = product.locations?.reduce((s, l) => s + (l.currentStock || 0), 0) || 0;
+        const cost = product.pricing?.purchasePriceExWorks || product.pricing?.landedCost || product.pricing?.sellingPrice || 0;
+        const value = stock * cost;
+        totalValue += value;
+        totalUnits += stock;
+        return { name: product.name || '', sku: product.sku || '', units: stock, unitCost: cost, totalValue: Math.round(value * 100) / 100 };
+    });
+    return {
+        method: 'Average',
+        totalValue: Math.round(totalValue * 100) / 100,
+        totalUnits,
+        unitCost: totalUnits > 0 ? Math.round((totalValue / totalUnits) * 100) / 100 : 0,
+        items
+    };
+}

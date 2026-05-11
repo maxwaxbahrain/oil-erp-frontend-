@@ -22,6 +22,9 @@ import clsx from 'clsx';
 import {
     getInventoryMetrics,
     calculateInventoryValuation,
+    calculateFIFOValuation,
+    calculateLIFOValuation,
+    calculateAvgCostValuation,
     calculateStockMovement,
     identifyDeadStock,
     calculateSupplierAccuracy,
@@ -33,10 +36,78 @@ import {
     type SupplierAccuracy,
     type LossLeakage,
     type ForecastingData,
-    type InventoryMetrics
+    type InventoryMetrics,
+    type CostMethodValuation
 } from '../../services/inventoryService';
 
-type ReportType = 'valuation' | 'movement' | 'deadstock' | 'supplier' | 'loss' | 'forecast' | null;
+type ReportType = 'valuation' | 'fifo' | 'lifo' | 'avgcost' | 'movement' | 'deadstock' | 'supplier' | 'loss' | 'forecast' | null;
+
+
+// ── Cost Method Report Component ─────────────────────────────
+function CostMethodReport({ data }: { data: CostMethodValuation }) {
+    const formatCurr = (v: number) => `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const methodColors: Record<string, string> = { FIFO: 'blue', LIFO: 'purple', Average: 'orange' };
+    const col = methodColors[data.method] || 'gray';
+    return (
+        <div className="space-y-6">
+            {/* Summary */}
+            <div className={`grid grid-cols-3 gap-4`}>
+                {[
+                    { label: 'Method', value: data.method },
+                    { label: 'Total Inventory Value', value: formatCurr(data.totalValue) },
+                    { label: 'Total Units', value: data.totalUnits.toLocaleString() },
+                ].map((s, i) => (
+                    <div key={i} className={`bg-${col}-50 border border-${col}-200 rounded-2xl p-5`}>
+                        <p className={`text-[10px] font-black text-${col}-500 uppercase tracking-widest mb-1`}>{s.label}</p>
+                        <p className={`text-2xl font-black text-${col}-900`}>{s.value}</p>
+                    </div>
+                ))}
+            </div>
+            {/* Method explanation */}
+            <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4">
+                <p className="text-xs font-black text-gray-600 mb-1">
+                    {data.method === 'FIFO' && '📦 FIFO — First In, First Out: Oldest purchased stock is valued first. Higher profits during inflation.'}
+                    {data.method === 'LIFO' && '📦 LIFO — Last In, First Out: Newest purchased stock is valued first. Lower profits during inflation (tax benefit).'}
+                    {data.method === 'Average' && '📦 Average Cost: Stock is valued at the weighted average purchase price. Simple and most common.'}
+                </p>
+            </div>
+            {/* Product breakdown */}
+            <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+                <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
+                    <p className="text-xs font-black text-gray-700 uppercase tracking-widest">Product-wise {data.method} Valuation</p>
+                </div>
+                <table className="w-full">
+                    <thead className="bg-gray-50 border-b border-gray-100">
+                        <tr>
+                            {['Product', 'SKU', 'Units', `Unit Cost (${data.method})`, 'Total Value'].map(h => (
+                                <th key={h} className="px-5 py-3 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">{h}</th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                        {data.items.filter((it: any) => it.units > 0).map((item: any, i: number) => (
+                            <tr key={i} className="hover:bg-gray-50">
+                                <td className="px-5 py-3 text-sm font-black text-gray-900">{item.name}</td>
+                                <td className="px-5 py-3 text-xs font-mono text-gray-500">{item.sku || '—'}</td>
+                                <td className="px-5 py-3 text-sm font-mono font-black text-gray-700">{item.units}</td>
+                                <td className={`px-5 py-3 text-sm font-black font-mono text-${col}-600`}>{formatCurr(item.unitCost)}</td>
+                                <td className="px-5 py-3 text-sm font-black font-mono text-gray-900">{formatCurr(item.totalValue)}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                    <tfoot className="border-t-2 border-gray-900 bg-gray-900">
+                        <tr>
+                            <td colSpan={2} className="px-5 py-3 text-xs font-black text-white uppercase">Total</td>
+                            <td className="px-5 py-3 text-sm font-black text-white font-mono">{data.totalUnits}</td>
+                            <td className="px-5 py-3 text-xs font-black text-gray-400">Avg: {formatCurr(data.unitCost)}</td>
+                            <td className="px-5 py-3 text-sm font-black text-orange-400 font-mono">{formatCurr(data.totalValue)}</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    );
+}
 
 export default function InventoryReports() {
     const [metrics, setMetrics] = useState<InventoryMetrics | null>(null);
@@ -85,6 +156,18 @@ export default function InventoryReports() {
                 case 'forecast':
                     data = await generateForecastingData();
                     break;
+                case 'fifo': {
+                    data = await calculateFIFOValuation();
+                    break;
+                }
+                case 'lifo': {
+                    data = await calculateLIFOValuation();
+                    break;
+                }
+                case 'avgcost': {
+                    data = await calculateAvgCostValuation();
+                    break;
+                }
             }
             setReportData(data);
         } catch (error) {
@@ -111,10 +194,31 @@ export default function InventoryReports() {
     const reports = [
         {
             id: 'valuation',
-            title: 'Inventory Valuation',
-            description: 'Financial audit of all material assets globally.',
+            title: 'Inventory Valuation (Avg)',
+            description: 'Financial audit using weighted average cost method.',
             icon: DollarSign,
             color: 'text-emerald-500'
+        },
+        {
+            id: 'fifo',
+            title: 'FIFO Valuation',
+            description: 'First In First Out — oldest purchase costs used first.',
+            icon: DollarSign,
+            color: 'text-blue-500'
+        },
+        {
+            id: 'lifo',
+            title: 'LIFO Valuation',
+            description: 'Last In First Out — newest purchase costs used first.',
+            icon: DollarSign,
+            color: 'text-purple-500'
+        },
+        {
+            id: 'avgcost',
+            title: 'Average Cost',
+            description: 'Weighted average cost valuation per product.',
+            icon: DollarSign,
+            color: 'text-orange-500'
         },
         {
             id: 'movement',
@@ -334,6 +438,9 @@ function ReportModal({ type, data, onClose, loading }: { type: ReportType; data:
                     ) : (
                         <>
                             {type === 'valuation' && <ValuationReport data={data as InventoryValuation} />}
+                            {(type === 'fifo' || type === 'lifo' || type === 'avgcost') && data && (
+                                <CostMethodReport data={data as CostMethodValuation} />
+                            )}
                             {type === 'movement' && <MovementReport data={data as StockMovement[]} />}
                             {type === 'deadstock' && <DeadStockReport data={data as DeadStock[]} />}
                             {type === 'supplier' && <SupplierReport data={data as SupplierAccuracy[]} />}

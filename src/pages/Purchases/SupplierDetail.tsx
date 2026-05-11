@@ -59,6 +59,8 @@ export default function SupplierDetail() {
 
     // Data state
     const [ledger, setLedger] = useState<SupplierLedgerEntry[]>([]);
+    const [fromDate, setFromDate] = useState('');
+    const [toDate, setToDate] = useState('');
     const [purchases, setPurchases] = useState<PurchaseOrder[]>([]);
     const [payments, setPayments] = useState<SupplierPayment[]>([]);
 
@@ -232,7 +234,9 @@ export default function SupplierDetail() {
     };
 
     if (loading) {
-        return (
+
+
+    return (
             <div className="flex items-center justify-center h-screen bg-gray-50/50">
                 <div className="text-center p-12 bg-white rounded-xl shadow-2xl border border-gray-100">
                     <div className="animate-spin rounded-full h-16 w-16 border-4 border-redwood-brand border-t-transparent mx-auto"></div>
@@ -282,7 +286,7 @@ export default function SupplierDetail() {
                 doc.setFont('helvetica', 'bold');
                 doc.text(`Outstanding Balance: ${outstandingBalance.toLocaleString()}`, 14, currentY + 35);
 
-                const tableData = ledger.map(entry => [
+                const tableData = filteredLedger.map((entry: any) => [
                     new Date(entry.date).toLocaleDateString(),
                     entry.description,
                     entry.referenceNumber,
@@ -385,7 +389,7 @@ export default function SupplierDetail() {
             [`Generated: ${new Date().toLocaleString()}`],
             [],
             ["Date", "Type", "Reference", "Description", "Debit (-)", "Credit (+)", "Balance"],
-            ...ledger.map(entry => [
+            ...filteredLedger.map(entry => [
                 new Date(entry.date).toLocaleDateString(),
                 entry.type,
                 entry.referenceNumber,
@@ -429,6 +433,13 @@ export default function SupplierDetail() {
         const text = encodeURIComponent(`Ledger for ${supplier.name} from ${profile.name}. Balance: ${outstandingBalance.toLocaleString()}`);
         window.location.href = `sms:${supplier.phone.replace(/[^0-9]/g, '')}?body=${text}`;
     };
+
+    // Filter ledger by date range
+    const filteredLedger = ledger.filter((e: any) => {
+        if (fromDate && e.date && e.date < fromDate) return false;
+        if (toDate && e.date && e.date > toDate) return false;
+        return true;
+    });
 
     return (
         <div className="p-6 space-y-6">
@@ -723,7 +734,13 @@ export default function SupplierDetail() {
                                         <FileText size={14} /> Export PDF
                                     </button>
 
-                                    <div className="relative">
+                                    <div className="flex items-center gap-2">
+                                    <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none" placeholder="From" />
+                                    <span className="text-xs text-gray-400">–</span>
+                                    <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none" placeholder="To" />
+                                    {(fromDate || toDate) && <button onClick={() => { setFromDate(''); setToDate(''); }} className="text-xs text-red-400 font-bold px-2 py-1 border border-red-200 rounded-lg hover:text-red-600">✕ Clear</button>}
+                                </div>
+                                <div className="relative">
                                         <button
                                             onClick={() => setShowShareMenu(!showShareMenu)}
                                             className="px-4 py-2 bg-blue-600 text-white border border-blue-700 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 flex items-center gap-2 transition-all shadow-md"
@@ -784,7 +801,7 @@ export default function SupplierDetail() {
                                                 </td>
                                             </tr>
                                         ) : (
-                                            ledger.map(entry => (
+                                            filteredLedger.map(entry => (
                                                 <tr
                                                     key={entry.id}
                                                     className="hover:bg-redwood-bg-light/20 transition-all group cursor-pointer"
