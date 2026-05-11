@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
     Shield,
     Bell,
     Database,
     ChevronRight,
+    ArrowRight,
     Activity,
     Lock,
     Building2,
@@ -32,6 +34,7 @@ import {
 type TabType = 'security' | 'company' | 'currency' | 'signature' | 'data' | 'notifications';
 
 export default function SettingsPage() {
+    const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState<TabType>('company');
     const [profile, setProfile] = useState<CompanyProfile>(getCompanyProfile());
     const [signature, setSignature] = useState<DocumentSignature>(getDocumentSignature());
@@ -545,11 +548,81 @@ export default function SettingsPage() {
                         </section>
                     )}
 
-                    {(activeTab === 'security' || activeTab === 'data' || activeTab === 'notifications') && (
+                    {(activeTab === 'security' || activeTab === 'notifications') && (
                         <div className="flex flex-col items-center justify-center p-20 bg-white border border-redwood-border rounded-sm shadow-sm text-center">
                             <Zap size={48} className="text-redwood-brand mb-6 animate-pulse" />
                             <h3 className="text-xl font-black text-redwood-text-main uppercase tracking-tighter">Domain Under Development</h3>
-                            <p className="text-[11px] text-redwood-text-muted font-bold uppercase tracking-widest mt-2 max-w-sm leading-relaxed">The {activeTab} control matrix is currently in a high-density development phase. Configuration protocols will be available in the next lifecycle update.</p>
+                            <p className="text-[11px] text-redwood-text-muted font-bold uppercase tracking-widest mt-2 max-w-sm leading-relaxed">This section is being configured. Check back in the next update.</p>
+                        </div>
+                    )}
+
+                    {activeTab === 'data' && (
+                        <div className="space-y-4">
+                            {/* Data Migration Card */}
+                            <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
+                                <div className="bg-gradient-to-r from-gray-900 to-gray-800 px-6 py-5 flex items-center gap-4">
+                                    <div className="w-12 h-12 bg-blue-500/20 rounded-xl flex items-center justify-center flex-shrink-0">
+                                        <Database size={24} className="text-blue-400" />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-base font-black text-white uppercase tracking-tight">Data Migration Center</h3>
+                                        <p className="text-gray-400 text-xs mt-0.5">Import from QuickBooks · Dynamics 365 · NetSuite · Cin7 · Soltol DB · CSV / Excel</p>
+                                    </div>
+                                </div>
+                                <div className="p-6 space-y-4">
+                                    <p className="text-sm text-gray-600 leading-relaxed">
+                                        Moving from another ERP? Import all your existing data — customers, suppliers, products, and transaction history — in one click. Supports all major ERP formats.
+                                    </p>
+                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                        {[
+                                            { icon: '🗄️', name: 'Soltol / Bettano DB', desc: '.db · .sqlite' },
+                                            { icon: '📊', name: 'QuickBooks', desc: '.csv · .iif · .xlsx' },
+                                            { icon: '🔷', name: 'MS Dynamics 365', desc: '.csv · .xlsx · .xml' },
+                                            { icon: '🔴', name: 'Oracle NetSuite', desc: '.csv · .xlsx' },
+                                            { icon: '📦', name: 'Cin7 Core', desc: '.csv · .xlsx' },
+                                            { icon: '📋', name: 'Generic CSV/Excel', desc: 'Any standard format' },
+                                        ].map((s, i) => (
+                                            <div key={i} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100">
+                                                <span className="text-xl flex-shrink-0">{s.icon}</span>
+                                                <div className="min-w-0">
+                                                    <p className="text-xs font-black text-gray-900 truncate">{s.name}</p>
+                                                    <p className="text-[10px] text-gray-400">{s.desc}</p>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <button
+                                        onClick={() => navigate('/migrate')}
+                                        className="w-full flex items-center justify-center gap-3 py-3.5 bg-gray-900 hover:bg-gray-700 text-white rounded-xl font-black text-sm transition-all shadow-sm">
+                                        <Database size={16} /> Open Data Migration Center <ArrowRight size={16} />
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Quick stats of imported data */}
+                            <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
+                                <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-4">Import History Summary</p>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                    {[
+                                        { label: 'Customers Imported', key: 'bettano_customers_imported' },
+                                        { label: 'Suppliers Imported', key: 'bettano_suppliers_imported' },
+                                        { label: 'Products Imported', key: 'bettano_imported_products' },
+                                        { label: 'Transactions Imported', key: 'bettano_invoices_imported' },
+                                    ].map((item, i) => {
+                                        let count = 0;
+                                        try { count = JSON.parse(localStorage.getItem(item.key) || '[]').length; } catch {}
+                                        return (
+                                            <div key={i} className="bg-gray-50 rounded-xl p-3 text-center border border-gray-100">
+                                                <p className="text-2xl font-black text-gray-900">{count}</p>
+                                                <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">{item.label}</p>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                {(() => { try { const h = JSON.parse(localStorage.getItem('soltol_import_history') || '[]'); if (h.length > 0) return (
+                                    <div className="mt-3 text-xs text-gray-400">Last import: {h[0]?.file} · {new Date(h[0]?.timestamp).toLocaleString()}</div>
+                                ); } catch {} return null; })()}
+                            </div>
                         </div>
                     )}
                 </div>
