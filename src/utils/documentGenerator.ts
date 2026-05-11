@@ -99,7 +99,7 @@ export const generateStandardPDF = (title: string, filename: string, contentCall
         doc.setFontSize(8);
         doc.setTextColor(150, 150, 150);
         doc.text(
-            `This is a computer-generated document from ZAVI ERP | Generated on: ${new Date().toLocaleString()}`,
+            `This is a computer-generated document from SOLTOL ONE | Generated on: ${new Date().toLocaleString()}`,
             14,
             285
         );

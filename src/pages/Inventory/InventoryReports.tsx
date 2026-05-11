@@ -346,7 +346,7 @@ function ReportModal({ type, data, onClose, loading }: { type: ReportType; data:
                 {/* Footer */}
                 <div className="bg-gray-50 p-6 flex items-center justify-between border-t border-gray-100">
                     <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                        Zavi ERP 2.0 • Inventory Intelligence
+                        SOLTOL ONE • Inventory Intelligence
                     </p>
                     <button className="px-6 py-3 bg-redwood-brand text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:brightness-110 transition-all flex items-center gap-2">
                         <Download size={16} /> Export PDF

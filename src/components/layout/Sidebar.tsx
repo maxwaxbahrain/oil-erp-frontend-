@@ -316,7 +316,7 @@ export default function Sidebar() {
                     <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
                     <span className="uppercase tracking-widest font-bold">SYSTEM UPDATED</span>
                 </div>
-                <p className="opacity-60">v2.5.0 Professional</p>
+                <p className="opacity-60">SOLTOL ONE v1.0</p>
             </div>
         </aside>
     );

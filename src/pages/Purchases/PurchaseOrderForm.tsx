@@ -582,7 +582,7 @@ export default function PurchaseOrderForm() {
                             <div className="bg-gray-900 px-8 py-5">
                                 <h4 className="text-[10px] font-black text-white uppercase tracking-[0.3em] flex justify-between">
                                     Fiscal Analysis
-                                    <span className="opacity-40 italic">Procurement v2.5</span>
+                                    <span className="opacity-40 italic">SOLTOL ONE</span>
                                 </h4>
                             </div>
                             <div className="p-8 space-y-6">

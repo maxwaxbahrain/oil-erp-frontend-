@@ -1,5 +1,5 @@
 /**
- * Global Formatters for Distributor ERP
+ * Global Formatters for SOLTOL ONE
  * Standardizing display across enterprise nodes.
  */
 

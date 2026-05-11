@@ -372,7 +372,7 @@ export default function SettingsPage() {
                                                 <Lock size={16} className="text-redwood-brand" />
                                                 <span className="text-[10px] font-black uppercase tracking-widest">Protocol Override</span>
                                             </div>
-                                            <p className="text-[10px] text-redwood-secondary font-bold leading-relaxed italic opacity-80 uppercase tracking-widest">Signatures represent legally binding authorization within the ZAVI ERP framework. Ensure credentials align with corporate governance policies.</p>
+                                            <p className="text-[10px] text-redwood-secondary font-bold leading-relaxed italic opacity-80 uppercase tracking-widest">Signatures represent legally binding authorization within the SOLTOL ONE platform. Ensure credentials align with corporate governance policies.</p>
                                         </div>
                                     </div>
                                 </div>

@@ -368,7 +368,7 @@ export default function SupplierDetail() {
         if (method === 'email') {
             window.location.href = `mailto:?subject=${subject}&body=${body}`;
         } else if (method === 'whatsapp') {
-            const waText = encodeURIComponent(`*Purchase Order - ${po.poNumber}*\n\nDear Supplier,\n\nI'm sharing the Purchase Order ${po.poNumber} with you.\n\n📄 Date: ${new Date(po.date).toLocaleDateString()}\n💰 Amount: ${po.grandTotal.toLocaleString()}\n\nSent via ZAVI ERP`);
+            const waText = encodeURIComponent(`*Purchase Order - ${po.poNumber}*\n\nDear Supplier,\n\nI'm sharing the Purchase Order ${po.poNumber} with you.\n\n📄 Date: ${new Date(po.date).toLocaleDateString()}\n💰 Amount: ${po.grandTotal.toLocaleString()}\n\nSent via SOLTOL ONE`);
             window.open(`https://wa.me/?text=${waText}`, '_blank');
         } else {
             window.location.href = `sms:?body=${encodeURIComponent(`PO ${po.poNumber} from ${profile.name}. Amount: ${po.grandTotal.toLocaleString()}`)}`;
@@ -419,7 +419,7 @@ export default function SupplierDetail() {
     const handleShareWhatsApp = () => {
         if (!supplier) return;
         const profile = getCompanyProfile();
-        const text = encodeURIComponent(`*Ledger Statement - ${supplier.name}*\n\nPeriod: ${new Date().toLocaleDateString()}\nOutstanding Balance: ${outstandingBalance.toLocaleString()}\nCompany: ${profile.name}\n\nSent via ZAVI ERP`);
+        const text = encodeURIComponent(`*Ledger Statement - ${supplier.name}*\n\nPeriod: ${new Date().toLocaleDateString()}\nOutstanding Balance: ${outstandingBalance.toLocaleString()}\nCompany: ${profile.name}\n\nSent via SOLTOL ONE`);
         window.open(`https://wa.me/${supplier.phone.replace(/[^0-9]/g, '')}?text=${text}`, '_blank');
     };
 

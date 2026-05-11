@@ -120,16 +120,16 @@ function App() {
         {/* Global Identity Footer */}
         <footer className="h-10 bg-white border-t border-redwood-border px-8 flex items-center justify-between text-[10px] font-bold text-redwood-text-muted uppercase tracking-[0.2em] shadow-[0_-1px_3px_rgba(0,0,0,0.02)]">
           <div className="flex items-center gap-4 flex-wrap min-w-0">
-            <span className="text-redwood-brand whitespace-nowrap shrink-0">Identity: DIST-ERP-SECURE-v4.2</span>
+            <span className="text-redwood-brand whitespace-nowrap shrink-0">SOLTOL ONE · Business Platform</span>
             <div className="h-3 w-[1px] bg-redwood-border shrink-0" />
-            <span className="whitespace-nowrap shrink-0">Kernel: 0.8.4-RELEASE</span>
+            <span className="whitespace-nowrap shrink-0">Platform: v1.0.0</span>
           </div>
           <div className="flex items-center gap-6">
             <span className="flex items-center gap-2">
               <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
-              Data Center: DXB-01
+              Powered by AI
             </span>
-            <span className="text-redwood-text-main">© 2024 DISTRIBUTOR ERP SOLUTIONS</span>
+            <span className="text-redwood-text-main">© 2025 SOLTOL ONE</span>
           </div>
         </footer>
       </main>
