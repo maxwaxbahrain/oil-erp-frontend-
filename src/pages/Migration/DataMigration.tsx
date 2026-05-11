@@ -232,7 +232,7 @@ async function parseSQLiteDB(file: File, sourceId: string): Promise<ImportSummar
         // ── Import Products (item_measure) ──
         const prodResult: ImportResult = { entity: 'Products', total: 0, imported: 0, skipped: 0, errors: [] };
         try {
-            const stmt = db.exec(`SELECT item, units_name, sku, item_desc FROM item_measure WHERE status = 1`);
+            const stmt = db.exec(`SELECT item, units_name, sku, item_desc FROM item_measure WHERE item IS NOT NULL`);
             if (stmt[0]) {
                 const rows = stmt[0].values;
                 prodResult.total = rows.length;
@@ -259,7 +259,7 @@ async function parseSQLiteDB(file: File, sourceId: string): Promise<ImportSummar
         // ── Import Invoices from vouchers ──
         const invResult: ImportResult = { entity: 'Invoices / Receipts', total: 0, imported: 0, skipped: 0, errors: [] };
         try {
-            const stmt = db.exec(`SELECT v_id, debit, credit, amount, date, narration, v_type, vch_no FROM vouchers WHERE v_type IN ('Sales Invoice','Receipt','Invoice') LIMIT 500`);
+            const stmt = db.exec(`SELECT v_id, debit, credit, amount, date, narration, v_type, vch_no FROM vouchers WHERE v_type IN ('Sales','Receipt','Purchase','Sales Return','Payment') LIMIT 2000`);
             if (stmt[0]) {
                 const rows = stmt[0].values;
                 invResult.total = rows.length;
