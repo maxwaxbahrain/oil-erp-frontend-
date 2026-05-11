@@ -36,7 +36,7 @@ function getCachedRates(): Record<string, any> {
 export async function calculateTax(amount: number, toZip: string, toState: string): Promise<{rate:number;amount:number;source:string}> {
     const config = getTaxConfig();
     if (!config.enabled) return { rate: 0, amount: 0, source: 'disabled' };
-    if (!config.nexus_states.includes(toState)) return { rate: 0, amount: 0, source: 'no_nexus' };
+    const hasNexus = config.nexus_states.includes(toState);
     const cached = getCachedRates()[toZip];
     if (cached?.fetched_at && (Date.now() - new Date(cached.fetched_at).getTime()) < 3600000)
         return { rate: cached.combined_rate, amount: amount * (cached.combined_rate / 100), source: 'cache' };
@@ -55,11 +55,31 @@ export async function calculateTax(amount: number, toZip: string, toState: strin
             }
         } catch { /* fall through */ }
     }
-    return { rate: config.default_rate, amount: amount * (config.default_rate / 100), source: 'manual' };
+    // Use COMMON_RATES for state, fall back to config.default_rate
+    const stateRates: Record<string, number> = {
+        AL:9.0, AK:1.76, AZ:8.37, AR:9.47, CA:10.25, CO:7.72, CT:6.35, DE:0.0,
+        FL:7.02, GA:7.35, HI:4.44, ID:6.02, IL:10.0, IN:7.0, IA:6.94, KS:8.68,
+        KY:6.0, LA:9.55, ME:5.5, MD:6.0, MA:6.25, MI:6.0, MN:7.46, MS:7.07,
+        MO:8.18, MT:0.0, NE:6.94, NV:8.23, NH:0.0, NJ:6.63, NM:7.83, NY:8.88,
+        NC:6.98, ND:6.96, OH:7.24, OK:8.95, OR:0.0, PA:6.34, RI:7.0, SC:7.43,
+        SD:6.4, TN:9.55, TX:8.25, UT:7.19, VT:6.18, VA:5.75, WA:10.23, WV:6.6,
+        WI:5.43, WY:5.36, DC:6.0
+    };
+    const effectiveRate = stateRates[toState] ?? config.default_rate;
+    const source = hasNexus ? 'manual' : 'no_nexus_info';
+    return { rate: effectiveRate, amount: hasNexus ? amount * (effectiveRate / 100) : 0, source };
 }
 
 const US_STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY'];
-const COMMON_RATES: Record<string, number> = { NY:8.875, CA:10.25, TX:8.25, FL:7.0, NJ:6.625, PA:6.0, MA:6.25, CT:6.35, GA:7.0, VA:5.3, OH:7.25, IL:10.25 };
+const COMMON_RATES: Record<string, number> = {
+    AL:9.0, AK:1.76, AZ:8.37, AR:9.47, CA:10.25, CO:7.72, CT:6.35, DE:0.0,
+    FL:7.02, GA:7.35, HI:4.44, ID:6.02, IL:10.0, IN:7.0, IA:6.94, KS:8.68,
+    KY:6.0, LA:9.55, ME:5.5, MD:6.0, MA:6.25, MI:6.0, MN:7.46, MS:7.07,
+    MO:8.18, MT:0.0, NE:6.94, NV:8.23, NH:0.0, NJ:6.63, NM:7.83, NY:8.88,
+    NC:6.98, ND:6.96, OH:7.24, OK:8.95, OR:0.0, PA:6.34, RI:7.0, SC:7.43,
+    SD:6.4, TN:9.55, TX:8.25, UT:7.19, VT:6.18, VA:5.75, WA:10.23, WV:6.6,
+    WI:5.43, WY:5.36, DC:6.0
+};
 
 export default function TaxSettings() {
     const navigate = useNavigate();
@@ -280,7 +300,7 @@ export default function TaxSettings() {
                         {calcResult && (
                             <div className="mt-4 bg-gray-50 rounded-xl p-4 border border-gray-200">
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-                                    {[{l:'Sale Amount',v:formatCurrency(parseFloat(calcAmount)),c:'text-gray-900'},{l:`Tax (${calcResult.rate.toFixed(3)}%)`,v:formatCurrency(calcResult.amount),c:'text-red-600'},{l:'Total Due',v:formatCurrency(calcResult.total),c:'text-emerald-600 text-xl'},{l:'Source',v:calcResult.source==='taxjar'?'TaxJar Live':calcResult.source==='cache'?'Cached':'Manual Rate',c:'text-blue-600 text-xs'}].map((m,i) => (
+                                    {[{l:'Sale Amount',v:formatCurrency(parseFloat(calcAmount)),c:'text-gray-900'},{l:`Tax Rate (${calcResult.rate.toFixed(3)}%)`,v:formatCurrency(calcResult.amount),c:calcResult.amount > 0 ? 'text-red-600' : 'text-gray-400'},{l:'Total Due',v:formatCurrency(calcResult.total),c:'text-emerald-600 text-xl'},{l:'Source',v:calcResult.source==='taxjar'?'TaxJar Live':calcResult.source==='cache'?'Cached':calcResult.source==='no_nexus_info'?'No Nexus (info only)':'Manual Rate',c:'text-blue-600 text-xs'}].map((m,i) => (
                                         <div key={i}><p className="text-[10px] font-black text-gray-400 uppercase mb-1">{m.l}</p><p className={`font-black ${m.c}`}>{m.v}</p></div>
                                     ))}
                                 </div>
@@ -289,11 +309,11 @@ export default function TaxSettings() {
                     </div>
                     <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
                         <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-3">Common State Rates</p>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                            {Object.entries(COMMON_RATES).map(([s,r]) => (
-                                <div key={s} className={`flex justify-between px-3 py-2 rounded-lg text-sm ${config.nexus_states.includes(s)?'bg-emerald-50 border border-emerald-200':'bg-gray-50'}`}>
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-2 max-h-80 overflow-y-auto">
+                            {Object.entries(COMMON_RATES).sort(([a],[b])=>a.localeCompare(b)).map(([s,r]) => (
+                                <div key={s} className={`flex justify-between px-3 py-2 rounded-lg text-sm ${config.nexus_states.includes(s)?'bg-emerald-50 border border-emerald-200':r===0?'bg-gray-50 opacity-50':'bg-gray-50'}`}>
                                     <span className="font-black text-gray-800">{s}</span>
-                                    <span className={`font-mono font-bold ${config.nexus_states.includes(s)?'text-emerald-700':'text-gray-600'}`}>{r}%</span>
+                                    <span className={`font-mono font-bold ${config.nexus_states.includes(s)?'text-emerald-700':r===0?'text-gray-400':'text-gray-600'}`}>{r===0?'0%':r+'%'}</span>
                                 </div>
                             ))}
                         </div>
