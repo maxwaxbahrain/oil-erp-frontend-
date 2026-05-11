@@ -105,6 +105,7 @@ export default function Sidebar() {
                     Core
                 </div>
                 <NavItem to="/" icon={LayoutDashboard} label="Dashboard" />
+                <NavItem to="/pulse" icon={Send} label="PULSE — Team Chat" />
                 <NavItem to="/portal" icon={User} label="Employee Portal" />
 
                 <div className="h-px bg-white/5 my-3 mx-2" />
