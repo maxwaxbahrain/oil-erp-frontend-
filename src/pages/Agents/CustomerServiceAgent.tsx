@@ -79,7 +79,7 @@ async function buildERPContext(): Promise<string> {
             .join('\n');
 
         return `
-=== BETTANO LLC ERP — LIVE DATA SNAPSHOT ===
+=== SOLTOL ERP — LIVE DATA SNAPSHOT ===
 Date: ${today.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
 
 CUSTOMERS: ${custs.length} total
@@ -115,7 +115,7 @@ export default function CustomerServiceAgent() {
         {
             id: '1',
             role: 'agent',
-            content: "Hi! I'm **ARIA**, your Bettano LLC Customer Service Agent.\n\nI have full access to your ERP — customers, invoices, orders, payments, and inventory. Ask me anything about your business data.\n\nFor example: *\"What does Ibrahim owe us?\"* or *\"Which products need reordering?\"*",
+            content: "Hi! I'm **ARIA**, your Soltol Customer Service Agent.\n\nI have full access to your ERP — customers, invoices, orders, payments, and inventory. Ask me anything about your business data.\n\nFor example: *\"What does Ibrahim owe us?\"* or *\"Which products need reordering?\"*",
             timestamp: new Date(),
         }
     ]);
@@ -168,7 +168,7 @@ export default function CustomerServiceAgent() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    system: `You are ARIA, the intelligent Customer Service Agent for Bettano LLC, a premium oil distribution company in New York.
+                    system: `You are ARIA, the intelligent Customer Service Agent for Soltol, a premium oil distribution company in New York.
 
 PERSONALITY: Professional, warm, concise, data-driven. You sound like a knowledgeable senior account manager — not a bot.
 - Use customer names, exact figures, and specific details
@@ -262,7 +262,7 @@ RULES:
                             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                             <span className="text-[10px] font-bold text-emerald-600">Online</span>
                         </div>
-                        <p className="text-[10px] text-gray-400">Customer Service Agent · Bettano LLC</p>
+                        <p className="text-[10px] text-gray-400">Customer Service Agent · Soltol</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-2">

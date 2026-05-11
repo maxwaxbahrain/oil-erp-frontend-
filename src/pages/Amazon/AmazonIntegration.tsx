@@ -124,7 +124,7 @@ function generateMockListings(products: any[]): AmazonListing[] {
         id: `LST-${i+1}`,
         asin: `B0${String(Date.now()).slice(-9)}${i}`.toUpperCase().slice(0,10),
         sku: p.sku || `BT-${p.name?.slice(0,6).replace(/\s/g,'').toUpperCase() || i}`,
-        title: `${p.name || 'Bettano Oil'} - Premium Lubricant`,
+        title: `${p.name || 'Soltol'} - Premium Lubricant`,
         price: (p.pricing?.sellingPrice || 35) * 1.4,
         fba_qty: Math.floor(Math.random() * 100) + 20,
         fbm_qty: p.locations?.[0]?.currentStock || 50,
@@ -145,7 +145,7 @@ function generateMockOrders(): AmazonOrder[] {
         id: `ORD-${i+1}`,
         order_id: `114-${String(Math.floor(Math.random()*9000000)+1000000)}-${String(Math.floor(Math.random()*9000000)+1000000)}`,
         asin: `B0${String(100+i).padStart(9,'0')}`,
-        title: ['Bettano 5W30 API SP 12-Pack','Bettano 0W20 API SP','Bettano ATF DEX III 12X1USQ','Bettano 5W20 6-Pack'][i%4],
+        title: ['Soltol 5W30 API SP 12-Pack','Soltol 0W20 API SP','Soltol ATF DEX III 12X1USQ','Soltol 5W20 6-Pack'][i%4],
         qty: [1,2,1,3,2,1,4][i%7],
         price: [189.99,210.50,159.00,220.00,175.50][i%5],
         buyer: ['John D.','Auto Shop LLC','Fleet Mgmt Co.','Mechanic Pro','Quick Lube Inc'][i%5],
@@ -564,7 +564,7 @@ export default function AmazonIntegration() {
                             <p className="text-xs font-black text-blue-800 mb-1">How to get Amazon SP-API credentials</p>
                             <ol className="text-[11px] text-blue-700 space-y-0.5 list-decimal list-inside">
                                 <li>Go to <a href="https://sellercentral.amazon.com/apps/manage" target="_blank" rel="noopener noreferrer" className="underline">Seller Central → Apps & Services → Manage Your Apps</a></li>
-                                <li>Click "Authorize new developer" → enter App Name: Bettano ERP</li>
+                                <li>Click "Authorize new developer" → enter App Name: Soltol ERP</li>
                                 <li>Copy your Seller ID, Client ID, Client Secret</li>
                                 <li>Generate LWA refresh token for authorization</li>
                             </ol>

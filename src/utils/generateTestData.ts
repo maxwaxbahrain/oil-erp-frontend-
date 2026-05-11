@@ -207,7 +207,7 @@ export async function generateTestData() {
             van_id: 'VAN-001',
             order_date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
             items: [
-                { product_id: '1', product_name: 'Bettano 15W40', quantity: 25, unit_price: 1500, total: 37500 }
+                { product_id: '1', product_name: 'Soltol 15W40', quantity: 25, unit_price: 1500, total: 37500 }
             ],
             subtotal: 37500,
             tax: 0,
@@ -221,7 +221,7 @@ export async function generateTestData() {
             van_id: 'VAN-001',
             order_date: new Date(Date.now() - 12 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
             items: [
-                { product_id: '1', product_name: 'Bettano 15W40', quantity: 30, unit_price: 1500, total: 45000 }
+                { product_id: '1', product_name: 'Soltol 15W40', quantity: 30, unit_price: 1500, total: 45000 }
             ],
             subtotal: 45000,
             tax: 0,
@@ -235,7 +235,7 @@ export async function generateTestData() {
             van_id: 'VAN-002',
             order_date: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
             items: [
-                { product_id: '1', product_name: 'Bettano 15W40', quantity: 18, unit_price: 1500, total: 27000 }
+                { product_id: '1', product_name: 'Soltol 15W40', quantity: 18, unit_price: 1500, total: 27000 }
             ],
             subtotal: 27000,
             tax: 0,
@@ -259,14 +259,14 @@ export async function generateTestData() {
         {
             poNumber: 'PO-2024-001',
             supplierId: 'SUP-001',
-            supplierName: 'Bettano International Trading LLC',
+            supplierName: 'Soltol International Trading LLC',
             date: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toISOString(),
             expectedDate: new Date(Date.now() - 38 * 24 * 60 * 60 * 1000).toISOString(),
             status: 'Received' as const,
             items: [
                 {
                     productId: '1',
-                    productName: 'Bettano 15W40',
+                    productName: 'Soltol 15W40',
                     uom: 'Liters',
                     quantity: 500,
                     unitPrice: 1020,

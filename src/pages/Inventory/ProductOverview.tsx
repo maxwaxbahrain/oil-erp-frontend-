@@ -962,7 +962,7 @@ export default function ProductOverview() {
                                         </div>
                                         <div>
                                             <p className="text-sm font-black text-white uppercase tracking-tighter">Create "Oil Change Kit" Bundle</p>
-                                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">Bettano 15W40 + Filter | Est. Revenue Lift: $78k/Mo</p>
+                                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">Soltol 15W40 + Filter | Est. Revenue Lift: $78k/Mo</p>
                                         </div>
                                     </div>
                                     <div className="flex items-start gap-4 p-6 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-all cursor-pointer">

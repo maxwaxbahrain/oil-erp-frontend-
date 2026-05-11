@@ -25,7 +25,7 @@ const CAMPAIGN_TYPES = [
     { id: 'bulk_deal', label: '📦 Bulk Order Deal', desc: 'Special pricing for large orders' },
     { id: 'flash_sale', label: '⚡ Flash Sale', desc: 'Limited time offer' },
     { id: 'educational', label: '📚 Educational Content', desc: 'Oil tips, maintenance guides' },
-    { id: 'brand', label: '🏢 Brand Awareness', desc: 'Build Bettano brand presence' },
+    { id: 'brand', label: '🏢 Brand Awareness', desc: 'Build Soltol brand presence' },
 ];
 
 interface GeneratedContent {
@@ -87,14 +87,14 @@ export default function AIContentStudio() {
 
         const channels = CHANNELS.filter(c => selectedChannels.has(c.id));
         const campaignLabel = CAMPAIGN_TYPES.find(t => t.id === campaignType)?.label || campaignType;
-        const productContext = selectedProduct || 'Bettano engine oils and lubricants';
+        const productContext = selectedProduct || 'Soltol engine oils and lubricants';
 
         try {
             const res = await fetch(`${API}/ai/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    system: `You are an expert marketing copywriter for Bettano LLC, a premium oil & lubricants distributor in New York City.
+                    system: `You are an expert marketing copywriter for Soltol, a premium oil & lubricants distributor in New York City.
 
 COMPANY PROFILE:
 - Business: Oil & lubricants distribution (B2B + B2C)

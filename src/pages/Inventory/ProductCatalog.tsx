@@ -264,7 +264,7 @@ export default function ProductCatalog() {
                                                             <div className="w-20 h-20 rounded-2xl bg-white shadow-md flex items-center justify-center mb-3 group-hover:scale-110 transition-transform duration-500">
                                                                 <span className="text-4xl">🛢️</span>
                                                             </div>
-                                                            <span className="text-[10px] font-black text-orange-700 uppercase tracking-widest opacity-60">Bettano Oil</span>
+                                                            <span className="text-[10px] font-black text-orange-700 uppercase tracking-widest opacity-60">Soltol</span>
                                                         </div>
                                                     )}
                                                     <div className="absolute top-4 right-4">

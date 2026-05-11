@@ -226,12 +226,12 @@ const getInitialProducts = (): Product[] => {
     const initialMocks: Product[] = [
         {
             id: '1',
-            name: 'Bettano 15W40',
+            name: 'Soltol 15W40',
             sku: 'BET-1540',
             barcode: '123456789012',
             category: 'Lubricants',
             subCategory: 'Motor Oil',
-            brand: 'Bettano',
+            brand: 'Soltol',
             status: 'Active',
             description: 'Premium quality diesel engine oil designed to provide excellent lubrication.',
             shortDescription: 'Premium diesel engine oil',
@@ -282,14 +282,14 @@ const getInitialProducts = (): Product[] => {
                 { key: 'Weight', value: '0.9kg' },
                 { key: 'Color', value: 'Amber' }
             ],
-            primarySupplierName: 'Bettano International Trading LLC',
+            primarySupplierName: 'Soltol International Trading LLC',
             supplierProductCode: 'B-1540-X',
             supplierReliabilityScore: 4.8,
 
-            tags: ['Premium', 'Diesel', 'Bettano'],
+            tags: ['Premium', 'Diesel', 'Soltol'],
             seo: {
-                metaTitle: 'Bettano 15W40 Engine Oil | Premium Lubricant',
-                metaDescription: 'Buy Bettano 15W40 engine oil for heavy duty diesel engines. High performance lubrication.',
+                metaTitle: 'Soltol 15W40 Engine Oil | Premium Lubricant',
+                metaDescription: 'Buy Soltol 15W40 engine oil for heavy duty diesel engines. High performance lubrication.',
                 keywords: 'engine oil, diesel oil, bettano, 15w40'
             },
             leakageRate: 3.0,

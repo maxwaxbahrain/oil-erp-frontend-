@@ -363,7 +363,7 @@ export default function ProductForm() {
                                         value={formData.brand || ''}
                                         onChange={e => setFormData({ ...formData, brand: e.target.value })}
                                         className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 focus:bg-white rounded-2xl px-8 py-5 text-sm font-bold transition-all outline-none"
-                                        placeholder="e.g. Bettano"
+                                        placeholder="e.g. Soltol"
                                     />
                                 </div>
                             </div>

@@ -70,8 +70,8 @@ const ACT_LABELS: Record<ActivityType, string> = {
 };
 
 const PRODUCTS = [
-    'Bettano 5W30 API SP', 'Bettano 5W20 API SP', 'Bettano 0W20 API SP',
-    'Bettano 5W40 API SP', 'Bettano ATF DEX III', 'Bettano 10W40 API SN',
+    'Soltol 5W30 API SP', 'Soltol 5W20 API SP', 'Soltol 0W20 API SP',
+    'Soltol 5W40 API SP', 'Soltol ATF DEX III', 'Soltol 10W40 API SN',
     'Mixed Oil Products', 'Bulk Order — All Products',
 ];
 
@@ -654,7 +654,7 @@ export default function CRM() {
                                             const res = await fetch(`${API2}/ai/chat`, {
                                                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                                                 body: JSON.stringify({
-                                                    system: 'You are a CRM sales advisor for Bettano LLC oil distributor NYC. Give concise deal advice in 3-4 sentences. Be specific and actionable.',
+                                                    system: 'You are a CRM sales advisor for Soltol oil distributor NYC. Give concise deal advice in 3-4 sentences. Be specific and actionable.',
                                                     max_tokens: 300,
                                                     messages: [{ role: 'user', content: `Analyze this deal: Customer: ${editDeal?.customerName}, Product: ${editDeal?.product || 'Oil products'}, Value: $${editDeal?.value}, Stage: ${editDeal?.stage}, Probability: ${editDeal?.probability}%, Source: ${editDeal?.source}. Notes: ${editDeal?.notes || 'None'}. Give me the top 2 actions to close this deal.` }]
                                                 })

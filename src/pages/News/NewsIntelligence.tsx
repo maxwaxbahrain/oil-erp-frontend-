@@ -163,7 +163,7 @@ export default function NewsIntelligence() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    system: `You are a business news analyst for Bettano LLC, a NYC oil & lubricants distributor.
+                    system: `You are a business news analyst for Soltol, a NYC oil & lubricants distributor.
 
 PRODUCTS IN THEIR ERP: ${businessCtx}
 
@@ -175,7 +175,7 @@ ${news.articles.slice(0, 5).map(a => `- ${a.title} (${a.source}): ${a.summary}`)
 
 Your role: Answer questions about business news, tariffs, oil prices, market conditions.
 - Reference specific news articles when relevant
-- Always explain HOW the news impacts Bettano LLC specifically
+- Always explain HOW the news impacts Soltol specifically
 - Give actionable advice based on the news
 - If asked about tariffs, give specific percentages and affected products
 - Keep responses concise and business-focused`,
@@ -298,7 +298,7 @@ Your role: Answer questions about business news, tariffs, oil prices, market con
                                             <h3 className="text-sm font-black text-gray-900 mb-1.5 leading-tight">{article.title}</h3>
                                             <p className="text-xs text-gray-600 leading-relaxed mb-2">{article.summary}</p>
                                             <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-                                                <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest mb-0.5">Why this affects Bettano</p>
+                                                <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest mb-0.5">Why this affects Soltol</p>
                                                 <p className="text-xs text-amber-800">{article.relevance}</p>
                                             </div>
                                         </div>

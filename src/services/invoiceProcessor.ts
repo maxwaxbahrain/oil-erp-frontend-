@@ -67,8 +67,8 @@ export interface InvoiceData {
 }
 
 export class FreeInvoiceProcessor {
-    // private companyName: string = 'BETTANO LLC'; // Unused
-    private companyVariants: string[] = ['BETTANO LLC', 'BETTANO', 'BETTANO L.L.C', 'BETTANO L L C'];
+    // private companyName: string = 'SOLTOL'; // Unused
+    private companyVariants: string[] = ['SOLTOL', 'BETTANO', 'BETTANO L.L.C', 'BETTANO L L C'];
 
     /**
      * Main processing function
@@ -379,7 +379,7 @@ CRITICAL PRICE RULES — READ CAREFULLY:
             const prompt = `You are an expert invoice data extraction AI. Extract complete and accurate data from this invoice.
 
 CRITICAL RULES:
-1. The buyer is "Bettano LLC" - this is NOT the supplier
+1. The buyer is "Soltol" - this is NOT the supplier
 2. The supplier is the company at the TOP of the invoice
 3. Extract EVERY product line item - do not skip any
 4. Read all numbers exactly as written
@@ -442,7 +442,7 @@ Return ONLY this JSON structure (no explanations):
 
 VALIDATION: Before returning, verify:
 - Sum of products.lineTotal = totals.subtotal
-- Supplier name does not contain "Bettano"
+- Supplier name does not contain "Soltol"
 - All products have quantity > 0 and unitPrice > 0
 - lineNumber sequence is complete (no gaps)`;
 

@@ -216,7 +216,7 @@ DATA RULES:
 </head>
 <body>
 <h1>AI Business Advisor — Marcus Reid</h1>
-<div class="meta">Generated: ${date} | Bettano ERP System</div>
+<div class="meta">Generated: ${date} | Soltol ERP System</div>
 <div class="content">${text.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
 </body>
 </html>`;

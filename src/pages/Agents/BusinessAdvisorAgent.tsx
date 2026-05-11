@@ -73,7 +73,7 @@ async function buildBusinessContext(): Promise<string> {
         const totalCollected = pays.reduce((s, p) => s + (p.amount || 0), 0);
 
         return `
-=== BETTANO LLC — BUSINESS INTELLIGENCE DASHBOARD ===
+=== SOLTOL — BUSINESS INTELLIGENCE DASHBOARD ===
 Report Date: ${today.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
 Industry: Oil & Lubricants Distribution, New York, USA
 
@@ -117,7 +117,7 @@ export default function BusinessAdvisorAgent() {
     const [messages, setMessages] = useState<Message[]>([{
         id: '1',
         role: 'agent',
-        content: "Good day. I'm **Marcus**, your Senior Business Advisor at Bettano LLC.\n\nI've analyzed your complete ERP data — revenue trends, customer patterns, inventory position, and cash flow. I give you direct, actionable advice — no fluff.\n\nWhat would you like to tackle today?",
+        content: "Good day. I'm **Marcus**, your Senior Business Advisor at Soltol.\n\nI've analyzed your complete ERP data — revenue trends, customer patterns, inventory position, and cash flow. I give you direct, actionable advice — no fluff.\n\nWhat would you like to tackle today?",
         timestamp: new Date(),
     }]);
     const [input, setInput] = useState('');
@@ -151,7 +151,7 @@ export default function BusinessAdvisorAgent() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    system: `You are Marcus Reid, Senior Business Advisor for Bettano LLC, an oil distribution company in New York.
+                    system: `You are Marcus Reid, Senior Business Advisor for Soltol, an oil distribution company in New York.
 
 PERSONA: You are a seasoned CFO/COO-level advisor with 20 years in oil distribution. You are:
 - Direct and confident — give recommendations, not options
@@ -228,7 +228,7 @@ RULES:
                             <p className="text-sm font-black text-white">Marcus Reid</p>
                             <span className="w-2 h-2 rounded-full bg-orange-400 animate-pulse" />
                         </div>
-                        <p className="text-[10px] text-gray-400">Senior Business Advisor · Bettano LLC</p>
+                        <p className="text-[10px] text-gray-400">Senior Business Advisor · Soltol</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-2">

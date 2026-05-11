@@ -1,5 +1,5 @@
 // ============================================================
-// BETTANO LLC — Role-Based Access Control Engine
+// SOLTOL — Role-Based Access Control Engine
 // ============================================================
 
 export type Role = 'owner' | 'manager' | 'sales_manager' | 'salesman' | 'accountant' | 'van_driver' | 'marketing' | 'warehouse';

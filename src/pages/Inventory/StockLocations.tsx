@@ -164,7 +164,7 @@ export default function StockLocations() {
                             Urgent Rebalance Suggested (VAN 01 & 02)
                         </p>
                         <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest leading-relaxed mb-8">
-                            Van 01 is at 92% capacity and losing sales opportunities for key oils. Van 02 is at 45% and has surplus. Suggest moving <span className="text-white">15 units of Bettano 15W40</span> to Van 01 to capture $22k pending demand.
+                            Van 01 is at 92% capacity and losing sales opportunities for key oils. Van 02 is at 45% and has surplus. Suggest moving <span className="text-white">15 units of Soltol 15W40</span> to Van 01 to capture $22k pending demand.
                         </p>
                         <div className="flex gap-4">
                             <button className="px-8 py-3 bg-redwood-brand text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:brightness-110 shadow-lg shadow-redwood-brand/20 transition-all">Authorize Transfer</button>

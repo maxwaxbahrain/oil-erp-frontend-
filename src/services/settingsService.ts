@@ -36,7 +36,7 @@ export interface CompanySettings {
 }
 
 export const DEFAULT_COMPANY: CompanySettings = {
-    name: 'Bettano LLC',
+    name: 'SOLTOL',
     address: '184-10 Jamaica Ave',
     city: 'Jamaica, NY 11423',
     country: 'USA',
@@ -65,7 +65,7 @@ const DEFAULT_SETTINGS: SystemSettings = {
 };
 
 const DEFAULT_PROFILE: CompanyProfile = {
-    name: 'Bettano LLC',
+    name: 'SOLTOL',
     address1: '184-10 Jamaica Ave',
     city: 'Jamaica',
     state: 'NY',
