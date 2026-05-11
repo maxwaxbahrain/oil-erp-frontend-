@@ -1,4 +1,27 @@
 import { useState } from 'react';
+
+const API_BASE = (import.meta.env.VITE_API_URL || 'https://bettano-erp-backend.onrender.com').replace(/\/$/, '');
+
+async function createCustomerViaAPI(customer: any): Promise<boolean> {
+    try {
+        const res = await fetch(`${API_BASE}/customers`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: customer.name,
+                email: customer.email || '',
+                phone: customer.phone || '',
+                address: customer.address || '',
+                balance: customer.balance || 0,
+                opening_balance: customer.opening_balance || customer.balance || 0,
+                credit_limit: customer.credit_limit || 0,
+                category: 'Imported',
+                notes: `Imported from ${customer.src || 'Migration'}`
+            })
+        });
+        return res.ok;
+    } catch { return false; }
+}
 import { Upload, Database, CheckCircle, AlertCircle, RefreshCw, Download } from 'lucide-react';
 
 const CK = 'bettano_customers_imported';
@@ -70,15 +93,29 @@ export default function DataMigration() {
 
                 // Customers
                 setPct(45);
-                const cr = db.exec("SELECT aname, address, phone, email_id FROM account_detail WHERE a_type LIKE '%Debtors%' OR a_type LIKE '%Customer%'");
+                // Get customers WITH calculated balance from vouchers
+                const cr = db.exec("SELECT aname, address, phone, email_id, op_bal, cl_bal, credit_limit, credit_period FROM account_detail WHERE a_type LIKE '%Debtors%' OR a_type LIKE '%Customer%'");
+                
+                // Calculate balance per customer from vouchers
+                const balQuery = db.exec("SELECT debit, SUM(CASE WHEN v_type='Sales' OR v_type='Sales Return' THEN amount ELSE 0 END) - SUM(CASE WHEN v_type='Receipt' OR v_type='Payment' THEN amount ELSE 0 END) as bal FROM vouchers WHERE v_type IN ('Sales','Receipt','Sales Return','Payment') GROUP BY debit");
+                const balMap: Record<string,number> = {};
+                if (balQuery[0]) {
+                    balQuery[0].values.forEach((r: any[]) => { if (r[0]) balMap[r[0].trim()] = Number(r[1]) || 0; });
+                }
                 if (cr[0]?.values?.length) {
                     const ex: any[] = JSON.parse(localStorage.getItem(CK) || '[]');
                     const exN = new Set(ex.map((x: any) => x.name?.toLowerCase()));
                     const add = cr[0].values
-                        .map((r: any[], i: number) => ({ id: `C${Date.now()}${i}`, name: r[0] || '', address: r[1] || '', phone: r[2] || '', email: r[3] || '', src: 'Soltol DB' }))
+                        .map((r: any[], i: number) => ({ id: `C${Date.now()}${i}`, name: r[0] || '', address: r[1] || '', phone: r[2] || '', email: r[3] || '', opening_balance: r[4] || 0, balance: balMap[r[0]?.trim()] ?? (r[5] || 0), credit_limit: r[6] || 0, credit_period: r[7] || 30, src: 'Soltol DB' }))
                         .filter((x: any) => x.name && !exN.has(x.name.toLowerCase()));
                     localStorage.setItem(CK, JSON.stringify([...ex, ...add]));
-                    log.push(`${add.length} customers`);
+                    // Also create in backend API so customers appear in the main list
+                    let apiCreated = 0;
+                    for (const cust of add.slice(0, 200)) {
+                        const ok = await createCustomerViaAPI(cust);
+                        if (ok) apiCreated++;
+                    }
+                    log.push(`${add.length} customers (${apiCreated} synced to ERP)`);
                 }
 
                 // Suppliers

@@ -559,10 +559,11 @@ export default function SettingsPage() {
                                 <div className="text-4xl mb-3">🗄️</div>
                                 <h2 className="text-lg font-black uppercase tracking-tight mb-2">Data Migration Center</h2>
                                 <p className="text-gray-400 text-sm mb-5">Import from Soltol DB · QuickBooks · Dynamics 365 · NetSuite · Cin7 · CSV / Excel</p>
-                                <a href="/migrate"
-                                    className="inline-flex items-center gap-3 px-8 py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-black text-sm transition-all">
-                                    Open Data Migration →
-                                </a>
+                                <button
+                                    onClick={() => window.location.href = '/migrate'}
+                                    className="inline-flex items-center gap-3 px-8 py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-black text-sm transition-all cursor-pointer">
+                                    📥 Open Data Migration
+                                </button>
                             </div>
                             <div className="grid grid-cols-3 gap-3">
                                 {[['🗄️','Soltol / Bettano DB','.db .sqlite'],['📊','QuickBooks','.csv .iif .xlsx'],['🔷','MS Dynamics 365','.csv .xlsx .xml'],['🔴','Oracle NetSuite','.csv .xlsx'],['📦','Cin7 Core','.csv .xlsx'],['📋','Generic CSV / Excel','.csv .xlsx .xls']].map(([icon,name,fmt],i)=>(
