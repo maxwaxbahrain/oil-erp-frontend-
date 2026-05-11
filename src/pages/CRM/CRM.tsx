@@ -438,7 +438,16 @@ export default function CRM() {
                                             </td>
                                             <td className="px-4 py-3">
                                                 <p className="text-sm text-gray-700">{deal.customerName}</p>
-                                                <p className="text-[10px] text-gray-400">{deal.phone || deal.email || ''}</p>
+                                                <div className="flex items-center gap-2 mt-0.5">
+                                                    {deal.phone && (
+                                                        <a href={`https://wa.me/${deal.phone.replace(/\D/g,'')}`} target="_blank" rel="noopener noreferrer"
+                                                            onClick={e => e.stopPropagation()}
+                                                            className="text-[9px] text-green-600 font-bold flex items-center gap-0.5 hover:underline">
+                                                            💬 {deal.phone}
+                                                        </a>
+                                                    )}
+                                                    {deal.email && !deal.phone && <span className="text-[9px] text-gray-400">{deal.email}</span>}
+                                                </div>
                                             </td>
                                             <td className="px-4 py-3 text-xs text-gray-500">{deal.product || '—'}</td>
                                             <td className="px-4 py-3 text-sm font-black font-mono text-gray-900">{deal.value > 0 ? formatCurrency(deal.value) : '—'}</td>
