@@ -75,7 +75,8 @@ import CreditIntelligence from '../pages/Credit/CreditIntelligence';
 import CRMPage from '../pages/CRM/CRM'; // CRM exports as 'CRM'
 import TaxSettings from '../pages/TaxSystem/TaxSettings';
 import AmazonIntegration from '../pages/Amazon/AmazonIntegration';
-import Pulse from '../pages/Pulse/Pulse'; // CRM exports as 'CRM'
+import Pulse from '../pages/Pulse/Pulse';
+import DataMigration from '../pages/Migration/DataMigration'; // CRM exports as 'CRM'
 import AIContentStudio from '../pages/Marketing/AIContentStudio';
 import { CustomerSegments, CampaignManager, MarketingAnalytics } from '../pages/Marketing/MarketingPages';
 import CustomerServiceAgent from '../pages/Agents/CustomerServiceAgent';
@@ -205,6 +206,7 @@ export const AppRoutes = () => {
             <Route path="/tax" element={<TaxSettings />} />
             <Route path="/amazon" element={<AmazonIntegration />} />
             <Route path="/pulse" element={<Pulse />} />
+            <Route path="/migrate" element={<DataMigration />} />
             <Route path="/marketing" element={<MarketingHub />} />
             <Route path="/marketing/studio" element={<AIContentStudio />} />
             <Route path="/marketing/segments" element={<CustomerSegments />} />

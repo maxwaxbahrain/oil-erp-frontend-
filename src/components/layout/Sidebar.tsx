@@ -20,7 +20,7 @@ import {
     TrendingUp,
     User,
     MapPin
-, Tag , BookOpen , AlertTriangle , Edit2 , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  } from 'lucide-react';
+, Tag , BookOpen , AlertTriangle , Edit2 , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database } from 'lucide-react';
 import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
 
@@ -308,7 +308,8 @@ export default function Sidebar() {
                 <div className="h-px bg-white/5 my-3 mx-2" />
 
                 {/* SETTINGS (at bottom) */}
-                {isOwner && <NavItem to="/access-management" icon={Shield} label="User Access Management" />}
+                <NavItem to="/migrate" icon={Database} label="Data Migration" />
+                <NavItem to="/access-management" icon={Shield} label="User Access Management" />
                 <NavItem to="/settings" icon={Settings} label="Settings" />
                 <NavItem to="/settings/users" icon={UserCheck} label="User Management" />
 
