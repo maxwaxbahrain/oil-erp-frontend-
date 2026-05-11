@@ -20,7 +20,7 @@ import {
     TrendingUp,
     User,
     MapPin
-, Tag , BookOpen , AlertTriangle , Edit2 , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator } from 'lucide-react';
+, Tag , BookOpen , AlertTriangle , Edit2 , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  } from 'lucide-react';
 import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
 
