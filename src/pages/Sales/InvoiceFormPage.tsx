@@ -156,7 +156,7 @@ export default function InvoiceFormPage() {
 
     useEffect(() => {
         const subtotal = formData.lineItems.reduce((sum, item) => sum + item.amount, 0);
-        const taxAmount = (subtotal * formData.taxRate) / 100;
+        const taxAmount = Math.round((subtotal * formData.taxRate) / 100 * 100) / 100;
         const rawTotal = subtotal + taxAmount - formData.discount;
         const grandTotal = rawTotal + (formData.roundOff || 0);
         const remainingBalance = formData.paymentStatus === 'Paid' ? 0 :
@@ -699,12 +699,12 @@ export default function InvoiceFormPage() {
                                     <div className="flex items-center gap-2">
                                         <span className="text-xs font-bold text-gray-500 uppercase group-hover:text-gray-900 transition-colors">Round Off</span>
                                         <button type="button"
-                                            onClick={() => setFormData(prev => ({ ...prev, roundOff: Math.round(prev.subtotal + prev.taxAmount - prev.discount) - (prev.subtotal + prev.taxAmount - prev.discount) }))}
+                                            onClick={() => setFormData(prev => { const base = prev.subtotal + prev.taxAmount - prev.discount; const roff = parseFloat((Math.round(base) - base).toFixed(2)); return { ...prev, roundOff: roff }; })}
                                             className="text-[10px] px-2 py-0.5 bg-gray-100 hover:bg-gray-200 rounded font-bold text-gray-500 transition-all">Auto</button>
                                     </div>
                                     <input
                                         type="number"
-                                        value={formData.roundOff || ''}
+                                        value={formData.roundOff ? parseFloat(formData.roundOff.toFixed(2)) : ''}
                                         onChange={(e) => setFormData(prev => ({ ...prev, roundOff: parseFloat(e.target.value) || 0 }))}
                                         className="w-32 border-2 border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right font-mono font-black focus:border-[#800020] outline-none transition-all bg-gray-50"
                                         placeholder="0.00"
