@@ -547,6 +547,13 @@ export default function StockAdjustmentManager() {
                                                 Reject
                                             </button>
                                             <button
+                                                onClick={() => { if (window.confirm('Delete this adjustment record?')) { setAdjustments(prev => prev.filter(a => a.id !== adj.id)); const stored = JSON.parse(localStorage.getItem('soltol_adjustment_decisions') || '[]'); localStorage.setItem('soltol_adjustment_decisions', JSON.stringify(stored.filter((a:any) => a.id !== adj.id))); } }}
+                                                className="px-4 py-3 border-2 border-red-200 rounded-xl text-xs font-black uppercase text-red-500 hover:bg-red-50 transition-all flex items-center gap-1"
+                                                title="Delete this adjustment"
+                                            >
+                                                🗑️
+                                            </button>
+                                            <button
                                                 onClick={() => handleAction(adj.id, 'approve')}
                                                 disabled={processingId === adj.id}
                                                 className="flex-1 lg:flex-none px-8 py-3 bg-gray-900 text-white rounded-xl text-xs font-black uppercase tracking-wider hover:bg-gray-800 transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50"

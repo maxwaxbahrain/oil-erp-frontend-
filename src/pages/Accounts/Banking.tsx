@@ -42,6 +42,9 @@ export default function Banking() {
     const [filter, setFilter] = useState<'all' | 'Credit' | 'Debit'>('all');
     const [dateFrom, setDateFrom] = useState('');
     const [activeTab, setActiveTab] = useState<'ledger' | 'pdc'>('ledger');
+    const [showAddTx, setShowAddTx] = useState(false);
+    const [txForm, setTxForm] = useState({ date: new Date().toISOString().slice(0,10), description: '', type: 'Credit' as 'Credit'|'Debit', amount: '', reference: '', category: 'General' });
+    const [manualTxs, setManualTxs] = useState<any[]>(() => { try { return JSON.parse(localStorage.getItem('banking_manual_txs') || '[]'); } catch { return []; } });
     const [pdcList, setPdcList] = useState<PDCheque[]>([]);
     const [showPDCForm, setShowPDCForm] = useState(false);
     const [pdcForm, setPdcForm] = useState({ date: '', chequeNo: '', bankName: '', payee: '', amount: '', type: 'Received' as PDCheque['type'], description: '' });
@@ -95,7 +98,8 @@ export default function Banking() {
     const totalDebits = transactions.filter(t => t.type === 'Debit').reduce((s, t) => s + t.amount, 0);
     const netBalance = totalCredits - totalDebits;
 
-    const filtered = transactions.filter(t => {
+    const allTransactions = [...transactions, ...manualTxs];
+    const filtered = allTransactions.filter(t => {
         if (dateFrom && t.date < dateFrom) return false;
         if (dateTo && t.date > dateTo) return false;
         const matchFilter = filter === 'all' || t.type === filter;
@@ -130,7 +134,17 @@ export default function Banking() {
     const pendingPDC = pdcList.filter(p => p.status === 'Pending');
     const dueTodayPDC = pendingPDC.filter(p => p.date <= today);
 
-    return (
+    const saveManualTx = () => {
+        if (!txForm.description || !txForm.amount) return;
+        const tx = { id: `MTX-${Date.now()}`, date: txForm.date, description: txForm.description, type: txForm.type, amount: parseFloat(txForm.amount) || 0, reference: txForm.reference || `REF-${Date.now().toString().slice(-6)}`, category: txForm.category, balance: 0, isManual: true };
+        const updated = [tx, ...manualTxs];
+        setManualTxs(updated);
+        localStorage.setItem('banking_manual_txs', JSON.stringify(updated));
+        setTxForm({ date: new Date().toISOString().slice(0,10), description: '', type: 'Credit', amount: '', reference: '', category: 'General' });
+        setShowAddTx(false);
+    };
+
+        return (
         <div className="space-y-6 animate-in fade-in duration-500 max-w-[1400px] mx-auto pb-10">
             {/* Header */}
             <div className="bg-gradient-to-r from-gray-900 to-gray-800 p-6 rounded-2xl text-white flex items-center justify-between">
@@ -181,6 +195,40 @@ export default function Banking() {
             </div>
 
             {activeTab === 'ledger' && (<>
+                {/* Add Transaction Button + Form */}
+                <div className="flex justify-end">
+                    <button onClick={() => setShowAddTx(!showAddTx)} className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl text-xs font-black hover:bg-gray-700 transition-all">
+                        + Add Transaction
+                    </button>
+                </div>
+                {showAddTx && (
+                    <div className="bg-white rounded-2xl border-2 border-orange-200 p-5 shadow-sm space-y-3">
+                        <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Add Manual Transaction</p>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Date</label>
+                                <input type="date" value={txForm.date} onChange={e => setTxForm(p=>({...p,date:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none" /></div>
+                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Type</label>
+                                <select value={txForm.type} onChange={e => setTxForm(p=>({...p,type:e.target.value as any}))} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none">
+                                    <option value="Credit">Credit (Money In)</option>
+                                    <option value="Debit">Debit (Money Out)</option>
+                                </select></div>
+                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Amount *</label>
+                                <input type="number" placeholder="0.00" value={txForm.amount} onChange={e => setTxForm(p=>({...p,amount:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none" /></div>
+                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Description *</label>
+                                <input placeholder="e.g. Cash deposit" value={txForm.description} onChange={e => setTxForm(p=>({...p,description:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none" /></div>
+                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Reference</label>
+                                <input placeholder="Cheque/Ref no" value={txForm.reference} onChange={e => setTxForm(p=>({...p,reference:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none" /></div>
+                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Category</label>
+                                <select value={txForm.category} onChange={e => setTxForm(p=>({...p,category:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none">
+                                    {['General','Sales','Purchase','Salary','Utility','Rent','Other'].map(cat=><option key={cat}>{cat}</option>)}
+                                </select></div>
+                        </div>
+                        <div className="flex gap-3">
+                            <button onClick={saveManualTx} disabled={!txForm.description||!txForm.amount} className="px-6 py-2.5 bg-gray-900 text-white rounded-xl text-sm font-black hover:bg-gray-700 disabled:opacity-50 transition-all">Save Transaction</button>
+                            <button onClick={() => setShowAddTx(false)} className="px-4 py-2.5 text-sm font-black text-gray-400 hover:text-gray-700">Cancel</button>
+                        </div>
+                    </div>
+                )}
             {/* Bank Account Card */}
             <div className="bg-gradient-to-br from-orange-500 to-amber-600 rounded-2xl p-6 text-white shadow-xl">
                 <div className="flex items-center justify-between mb-6">

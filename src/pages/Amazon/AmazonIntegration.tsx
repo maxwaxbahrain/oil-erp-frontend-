@@ -167,6 +167,7 @@ export default function AmazonIntegration() {
     const [orders, setOrders] = useState<AmazonOrder[]>([]);
     const [syncLogs, setSyncLogs] = useState<SyncLog[]>([]);
     const [syncing, setSyncing] = useState(false);
+    const [syncingType, setSyncingType] = useState<string>('');
     const [saved, setSaved] = useState(false);
     const [showCredentials, setShowCredentials] = useState(false);
 
@@ -197,6 +198,7 @@ export default function AmazonIntegration() {
 
     const runSync = async (type: SyncLog['type']) => {
         setSyncing(true);
+        setSyncingType(type);
         await new Promise(r => setTimeout(r, 2000));
         const count = type === 'inventory' ? listings.length : type === 'orders' ? orders.filter(o=>!o.synced_to_erp).length : 0;
         const log: Omit<SyncLog,'id'> = {
@@ -208,6 +210,7 @@ export default function AmazonIntegration() {
         addSyncLog(log);
         setSyncLogs(getSyncLogs());
         setSyncing(false);
+        setSyncingType('');
     };
 
     const syncOrderToERP = (order: AmazonOrder) => {
@@ -348,16 +351,16 @@ export default function AmazonIntegration() {
                     {/* Quick actions */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         {[
-                            {label:'Sync Inventory to Amazon', icon:Upload, action:()=>runSync('inventory'), color:'bg-orange-500'},
-                            {label:'Import Amazon Orders', icon:Download, action:()=>runSync('orders'), color:'bg-blue-500'},
-                            {label:'Update Amazon Prices', icon:DollarSign, action:()=>runSync('pricing'), color:'bg-emerald-500'},
-                            {label:'Refresh All Listings', icon:RefreshCw, action:()=>runSync('listings'), color:'bg-purple-500'},
+                            {label:'Sync Inventory to Amazon', icon:Upload, action:()=>runSync('inventory'), color:'bg-orange-500', type:'inventory' as const},
+                            {label:'Import Amazon Orders', icon:Download, action:()=>runSync('orders'), color:'bg-blue-500', type:'orders' as const},
+                            {label:'Update Amazon Prices', icon:DollarSign, action:()=>runSync('pricing'), color:'bg-emerald-500', type:'pricing' as const},
+                            {label:'Refresh All Listings', icon:RefreshCw, action:()=>runSync('listings'), color:'bg-purple-500', type:'listings' as const},
                         ].map((a, i) => {
                             const Icon = a.icon;
                             return (
                                 <button key={i} onClick={a.action} disabled={syncing}
                                     className={`flex items-center gap-3 p-4 ${a.color} text-white rounded-2xl hover:opacity-90 disabled:opacity-50 transition-all text-left shadow-sm`}>
-                                    {syncing ? <RefreshCw size={18} className="animate-spin flex-shrink-0" /> : <Icon size={18} className="flex-shrink-0" />}
+                                    {syncingType === a.type ? <RefreshCw size={18} className="animate-spin flex-shrink-0" /> : <Icon size={18} className="flex-shrink-0" />}
                                     <span className="text-xs font-black">{a.label}</span>
                                 </button>
                             );

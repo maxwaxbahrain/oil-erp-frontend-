@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CalendarClock, FileText, Plus } from 'lucide-react';
+import { CalendarClock, FileText, Plus, Printer, X } from 'lucide-react';
 import { getCreditNotes, getCreditNoteStats, updateCreditNote, type CreditNote } from '../../services/creditNoteService';
 
 const THEME = '#800020';
@@ -70,6 +70,42 @@ export default function CreditNotes() {
     await load();
   }
 
+  function printCreditNote(note: CreditNote) {
+    const w = window.open('', '_blank', 'width=800,height=600');
+    if (!w) return;
+    w.document.write(`
+      <html><head><title>Credit Note ${note.creditNoteNumber}</title>
+      <style>body{font-family:Arial,sans-serif;padding:30px;color:#111}
+      h1{font-size:22px;font-weight:900;text-transform:uppercase;margin-bottom:4px}
+      .header{display:flex;justify-content:space-between;margin-bottom:24px}
+      .badge{display:inline-block;padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700;text-transform:uppercase}
+      table{width:100%;border-collapse:collapse;margin-top:16px}
+      th{background:#f3f4f6;padding:10px;text-align:left;font-size:11px;text-transform:uppercase}
+      td{padding:10px;border-bottom:1px solid #e5e7eb;font-size:13px}
+      .total{font-size:18px;font-weight:900;color:#800020}
+      @media print{button{display:none}}</style></head>
+      <body>
+      <div class="header">
+        <div><h1 style="color:#800020">Credit Note</h1><p style="color:#666;font-size:13px">Reference: ${note.creditNoteNumber}</p></div>
+        <div style="text-align:right"><p style="font-size:13px">Issue Date: ${note.issueDate}</p>${note.expiryDate ? `<p style="font-size:13px">Expiry: ${note.expiryDate}</p>` : ''}</div>
+      </div>
+      <table style="margin-bottom:16px;width:100%"><tr>
+        <td style="border:none"><strong>Customer:</strong> ${note.customerName}</td>
+        <td style="border:none"><strong>Invoice Ref:</strong> ${note.originalInvoiceNumber || '—'}</td>
+        <td style="border:none"><strong>Reason:</strong> ${note.reason.replace('_',' ')}</td>
+      </tr></table>
+      <table>
+        <tr><th>Description</th><th style="text-align:right">Amount</th></tr>
+        <tr><td>${note.notes || 'Credit adjustment'}</td><td style="text-align:right">$${note.totalCreditAmount.toLocaleString()}</td></tr>
+        ${note.usedAmount > 0 ? `<tr><td>Amount Used</td><td style="text-align:right">-$${note.usedAmount.toLocaleString()}</td></tr>` : ''}
+        <tr><td><strong>Remaining Credit</strong></td><td style="text-align:right" class="total">$${note.remainingCredit.toLocaleString()}</td></tr>
+      </table>
+      <br/><hr/><p style="font-size:11px;color:#999;text-align:center">SOLTOL ONE · Business Platform · Generated ${new Date().toLocaleDateString()}</p>
+      <script>setTimeout(()=>window.print(),300)</script>
+      </body></html>`);
+    w.document.close();
+  }
+
   return (
     <div className="p-6 space-y-6">
       <div className="bg-white rounded-2xl border border-gray-100 p-6 flex items-center justify-between">
@@ -129,10 +165,11 @@ export default function CreditNotes() {
                 <td className={`p-3 text-right font-mono font-black ${r.remainingCredit > 0 ? 'text-orange-600' : ''}`}>${r.remainingCredit.toLocaleString()}</td>
                 <td className="p-3 text-center"><span className={`px-2 py-1 rounded text-xs font-black uppercase ${badgeClass(r.status)}`}>{r.status.replace('_', ' ')}</span></td>
                 <td className="p-3">
-                  <div className="flex items-center justify-center gap-2">
+                  <div className="flex items-center justify-center gap-2 flex-wrap">
                     <button className="text-xs font-bold underline" onClick={() => navigate(`/sales/credit-notes/${r.id}`)}>View</button>
-                    <button className="text-xs font-bold underline" onClick={() => navigate('/sales/invoices')}>Apply to Invoice</button>
-                    <button className="text-xs font-bold underline text-red-600" onClick={() => void cancelNote(r)}>Cancel</button>
+                    <button className="flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800" onClick={() => printCreditNote(r)}><Printer size={11}/>Print</button>
+                    <button className="text-xs font-bold underline" onClick={() => navigate('/sales/invoices')}>Apply</button>
+                    {r.status !== 'cancelled' && <button className="flex items-center gap-1 text-xs font-bold text-red-600 hover:text-red-800" onClick={() => void cancelNote(r)}><X size={11}/>Cancel</button>}
                   </div>
                 </td>
               </tr>

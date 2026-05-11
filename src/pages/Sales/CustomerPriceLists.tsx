@@ -28,8 +28,6 @@ export default function CustomerPriceLists() {
             setPriceLists(getCustomerPriceLists());
         });
     }, []);
-
-    const customersWithList = new Set(priceLists.map(l => l.customerId));
     const filtered = priceLists.filter(l =>
         !search || l.customerName.toLowerCase().includes(search.toLowerCase())
     );
@@ -101,7 +99,7 @@ export default function CustomerPriceLists() {
         setPriceLists(getCustomerPriceLists());
     };
 
-    const availableCustomers = customers.filter(c => !customersWithList.has(c.id));
+    const availableCustomers = customers; // Show all customers - allow adding/updating price lists
 
     return (
         <div className="space-y-6 max-w-[1200px] mx-auto pb-10 animate-in fade-in duration-500">
@@ -155,8 +153,8 @@ export default function CustomerPriceLists() {
                             Cancel
                         </button>
                     </div>
-                    {availableCustomers.length === 0 && (
-                        <p className="text-xs text-gray-400 mt-2">All customers already have price lists.</p>
+                    {customers.length === 0 && (
+                        <p className="text-xs text-amber-600 mt-2 font-bold">No customers found. Please add customers first.</p>
                     )}
                 </div>
             )}
