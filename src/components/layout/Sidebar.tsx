@@ -114,6 +114,7 @@ export default function Sidebar() {
                 <NavItem to="/credit" icon={Shield} label="Credit Intelligence" />
                 <NavItem to="/crm" icon={BarChart2} label="CRM Pipeline" />
                 <NavItem to="/sales/orders" icon={FileText} label="Orders" />
+                <NavItem to="/amazon" icon={Package} label="Amazon" />
 
                 <div>
                     <SectionHeader
