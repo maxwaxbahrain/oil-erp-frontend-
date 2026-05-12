@@ -49,7 +49,7 @@ export default function DataMigration() {
 
         try {
             // 1. Clear from backend API (bulk delete)
-            const clearRes = await fetch(`${API_BASE}/customers/bulk/clear-all`, { method: 'DELETE' });
+            const clearRes = await fetch(`${API_BASE}/api/customers/bulk/clear-all`, { method: 'DELETE' });
             if (clearRes.ok) {
                 const data = await clearRes.json();
                 log.push(`✅ Removed ${data.deleted} customers from ERP`);
