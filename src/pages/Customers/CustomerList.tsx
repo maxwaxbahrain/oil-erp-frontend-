@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { type Customer, getCustomers, fetchCustomerBalancesFromLedger } from '../../services/customerService';
+import { type Customer, getCustomers, customerBalancesFromNotes } from '../../services/customerService';
 import DataTable from '../../components/tables/DataTable';
 import { Plus } from 'lucide-react';
 
@@ -27,22 +27,16 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
         setError(null);
         const data = await getCustomers();
         if (cancelled) return;
-        setCustomers(data);
-        setLoading(false); // unblock the table the instant customers arrive
 
-        // Background refresh in a separate async block — never blocks list rendering.
-        // Backend's stored balance is stale after BETTANO+payments import (PUT ignores
-        // balance updates). Recompute from each ledger and merge in when ready.
-        fetchCustomerBalancesFromLedger(data.map((c) => c.id))
-          .then((balances) => {
-            if (cancelled) return;
-            setCustomers((prev) =>
-              prev.map((c) => (balances[String(c.id)] !== undefined ? { ...c, balance: balances[String(c.id)] } : c))
-            );
-          })
-          .catch((refreshErr) => {
-            console.warn('Balance refresh from ledger failed; showing server balances:', refreshErr);
-          });
+        // The backend's stored balance is corrupted (BETTANO + payment imports
+        // double-decremented it). The BETTANO importer wrote the correct
+        // outstanding into the notes field; trust that for display.
+        const corrected = customerBalancesFromNotes(data);
+        const enriched = data.map((c) =>
+          corrected[String(c.id)] !== undefined ? { ...c, balance: corrected[String(c.id)] } : c
+        );
+        setCustomers(enriched);
+        setLoading(false);
       } catch (err) {
         console.error('Failed to fetch customers:', err);
         if (!cancelled) {

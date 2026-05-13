@@ -272,27 +272,25 @@ export async function getCustomers(): Promise<Customer[]> {
 }
 
 /**
- * The backend's stored customer.balance is out of sync (payment POSTs decremented
- * the BETTANO-set outstanding amount). Recompute from each customer's ledger.
- * Done as a separate, non-blocking call from the customer list so the list still
- * renders if this call fails or is slow.
+ * The backend's stored customer.balance is out of sync: BETTANO-set the field to
+ * the outstanding amount, then payment POSTs decremented it again, leaving most
+ * customers showing nonsense negative numbers in the list.
+ *
+ * The BETTANO importer wrote the correct outstanding into the customer's notes
+ * field ("BETTANO | Owes: $X.XX"). We trust that for the customer list display.
+ * Returns { [customerId]: outstanding } for customers where notes parse cleanly.
  */
-export async function fetchCustomerBalancesFromLedger(customerIds: Array<string | number>): Promise<Record<string, number>> {
-    if (USE_MOCK) return {};
-    const results: Record<string, number> = {};
-    await Promise.all(
-        customerIds.map(async (id) => {
-            try {
-                const r = await fetch(apiUrl(`customers/${id}/ledger`));
-                if (!r.ok) return;
-                const ledger: Array<{ debit?: number; credit?: number }> = await r.json();
-                let outstanding = 0;
-                for (const e of ledger) outstanding += Number(e.debit || 0) - Number(e.credit || 0);
-                results[String(id)] = Math.round(outstanding * 100) / 100;
-            } catch { /* skip */ }
-        })
-    );
-    return results;
+export function customerBalancesFromNotes(customers: Customer[]): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const c of customers) {
+        const notes = (c as unknown as { notes?: string }).notes;
+        if (!notes) continue;
+        const m = /Owes:\s*\$?(-?[\d,]+(?:\.\d+)?)/i.exec(notes);
+        if (!m) continue;
+        const num = Number(m[1].replace(/,/g, ''));
+        if (Number.isFinite(num)) out[String(c.id)] = num;
+    }
+    return out;
 }
 
 export async function getCustomer(id: string): Promise<Customer> {
