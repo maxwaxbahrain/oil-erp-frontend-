@@ -623,15 +623,15 @@ export async function searchCustomers(query: string): Promise<Customer[]> {
     return parseCustomersJson(payload).map(normalizeCustomerFromApi);
 }
 
-/** Creates Customer records for all Route Navigator priority (★) stops not already in customers (live API only). */
+/**
+ * Route-Navigator → Customers sync is disabled.
+ * The backend endpoint creates duplicate zero-balance customers (it doesn't dedupe by name),
+ * which clobbered the real BETTANO data. Returns an empty result so callers no-op gracefully.
+ */
 export async function syncRoutePriorityToCustomers(): Promise<
     import('./routeService').SyncRoutePriorityResult
 > {
-    if (USE_MOCK) {
-        return { created: 0, skipped_existing: 0, total_priority_stops: 0 };
-    }
-    const { syncPriorityRouteToCustomers } = await import('./routeService');
-    return syncPriorityRouteToCustomers();
+    return { created: 0, skipped_existing: 0, total_priority_stops: 0 };
 }
 
 // ============================================

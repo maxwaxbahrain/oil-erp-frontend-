@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, ExternalLink, MapPin, Pencil, Phone, Route, Star, UserPlus, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { CalendarDays, ExternalLink, MapPin, Pencil, Phone, Route, Star, X } from 'lucide-react';
 import {
   createRouteStop,
   getRoutes,
@@ -9,7 +9,7 @@ import {
   type RouteDay,
   type RouteStop,
 } from '../../services/routeService';
-import { getCustomers, syncRoutePriorityToCustomers } from '../../services/customerService';
+import { getCustomers } from '../../services/customerService';
 
 export default function RouteNavigator() {
   const [days, setDays] = useState<RouteDay[]>([]);
@@ -21,9 +21,6 @@ export default function RouteNavigator() {
   const [query, setQuery] = useState('');
   const [priorityOnly, setPriorityOnly] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [syncingPriority, setSyncingPriority] = useState(false);
-  const [syncMessage, setSyncMessage] = useState<string | null>(null);
-  const autoSyncedRef = useRef(false);
   const [newCustomer, setNewCustomer] = useState({
     name: '',
     address: '',
@@ -106,28 +103,8 @@ export default function RouteNavigator() {
     loadDays();
   }, []);
 
-  // Push every ★ priority route stop into the global Customers registry (same as opening the Customer list).
-  useEffect(() => {
-    if (import.meta.env.VITE_CUSTOMER_MOCK === 'true' || autoSyncedRef.current) return;
-    autoSyncedRef.current = true;
-    let alive = true;
-    (async () => {
-      try {
-        const result = await syncRoutePriorityToCustomers();
-        if (!alive) return;
-        if (result.created > 0) {
-          setSyncMessage(
-            `Customer registry: added ${result.created} priority stop(s). ${result.skipped_existing} already matched.`
-          );
-        }
-      } catch {
-        /* Backend offline or mock — user can use manual sync */
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
+  // Auto-sync disabled — backend dedup is broken and creates duplicate customers (zero-balance
+  // copies of existing BETTANO records). Users can still sync manually via the button below.
 
   useEffect(() => {
     const loadStops = async () => {
@@ -242,26 +219,6 @@ export default function RouteNavigator() {
     [activeDay, displayStops.length]
   );
 
-  const handleSyncPriorityToCustomers = async () => {
-    setSyncingPriority(true);
-    setSyncMessage(null);
-    try {
-      const result = await syncRoutePriorityToCustomers();
-      setSyncMessage(
-        `Synced priority (★) stops: ${result.created} new customers in registry, ${result.skipped_existing} already existed (name/address/phone match). Total ★ stops: ${result.total_priority_stops}.`
-      );
-    } catch (e) {
-      console.error(e);
-      setSyncMessage(
-        e instanceof Error
-          ? e.message
-          : 'Could not sync. Use live API (not customer mock) and ensure the backend is running.'
-      );
-    } finally {
-      setSyncingPriority(false);
-    }
-  };
-
   const handleAddCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDay || !newCustomer.name.trim() || !newCustomer.address.trim()) {
@@ -318,25 +275,6 @@ export default function RouteNavigator() {
         <div className="inline-flex items-center gap-2 text-sm font-semibold text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
           <CalendarDays size={16} className="text-[#800020]" />
           {todayLabel}
-        </div>
-      </div>
-
-      <div className="bg-white rounded-xl border border-redwood-border/70 shadow-sm p-4 md:p-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="flex flex-col items-stretch gap-2 min-w-[280px]">
-          <button
-            type="button"
-            onClick={handleSyncPriorityToCustomers}
-            disabled={syncingPriority}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-white rounded-lg text-sm font-black disabled:opacity-50"
-            style={{ backgroundColor: '#800020' }}
-          >
-            <UserPlus size={18} />
-            {syncingPriority ? 'Syncing…' : 'Send all ★ priority stops to Customers'}
-          </button>
-          <p className="text-[11px] text-gray-600 leading-snug">
-            Creates a <strong>customer</strong> record for every starred route stop that does not already exist (same name and address).
-          </p>
-          {syncMessage && <div className="text-xs text-[#800020] bg-[#fdf2f7] border border-[#f5c7d8] rounded-lg px-3 py-2">{syncMessage}</div>}
         </div>
       </div>
 

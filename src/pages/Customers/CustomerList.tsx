@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { type Customer, getCustomers, syncRoutePriorityToCustomers } from '../../services/customerService';
+import { type Customer, getCustomers } from '../../services/customerService';
 import DataTable from '../../components/tables/DataTable';
 import { Plus } from 'lucide-react';
 
@@ -25,19 +25,6 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
       try {
         setLoading(true);
         setError(null);
-        void syncRoutePriorityToCustomers()
-          .then(async () => {
-            try {
-              const fresh = await getCustomers();
-              if (!cancelled) setCustomers(fresh);
-            } catch (e) {
-              console.warn('Refresh after route sync failed:', e);
-            }
-          })
-          .catch((syncErr) => {
-            console.warn('Priority route → customers sync:', syncErr);
-          });
-
         const data = await getCustomers();
         if (!cancelled) setCustomers(data);
       } catch (err) {
@@ -61,9 +48,6 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
     try {
       setLoading(true);
       setError(null);
-      void syncRoutePriorityToCustomers().catch((syncErr) => {
-        console.warn('Priority route → customers sync:', syncErr);
-      });
       const data = await getCustomers();
       setCustomers(data);
     } catch (err) {

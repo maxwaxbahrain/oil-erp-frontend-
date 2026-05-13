@@ -176,35 +176,53 @@ export default function DataMigration() {
         return created;
     };
 
-    const postToBackend = async (data: any) => {
-        let backendResults: any = {};
+    const importCustomersIdempotent = async (customers: any[]) => {
+        // Fetch existing customers ONCE so we can update-by-name instead of duplicating.
+        const existingByName: Record<string, any> = {};
         try {
-            const resp = await fetch(`${API}/api/migrate/full-import`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-            if (resp.ok) {
-                const result = await resp.json();
-                backendResults = result.results || {};
-            } else {
-                log('Full-import endpoint unavailable, using direct method...', 'warn');
+            const r = await fetch(`${API}/api/customers/`);
+            if (r.ok) {
+                const list = await r.json();
+                const arr = Array.isArray(list) ? list : (list?.results || list?.data || []);
+                for (const c of arr) {
+                    const key = String(c.name || '').trim().toLowerCase();
+                    if (key) existingByName[key] = c;
+                }
             }
-        } catch {
-            log('Full-import endpoint unreachable, using direct method...', 'warn');
-        }
+        } catch { /* continue */ }
 
-        if (!backendResults.customers && data.customers?.length) {
-            let ok = 0;
-            for (let i = 0; i < data.customers.length; i++) {
-                const c = data.customers[i];
-                try {
+        let created = 0;
+        let updated = 0;
+        for (let i = 0; i < customers.length; i++) {
+            const c = customers[i];
+            const key = String(c.name || '').trim().toLowerCase();
+            const existing = key ? existingByName[key] : null;
+            try {
+                if (existing) {
+                    const payload = { ...existing, ...c, balance: c.balance, opening_balance: c.opening_balance ?? c.balance };
+                    const r = await fetch(`${API}/api/customers/${existing.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                    if (r.ok) updated++;
+                } else {
                     const r = await fetch(`${API}/api/customers/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(c) });
                     if (r.ok) {
-                        const created = await r.json();
-                        if (c.balance !== 0) await fetch(`${API}/api/customers/${created.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...created, balance: c.balance, opening_balance: c.balance }) });
-                        ok++;
+                        const made = await r.json();
+                        existingByName[key] = made;
+                        if (c.balance !== 0) await fetch(`${API}/api/customers/${made.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...made, balance: c.balance, opening_balance: c.balance }) });
+                        created++;
                     }
-                } catch { /* continue */ }
-                if (i % 20 === 0) prog(55 + Math.round((i / data.customers.length) * 10), `Importing ${i + 1}/${data.customers.length} customers...`);
-            }
-            backendResults.customers = { created: ok, updated: 0 };
+                }
+            } catch { /* continue */ }
+            if (i % 20 === 0) prog(55 + Math.round((i / customers.length) * 10), `Importing ${i + 1}/${customers.length} customers...`);
+        }
+        return { created, updated };
+    };
+
+    const postToBackend = async (data: any) => {
+        const backendResults: any = {};
+
+        if (data.customers?.length) {
+            log(`👥 Importing ${data.customers.length} customers (dedup by name)...`, 'info');
+            backendResults.customers = await importCustomersIdempotent(data.customers);
         }
 
         if (!backendResults.products?.created && data.products?.length) {
