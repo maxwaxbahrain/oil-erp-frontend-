@@ -1,5 +1,7 @@
 import { useState, useCallback } from 'react';
 import { Upload, CheckCircle, RefreshCw, Trash2, Users, Package, FileText, CreditCard, TrendingUp, Zap } from 'lucide-react';
+import { createSupplier, getSuppliers } from '../../services/purchasesService';
+import { saveImportedProduct } from '../../services/productService';
 
 const API = ((import.meta.env.VITE_API_URL as string) || 'https://bettano-erp-backend.onrender.com').replace(/\/$/, '');
 
@@ -83,24 +85,148 @@ export default function DataMigration() {
         return { customers, suppliers, products, invoices, payments };
     };
 
-    const postToBackend = async (data: any) => {
-        const resp = await fetch(`${API}/api/migrate/full-import`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-        if (resp.ok) { const result = await resp.json(); return result.results || {}; }
-        log('Using direct import method...', 'warn');
-        let ok = 0;
-        for (let i = 0; i < data.customers.length; i++) {
-            const c = data.customers[i];
+    const importProductsDirect = async (products: any[]) => {
+        let created = 0;
+        for (let i = 0; i < products.length; i++) {
+            const p = products[i];
+            const uniqueSku = (p.sku && p.sku.trim()) || `IMP-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
+            const payload = { name: p.name, sku: uniqueSku, category: p.category || 'Imported', price: Number(p.price) || 0, cost: Number(p.cost) || 0, stock: Number(p.stock) || 0, min_stock: 10, unit: p.unit || 'unit', description: p.description || '' };
             try {
-                const r = await fetch(`${API}/api/customers/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(c) });
+                const r = await fetch(`${API}/api/products/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
                 if (r.ok) {
-                    const created = await r.json();
-                    if (c.balance !== 0) await fetch(`${API}/api/customers/${created.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...created, balance: c.balance, opening_balance: c.balance }) });
-                    ok++;
+                    const prod = await r.json().catch(() => null);
+                    saveImportedProduct({
+                        id: String(prod?.id || `LOCAL-${Date.now()}-${i}`),
+                        name: p.name, sku: prod?.sku || uniqueSku, category: payload.category, status: 'Active' as const,
+                        uom: payload.unit, description: payload.description || p.name, shortDescription: payload.description?.slice(0, 80) || '',
+                        velocityStatus: 'Medium' as const, salesVelocity: 0, salesTrend: 0, revenueContribution: 0,
+                        grossMarginPercent: 30, netProfitPerUnit: 0, avgDailySales: 0, daysStockRemaining: 0,
+                        reorderLevel: 10, overstockRisk: 'Low' as const, leadTimeDays: 7, minOrderQty: 1,
+                        locations: [], priceHistory: [], images: [],
+                        pricing: { purchasePriceExWorks: payload.cost, freightShipping: 0, importDuty: 0, otherDirectCosts: 0, landedCost: payload.cost, operatingExpenseAllocation: 0, sellingPrice: payload.price, taxRate: 0, taxIncluded: false },
+                        aiEnabled: false, aiDemandPrediction: 0, aiConfidenceLevel: 0,
+                    } as any);
+                    created++;
                 }
             } catch { /* continue */ }
-            if (i % 20 === 0) prog(60 + Math.round((i / data.customers.length) * 30), `Importing ${i + 1}/${data.customers.length} customers...`);
+            if (i % 20 === 0) prog(70 + Math.round((i / products.length) * 10), `Importing ${i + 1}/${products.length} products...`);
         }
-        return { customers: { created: ok, updated: 0 } };
+        return created;
+    };
+
+    const importInvoicesDirect = async (invoices: any[]) => {
+        let custMap: Record<string, string> = {};
+        try {
+            const r = await fetch(`${API}/api/customers/`);
+            if (r.ok) {
+                const list = await r.json();
+                const arr = Array.isArray(list) ? list : (list?.results || list?.data || []);
+                for (const c of arr) {
+                    const nm = String(c.name || '').trim().toLowerCase();
+                    if (nm && c.id != null) custMap[nm] = String(c.id);
+                }
+            }
+        } catch { /* continue */ }
+
+        let created = 0;
+        for (let i = 0; i < invoices.length; i++) {
+            const inv = invoices[i];
+            const custName = String(inv.customer_name || '').trim();
+            const customerId = custMap[custName.toLowerCase()];
+            if (!customerId) continue;
+            const grand = Number(inv.amount) || 0;
+            const payload = {
+                invoiceNumber: inv.invoice_number || `INV-${Date.now()}-${i}`,
+                customerId, customerName: custName,
+                invoiceDate: inv.date || new Date().toISOString().split('T')[0],
+                dueDate: null,
+                lineItems: [{ product: 'Imported', description: inv.notes || '', quantity: 1, rate: grand, amount: grand, productId: null, itemCode: null }],
+                subtotal: grand, taxRate: 0, taxAmount: 0, discount: 0, grandTotal: grand,
+                notes: inv.notes || 'BETTANO import', salesman: '', van: '',
+                payment_status: inv.status === 'paid' ? 'Paid' : 'Unpaid',
+                payment_method: 'Cash',
+                amount_paid: inv.status === 'paid' ? grand : 0,
+                remaining_balance: inv.status === 'paid' ? 0 : grand,
+                status: inv.status || 'paid',
+            };
+            try {
+                const r = await fetch(`${API}/api/invoices/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                if (r.ok) created++;
+            } catch { /* continue */ }
+            if (i % 25 === 0) prog(90 + Math.round((i / invoices.length) * 8), `Importing ${i + 1}/${invoices.length} invoices...`);
+        }
+        return created;
+    };
+
+    const importSuppliersDirect = async (suppliers: any[]) => {
+        const existing = await getSuppliers();
+        const existingNames = new Set(existing.map(s => s.name.toLowerCase().trim()));
+        let created = 0;
+        for (let i = 0; i < suppliers.length; i++) {
+            const s = suppliers[i];
+            const name = String(s.name || '').trim();
+            if (!name || existingNames.has(name.toLowerCase())) continue;
+            try {
+                await createSupplier({ name, code: `SUP-${Date.now().toString().slice(-6)}-${i}`, contactPerson: '', email: s.email || '', phone: s.phone || '', address: s.address || '', taxId: '', status: 'Active', paymentTerms: 'Net 30', currency: 'USD', rating: 'A', notes: s.notes || 'BETTANO import' });
+                existingNames.add(name.toLowerCase());
+                created++;
+            } catch { /* continue */ }
+            if (i % 20 === 0) prog(80 + Math.round((i / suppliers.length) * 10), `Importing ${i + 1}/${suppliers.length} suppliers...`);
+        }
+        return created;
+    };
+
+    const postToBackend = async (data: any) => {
+        let backendResults: any = {};
+        try {
+            const resp = await fetch(`${API}/api/migrate/full-import`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+            if (resp.ok) {
+                const result = await resp.json();
+                backendResults = result.results || {};
+            } else {
+                log('Full-import endpoint unavailable, using direct method...', 'warn');
+            }
+        } catch {
+            log('Full-import endpoint unreachable, using direct method...', 'warn');
+        }
+
+        if (!backendResults.customers && data.customers?.length) {
+            let ok = 0;
+            for (let i = 0; i < data.customers.length; i++) {
+                const c = data.customers[i];
+                try {
+                    const r = await fetch(`${API}/api/customers/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(c) });
+                    if (r.ok) {
+                        const created = await r.json();
+                        if (c.balance !== 0) await fetch(`${API}/api/customers/${created.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...created, balance: c.balance, opening_balance: c.balance }) });
+                        ok++;
+                    }
+                } catch { /* continue */ }
+                if (i % 20 === 0) prog(55 + Math.round((i / data.customers.length) * 10), `Importing ${i + 1}/${data.customers.length} customers...`);
+            }
+            backendResults.customers = { created: ok, updated: 0 };
+        }
+
+        if (!backendResults.products?.created && data.products?.length) {
+            log(`📦 Importing ${data.products.length} products directly...`, 'info');
+            const productsCreated = await importProductsDirect(data.products);
+            backendResults.products = { created: productsCreated };
+        }
+
+        if (!backendResults.suppliers?.created && data.suppliers?.length) {
+            log(`🏭 Importing ${data.suppliers.length} suppliers directly...`, 'info');
+            const suppliersCreated = await importSuppliersDirect(data.suppliers);
+            backendResults.suppliers = { created: suppliersCreated };
+        }
+
+        if (!backendResults.invoices?.created && data.invoices?.length) {
+            log(`📄 Importing ${data.invoices.length} invoices directly...`, 'info');
+            const invoicesCreated = await importInvoicesDirect(data.invoices);
+            backendResults.invoices = { created: invoicesCreated };
+            if (invoicesCreated === 0) log('⚠️ No invoices matched existing customers — skipped', 'warn');
+        }
+
+        return backendResults;
     };
 
     const parseCsv = async (text: string) => {
