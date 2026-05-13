@@ -25,7 +25,6 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
       try {
         setLoading(true);
         setError(null);
-        // Never block the registry on sync — sync can be slow or fail while GET /customers still works.
         void syncRoutePriorityToCustomers()
           .then(async () => {
             try {
@@ -76,7 +75,6 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
   }
 
   const q = searchTerm.toLowerCase();
-  // Defensive: API may return numeric id / missing name; string ops must not throw (blank screen).
   const filteredCustomers = customers.filter((customer) => {
     const name = (customer.name ?? '').toLowerCase();
     const idStr = String(customer.id ?? '').toLowerCase();
@@ -123,9 +121,9 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
       accessor: (c: Customer) => (
         <div className="flex flex-col items-end w-full">
           <span className={`text-[13px] font-black font-mono ${(c.balance || 0) > 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
-            {(c.balance || 0).toLocaleString()}
+            ${(c.balance || 0).toLocaleString()}
           </span>
-          <span className="text-[9px] text-redwood-text-muted/80 font-bold tracking-widest">SYNC-IN-PROGRESS</span>
+          <span className="text-[9px] text-redwood-text-muted/80 font-bold tracking-widest">FISCAL BALANCE</span>
         </div>
       ),
       className: 'text-right'
@@ -148,12 +146,9 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
 
   return (
     <div className="space-y-4">
-      {/* Header with Search and Add Button */}
       <div className="bg-white border border-redwood-border rounded-sm shadow-sm p-4">
         <div className="flex items-center justify-between gap-4">
-          {/* Search Box */}
           <div className="flex-1 max-w-md relative">
-            {/* BUG #5 FIX: Removed magnifying glass icon */}
             <input
               type="text"
               autoComplete="off"
@@ -168,8 +163,6 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
               }}
             />
           </div>
-
-          {/* Add Customer Button */}
           <button
             onClick={() => navigate('/customers/new')}
             className="px-4 py-2 bg-redwood-brand text-white rounded-sm text-sm font-bold hover:brightness-95 flex items-center gap-2 shadow-md"
@@ -197,7 +190,6 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
         </div>
       )}
 
-      {/* Data Table */}
       <DataTable
         title="Global Entity Registry"
         subtitle="Master database of authorized partners and commercial interests"
