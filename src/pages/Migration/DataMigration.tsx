@@ -106,7 +106,7 @@ export default function DataMigration() {
         const headers = rows[0].split(',').map(h => h.trim().toLowerCase().replace(/['"]/g, ''));
         const find = (...keys: string[]) => headers.find(h => keys.some(k => h.includes(k))) || '';
         const nf = find('name', 'company', 'customer') || headers[0];
-        const ef = find('email'); const pf = find('phone', 'mobile'); const af = find('address'); const bf = find('balance', 'amount');
+        const pf = find('phone', 'mobile'); const af = find('address'); const bf = find('balance', 'amount');const ef = find('email'); const pf = find('phone', 'mobile'); const af = find('address'); const bf = find('balance', 'amount');
         const customers = rows.slice(1).map(l => {
             const v = l.split(',').map(v => v.trim().replace(/^['"]|['"]$/g, ''));
             const get = (f: string) => f ? v[headers.indexOf(f)] || '' : '';
