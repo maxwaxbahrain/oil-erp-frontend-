@@ -176,6 +176,64 @@ export default function DataMigration() {
         return created;
     };
 
+    const importPaymentsIdempotent = async (payments: any[]) => {
+        // Match payments to customers by name; skip if a payment with the same reference already exists.
+        const nameToId: Record<string, number> = {};
+        try {
+            const r = await fetch(`${API}/api/customers/`);
+            if (r.ok) {
+                const list = await r.json();
+                const arr = Array.isArray(list) ? list : (list?.results || list?.data || []);
+                for (const c of arr) {
+                    const key = String(c.name || '').trim().toLowerCase();
+                    if (key) nameToId[key] = c.id;
+                }
+            }
+        } catch { /* continue */ }
+
+        const existingRefs = new Set<string>();
+        for (const cid of new Set(Object.values(nameToId))) {
+            try {
+                const r = await fetch(`${API}/api/customers/${cid}/payments`);
+                if (r.ok) {
+                    const pays = await r.json();
+                    for (const p of pays) {
+                        const ref = String(p.reference || '').trim().toLowerCase();
+                        if (ref) existingRefs.add(`${cid}::${ref}`);
+                    }
+                }
+            } catch { /* continue */ }
+        }
+
+        let created = 0;
+        let skipped = 0;
+        for (let i = 0; i < payments.length; i++) {
+            const p = payments[i];
+            const key = String(p.customer_name || '').trim().toLowerCase();
+            const cid = nameToId[key];
+            if (!cid) { skipped++; continue; }
+            const ref = String(p.reference || '').trim();
+            if (ref && existingRefs.has(`${cid}::${ref.toLowerCase()}`)) { skipped++; continue; }
+            const payload = {
+                customer_id: cid,
+                amount: Number(p.amount) || 0,
+                payment_date: String(p.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10),
+                payment_method: 'Cash',
+                reference: ref,
+                notes: 'BETTANO import',
+            };
+            try {
+                const r = await fetch(`${API}/api/customers/${cid}/payments`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                if (r.ok) {
+                    created++;
+                    if (ref) existingRefs.add(`${cid}::${ref.toLowerCase()}`);
+                }
+            } catch { /* continue */ }
+            if (i % 25 === 0) prog(95 + Math.round((i / payments.length) * 4), `Importing ${i + 1}/${payments.length} payments...`);
+        }
+        return { created, skipped };
+    };
+
     const importCustomersIdempotent = async (customers: any[]) => {
         // Fetch existing customers ONCE so we can update-by-name instead of duplicating.
         const existingByName: Record<string, any> = {};
@@ -242,6 +300,12 @@ export default function DataMigration() {
             const invoicesCreated = await importInvoicesDirect(data.invoices);
             backendResults.invoices = { created: invoicesCreated };
             if (invoicesCreated === 0) log('⚠️ No invoices matched existing customers — skipped', 'warn');
+        }
+
+        if (data.payments?.length) {
+            log(`💵 Importing ${data.payments.length} payments (dedup by reference)...`, 'info');
+            backendResults.payments = await importPaymentsIdempotent(data.payments);
+            log(`💵 Payments: ${backendResults.payments.created} created, ${backendResults.payments.skipped} skipped`, 'success');
         }
 
         return backendResults;

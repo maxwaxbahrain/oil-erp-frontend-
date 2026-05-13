@@ -552,7 +552,7 @@ export async function createPayment(payment: Omit<Payment, 'id' | 'created_at'>)
         return newPayment;
     }
 
-    const response = await fetch(apiUrl('payments'), {
+    const response = await fetch(apiUrl(`customers/${payment.customer_id}/payments`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payment)
