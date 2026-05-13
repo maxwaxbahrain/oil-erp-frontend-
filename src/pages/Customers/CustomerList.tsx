@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { type Customer, getCustomers } from '../../services/customerService';
+import { type Customer, getCustomers, fetchCustomerBalancesFromLedger } from '../../services/customerService';
 import DataTable from '../../components/tables/DataTable';
 import { Plus } from 'lucide-react';
 
@@ -27,6 +27,12 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
         setError(null);
         const data = await getCustomers();
         if (!cancelled) setCustomers(data);
+
+        // Background refresh: backend's stored balance is stale after BETTANO+payments
+        // import (PUT ignores balance updates). Recompute from each ledger and merge in.
+        const balances = await fetchCustomerBalancesFromLedger(data.map((c) => c.id));
+        if (cancelled) return;
+        setCustomers((prev) => prev.map((c) => (balances[String(c.id)] !== undefined ? { ...c, balance: balances[String(c.id)] } : c)));
       } catch (err) {
         console.error('Failed to fetch customers:', err);
         if (!cancelled)

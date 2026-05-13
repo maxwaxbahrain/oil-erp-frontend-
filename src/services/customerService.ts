@@ -250,47 +250,49 @@ export async function getCustomers(): Promise<Customer[]> {
 
     const primary = apiUrl('customers/');
 
-    let rows: Customer[];
     try {
-        rows = await fetchCustomersRows(primary);
+        return await fetchCustomersRows(primary);
     } catch (firstErr) {
         // Dev fallback: same-origin /api failed but backend may still be up on :8000 (CORS allows *).
         if (import.meta.env.DEV) {
             try {
-                const fallback = await fetchCustomersRows(directCustomersUrl());
-                if (fallback.length > 0) {
+                const rows = await fetchCustomersRows(directCustomersUrl());
+                if (rows.length > 0) {
                     console.warn(
                         '[customers] Loaded via direct http://127.0.0.1:8000 — fix Vite proxy or API base so /api works from this origin.'
                     );
-                    rows = fallback;
-                } else {
-                    throw firstErr;
+                    return rows;
                 }
             } catch {
-                throw firstErr;
+                /* fall through */
             }
-        } else {
-            throw firstErr;
         }
+        throw firstErr;
     }
+}
 
-    // The backend's stored `balance` field gets out of sync because payment POSTs
-    // decrement balance but the stored amount was already the post-payment outstanding
-    // when imported from BETTANO. Recompute from the ledger (sales - payments).
+/**
+ * The backend's stored customer.balance is out of sync (payment POSTs decremented
+ * the BETTANO-set outstanding amount). Recompute from each customer's ledger.
+ * Done as a separate, non-blocking call from the customer list so the list still
+ * renders if this call fails or is slow.
+ */
+export async function fetchCustomerBalancesFromLedger(customerIds: Array<string | number>): Promise<Record<string, number>> {
+    if (USE_MOCK) return {};
+    const results: Record<string, number> = {};
     await Promise.all(
-        rows.map(async (c) => {
+        customerIds.map(async (id) => {
             try {
-                const r = await fetch(apiUrl(`customers/${c.id}/ledger`));
+                const r = await fetch(apiUrl(`customers/${id}/ledger`));
                 if (!r.ok) return;
-                const ledger: Array<{ debit?: number; credit?: number; type?: string }> = await r.json();
+                const ledger: Array<{ debit?: number; credit?: number }> = await r.json();
                 let outstanding = 0;
                 for (const e of ledger) outstanding += Number(e.debit || 0) - Number(e.credit || 0);
-                c.balance = Math.round(outstanding * 100) / 100;
-            } catch { /* keep server balance on failure */ }
+                results[String(id)] = Math.round(outstanding * 100) / 100;
+            } catch { /* skip */ }
         })
     );
-
-    return rows;
+    return results;
 }
 
 export async function getCustomer(id: string): Promise<Customer> {
