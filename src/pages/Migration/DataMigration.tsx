@@ -57,13 +57,13 @@ export default function DataMigration() {
                 // Fallback: delete one by one
                 setStep('Fetching customer list...');
                 setPct(20);
-                const getRes = await fetch(`${API_BASE}/customers/`);
+                const getRes = await fetch(`${API_BASE}/api/customers/`);
                 if (getRes.ok) {
                     const customers = await getRes.json();
                     log.push(`Found ${customers.length} customers to delete`);
                     let deleted = 0;
                     for (const c of customers) {
-                        await fetch(`${API_BASE}/customers/${c.id}`, { method: 'DELETE' });
+                        await fetch(`${API_BASE}/api/customers/${c.id}`, { method: 'DELETE' });
                         deleted++;
                         setPct(20 + Math.round((deleted / customers.length) * 60));
                         setStep(`Deleting ${deleted}/${customers.length}...`);
@@ -158,13 +158,13 @@ export default function DataMigration() {
                             opening_balance: Number(r[4])||0,
                             balance: balance,
                             credit_limit: Number(r[5])||0,
-                            category: 'Customer',
+                            category: 'retail',
                             notes: `Imported from Soltol DB | Balance: $${balance.toFixed(2)}`
                         };
 
                         // POST to backend API
                         try {
-                            const res = await fetch(`${API_BASE}/customers/`, {
+                            const res = await fetch(`${API_BASE}/api/customers/`, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify(payload)
@@ -244,14 +244,14 @@ export default function DataMigration() {
 
                 const parsed = rows.slice(1).map((l) => {
                     const v = l.split(',').map(v => v.trim().replace(/^['"]|['"]$/g, ''));
-                    return { name:v[headers.indexOf(nf)]||'', email:ef?v[headers.indexOf(ef)]||'':'', phone:pf?v[headers.indexOf(pf)]||'':'', address:af?v[headers.indexOf(af)]||'':'', balance:0, category:'Customer', notes:'Imported from CSV' };
+                    return { name:v[headers.indexOf(nf)]||'', email:ef?v[headers.indexOf(ef)]||'':'', phone:pf?v[headers.indexOf(pf)]||'':'', address:af?v[headers.indexOf(af)]||'':'', balance:0, category:'retail', notes:'Imported from CSV' };
                 }).filter(x => x.name);
 
                 setStep('Syncing to ERP...'); setPct(60);
                 let synced = 0;
                 for (const c of parsed) {
                     try {
-                        const r = await fetch(`${API_BASE}/customers/`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(c) });
+                        const r = await fetch(`${API_BASE}/api/customers/`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(c) });
                         if (r.ok) synced++;
                     } catch { /* continue */ }
                 }
