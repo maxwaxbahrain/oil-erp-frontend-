@@ -250,25 +250,47 @@ export async function getCustomers(): Promise<Customer[]> {
 
     const primary = apiUrl('customers/');
 
+    let rows: Customer[];
     try {
-        return await fetchCustomersRows(primary);
+        rows = await fetchCustomersRows(primary);
     } catch (firstErr) {
         // Dev fallback: same-origin /api failed but backend may still be up on :8000 (CORS allows *).
         if (import.meta.env.DEV) {
             try {
-                const rows = await fetchCustomersRows(directCustomersUrl());
-                if (rows.length > 0) {
+                const fallback = await fetchCustomersRows(directCustomersUrl());
+                if (fallback.length > 0) {
                     console.warn(
                         '[customers] Loaded via direct http://127.0.0.1:8000 — fix Vite proxy or API base so /api works from this origin.'
                     );
-                    return rows;
+                    rows = fallback;
+                } else {
+                    throw firstErr;
                 }
             } catch {
-                /* fall through */
+                throw firstErr;
             }
+        } else {
+            throw firstErr;
         }
-        throw firstErr;
     }
+
+    // The backend's stored `balance` field gets out of sync because payment POSTs
+    // decrement balance but the stored amount was already the post-payment outstanding
+    // when imported from BETTANO. Recompute from the ledger (sales - payments).
+    await Promise.all(
+        rows.map(async (c) => {
+            try {
+                const r = await fetch(apiUrl(`customers/${c.id}/ledger`));
+                if (!r.ok) return;
+                const ledger: Array<{ debit?: number; credit?: number; type?: string }> = await r.json();
+                let outstanding = 0;
+                for (const e of ledger) outstanding += Number(e.debit || 0) - Number(e.credit || 0);
+                c.balance = Math.round(outstanding * 100) / 100;
+            } catch { /* keep server balance on failure */ }
+        })
+    );
+
+    return rows;
 }
 
 export async function getCustomer(id: string): Promise<Customer> {
