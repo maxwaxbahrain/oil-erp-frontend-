@@ -86,15 +86,43 @@ export default function DataMigration() {
     };
 
     const importProductsDirect = async (products: any[]) => {
+        // Fetch existing products ONCE so we dedupe by name (case-insensitive).
+        // Without this every re-import multiplied every product by another copy
+        // because the previous SKU-key generated a fresh IMP-... id each time.
+        const existingByName: Record<string, any> = {};
+        try {
+            const r = await fetch(`${API}/api/products/`);
+            if (r.ok) {
+                const list = await r.json();
+                const arr = Array.isArray(list) ? list : (list?.results || list?.data || []);
+                for (const ex of arr) {
+                    const key = String(ex.name || '').trim().toLowerCase();
+                    if (key) existingByName[key] = ex;
+                }
+            }
+        } catch { /* continue */ }
+
         let created = 0;
+        let updated = 0;
+        let skipped = 0;
         for (let i = 0; i < products.length; i++) {
             const p = products[i];
-            const uniqueSku = (p.sku && p.sku.trim()) || `IMP-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
+            const nameKey = String(p.name || '').trim().toLowerCase();
+            if (!nameKey) { skipped++; continue; }
+            const existing = existingByName[nameKey];
+            const uniqueSku = (p.sku && p.sku.trim()) || existing?.sku || `IMP-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
             const payload = { name: p.name, sku: uniqueSku, category: p.category || 'Imported', price: Number(p.price) || 0, cost: Number(p.cost) || 0, stock: Number(p.stock) || 0, min_stock: 10, unit: p.unit || 'unit', description: p.description || '' };
             try {
-                const r = await fetch(`${API}/api/products/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                if (r.ok) {
-                    const prod = await r.json().catch(() => null);
+                let prod: any = null;
+                if (existing) {
+                    // Update existing product instead of creating a duplicate.
+                    const r = await fetch(`${API}/api/products/${existing.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...existing, ...payload }) });
+                    if (r.ok) { prod = await r.json().catch(() => existing); updated++; }
+                } else {
+                    const r = await fetch(`${API}/api/products/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                    if (r.ok) { prod = await r.json().catch(() => null); created++; existingByName[nameKey] = prod || payload; }
+                }
+                if (prod) {
                     saveImportedProduct({
                         id: String(prod?.id || `LOCAL-${Date.now()}-${i}`),
                         name: p.name, sku: prod?.sku || uniqueSku, category: payload.category, status: 'Active' as const,
@@ -106,12 +134,12 @@ export default function DataMigration() {
                         pricing: { purchasePriceExWorks: payload.cost, freightShipping: 0, importDuty: 0, otherDirectCosts: 0, landedCost: payload.cost, operatingExpenseAllocation: 0, sellingPrice: payload.price, taxRate: 0, taxIncluded: false },
                         aiEnabled: false, aiDemandPrediction: 0, aiConfidenceLevel: 0,
                     } as any);
-                    created++;
                 }
             } catch { /* continue */ }
             if (i % 20 === 0) prog(70 + Math.round((i / products.length) * 10), `Importing ${i + 1}/${products.length} products...`);
         }
-        return created;
+        log(`📦 Products: ${created} created, ${updated} updated${skipped ? `, ${skipped} skipped` : ''}`, 'success');
+        return created + updated;
     };
 
     const importInvoicesDirect = async (invoices: any[]) => {
