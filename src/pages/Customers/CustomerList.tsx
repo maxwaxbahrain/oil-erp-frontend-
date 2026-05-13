@@ -26,29 +26,31 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
         setLoading(true);
         setError(null);
         const data = await getCustomers();
-        if (!cancelled) setCustomers(data);
+        if (cancelled) return;
+        setCustomers(data);
+        setLoading(false); // unblock the table the instant customers arrive
 
-        // Background refresh: backend's stored balance is stale after BETTANO+payments
-        // import (PUT ignores balance updates). Recompute from each ledger and merge in.
-        // Wrapped in its own try/catch so a flaky ledger fetch never blows away the
-        // already-rendered customer list.
-        try {
-          const balances = await fetchCustomerBalancesFromLedger(data.map((c) => c.id));
-          if (cancelled) return;
-          setCustomers((prev) =>
-            prev.map((c) => (balances[String(c.id)] !== undefined ? { ...c, balance: balances[String(c.id)] } : c))
-          );
-        } catch (refreshErr) {
-          console.warn('Balance refresh from ledger failed; showing server balances:', refreshErr);
-        }
+        // Background refresh in a separate async block — never blocks list rendering.
+        // Backend's stored balance is stale after BETTANO+payments import (PUT ignores
+        // balance updates). Recompute from each ledger and merge in when ready.
+        fetchCustomerBalancesFromLedger(data.map((c) => c.id))
+          .then((balances) => {
+            if (cancelled) return;
+            setCustomers((prev) =>
+              prev.map((c) => (balances[String(c.id)] !== undefined ? { ...c, balance: balances[String(c.id)] } : c))
+            );
+          })
+          .catch((refreshErr) => {
+            console.warn('Balance refresh from ledger failed; showing server balances:', refreshErr);
+          });
       } catch (err) {
         console.error('Failed to fetch customers:', err);
-        if (!cancelled)
+        if (!cancelled) {
           setError(
             err instanceof Error ? err.message : 'Unable to load customers. Start the API (port 8000) and refresh.'
           );
-      } finally {
-        if (!cancelled) setLoading(false);
+          setLoading(false);
+        }
       }
     }
 
