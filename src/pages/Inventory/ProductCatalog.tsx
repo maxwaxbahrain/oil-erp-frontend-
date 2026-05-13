@@ -56,6 +56,37 @@ export default function ProductCatalog() {
         setProducts(prev => prev.filter(p => p.id !== id));
     };
 
+    const [clearing, setClearing] = useState(false);
+    const [clearProgress, setClearProgress] = useState(0);
+
+    const handleDeleteAll = async () => {
+        const count = products.length;
+        if (count === 0) return;
+        if (!window.confirm(`Delete ALL ${count} products? This cannot be undone.`)) return;
+        if (!window.confirm(`Really delete ALL ${count} products? Type-check: are you SURE?`)) return;
+        setClearing(true);
+        setClearProgress(0);
+        let done = 0;
+        let failed = 0;
+        // Run in parallel batches of 8 to avoid hammering Render.
+        const batchSize = 8;
+        const ids = products.map((p) => p.id);
+        for (let i = 0; i < ids.length; i += batchSize) {
+            const batch = ids.slice(i, i + batchSize);
+            await Promise.all(
+                batch.map(async (id) => {
+                    try { await deleteProduct(id); } catch { failed++; }
+                    done++;
+                    setClearProgress(done);
+                })
+            );
+        }
+        try { localStorage.removeItem('bettano_imported_products'); } catch { /* ignore */ }
+        setProducts([]);
+        setClearing(false);
+        window.alert(`Deleted ${done - failed} of ${count} products${failed ? ` (${failed} failed)` : ''}.`);
+    };
+
     const categories = ['All Categories', ...Array.from(new Set(products.map(p => p.category)))];
 
     console.log('Products loaded in catalog:', products.length);
@@ -202,6 +233,14 @@ export default function ProductCatalog() {
                                 className="px-8 py-5 bg-gray-900 text-white text-[11px] font-black uppercase tracking-widest rounded-2xl flex items-center gap-3 hover:bg-black transition-all shadow-xl shadow-gray-200"
                             >
                                 <Plus size={18} /> Add Product
+                            </button>
+                            <button
+                                onClick={handleDeleteAll}
+                                disabled={clearing || products.length === 0}
+                                className="px-8 py-5 bg-red-600 text-white text-[11px] font-black uppercase tracking-widest rounded-2xl flex items-center gap-3 hover:bg-red-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                                <Trash2 size={18} />
+                                {clearing ? `Deleting ${clearProgress}/${products.length}…` : `Delete All (${products.length})`}
                             </button>
                             <button className="p-5 bg-gray-50 border border-gray-100 text-gray-600 rounded-2xl hover:bg-white hover:border-gray-900 transition-all">
                                 <Download size={20} />
