@@ -545,7 +545,16 @@ export async function getCustomerPayments(customerId: string): Promise<Payment[]
 
     const response = await fetch(apiUrl(`customers/${customerId}/payments`));
     if (!response.ok) throw new Error('Failed to fetch customer payments');
-    return response.json();
+    const raw = await response.json();
+    // The backend returns numeric ids; the Payment type (and downstream code that
+    // does `.slice(-4)` on the id) expects strings. Normalize here so every caller
+    // sees a stable string id. Without this the customer profile loadAllData
+    // throws TypeError mid-flight and stats stay at the initial zeros.
+    return (Array.isArray(raw) ? raw : []).map((p: any) => ({
+        ...p,
+        id: String(p?.id ?? ''),
+        customer_id: String(p?.customer_id ?? ''),
+    }));
 }
 
 export async function createPayment(payment: Omit<Payment, 'id' | 'created_at'>): Promise<Payment> {

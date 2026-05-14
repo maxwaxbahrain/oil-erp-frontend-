@@ -275,7 +275,7 @@ export default function CustomerOverview() {
                     relatedInvoiceId: undefined as string | undefined,
                     date: pay.payment_date,
                     type: 'Payment' as const,
-                    referenceNumber: pay.reference || `PAY-${pay.id.slice(-4)}`,
+                    referenceNumber: pay.reference || `PAY-${String(pay.id).slice(-4)}`,
                     description: `Payment Received - ${pay.payment_method}`,
                     debit: 0,
                     credit: pay.amount
@@ -300,7 +300,7 @@ export default function CustomerOverview() {
                                 entry.type === 'credit' ? 'Credit Note' as const :
                                     entry.type === 'debit' ? 'Debit Note' as const :
                                         'Invoice' as const, // Default or handle other types
-                        referenceNumber: entry.reference || entry.invoice_number || `${entry.type.toUpperCase()}-${entry.id.slice(-4)}`,
+                        referenceNumber: entry.reference || entry.invoice_number || `${entry.type.toUpperCase()}-${String(entry.id).slice(-4)}`,
                         description: entry.description || `${entry.type} transaction`,
                         debit: entry.type === 'van_sale' || entry.type === 'invoice' || entry.type === 'debit' || entry.type === 'opening_balance' ? entry.amount : 0,
                         credit:
@@ -392,8 +392,12 @@ export default function CustomerOverview() {
     };
 
     useEffect(() => {
+        // Wait for customer to load so customer.credit_limit (and any other field
+        // loadAllData reads from the customer record) is available when stats are
+        // computed. Without this, credit_limit, last_payment, etc. compute as 0.
+        if (!customer) return;
         loadAllData();
-    }, [id]);
+    }, [id, customer]);
 
     const handleConvertOrder = async (orderId: string) => {
         try {
@@ -944,7 +948,7 @@ export default function CustomerOverview() {
                                             payments.map(pay => (
                                                 <tr key={pay.id} className="hover:bg-gray-50">
                                                     <td className="px-4 py-3 text-sm text-gray-600">{new Date(pay.payment_date).toLocaleDateString()}</td>
-                                                    <td className="px-4 py-3 text-sm font-bold font-mono">{pay.reference || `PAY-${pay.id.slice(-4)}`}</td>
+                                                    <td className="px-4 py-3 text-sm font-bold font-mono">{pay.reference || `PAY-${String(pay.id).slice(-4)}`}</td>
                                                     <td className="px-4 py-3 text-sm text-gray-600">{pay.payment_method}</td>
                                                     <td className="px-4 py-3 text-sm font-bold text-right font-mono text-green-600">{pay.amount.toLocaleString()}</td>
                                                     <td className="px-4 py-3 text-center">
