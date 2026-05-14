@@ -88,11 +88,10 @@ const setStorage = <T>(key: string, data: T[]) => {
     localStorage.setItem(key, JSON.stringify(data));
 };
 
-// Initial data if empty
-const INITIAL_SUPPLIERS: Supplier[] = [
-    { id: 'SUP-001', name: 'Global Foods Ltd', code: 'S-101', contactPerson: 'John Smith', email: 'john@globalfoods.com', phone: '+1 555-0101', taxId: 'TAX-8892', status: 'Active', paymentTerms: 'Net 30', currency: 'USD', rating: 'A', address: '123 Supply Ave, Industrial City' },
-    { id: 'SUP-002', name: 'Valley Farms', code: 'S-102', contactPerson: 'Sarah Lee', email: 'sarah@valley.com', phone: '+1 555-0102', taxId: 'TAX-7721', status: 'Active', paymentTerms: 'Net 15', currency: 'USD', rating: 'B', address: '456 Farm Rd, Green Valley' },
-];
+// NOTE: The old INITIAL_SUPPLIERS seed (Global Foods Ltd / Valley Farms) was
+// removed when suppliers moved to the backend. Those rows were leaking into
+// the live list whenever a stale bundle ran. Backend is now the single source
+// of truth.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Supplier persistence: backend-first with a one-time localStorage migration.
@@ -392,7 +391,7 @@ export const getSupplierBalance = async (supplierId: string): Promise<number> =>
 };
 
 // ── Procurement Flow Actions ─────────────────────────────────────────────────
-const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+// (API_HOST is already declared at the top of the file for SUPPLIERS_API.)
 
 export const approvePurchaseOrder = async (id: string): Promise<PurchaseOrder> => {
     return updatePurchaseOrder(id, {
