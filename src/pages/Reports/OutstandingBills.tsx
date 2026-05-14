@@ -1,62 +1,101 @@
 import { useNavigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
-import { FileText, Download, Filter, AlertCircle, CheckCircle , ArrowLeft, Printer } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { FileText, Download, AlertCircle, CheckCircle, ArrowLeft, Printer, ChevronLeft, ChevronRight } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { getInvoices, getPayments, type Invoice } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
 
+// Page-size for the bottom pager.
+const PAGE_SIZE = 25;
+
+// QuickBooks-style status derivation from actual amounts and dates.
+const balanceOf = (i: Invoice) => (Number(i.grandTotal) || 0) - (Number(i.amount_paid) || 0);
+const isFullyPaid = (i: Invoice) => balanceOf(i) <= 0.01;
+const isPartial = (i: Invoice) => Number(i.amount_paid) > 0 && balanceOf(i) > 0.01;
+const isUnpaidNoPayment = (i: Invoice) => Number(i.amount_paid || 0) === 0 && balanceOf(i) > 0.01;
+
+const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+const todayStart = () => startOfDay(new Date());
+
+const daysPastDue = (i: Invoice): number => {
+    if (!i.dueDate || balanceOf(i) <= 0.01) return 0;
+    const due = new Date(i.dueDate);
+    if (Number.isNaN(due.getTime())) return 0;
+    return Math.floor((todayStart() - startOfDay(due)) / 86400000);
+};
+
+const isOverdue = (i: Invoice) => daysPastDue(i) > 0; // 'due today' is NOT overdue
+const isDueSoon = (i: Invoice) => {
+    if (!i.dueDate || balanceOf(i) <= 0.01) return false;
+    const due = new Date(i.dueDate);
+    if (Number.isNaN(due.getTime())) return false;
+    const diffDays = Math.floor((startOfDay(due) - todayStart()) / 86400000);
+    return diffDays >= 0 && diffDays <= 7;
+};
+
+const computedStatus = (i: Invoice): 'Paid' | 'Partial' | 'Overdue' | 'Due soon' | 'Unpaid' => {
+    if (isFullyPaid(i)) return 'Paid';
+    if (isOverdue(i)) return 'Overdue';
+    if (isDueSoon(i)) return 'Due soon';
+    if (isPartial(i)) return 'Partial';
+    return 'Unpaid';
+};
+
+const statusBadge = (s: string) => {
+    switch (s) {
+        case 'Overdue':  return 'bg-rose-100 text-rose-700';
+        case 'Due soon': return 'bg-amber-100 text-amber-700';
+        case 'Partial':  return 'bg-yellow-100 text-yellow-700';
+        case 'Paid':     return 'bg-emerald-100 text-emerald-700';
+        default:         return 'bg-gray-100 text-gray-600';
+    }
+};
+
+type FilterKey = 'all' | 'Overdue' | 'Due soon' | 'Partial' | 'Unpaid';
+
 export default function OutstandingBills() {
     const navigate = useNavigate();
-    const [invoices, setInvoices] = useState<Invoice[]>([]);
+    const [allInvoices, setAllInvoices] = useState<Invoice[]>([]);
+    const [paidThisMonth, setPaidThisMonth] = useState({ amount: 0, count: 0 });
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
-    const [statusFilter, setStatusFilter] = useState<'all' | 'Unpaid' | 'Partial' | 'Overdue'>('all');
-    const [sortBy, setSortBy] = useState<'date' | 'amount' | 'customer'>('date');
-
-    // QuickBooks-style status derivation from actual amounts/dates, NOT the
-    // static inv.status string (the backend marks every new invoice 'unpaid'
-    // even if paid_amount is partial/full, so filters that match on
-    // inv.status === 'Partial' / 'Overdue' silently match nothing).
-    const balanceOf = (i: Invoice) => (Number(i.grandTotal) || 0) - (Number(i.amount_paid) || 0);
-    const isFullyPaid = (i: Invoice) => balanceOf(i) <= 0.01;
-    const isPartial = (i: Invoice) => Number(i.amount_paid) > 0 && balanceOf(i) > 0.01;
-    const isUnpaid = (i: Invoice) => Number(i.amount_paid || 0) === 0 && balanceOf(i) > 0.01;
-    const isOverdue = (i: Invoice) => {
-        if (balanceOf(i) <= 0.01 || !i.dueDate) return false;
-        const due = new Date(i.dueDate);
-        if (Number.isNaN(due.getTime())) return false;
-        // QuickBooks rule: 'due today' is NOT overdue. Compare day-only.
-        const dueDay = new Date(due.getFullYear(), due.getMonth(), due.getDate()).getTime();
-        const now = new Date();
-        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-        return dueDay < today;
-    };
-    const computedStatus = (i: Invoice): 'Paid' | 'Partial' | 'Overdue' | 'Unpaid' => {
-        if (isFullyPaid(i)) return 'Paid';
-        if (isOverdue(i)) return 'Overdue';
-        if (isPartial(i)) return 'Partial';
-        return 'Unpaid';
-    };
+    const [statusFilter, setStatusFilter] = useState<FilterKey>('all');
+    const [customerFilter, setCustomerFilter] = useState<string>('all');
+    const [sortBy, setSortBy] = useState<'date' | 'amount' | 'customer' | 'due'>('due');
+    const [selected, setSelected] = useState<Set<string>>(new Set());
+    const [page, setPage] = useState(1);
 
     useEffect(() => {
         // QuickBooks-style: auto-apply each customer's payments to their oldest
         // open invoices first (FIFO). Backend invoices all have paid_amount=0
         // because customer payments live in a separate Transactions table and
-        // are never linked to specific invoices. Without this, every invoice
-        // shows fully unpaid and 100% of revenue looks overdue.
-        Promise.all([getInvoices(), getPayments().catch(() => [])]).then(([allInvoices, allPayments]) => {
-            // Total payment credit available per customer.
+        // are never linked to specific invoices.
+        Promise.all([getInvoices(), getPayments().catch(() => [])]).then(([invs, pays]) => {
             const creditByCustomer: Record<string, number> = {};
-            (allPayments || []).forEach((p: any) => {
+            (pays || []).forEach((p: any) => {
                 const cid = String(p?.customer_id ?? '');
                 if (!cid) return;
                 creditByCustomer[cid] = (creditByCustomer[cid] || 0) + (Number(p?.amount) || 0);
             });
 
-            // Apply credits to invoices oldest-first per customer.
+            // "Paid this month" = sum of payment amounts dated this calendar month.
+            const now = new Date();
+            const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+            let paidAmt = 0;
+            let paidCount = 0;
+            (pays || []).forEach((p: any) => {
+                const t = new Date(p?.payment_date || 0).getTime();
+                if (!Number.isNaN(t) && t >= monthStart) {
+                    paidAmt += Number(p?.amount) || 0;
+                    paidCount += 1;
+                }
+            });
+            setPaidThisMonth({ amount: paidAmt, count: paidCount });
+
+            // Apply credit oldest-first per customer.
             const invoicesByCustomer: Record<string, Invoice[]> = {};
-            allInvoices.forEach(inv => {
+            invs.forEach(inv => {
                 const cid = String(inv.customerId || '');
                 (invoicesByCustomer[cid] = invoicesByCustomer[cid] || []).push(inv);
             });
@@ -72,63 +111,101 @@ export default function OutstandingBills() {
                     const explicitPaid = Number(inv.amount_paid) || 0;
                     const total = Number(inv.grandTotal) || 0;
                     let remaining = total - explicitPaid;
-                    let appliedFromCredit = 0;
+                    let fromCredit = 0;
                     if (credit > 0 && remaining > 0.01) {
-                        appliedFromCredit = Math.min(credit, remaining);
-                        credit -= appliedFromCredit;
-                        remaining -= appliedFromCredit;
+                        fromCredit = Math.min(credit, remaining);
+                        credit -= fromCredit;
+                        remaining -= fromCredit;
                     }
                     applied.push({
                         ...inv,
-                        amount_paid: explicitPaid + appliedFromCredit,
+                        amount_paid: explicitPaid + fromCredit,
                         remaining_balance: Math.max(0, remaining),
                     });
                 });
             });
 
-            // Show only invoices that still have a balance after applying credits.
-            setInvoices(applied.filter(i => !isFullyPaid(i)));
+            setAllInvoices(applied.filter(i => !isFullyPaid(i)));
             setLoading(false);
         });
     }, []);
 
-    const filtered = invoices
-        .filter(inv => {
-            if (statusFilter === 'all') return true;
-            if (statusFilter === 'Unpaid') return isUnpaid(inv) && !isOverdue(inv);
-            if (statusFilter === 'Partial') return isPartial(inv);
-            if (statusFilter === 'Overdue') return isOverdue(inv);
-            return true;
-        })
-        .filter(inv =>
-            !search ||
-            inv.customerName?.toLowerCase().includes(search.toLowerCase()) ||
-            inv.invoiceNumber?.toLowerCase().includes(search.toLowerCase())
-        )
-        .sort((a, b) => {
-            if (sortBy === 'amount') return balanceOf(b) - balanceOf(a);
-            if (sortBy === 'customer') return (a.customerName || '').localeCompare(b.customerName || '');
-            return new Date(b.invoiceDate || 0).getTime() - new Date(a.invoiceDate || 0).getTime();
-        });
+    // Customer list for the dropdown — distinct customer names sorted alphabetically.
+    const customerOptions = useMemo(() => {
+        const set = new Set<string>();
+        allInvoices.forEach(i => { if (i.customerName) set.add(i.customerName); });
+        return Array.from(set).sort();
+    }, [allInvoices]);
 
-    // KPIs use the computed buckets so they reflect what's really in the data.
-    const totalOutstanding = filtered.reduce((s, i) => s + balanceOf(i), 0);
-    const totalOverdue = filtered.filter(isOverdue).reduce((s, i) => s + balanceOf(i), 0);
-    const totalPartial = filtered.filter(isPartial).reduce((s, i) => s + balanceOf(i), 0);
-
-    const statusStyle = (s?: string) => {
-        switch (s) {
-            case 'Overdue': return 'bg-red-100 text-red-700';
-            case 'Partial': return 'bg-yellow-100 text-yellow-700';
-            case 'Paid': return 'bg-emerald-100 text-emerald-700';
-            default: return 'bg-orange-100 text-orange-700';
-        }
+    // Filter pipeline.
+    const passesCustomer = (inv: Invoice) => customerFilter === 'all' || inv.customerName === customerFilter;
+    const passesSearch = (inv: Invoice) =>
+        !search ||
+        inv.customerName?.toLowerCase().includes(search.toLowerCase()) ||
+        inv.invoiceNumber?.toLowerCase().includes(search.toLowerCase());
+    const passesStatus = (inv: Invoice) => {
+        if (statusFilter === 'all') return true;
+        if (statusFilter === 'Overdue')  return isOverdue(inv);
+        if (statusFilter === 'Due soon') return isDueSoon(inv);
+        if (statusFilter === 'Partial')  return isPartial(inv);
+        if (statusFilter === 'Unpaid')   return isUnpaidNoPayment(inv) && !isOverdue(inv) && !isDueSoon(inv);
+        return true;
     };
 
-    const daysOverdue = (inv: Invoice) => {
-        if (!inv.dueDate) return null;
-        const days = Math.floor((Date.now() - new Date(inv.dueDate).getTime()) / 86400000);
-        return days > 0 ? days : null;
+    const baseScoped = allInvoices.filter(inv => passesCustomer(inv) && passesSearch(inv));
+    const filtered = baseScoped.filter(passesStatus).sort((a, b) => {
+        if (sortBy === 'amount')   return balanceOf(b) - balanceOf(a);
+        if (sortBy === 'customer') return (a.customerName || '').localeCompare(b.customerName || '');
+        if (sortBy === 'date')     return new Date(b.invoiceDate || 0).getTime() - new Date(a.invoiceDate || 0).getTime();
+        // 'due' — most overdue first, then soonest due
+        return (new Date(a.dueDate || a.invoiceDate || 0).getTime()) - (new Date(b.dueDate || b.invoiceDate || 0).getTime());
+    });
+
+    // Filter pill counts use the customer+search scope (so a customer filter narrows the pill numbers too).
+    const counts = {
+        all: baseScoped.length,
+        Overdue: baseScoped.filter(isOverdue).length,
+        'Due soon': baseScoped.filter(isDueSoon).length,
+        Partial: baseScoped.filter(isPartial).length,
+        Unpaid: baseScoped.filter(i => isUnpaidNoPayment(i) && !isOverdue(i) && !isDueSoon(i)).length,
+    };
+
+    // KPI tile amounts based on customer+search scope (independent of which pill is selected).
+    const totalOutstanding = baseScoped.reduce((s, i) => s + balanceOf(i), 0);
+    const totalOverdue     = baseScoped.filter(isOverdue).reduce((s, i) => s + balanceOf(i), 0);
+    const totalDueSoon     = baseScoped.filter(isDueSoon).reduce((s, i) => s + balanceOf(i), 0);
+
+    // Aging buckets (past-due age) for the row of 4 aging cards.
+    const aging = baseScoped.reduce(
+        (acc, i) => {
+            const d = daysPastDue(i);
+            const bal = balanceOf(i);
+            if (d <= 30)       acc.current += bal;
+            else if (d <= 60)  acc.b30    += bal;
+            else if (d <= 90)  acc.b60    += bal;
+            else               acc.b90    += bal;
+            return acc;
+        },
+        { current: 0, b30: 0, b60: 0, b90: 0 },
+    );
+
+    // Pagination
+    const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+    const pageStart = (page - 1) * PAGE_SIZE;
+    const pageRows = filtered.slice(pageStart, pageStart + PAGE_SIZE);
+    useEffect(() => { setPage(1); }, [statusFilter, customerFilter, search, sortBy]);
+
+    const allOnPageSelected = pageRows.length > 0 && pageRows.every(r => selected.has(String(r.id)));
+    const toggleAllOnPage = () => {
+        const next = new Set(selected);
+        if (allOnPageSelected) pageRows.forEach(r => next.delete(String(r.id)));
+        else pageRows.forEach(r => next.add(String(r.id)));
+        setSelected(next);
+    };
+    const toggleRow = (id: string) => {
+        const next = new Set(selected);
+        if (next.has(id)) next.delete(id); else next.add(id);
+        setSelected(next);
     };
 
     const handlePrint = () => window.print();
@@ -142,9 +219,9 @@ export default function OutstandingBills() {
         doc.text(`${filtered.length} invoices · Total outstanding: ${formatCurrency(totalOutstanding)}`, 14, 28);
         autoTable(doc, {
             startY: 34,
-            head: [['Invoice #', 'Customer', 'Date', 'Due Date', 'Status', 'Days Overdue', 'Total', 'Paid', 'Outstanding']],
+            head: [['Bill #', 'Customer', 'Bill date', 'Due date', 'Status', 'Days past due', 'Total', 'Paid', 'Balance']],
             body: filtered.map(inv => {
-                const dO = daysOverdue(inv);
+                const dp = daysPastDue(inv);
                 const total = Number(inv.grandTotal) || 0;
                 const paid = Number(inv.amount_paid) || 0;
                 return [
@@ -153,7 +230,7 @@ export default function OutstandingBills() {
                     inv.invoiceDate || '',
                     inv.dueDate || '',
                     computedStatus(inv),
-                    dO != null ? `${dO} days` : '—',
+                    dp > 0 ? `${dp}d` : '—',
                     formatCurrency(total),
                     formatCurrency(paid),
                     formatCurrency(total - paid),
@@ -167,83 +244,131 @@ export default function OutstandingBills() {
         doc.save(`OutstandingBills_${new Date().toISOString().slice(0, 10)}.pdf`);
     };
 
+    const asOf = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
     return (
         <div className="space-y-6 max-w-[1400px] mx-auto pb-10 animate-in fade-in duration-500">
             {/* Header */}
             <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm flex items-center justify-between flex-wrap gap-4">
-                <div className="flex items-center gap-4">
+                <div className="flex items-start gap-4">
                     <div className="w-12 h-12 bg-orange-50 rounded-xl flex items-center justify-center">
                         <FileText size={24} className="text-orange-600" />
                     </div>
                     <div>
                         <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all print:hidden"><ArrowLeft size={14} /> Back</button>
-                    <h1 className="text-xl font-black text-gray-900 uppercase tracking-tight">Outstanding Bills</h1>
-                        <p className="text-xs text-gray-500 mt-0.5">All unpaid & partial invoices · {new Date().toLocaleDateString()}</p>
+                        <h1 className="text-2xl font-black text-gray-900 tracking-tight">Outstanding bills</h1>
+                        <p className="text-xs text-gray-500 mt-0.5">Accounts receivable · as of {asOf}</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-2 print:hidden">
                     <button
+                        onClick={exportPDF}
+                        disabled={loading || filtered.length === 0}
+                        className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-sm font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    >
+                        <Download size={14} /> Export
+                    </button>
+                    <button
                         onClick={handlePrint}
                         disabled={loading || filtered.length === 0}
-                        className="flex items-center gap-2 px-4 py-2 border-2 border-gray-900 text-gray-900 rounded-xl text-xs font-black uppercase hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                        className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-sm font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                     >
                         <Printer size={14} /> Print
                     </button>
-                    <button
-                        onClick={exportPDF}
-                        disabled={loading || filtered.length === 0}
-                        className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl text-xs font-black uppercase hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-                    >
-                        <Download size={14} /> Export PDF
-                    </button>
                 </div>
             </div>
 
-            {/* KPIs */}
+            {/* Top KPI row */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {[
-                    { label: 'Total Outstanding', value: totalOutstanding, color: 'text-gray-900', bg: 'bg-gray-50', border: 'border-gray-200' },
-                    { label: 'Overdue', value: totalOverdue, color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-200' },
-                    { label: 'Partial Paid', value: totalPartial, color: 'text-yellow-600', bg: 'bg-yellow-50', border: 'border-yellow-200' },
-                    { label: 'Total Invoices', value: filtered.length, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200', isCount: true },
-                ].map((k, i) => (
-                    <div key={i} className={`${k.bg} border ${k.border} rounded-2xl p-4`}>
-                        <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">{k.label}</p>
-                        <p className={`text-xl font-black font-mono ${k.color}`}>
-                            {loading ? '...' : (k as any).isCount ? filtered.length : formatCurrency(k.value as number)}
-                        </p>
-                    </div>
-                ))}
+                <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
+                    <p className="text-sm font-semibold text-gray-500 mb-1">Total outstanding</p>
+                    <p className="text-3xl font-black font-mono text-blue-700">{loading ? '...' : formatCurrency(totalOutstanding)}</p>
+                    <p className="text-xs text-gray-400 mt-1">{baseScoped.length} bills open</p>
+                </div>
+                <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
+                    <p className="text-sm font-semibold text-gray-500 mb-1">Overdue</p>
+                    <p className="text-3xl font-black font-mono text-rose-600">{loading ? '...' : formatCurrency(totalOverdue)}</p>
+                    <p className="text-xs text-gray-400 mt-1">{counts.Overdue} bills past due</p>
+                </div>
+                <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
+                    <p className="text-sm font-semibold text-gray-500 mb-1">Due this week</p>
+                    <p className="text-3xl font-black font-mono text-amber-600">{loading ? '...' : formatCurrency(totalDueSoon)}</p>
+                    <p className="text-xs text-gray-400 mt-1">{counts['Due soon']} bills due soon</p>
+                </div>
+                <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
+                    <p className="text-sm font-semibold text-gray-500 mb-1">Paid this month</p>
+                    <p className="text-3xl font-black font-mono text-emerald-600">{loading ? '...' : formatCurrency(paidThisMonth.amount)}</p>
+                    <p className="text-xs text-gray-400 mt-1">{paidThisMonth.count} payments received</p>
+                </div>
             </div>
 
-            {/* Filters */}
-            <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm flex items-center gap-4 flex-wrap">
-                <div className="relative flex-1 min-w-[200px]">
-                    <input
-                        type="text"
-                        placeholder="Search by customer or invoice #..."
-                        value={search}
-                        onChange={e => setSearch(e.target.value)}
-                        className="w-full pr-4 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-orange-400"
-                    />
+            {/* Aging buckets */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="rounded-2xl p-5 border bg-emerald-50 border-emerald-100">
+                    <p className="text-sm font-semibold text-emerald-700">Current (0–30 days)</p>
+                    <p className="text-2xl font-black font-mono text-emerald-700 mt-1">{loading ? '...' : formatCurrency(aging.current)}</p>
                 </div>
-                <div className="flex items-center gap-2">
-                    <Filter size={14} className="text-gray-400" />
-                    {(['all', 'Unpaid', 'Partial', 'Overdue'] as const).map(f => (
-                        <button key={f} onClick={() => setStatusFilter(f)}
-                            className={`px-3 py-1.5 text-xs font-black uppercase rounded-xl transition-all ${statusFilter === f ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
-                            {f === 'all' ? 'All' : f}
-                        </button>
-                    ))}
+                <div className="rounded-2xl p-5 border bg-yellow-50 border-yellow-100">
+                    <p className="text-sm font-semibold text-yellow-700">31–60 days</p>
+                    <p className="text-2xl font-black font-mono text-yellow-700 mt-1">{loading ? '...' : formatCurrency(aging.b30)}</p>
                 </div>
+                <div className="rounded-2xl p-5 border bg-orange-50 border-orange-100">
+                    <p className="text-sm font-semibold text-orange-700">61–90 days</p>
+                    <p className="text-2xl font-black font-mono text-orange-700 mt-1">{loading ? '...' : formatCurrency(aging.b60)}</p>
+                </div>
+                <div className="rounded-2xl p-5 border bg-rose-50 border-rose-100">
+                    <p className="text-sm font-semibold text-rose-700">&gt;90 days (critical)</p>
+                    <p className="text-2xl font-black font-mono text-rose-700 mt-1">{loading ? '...' : formatCurrency(aging.b90)}</p>
+                </div>
+            </div>
+
+            {/* Filter pills + search */}
+            <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm flex items-center gap-3 flex-wrap print:hidden">
+                {([
+                    { key: 'all',       label: 'All',        n: counts.all },
+                    { key: 'Overdue',   label: 'Overdue',    n: counts.Overdue },
+                    { key: 'Due soon',  label: 'Due soon',   n: counts['Due soon'] },
+                    { key: 'Partial',   label: 'Partial',    n: counts.Partial },
+                    { key: 'Unpaid',    label: 'Unpaid',     n: counts.Unpaid },
+                ] as { key: FilterKey; label: string; n: number }[]).map(p => (
+                    <button
+                        key={p.key}
+                        onClick={() => setStatusFilter(p.key)}
+                        className={`px-4 py-2 rounded-full text-sm font-bold transition-all border ${statusFilter === p.key
+                            ? 'bg-gray-900 text-white border-gray-900'
+                            : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'}`}
+                    >
+                        {p.label} ({p.n})
+                    </button>
+                ))}
+                <input
+                    type="text"
+                    placeholder="Customer, invoice #..."
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    className="ml-auto px-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-orange-400 w-64"
+                />
+            </div>
+
+            {/* Customer dropdown + sort */}
+            <div className="flex items-center gap-3 print:hidden">
+                <select
+                    value={customerFilter}
+                    onChange={e => setCustomerFilter(e.target.value)}
+                    className="flex-1 px-4 py-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-orange-400 bg-white font-semibold"
+                >
+                    <option value="all">All customers</option>
+                    {customerOptions.map(name => <option key={name} value={name}>{name}</option>)}
+                </select>
                 <select
                     value={sortBy}
                     onChange={e => setSortBy(e.target.value as any)}
-                    className="px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-orange-400 bg-white"
+                    className="flex-1 px-4 py-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-orange-400 bg-white font-semibold"
                 >
-                    <option value="date">Sort: Date</option>
-                    <option value="amount">Sort: Amount</option>
-                    <option value="customer">Sort: Customer</option>
+                    <option value="due">Sort: due date</option>
+                    <option value="date">Sort: invoice date</option>
+                    <option value="amount">Sort: balance (highest)</option>
+                    <option value="customer">Sort: customer (A–Z)</option>
                 </select>
             </div>
 
@@ -254,62 +379,107 @@ export default function OutstandingBills() {
                 ) : filtered.length === 0 ? (
                     <div className="p-16 text-center">
                         <CheckCircle size={48} className="mx-auto text-emerald-300 mb-3" />
-                        <p className="text-gray-400 font-bold">No outstanding bills found!</p>
+                        <p className="text-gray-400 font-bold">No outstanding bills match the current filter.</p>
                     </div>
                 ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left">
-                            <thead className="bg-gray-50 border-b border-gray-100">
-                                <tr>
-                                    {['Invoice #', 'Customer', 'Invoice Date', 'Due Date', 'Status', 'Total', 'Paid', 'Balance'].map(h => (
-                                        <th key={h} className="px-5 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">{h}</th>
-                                    ))}
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-50">
-                                {filtered.map(inv => {
-                                    const balance = (inv.grandTotal || 0) - (inv.amount_paid || 0);
-                                    const overdueDays = daysOverdue(inv);
+                    <>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left">
+                                <thead className="bg-gray-50 border-b border-gray-100">
+                                    <tr>
+                                        <th className="px-4 py-3 w-8 print:hidden">
+                                            <input
+                                                type="checkbox"
+                                                checked={allOnPageSelected}
+                                                onChange={toggleAllOnPage}
+                                                className="rounded"
+                                            />
+                                        </th>
+                                        {['Bill #', 'Customer', 'Bill date', 'Due date', 'Status', 'Total', 'Balance'].map(h => (
+                                            <th key={h} className="px-4 py-3 text-[11px] font-bold text-gray-500 uppercase tracking-wider">{h}</th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-50">
+                                    {pageRows.map(inv => {
+                                        const balance = balanceOf(inv);
+                                        const dpd = daysPastDue(inv);
+                                        const cs = computedStatus(inv);
+                                        const id = String(inv.id);
+                                        return (
+                                            <tr key={id} className="hover:bg-gray-50 transition-all">
+                                                <td className="px-4 py-4 print:hidden">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selected.has(id)}
+                                                        onChange={() => toggleRow(id)}
+                                                        className="rounded"
+                                                    />
+                                                </td>
+                                                <td className="px-4 py-4 text-sm font-bold text-gray-900 font-mono">{inv.invoiceNumber}</td>
+                                                <td className="px-4 py-4 text-sm font-semibold text-gray-800">{inv.customerName}</td>
+                                                <td className="px-4 py-4 text-sm text-gray-500 font-mono">{inv.invoiceDate || '—'}</td>
+                                                <td className="px-4 py-4">
+                                                    <p className="text-sm text-gray-500 font-mono">{inv.dueDate || '—'}</p>
+                                                    {dpd > 0 && (
+                                                        <p className="text-[10px] text-rose-600 font-bold flex items-center gap-1 mt-0.5">
+                                                            <AlertCircle size={10} /> {dpd}d overdue
+                                                        </p>
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-4">
+                                                    <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${statusBadge(cs)}`}>
+                                                        {cs}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-4 text-sm font-bold font-mono text-gray-900">{formatCurrency(Number(inv.grandTotal) || 0)}</td>
+                                                <td className="px-4 py-4 text-sm font-black font-mono text-rose-700">{formatCurrency(balance)}</td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                        {/* Pagination */}
+                        <div className="flex items-center justify-between px-5 py-4 border-t border-gray-100 print:hidden">
+                            <p className="text-sm text-gray-500">
+                                Showing {pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, filtered.length)} of {filtered.length} bills
+                                {selected.size > 0 && <span className="ml-2 text-gray-700 font-bold">· {selected.size} selected</span>}
+                            </p>
+                            <div className="flex items-center gap-1">
+                                <button
+                                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                                    disabled={page === 1}
+                                    className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-30"
+                                >
+                                    <ChevronLeft size={16} />
+                                </button>
+                                {Array.from({ length: Math.min(5, pageCount) }, (_, i) => {
+                                    // Show first 5 pages, or center on current if pageCount > 5
+                                    let p = i + 1;
+                                    if (pageCount > 5 && page > 3) p = Math.min(pageCount - 4, page - 2) + i;
                                     return (
-                                        <tr key={inv.id} className="hover:bg-gray-50 transition-all">
-                                            <td className="px-5 py-4">
-                                                <p className="text-sm font-black text-orange-600 font-mono">{inv.invoiceNumber}</p>
-                                            </td>
-                                            <td className="px-5 py-4">
-                                                <p className="text-sm font-bold text-gray-900">{inv.customerName}</p>
-                                            </td>
-                                            <td className="px-5 py-4 text-sm text-gray-500 font-mono">{inv.invoiceDate}</td>
-                                            <td className="px-5 py-4">
-                                                <p className="text-sm text-gray-500 font-mono">{inv.dueDate || 'N/A'}</p>
-                                                {overdueDays && (
-                                                    <p className="text-[10px] text-red-600 font-black flex items-center gap-1 mt-0.5">
-                                                        <AlertCircle size={10} /> {overdueDays}d overdue
-                                                    </p>
-                                                )}
-                                            </td>
-                                            <td className="px-5 py-4">
-                                                {(() => {
-                                                    const cs = computedStatus(inv);
-                                                    return <span className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase ${statusStyle(cs)}`}>{cs}</span>;
-                                                })()}
-                                            </td>
-                                            <td className="px-5 py-4 text-sm font-black font-mono text-gray-900">{formatCurrency(inv.grandTotal || 0)}</td>
-                                            <td className="px-5 py-4 text-sm font-mono text-emerald-600">{inv.amount_paid ? formatCurrency(inv.amount_paid) : '—'}</td>
-                                            <td className="px-5 py-4 text-sm font-black font-mono text-red-700">{formatCurrency(balance)}</td>
-                                        </tr>
+                                        <button
+                                            key={p}
+                                            onClick={() => setPage(p)}
+                                            className={`w-8 h-8 rounded-lg text-sm font-bold transition-all ${page === p
+                                                ? 'bg-gray-900 text-white'
+                                                : 'border border-gray-200 hover:bg-gray-50 text-gray-700'}`}
+                                        >
+                                            {p}
+                                        </button>
                                     );
                                 })}
-                            </tbody>
-                            <tfoot>
-                                <tr className="bg-gray-900 text-white">
-                                    <td colSpan={5} className="px-5 py-4 text-xs font-black uppercase">Total — {filtered.length} invoices</td>
-                                    <td className="px-5 py-4 text-sm font-black font-mono">{formatCurrency(filtered.reduce((s, i) => s + (i.grandTotal || 0), 0))}</td>
-                                    <td className="px-5 py-4 text-sm font-black font-mono">{formatCurrency(filtered.reduce((s, i) => s + (i.amount_paid || 0), 0))}</td>
-                                    <td className="px-5 py-4 text-sm font-black font-mono">{formatCurrency(totalOutstanding)}</td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    </div>
+                                <button
+                                    onClick={() => setPage(p => Math.min(pageCount, p + 1))}
+                                    disabled={page === pageCount}
+                                    className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-30"
+                                >
+                                    <ChevronRight size={16} />
+                                </button>
+                            </div>
+                        </div>
+                    </>
                 )}
             </div>
         </div>
