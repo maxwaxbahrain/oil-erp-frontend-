@@ -16,7 +16,8 @@ import {
   Share2,
   Smartphone,
   X,
-  Edit2 } from 'lucide-react';
+  Edit2,
+  Plus } from 'lucide-react';
 import clsx from 'clsx';
 import { getInvoices, type Invoice } from '../../services/api';
 import { getCustomers, type Customer } from '../../services/customerService';
@@ -416,14 +417,24 @@ export default function Invoices() {
                 </div>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => load()}
-              className="shrink-0 self-start p-3 rounded-xl border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 shadow-sm transition-colors"
-              aria-label="Refresh"
-            >
-              <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
-            </button>
+            <div className="shrink-0 self-start flex gap-2">
+              <button
+                type="button"
+                onClick={() => navigate('/sales/invoices/new')}
+                className="px-5 py-3 rounded-xl text-white font-black text-sm uppercase tracking-wider shadow-sm hover:brightness-95 transition flex items-center gap-2"
+                style={{ backgroundColor: THEME_PRIMARY }}
+              >
+                <Plus size={18} /> New Invoice
+              </button>
+              <button
+                type="button"
+                onClick={() => load()}
+                className="p-3 rounded-xl border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 shadow-sm transition-colors"
+                aria-label="Refresh"
+              >
+                <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
+              </button>
+            </div>
           </div>
         </div>
 
