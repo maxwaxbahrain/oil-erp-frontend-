@@ -1,6 +1,8 @@
 import { useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { BookOpen, Download, ChevronLeft, ChevronRight, TrendingUp, TrendingDown , ArrowLeft } from 'lucide-react';
+import { BookOpen, Download, ChevronLeft, ChevronRight, TrendingUp, TrendingDown , ArrowLeft, Printer } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { getInvoices, getPayments } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
 import { getPurchaseOrders } from '../../services/purchasesService';
@@ -20,7 +22,17 @@ export default function DayBook() {
     const navigate = useNavigate();
     const [entries, setEntries] = useState<DayEntry[]>([]);
     const [loading, setLoading] = useState(true);
-    const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+    const today = new Date().toISOString().split('T')[0];
+    const [selectedDate, setSelectedDate] = useState(today);
+    // Range filter: when endDate === selectedDate the view is a single day
+    // (existing behaviour); when wider, it spans every day in between.
+    const [endDate, setEndDate] = useState(today);
+    const [typeFilter, setTypeFilter] = useState<'all' | 'Invoice' | 'Payment' | 'Purchase Order'>('all');
+
+    // Effective range: ensure start <= end no matter which date the user picked.
+    const rangeStart = selectedDate <= endDate ? selectedDate : endDate;
+    const rangeEnd = selectedDate <= endDate ? endDate : selectedDate;
+    const inRange = (d: string) => d >= rangeStart && d <= rangeEnd;
 
     useEffect(() => {
         Promise.all([
@@ -32,7 +44,7 @@ export default function DayBook() {
                 ...invoices
                     .filter(inv => {
                         const d = inv.invoiceDate || inv.createdAt?.slice(0, 10) || '';
-                        return d === selectedDate;
+                        return inRange(d);
                     })
                     .map(inv => ({
                         id: `inv-${inv.id}`,
@@ -45,26 +57,19 @@ export default function DayBook() {
                         party: inv.customerName || 'Customer'
                     })),
                 ...payments
-                    .filter(p => {
-                        const d = p.payment_date || '';
-                        return d === selectedDate;
-                    })
+                    .filter(p => inRange((p.payment_date || '').slice(0, 10)))
                     .map(p => ({
                         id: `pay-${p.id}`,
                         time: '—',
                         type: 'Payment' as const,
                         description: `Payment received`,
-                        // customer_id available but no name in Payment interface
                         reference: `PAY-${String(p.id).slice(0, 6).toUpperCase()}`,
                         debit: p.amount || 0,
                         credit: 0,
                         party: 'Customer'
                     })),
                 ...pos
-                    .filter(po => {
-                        const d = po.date?.slice(0, 10) || '';
-                        return d === selectedDate;
-                    })
+                    .filter(po => inRange((po.date || '').slice(0, 10)))
                     .map(po => ({
                         id: `po-${po.id}`,
                         time: '—',
@@ -77,20 +82,58 @@ export default function DayBook() {
                     }))
             ].sort((a, b) => a.time.localeCompare(b.time));
 
-            setEntries(all);
+            const filtered = typeFilter === 'all' ? all : all.filter(e => e.type === typeFilter);
+            setEntries(filtered);
             setLoading(false);
         });
-    }, [selectedDate]);
+    }, [selectedDate, endDate, typeFilter]);
 
     const changeDate = (days: number) => {
         const d = new Date(selectedDate);
         d.setDate(d.getDate() + days);
-        setSelectedDate(d.toISOString().split('T')[0]);
+        const next = d.toISOString().split('T')[0];
+        setSelectedDate(next);
+        setEndDate(next);
         setLoading(true);
     };
 
     const totalCredit = entries.reduce((s, e) => s + e.credit, 0);
     const totalDebit = entries.reduce((s, e) => s + e.debit, 0);
+
+    const rangeLabel = rangeStart === rangeEnd ? rangeStart : `${rangeStart} → ${rangeEnd}`;
+
+    const handlePrint = () => window.print();
+
+    const exportPDF = () => {
+        const doc = new jsPDF({ orientation: 'landscape' });
+        doc.setFontSize(16);
+        doc.text('Day Book Report', 14, 16);
+        doc.setFontSize(10);
+        doc.text(`Range: ${rangeLabel}`, 14, 22);
+        doc.text(`${entries.length} transactions · Debit total: ${formatCurrency(totalDebit)} · Credit total: ${formatCurrency(totalCredit)}`, 14, 28);
+        autoTable(doc, {
+            startY: 34,
+            head: [['Time', 'Type', 'Description', 'Party', 'Reference', 'Debit', 'Credit']],
+            body: entries.map(e => [
+                e.time,
+                e.type,
+                e.description,
+                e.party,
+                e.reference,
+                e.debit > 0 ? formatCurrency(e.debit) : '—',
+                e.credit > 0 ? formatCurrency(e.credit) : '—',
+            ]),
+            foot: [[
+                'DAY TOTAL', '', '', '', '',
+                formatCurrency(totalDebit),
+                formatCurrency(totalCredit),
+            ]],
+            styles: { fontSize: 9 },
+            headStyles: { fillColor: [33, 33, 33] },
+            footStyles: { fillColor: [33, 33, 33], textColor: 255, fontStyle: 'bold' },
+        });
+        doc.save(`DayBook_${rangeStart}_to_${rangeEnd}.pdf`);
+    };
 
     const typeStyle = (t: string) => {
         switch (t) {
@@ -112,34 +155,69 @@ export default function DayBook() {
                         <BookOpen size={24} className="text-purple-600" />
                     </div>
                     <div>
-                        <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all"><ArrowLeft size={14} /> Back</button>
+                        <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all print:hidden"><ArrowLeft size={14} /> Back</button>
                     <h1 className="text-xl font-black text-gray-900 uppercase tracking-tight">Day Book</h1>
                         <p className="text-xs text-gray-500 mt-0.5">All transactions for a single day · used by accountants daily</p>
                     </div>
                 </div>
-                <button className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl text-xs font-black uppercase hover:bg-gray-700 transition-all">
-                    <Download size={14} /> Print Day
-                </button>
+                <div className="flex items-center gap-2 print:hidden">
+                    <button
+                        onClick={handlePrint}
+                        disabled={loading || entries.length === 0}
+                        className="flex items-center gap-2 px-4 py-2 border-2 border-gray-900 text-gray-900 rounded-xl text-xs font-black uppercase hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    >
+                        <Printer size={14} /> Print
+                    </button>
+                    <button
+                        onClick={exportPDF}
+                        disabled={loading || entries.length === 0}
+                        className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl text-xs font-black uppercase hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    >
+                        <Download size={14} /> Export PDF
+                    </button>
+                </div>
             </div>
 
-            {/* Date Navigator */}
-            <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm flex items-center justify-between gap-4">
+            {/* Date Navigator + Filters */}
+            <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm flex items-center justify-between gap-4 flex-wrap print:hidden">
                 <button onClick={() => changeDate(-1)} className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 transition-all">
                     <ChevronLeft size={18} className="text-gray-600" />
                 </button>
-                <div className="flex items-center gap-4 flex-1 justify-center">
-                    <input
-                        type="date"
-                        value={selectedDate}
-                        onChange={e => { setSelectedDate(e.target.value); setLoading(true); }}
-                        className="px-4 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-purple-400 font-mono"
-                    />
-                    {isToday && <span className="px-3 py-1 bg-purple-100 text-purple-700 text-xs font-black rounded-lg uppercase">Today</span>}
-                    <span className="text-sm text-gray-500 font-bold">
-                        {new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                    </span>
+                <div className="flex items-center gap-3 flex-1 justify-center flex-wrap">
+                    <label className="flex items-center gap-2 text-[10px] font-black text-gray-500 uppercase">
+                        From
+                        <input
+                            type="date"
+                            value={selectedDate}
+                            onChange={e => { setSelectedDate(e.target.value); setLoading(true); }}
+                            className="px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-purple-400 font-mono"
+                        />
+                    </label>
+                    <label className="flex items-center gap-2 text-[10px] font-black text-gray-500 uppercase">
+                        To
+                        <input
+                            type="date"
+                            value={endDate}
+                            onChange={e => { setEndDate(e.target.value); setLoading(true); }}
+                            className="px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-purple-400 font-mono"
+                        />
+                    </label>
+                    <label className="flex items-center gap-2 text-[10px] font-black text-gray-500 uppercase">
+                        Type
+                        <select
+                            value={typeFilter}
+                            onChange={e => { setTypeFilter(e.target.value as any); setLoading(true); }}
+                            className="px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-purple-400 font-bold bg-white"
+                        >
+                            <option value="all">All Types</option>
+                            <option value="Invoice">Invoices</option>
+                            <option value="Payment">Payments</option>
+                            <option value="Purchase Order">Purchase Orders</option>
+                        </select>
+                    </label>
+                    {isToday && rangeStart === rangeEnd && <span className="px-3 py-1 bg-purple-100 text-purple-700 text-xs font-black rounded-lg uppercase">Today</span>}
                 </div>
-                <button onClick={() => changeDate(1)} disabled={isToday} className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 transition-all disabled:opacity-30">
+                <button onClick={() => changeDate(1)} disabled={isToday && rangeStart === rangeEnd} className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 transition-all disabled:opacity-30">
                     <ChevronRight size={18} className="text-gray-600" />
                 </button>
             </div>
@@ -163,7 +241,7 @@ export default function DayBook() {
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                 <div className="p-5 border-b border-gray-100">
                     <p className="text-sm font-black text-gray-700 uppercase tracking-wide">
-                        {loading ? 'Loading...' : `${entries.length} transactions on ${selectedDate}`}
+                        {loading ? 'Loading...' : `${entries.length} transactions · ${rangeLabel}`}
                     </p>
                 </div>
                 {loading ? (
