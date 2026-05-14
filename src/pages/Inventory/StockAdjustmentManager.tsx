@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { aiStockService, type AIStockAdjustment, type AIInsight } from '../../services/aiStockService';
 import { getProducts, type Product } from '../../services/productService';
+import { getOilErpApiBase } from '../../config/apiBase';
 
 type DecisionLogItem = {
     id: string;
@@ -130,7 +131,7 @@ export default function StockAdjustmentManager() {
         }
     };
 
-    const applyManualAdjustment = () => {
+    const applyManualAdjustment = async () => {
         setManualFeedback(null);
         if (!manualProductId) {
             setManualFeedback({ type: 'error', message: 'Select a product for manual adjustment.' });
@@ -146,15 +147,35 @@ export default function StockAdjustmentManager() {
             return;
         }
 
+        const safeLocations = product.locations && product.locations.length > 0
+            ? product.locations
+            : [{ id: `LOC-MAIN-${product.id}`, name: 'Main Warehouse', type: 'Warehouse' as const, currentStock: 0 }];
+        const newFirstLocStock = (Number(safeLocations[0]?.currentStock) || 0) + manualDelta;
+        const newTotalStock = safeLocations.reduce(
+            (sum, loc, idx) => sum + (idx === 0 ? newFirstLocStock : Number(loc.currentStock) || 0),
+            0,
+        );
+
+        // Persist to the backend so the Product Catalog reflects the adjustment (TC-48).
+        // localStorage update happens regardless so the UI stays responsive even if the
+        // backend is offline; backend failure is surfaced to the user but doesn't roll back.
+        let backendOk = true;
+        try {
+            const base = getOilErpApiBase().replace(/\/$/, '');
+            const r = await fetch(`${base}/products/${encodeURIComponent(product.id)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ stock: newTotalStock }),
+            });
+            if (!r.ok) backendOk = false;
+        } catch {
+            backendOk = false;
+        }
+
         const updatedProducts = products.map((p) => {
             if (p.id !== manualProductId) return p;
-            const safeLocations = p.locations && p.locations.length > 0
-                ? p.locations
-                : [{ id: `LOC-MAIN-${p.id}`, name: 'Main Warehouse', type: 'Warehouse' as const, currentStock: 0 }];
             const updatedLocations = safeLocations.map((loc, index) =>
-                index === 0
-                    ? { ...loc, currentStock: (Number(loc.currentStock) || 0) + manualDelta }
-                    : loc
+                index === 0 ? { ...loc, currentStock: newFirstLocStock } : loc,
             );
             return { ...p, locations: updatedLocations };
         });
@@ -173,8 +194,10 @@ export default function StockAdjustmentManager() {
         setManualDelta(0);
         setManualNote('');
         setManualFeedback({
-            type: 'success',
-            message: `Manual adjustment applied to ${product.name} (${manualDelta > 0 ? '+' : ''}${manualDelta}).`
+            type: backendOk ? 'success' : 'error',
+            message: backendOk
+                ? `Manual adjustment applied to ${product.name} (${manualDelta > 0 ? '+' : ''}${manualDelta}).`
+                : `Local change saved, but backend update failed for ${product.name}. Refresh and try again.`,
         });
     };
 
