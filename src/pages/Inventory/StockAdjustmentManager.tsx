@@ -147,30 +147,52 @@ export default function StockAdjustmentManager() {
             return;
         }
 
+        // Persist to the backend so the Product Catalog reflects the adjustment (TC-48).
+        // Source of truth is the backend's current stock: we look the product up by name
+        // (case-insensitive) on the live backend, read its current stock, then PUT
+        // current + delta. This avoids drift if the localStorage product copy is stale
+        // or has a non-backend id (e.g. P-... from a previous import session).
+        let backendOk = false;
+        let backendErr = '';
+        let backendNewStock: number | null = null;
+        try {
+            const base = getOilErpApiBase().replace(/\/$/, '');
+            const listResp = await fetch(`${base}/products/`, { cache: 'no-store' });
+            if (!listResp.ok) {
+                backendErr = `GET /products/ -> HTTP ${listResp.status}`;
+            } else {
+                const list = await listResp.json();
+                const arr = Array.isArray(list) ? list : (list?.results || list?.data || []);
+                const targetName = String(product.name || '').trim().toLowerCase();
+                const backendProduct = arr.find((p: any) => String(p?.name || '').trim().toLowerCase() === targetName);
+                if (!backendProduct) {
+                    backendErr = `No backend product matches "${product.name}". Catalog may be stale.`;
+                } else {
+                    const currentBackendStock = Number(backendProduct.stock) || 0;
+                    backendNewStock = currentBackendStock + manualDelta;
+                    const putResp = await fetch(`${base}/products/${backendProduct.id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ stock: backendNewStock }),
+                    });
+                    if (putResp.ok) {
+                        backendOk = true;
+                    } else {
+                        backendErr = `PUT /products/${backendProduct.id} -> HTTP ${putResp.status}`;
+                    }
+                }
+            }
+        } catch (e) {
+            backendErr = e instanceof Error ? e.message : String(e);
+        }
+
         const safeLocations = product.locations && product.locations.length > 0
             ? product.locations
             : [{ id: `LOC-MAIN-${product.id}`, name: 'Main Warehouse', type: 'Warehouse' as const, currentStock: 0 }];
-        const newFirstLocStock = (Number(safeLocations[0]?.currentStock) || 0) + manualDelta;
-        const newTotalStock = safeLocations.reduce(
-            (sum, loc, idx) => sum + (idx === 0 ? newFirstLocStock : Number(loc.currentStock) || 0),
-            0,
-        );
-
-        // Persist to the backend so the Product Catalog reflects the adjustment (TC-48).
-        // localStorage update happens regardless so the UI stays responsive even if the
-        // backend is offline; backend failure is surfaced to the user but doesn't roll back.
-        let backendOk = true;
-        try {
-            const base = getOilErpApiBase().replace(/\/$/, '');
-            const r = await fetch(`${base}/products/${encodeURIComponent(product.id)}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ stock: newTotalStock }),
-            });
-            if (!r.ok) backendOk = false;
-        } catch {
-            backendOk = false;
-        }
+        // Use the backend-confirmed new stock when available; otherwise apply delta locally.
+        const newFirstLocStock = backendNewStock != null
+            ? backendNewStock
+            : (Number(safeLocations[0]?.currentStock) || 0) + manualDelta;
 
         const updatedProducts = products.map((p) => {
             if (p.id !== manualProductId) return p;
@@ -196,8 +218,8 @@ export default function StockAdjustmentManager() {
         setManualFeedback({
             type: backendOk ? 'success' : 'error',
             message: backendOk
-                ? `Manual adjustment applied to ${product.name} (${manualDelta > 0 ? '+' : ''}${manualDelta}).`
-                : `Local change saved, but backend update failed for ${product.name}. Refresh and try again.`,
+                ? `Stock for ${product.name} updated to ${backendNewStock} on server (delta ${manualDelta > 0 ? '+' : ''}${manualDelta}).`
+                : `Local change saved, but server update failed: ${backendErr || 'unknown error'}. Refresh Product Catalog and try again.`,
         });
     };
 
