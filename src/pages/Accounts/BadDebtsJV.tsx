@@ -136,13 +136,48 @@ export default function BadDebtsJV() {
                 status: 'Posted' as const
             };
 
-            // Save JV
+            // Save JV (local-only ledger of journal vouchers — unchanged).
             const existing = JSON.parse(localStorage.getItem('journal_vouchers') || '[]');
             localStorage.setItem('journal_vouchers', JSON.stringify([jv, ...existing]));
 
-            setSuccess(`✅ Bad Debt JV ${jv.jvNumber} posted for ${formatCurrency(totalAmount)}`);
+            // TC-65: also reduce each affected customer's accounts-receivable balance
+            // on the server. POSTing a payment to /api/customers/{id}/payments is the
+            // only path that decrements customer.balance, so we use that with a clearly
+            // labeled payment_method/notes so it can be distinguished from real cash.
+            const base = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '') + '/api';
+            let arOk = 0;
+            const arFailures: string[] = [];
+            for (const c of selectedCandidates) {
+                const cid = c.invoice.customerId;
+                if (!cid) { arFailures.push(c.invoice.invoiceNumber); continue; }
+                const payload = {
+                    customer_id: Number(cid) || cid,
+                    amount: c.amount,
+                    payment_date: date,
+                    payment_method: 'Bad Debt Write-Off',
+                    reference: `${jv.jvNumber} / ${c.invoice.invoiceNumber}`,
+                    notes: `Bad debt write-off (${jv.jvNumber}) — ${notes || 'no narration'}`,
+                };
+                try {
+                    const r = await fetch(`${base}/customers/${cid}/payments`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                    });
+                    if (r.ok) arOk += 1;
+                    else arFailures.push(c.invoice.invoiceNumber);
+                } catch {
+                    arFailures.push(c.invoice.invoiceNumber);
+                }
+            }
+
+            if (arFailures.length === 0) {
+                setSuccess(`✅ Bad Debt JV ${jv.jvNumber} posted for ${formatCurrency(totalAmount)}. Customer balances reduced (${arOk}/${selectedCandidates.length}).`);
+            } else {
+                setSuccess(`⚠️ JV ${jv.jvNumber} posted, but ${arFailures.length} customer balance(s) could not be reduced: ${arFailures.join(', ')}.`);
+            }
             setSelected(new Set());
-            setTimeout(() => setSuccess(''), 5000);
+            setTimeout(() => setSuccess(''), 8000);
         } catch (e) {
             alert('Failed to create JV. Please try again.');
         } finally {
