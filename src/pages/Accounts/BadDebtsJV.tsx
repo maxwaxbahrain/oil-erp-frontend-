@@ -155,9 +155,15 @@ export default function BadDebtsJV() {
             // on the server. POSTing a payment to /api/customers/{id}/payments is the
             // only path that decrements customer.balance, so we use that with a clearly
             // labeled payment_method/notes so it can be distinguished from real cash.
+            // After posting, if the customer's balance went negative (e.g. because of
+            // BETTANO orphan credits in the ledger), clamp it back to 0 with a PUT —
+            // the user's accounting view is "a written-off customer owes nothing",
+            // not "the customer now has a credit with us". Other customers' balances
+            // are untouched.
             const base = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '') + '/api';
             let arOk = 0;
             const arFailures: string[] = [];
+            const touchedCustomerIds = new Set<string>();
             for (const c of selectedCandidates) {
                 const cid = c.invoice.customerId;
                 if (!cid) { arFailures.push(c.invoice.invoiceNumber); continue; }
@@ -175,11 +181,27 @@ export default function BadDebtsJV() {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload),
                     });
-                    if (r.ok) arOk += 1;
+                    if (r.ok) { arOk += 1; touchedCustomerIds.add(String(cid)); }
                     else arFailures.push(c.invoice.invoiceNumber);
                 } catch {
                     arFailures.push(c.invoice.invoiceNumber);
                 }
+            }
+
+            // Clamp negative balances to 0 on any customer we just wrote off.
+            for (const cid of touchedCustomerIds) {
+                try {
+                    const r = await fetch(`${base}/customers/${cid}`, { cache: 'no-store' });
+                    if (!r.ok) continue;
+                    const cust = await r.json();
+                    if (Number(cust?.balance) < 0) {
+                        await fetch(`${base}/customers/${cid}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ balance: 0 }),
+                        });
+                    }
+                } catch { /* not fatal */ }
             }
 
             if (arFailures.length === 0) {
