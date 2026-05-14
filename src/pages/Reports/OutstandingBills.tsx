@@ -148,19 +148,24 @@ export default function OutstandingBills() {
         });
     }, []);
 
-    // Customer list for the dropdown — distinct customer names sorted alphabetically.
+    // Customer list for the dropdown — distinct resolved names sorted alphabetically.
     const customerOptions = useMemo(() => {
         const set = new Set<string>();
-        allInvoices.forEach(i => { if (i.customerName) set.add(i.customerName); });
+        allInvoices.forEach(i => { set.add(nameOf(i)); });
+        set.delete('Unknown');
         return Array.from(set).sort();
-    }, [allInvoices]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [allInvoices, contactsByCustomerId]);
 
-    // Filter pipeline.
-    const passesCustomer = (inv: Invoice) => customerFilter === 'all' || inv.customerName === customerFilter;
-    const passesSearch = (inv: Invoice) =>
-        !search ||
-        inv.customerName?.toLowerCase().includes(search.toLowerCase()) ||
-        inv.invoiceNumber?.toLowerCase().includes(search.toLowerCase());
+    // Filter pipeline (uses resolved name so customers with empty customerName
+    // are still matched correctly).
+    const passesCustomer = (inv: Invoice) => customerFilter === 'all' || nameOf(inv) === customerFilter;
+    const passesSearch = (inv: Invoice) => {
+        if (!search) return true;
+        const q = search.toLowerCase();
+        return nameOf(inv).toLowerCase().includes(q) ||
+            (inv.invoiceNumber || '').toLowerCase().includes(q);
+    };
     const passesStatus = (inv: Invoice) => {
         if (statusFilter === 'all') return true;
         if (statusFilter === 'Overdue')  return isOverdue(inv);
@@ -173,7 +178,7 @@ export default function OutstandingBills() {
     const baseScoped = allInvoices.filter(inv => passesCustomer(inv) && passesSearch(inv));
     const filtered = baseScoped.filter(passesStatus).sort((a, b) => {
         if (sortBy === 'amount')   return balanceOf(b) - balanceOf(a);
-        if (sortBy === 'customer') return (a.customerName || '').localeCompare(b.customerName || '');
+        if (sortBy === 'customer') return nameOf(a).localeCompare(nameOf(b));
         if (sortBy === 'date')     return new Date(b.invoiceDate || 0).getTime() - new Date(a.invoiceDate || 0).getTime();
         // 'due' — most overdue first, then soonest due
         return (new Date(a.dueDate || a.invoiceDate || 0).getTime()) - (new Date(b.dueDate || b.invoiceDate || 0).getTime());
@@ -226,6 +231,16 @@ export default function OutstandingBills() {
         setSelected(next);
     };
 
+    // Resolve a customer display name. Some imported invoices have an empty
+    // customerName field; fall back to the live customer contact lookup so
+    // the table never shows a blank Customer column for those rows.
+    const nameOf = (inv: Invoice) => {
+        const n = (inv.customerName || '').trim();
+        if (n) return n;
+        const cid = String(inv.customerId || '');
+        return contactsByCustomerId[cid]?.name?.trim() || 'Unknown';
+    };
+
     const handlePrint = () => window.print();
 
     const exportPDF = () => {
@@ -244,7 +259,7 @@ export default function OutstandingBills() {
                 const paid = Number(inv.amount_paid) || 0;
                 return [
                     inv.invoiceNumber || '',
-                    inv.customerName || '',
+                    nameOf(inv),
                     inv.invoiceDate || '',
                     inv.dueDate || '',
                     computedStatus(inv),
@@ -448,7 +463,7 @@ export default function OutstandingBills() {
                                                     />
                                                 </td>
                                                 <td className="px-4 py-4 text-sm font-bold text-gray-900 font-mono">{inv.invoiceNumber}</td>
-                                                <td className="px-4 py-4 text-sm font-semibold text-gray-800">{inv.customerName}</td>
+                                                <td className="px-4 py-4 text-sm font-semibold text-gray-800">{nameOf(inv)}</td>
                                                 <td className="px-4 py-4 text-sm text-gray-500 font-mono">{inv.invoiceDate || '—'}</td>
                                                 <td className="px-4 py-4">
                                                     <p className="text-sm text-gray-500 font-mono">{inv.dueDate || '—'}</p>
@@ -522,9 +537,9 @@ export default function OutstandingBills() {
                     const id = String(inv.id);
                     if (!selected.has(id)) return;
                     const cid = String(inv.customerId || '');
-                    const contact = contactsByCustomerId[cid] || { name: inv.customerName || 'Unknown', phone: '', email: '' };
+                    const contact = contactsByCustomerId[cid] || { name: '', phone: '', email: '' };
                     if (!groups[cid]) {
-                        groups[cid] = { name: contact.name || inv.customerName || 'Unknown', phone: contact.phone || '', email: contact.email || '', balance: 0, bills: [] };
+                        groups[cid] = { name: nameOf(inv), phone: contact.phone || '', email: contact.email || '', balance: 0, bills: [] };
                     }
                     groups[cid].balance += balanceOf(inv);
                     groups[cid].bills.push(inv.invoiceNumber || `#${inv.id}`);
