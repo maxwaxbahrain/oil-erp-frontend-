@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Minus, Save, Package, RefreshCw } from 'lucide-react';
-import { getProducts } from '../../services/api';
+import { ArrowLeft, Plus, Minus, Save, Package, RefreshCw, Search } from 'lucide-react';
+import { getProducts as getMergedProducts } from '../../services/productService';
 import { formatCurrency } from '../../services/settingsService';
 
 interface Adjustment {
@@ -16,6 +16,24 @@ const ADJ_KEY = 'inventory_adjustments';
 const getAdjs = (): Adjustment[] => { try { return JSON.parse(localStorage.getItem(ADJ_KEY)||'[]'); } catch { return []; } };
 const saveAdj = (a: Adjustment) => localStorage.setItem(ADJ_KEY, JSON.stringify([a,...getAdjs()]));
 
+// Adapter: map a productService Product into the flat shape this page expects.
+function flatten(p: any) {
+    const stock = Array.isArray(p?.locations)
+        ? p.locations.reduce((s: number, l: any) => s + (Number(l?.currentStock) || 0), 0)
+        : Number(p?.current_stock || p?.stock || 0);
+    return {
+        id: String(p?.id ?? ''),
+        name: String(p?.name ?? ''),
+        sku: String(p?.sku ?? ''),
+        current_stock: stock,
+        minimum_stock: Number(p?.reorderLevel || p?.minimum_stock || p?.min_stock || 0),
+        unit_price: Number(p?.pricing?.sellingPrice || p?.price || p?.unit_price || 0),
+        cost: Number(p?.pricing?.landedCost || p?.cost || 0),
+        unit: String(p?.uom || p?.unit || 'unit'),
+        category: String(p?.category || 'Imported'),
+    };
+}
+
 export default function InventoryAdjustment() {
     const navigate = useNavigate();
     const [products, setProducts] = useState<any[]>([]);
@@ -23,38 +41,86 @@ export default function InventoryAdjustment() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [success, setSuccess] = useState('');
+    const [search, setSearch] = useState('');
     const [form, setForm] = useState({ productId:'', type:'add' as 'add'|'reduce', quantity:1, reason:'', date:new Date().toISOString().slice(0,10) });
 
-    useEffect(() => { getProducts().then(p=>{ setProducts(p); setLoading(false); }); setAdjustments(getAdjs()); }, []);
+    useEffect(() => { getMergedProducts().then(list => { setProducts(list.map(flatten)); setLoading(false); }); setAdjustments(getAdjs()); }, []);
 
     const sel = products.find(p => String(p.id) === form.productId);
     const preview = sel ? form.type==='add' ? (sel.current_stock||0)+form.quantity : Math.max(0,(sel.current_stock||0)-form.quantity) : 0;
+    const filteredProducts = search.trim()
+        ? products.filter(p =>
+            (p.name || '').toLowerCase().includes(search.toLowerCase()) ||
+            (p.sku || '').toLowerCase().includes(search.toLowerCase()))
+        : products;
 
     const handleSave = async () => {
         if (!form.productId||!form.reason||form.quantity<=0) { alert('Please fill all fields.'); return; }
+        if (!sel) { alert('Selected product not found.'); return; }
         setSaving(true);
         try {
-            // Backend serves under /api/. Previous version hit /products/... which 404'd
-            // silently because no status check was done. Also: backend field is `stock`,
-            // not `current_stock` — the PUT was being accepted but ignored. (TC-48)
             const base = String(import.meta.env.VITE_API_URL||'http://localhost:8000').replace(/\/$/,'') + '/api';
-            let resp: Response;
-            if (form.type==='add') {
-                resp = await fetch(`${base}/products/${form.productId}/add-stock`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({quantity:form.quantity,reference:`ADJ-${Date.now()}`})});
-            } else {
-                const newStock = Math.max(0,(sel?.current_stock||0)-form.quantity);
-                resp = await fetch(`${base}/products/${form.productId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({stock:newStock})});
+
+            // Find this product on the backend by name (case-insensitive). The dropdown
+            // may include products that live only in localStorage (e.g. BETTANO imports
+            // that never reached the server). If missing, POST a minimal record so the
+            // adjustment can write a real stock value to it.
+            let backendId: string | number | null = null;
+            let backendCurrentStock = 0;
+            try {
+                const listResp = await fetch(`${base}/products/`, { cache: 'no-store' });
+                if (listResp.ok) {
+                    const list = await listResp.json();
+                    const arr = Array.isArray(list) ? list : (list?.results || list?.data || []);
+                    const target = String(sel.name || '').trim().toLowerCase();
+                    const match = arr.find((p: any) => String(p?.name || '').trim().toLowerCase() === target);
+                    if (match) {
+                        backendId = match.id;
+                        backendCurrentStock = Number(match.stock) || 0;
+                    }
+                }
+            } catch { /* fall through to create-on-backend */ }
+
+            if (backendId == null) {
+                // Create on backend with the localStorage product's data, starting from
+                // stock=0 so the adjustment delta is the final value (no double-count).
+                const createBody = {
+                    name: sel.name,
+                    sku: sel.sku || `INV-${Date.now()}`,
+                    category: sel.category || 'Imported',
+                    description: '',
+                    price: sel.unit_price || 0,
+                    cost: sel.cost || 0,
+                    stock: 0,
+                    min_stock: sel.minimum_stock || 0,
+                    unit: sel.unit || 'unit',
+                };
+                const createResp = await fetch(`${base}/products/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(createBody) });
+                if (!createResp.ok) {
+                    const detail = await createResp.text().catch(() => '');
+                    throw new Error(`Could not create product on backend (HTTP ${createResp.status}): ${detail.slice(0, 200)}`);
+                }
+                const created = await createResp.json();
+                backendId = created.id;
+                backendCurrentStock = Number(created.stock) || 0;
             }
-            if (!resp.ok) {
-                const detail = await resp.text().catch(() => '');
-                throw new Error(`Backend ${resp.status}: ${detail.slice(0, 200) || resp.statusText}`);
+
+            const newStock = form.type === 'add'
+                ? backendCurrentStock + form.quantity
+                : Math.max(0, backendCurrentStock - form.quantity);
+            const putResp = await fetch(`${base}/products/${backendId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stock: newStock }) });
+            if (!putResp.ok) {
+                const detail = await putResp.text().catch(() => '');
+                throw new Error(`Backend ${putResp.status}: ${detail.slice(0, 200) || putResp.statusText}`);
             }
-            const adj: Adjustment = {id:`ADJ-${Date.now()}`,productId:form.productId,productName:sel?.name||'',type:form.type,quantity:form.quantity,reason:form.reason,date:form.date,before:sel?.current_stock||0,after:preview};
+
+            const adj: Adjustment = {id:`ADJ-${Date.now()}`,productId:String(backendId),productName:sel.name,type:form.type,quantity:form.quantity,reason:form.reason,date:form.date,before:backendCurrentStock,after:newStock};
             saveAdj(adj);
-            const upd = await getProducts(); setProducts(upd); setAdjustments(getAdjs());
-            setSuccess(`Stock ${form.type==='add'?'increased':'reduced'} by ${form.quantity} units`);
+            const upd = await getMergedProducts(); setProducts(upd.map(flatten)); setAdjustments(getAdjs());
+            setSuccess(`Stock ${form.type==='add'?'increased':'reduced'} by ${form.quantity} units (now ${newStock})`);
             setTimeout(()=>setSuccess(''),4000);
             setForm(p=>({...p,productId:'',quantity:1,reason:''}));
+            setSearch('');
         } catch (e) {
             alert(`Failed to save: ${e instanceof Error ? e.message : 'unknown error'}`);
         }
@@ -82,10 +148,20 @@ export default function InventoryAdjustment() {
                             <button onClick={()=>setForm(p=>({...p,type:'reduce',reason:''}))} className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-black text-sm transition-all ${form.type==='reduce'?'bg-red-500 text-white':'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}><Minus size={16}/> Reduce Stock</button>
                         </div>
                     </div>
-                    <div><label className="block text-xs font-black text-gray-500 uppercase mb-2">Product</label>
+                    <div><label className="block text-xs font-black text-gray-500 uppercase mb-2">Product ({products.length} total{search.trim() && filteredProducts.length !== products.length ? `, ${filteredProducts.length} match` : ''})</label>
+                        <div className="relative mb-2">
+                            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                            <input
+                                type="text"
+                                value={search}
+                                onChange={e => setSearch(e.target.value)}
+                                placeholder="Type to filter products by name or SKU..."
+                                className="w-full border border-gray-200 rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:border-orange-400"
+                            />
+                        </div>
                         <select value={form.productId} onChange={e=>setForm(p=>({...p,productId:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-400">
                             <option value="">Select product...</option>
-                            {products.map(p=><option key={p.id} value={p.id}>{p.name} — Stock: {p.current_stock||0}</option>)}
+                            {filteredProducts.map(p=><option key={p.id} value={p.id}>{p.name} — Stock: {p.current_stock||0}</option>)}
                         </select>
                     </div>
                     <div><label className="block text-xs font-black text-gray-500 uppercase mb-2">Quantity</label>
