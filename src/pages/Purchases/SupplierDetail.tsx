@@ -126,31 +126,40 @@ export default function SupplierDetail() {
                 getSupplierPayments(id)
             ]);
 
+            // Debug trace — verifies the API path is wired. Visible in DevTools console.
+            // eslint-disable-next-line no-console
+            console.log(`[SupplierDetail] id=${id} fetched POs=${suppPurchases.length} payments=${suppPayments.length}`, { samplePO: suppPurchases[0], samplePayment: suppPayments[0] });
+
             setPurchases(suppPurchases);
             setPayments(suppPayments);
 
-            // Build Ledger
+            // Build Ledger. All field accesses below are defensive so a
+            // malformed row (missing items, missing id, etc.) doesn't throw
+            // and silently empty the page.
             const allTransactions: any[] = [
                 ...suppPurchases.filter(p => p.status !== 'Draft' && p.status !== 'Pending').map(po => ({
-                    id: po.id,
-                    date: po.date,
+                    id: String(po.id || ''),
+                    date: po.date || '',
                     type: 'Purchase' as const,
-                    referenceNumber: po.poNumber,
-                    description: `Purchase Order - ${po.items.length} item(s)`,
+                    referenceNumber: po.poNumber || '',
+                    description: `Purchase Order - ${(po.items?.length ?? 0)} item(s)`,
                     debit: 0,
-                    credit: po.grandTotal, // Increase Liability
-                    relatedId: po.id
+                    credit: Number(po.grandTotal) || 0, // Increase Liability
+                    relatedId: String(po.id || ''),
                 })),
-                ...suppPayments.map(pay => ({
-                    id: pay.id,
-                    date: pay.date,
-                    type: 'Payment' as const,
-                    referenceNumber: pay.reference || `PAY-${pay.id.slice(-4)}`,
-                    description: `Payment Sent - ${pay.paymentMethod}`,
-                    debit: pay.amount, // Decrease Liability
-                    credit: 0,
-                    relatedId: pay.id
-                }))
+                ...suppPayments.map(pay => {
+                    const payIdStr = String(pay.id || '');
+                    return {
+                        id: payIdStr,
+                        date: pay.date || '',
+                        type: 'Payment' as const,
+                        referenceNumber: pay.reference || `PAY-${payIdStr.slice(-4)}`,
+                        description: `Payment Sent - ${pay.paymentMethod || 'Bank Transfer'}`,
+                        debit: Number(pay.amount) || 0, // Decrease Liability
+                        credit: 0,
+                        relatedId: payIdStr,
+                    };
+                })
             ];
 
             // Sort by date
@@ -891,7 +900,7 @@ export default function SupplierDetail() {
                                                             {new Date(po.date).toLocaleDateString()}
                                                         </td>
                                                         <td className="px-6 py-4 text-xs font-bold text-gray-500">
-                                                            {po.items.length} {po.items.length === 1 ? 'Item' : 'Items'}
+                                                            {(po.items?.length ?? 0)} {(po.items?.length ?? 0) === 1 ? 'Item' : 'Items'}
                                                         </td>
                                                         <td className="px-6 py-4 text-center">
                                                             {po.status === 'Pending' || po.status === 'Draft' ? (
