@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, AlertTriangle, Check, RefreshCw } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, Check, RefreshCw, Search } from 'lucide-react';
 import { getCustomers, getInvoices, type Customer, type Invoice } from '../../services/api';
 import { getAccounts, DEFAULT_ACCOUNTS } from './ChartOfAccounts';
 import { formatCurrency } from '../../services/settingsService';
@@ -30,6 +30,17 @@ export default function BadDebtsJV() {
     const [success, setSuccess] = useState('');
     const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
     const [notes, setNotes] = useState('');
+    const [searchTerm, setSearchTerm] = useState('');
+
+    const filteredCandidates = useMemo(() => {
+        const q = searchTerm.trim().toLowerCase();
+        if (!q) return candidates;
+        return candidates.filter(c =>
+            (c.customer?.name || '').toLowerCase().includes(q) ||
+            (c.customer?.phone || '').toLowerCase().includes(q) ||
+            (c.invoice.invoiceNumber || '').toLowerCase().includes(q)
+        );
+    }, [candidates, searchTerm]);
 
     useEffect(() => {
         Promise.all([getInvoices(), getCustomers()]).then(([invoices, customers]) => {
@@ -242,10 +253,25 @@ export default function BadDebtsJV() {
 
             {/* Invoice List */}
             <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
-                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-4 flex-wrap">
                     <div>
                         <p className="text-sm font-black text-gray-900">Overdue Invoices</p>
-                        <p className="text-xs text-gray-400 mt-0.5">{candidates.length} overdue invoices found — select to write off</p>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                            {searchTerm.trim()
+                                ? `${filteredCandidates.length} of ${candidates.length} match — select to write off`
+                                : `${candidates.length} overdue invoices found — select to write off`}
+                        </p>
+                    </div>
+                    <div className="relative flex-1 min-w-[240px] max-w-md">
+                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                        <input
+                            type="text"
+                            value={searchTerm}
+                            onChange={e => setSearchTerm(e.target.value)}
+                            placeholder="Search by customer name, phone, or invoice #..."
+                            className="w-full border border-gray-200 rounded-xl pl-9 pr-3 py-2 text-sm focus:outline-none focus:border-red-400"
+                            autoComplete="off"
+                        />
                     </div>
                     {selectedCandidates.length > 0 && (
                         <button onClick={createBadDebtJV} disabled={saving}
@@ -264,6 +290,12 @@ export default function BadDebtsJV() {
                         <p className="text-gray-400 font-bold">No overdue invoices</p>
                         <p className="text-gray-300 text-sm mt-1">All invoices are paid or not yet due</p>
                     </div>
+                ) : filteredCandidates.length === 0 ? (
+                    <div className="p-12 text-center">
+                        <Search size={40} className="mx-auto text-gray-200 mb-3" />
+                        <p className="text-gray-400 font-bold">No matches for &ldquo;{searchTerm}&rdquo;</p>
+                        <p className="text-gray-300 text-sm mt-1">Try a different name, phone, or invoice number.</p>
+                    </div>
                 ) : (
                     <div className="overflow-x-auto">
                         <table className="w-full text-left">
@@ -271,8 +303,13 @@ export default function BadDebtsJV() {
                                 <tr>
                                     <th className="px-5 py-3 w-10">
                                         <input type="checkbox"
-                                            checked={selected.size === candidates.length && candidates.length > 0}
-                                            onChange={e => setSelected(e.target.checked ? new Set(candidates.map(c => c.invoice.id)) : new Set())}
+                                            checked={filteredCandidates.length > 0 && filteredCandidates.every(c => selected.has(c.invoice.id))}
+                                            onChange={e => {
+                                                const next = new Set(selected);
+                                                if (e.target.checked) filteredCandidates.forEach(c => next.add(c.invoice.id));
+                                                else filteredCandidates.forEach(c => next.delete(c.invoice.id));
+                                                setSelected(next);
+                                            }}
                                             className="rounded" />
                                     </th>
                                     {['Customer', 'Invoice', 'Due Date', 'Days Overdue', 'Amount', 'Risk'].map(h => (
@@ -281,7 +318,7 @@ export default function BadDebtsJV() {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">
-                                {candidates.map(c => (
+                                {filteredCandidates.map(c => (
                                     <tr key={c.invoice.id}
                                         className={`transition-all cursor-pointer ${selected.has(c.invoice.id) ? 'bg-red-50' : 'hover:bg-gray-50'}`}
                                         onClick={() => toggleSelect(c.invoice.id)}>
