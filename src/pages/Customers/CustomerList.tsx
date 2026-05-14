@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { type Customer, getCustomers, customerBalancesFromNotes } from '../../services/customerService';
+import { type Customer, getCustomers } from '../../services/customerService';
 import DataTable from '../../components/tables/DataTable';
 import { Plus } from 'lucide-react';
 
@@ -27,15 +27,10 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
         setError(null);
         const data = await getCustomers();
         if (cancelled) return;
-
-        // The backend's stored balance is corrupted (BETTANO + payment imports
-        // double-decremented it). The BETTANO importer wrote the correct
-        // outstanding into the notes field; trust that for display.
-        const corrected = customerBalancesFromNotes(data);
-        const enriched = data.map((c) =>
-          corrected[String(c.id)] !== undefined ? { ...c, balance: corrected[String(c.id)] } : c
-        );
-        setCustomers(enriched);
+        // Use the server-side balance directly. The backend now maintains it
+        // correctly: invoice POST increments, payment POST decrements. We reset
+        // historical balances to the BETTANO 'Owes:' baseline via a one-shot script.
+        setCustomers(data);
         setLoading(false);
       } catch (err) {
         console.error('Failed to fetch customers:', err);

@@ -322,7 +322,9 @@ export default function CustomerOverview() {
                 index === self.findIndex(t => t.referenceNumber === tx.referenceNumber)
             );
 
-            // Sort by date and calculate running balance
+            // Compute running balance in chronological order (oldest first), then reverse
+            // the display so the newest entry appears at the top — matching the user's
+            // expectation that fresh invoices land at the top of the ledger.
             const sortedTransactions = uniqueTransactions.sort((a, b) =>
                 new Date(a.date).getTime() - new Date(b.date).getTime()
             );
@@ -337,7 +339,7 @@ export default function CustomerOverview() {
                     van_number: tx.van_number,
                     salesman_name: tx.salesman_name
                 };
-            });
+            }).reverse();
 
             setLedger(ledgerEntries);
 
