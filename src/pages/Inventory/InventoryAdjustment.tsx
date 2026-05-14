@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Minus, Save, Package, RefreshCw, Search } from 'lucide-react';
+import { ArrowLeft, Plus, Minus, Save, Package, RefreshCw, X } from 'lucide-react';
 import { getProducts as getMergedProducts } from '../../services/productService';
 import { formatCurrency } from '../../services/settingsService';
 
@@ -42,9 +42,21 @@ export default function InventoryAdjustment() {
     const [saving, setSaving] = useState(false);
     const [success, setSuccess] = useState('');
     const [search, setSearch] = useState('');
+    const [open, setOpen] = useState(false);
+    const comboRef = useRef<HTMLDivElement | null>(null);
     const [form, setForm] = useState({ productId:'', type:'add' as 'add'|'reduce', quantity:1, reason:'', date:new Date().toISOString().slice(0,10) });
 
     useEffect(() => { getMergedProducts().then(list => { setProducts(list.map(flatten)); setLoading(false); }); setAdjustments(getAdjs()); }, []);
+
+    // Close the suggestion list when the user clicks anywhere outside the combobox.
+    useEffect(() => {
+        const onClick = (e: MouseEvent) => {
+            if (!comboRef.current) return;
+            if (!comboRef.current.contains(e.target as Node)) setOpen(false);
+        };
+        document.addEventListener('mousedown', onClick);
+        return () => document.removeEventListener('mousedown', onClick);
+    }, []);
 
     const sel = products.find(p => String(p.id) === form.productId);
     const preview = sel ? form.type==='add' ? (sel.current_stock||0)+form.quantity : Math.max(0,(sel.current_stock||0)-form.quantity) : 0;
@@ -148,21 +160,55 @@ export default function InventoryAdjustment() {
                             <button onClick={()=>setForm(p=>({...p,type:'reduce',reason:''}))} className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-black text-sm transition-all ${form.type==='reduce'?'bg-red-500 text-white':'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}><Minus size={16}/> Reduce Stock</button>
                         </div>
                     </div>
-                    <div><label className="block text-xs font-black text-gray-500 uppercase mb-2">Product ({products.length} total{search.trim() && filteredProducts.length !== products.length ? `, ${filteredProducts.length} match` : ''})</label>
-                        <div className="relative mb-2">
-                            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                            <input
-                                type="text"
-                                value={search}
-                                onChange={e => setSearch(e.target.value)}
-                                placeholder="Type to filter products by name or SKU..."
-                                className="w-full border border-gray-200 rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:border-orange-400"
-                            />
-                        </div>
-                        <select value={form.productId} onChange={e=>setForm(p=>({...p,productId:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-400">
-                            <option value="">Select product...</option>
-                            {filteredProducts.map(p=><option key={p.id} value={p.id}>{p.name} — Stock: {p.current_stock||0}</option>)}
-                        </select>
+                    <div ref={comboRef} className="relative"><label className="block text-xs font-black text-gray-500 uppercase mb-2">Product ({products.length} total)</label>
+                        <input
+                            type="text"
+                            value={search}
+                            onFocus={() => setOpen(true)}
+                            onChange={e => { setSearch(e.target.value); setOpen(true); if (form.productId) setForm(p => ({ ...p, productId: '' })); }}
+                            placeholder="Type product name or SKU to search..."
+                            className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-400"
+                            autoComplete="off"
+                        />
+                        {form.productId && search && (
+                            <button
+                                type="button"
+                                onClick={() => { setSearch(''); setForm(p => ({ ...p, productId: '' })); setOpen(false); }}
+                                className="absolute right-3 top-[42px] text-gray-400 hover:text-gray-700"
+                                aria-label="Clear"
+                            >
+                                <X size={16} />
+                            </button>
+                        )}
+                        {open && filteredProducts.length > 0 && (
+                            <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-72 overflow-y-auto">
+                                {filteredProducts.slice(0, 50).map(p => (
+                                    <button
+                                        key={p.id}
+                                        type="button"
+                                        onClick={() => {
+                                            setForm(prev => ({ ...prev, productId: p.id }));
+                                            setSearch(p.name);
+                                            setOpen(false);
+                                        }}
+                                        className="w-full text-left px-4 py-2.5 text-sm hover:bg-orange-50 border-b border-gray-100 last:border-b-0 flex justify-between items-center"
+                                    >
+                                        <span className="font-semibold text-gray-800 truncate">{p.name}</span>
+                                        <span className="text-xs text-gray-500 ml-3 shrink-0">Stock: {p.current_stock || 0}</span>
+                                    </button>
+                                ))}
+                                {filteredProducts.length > 50 && (
+                                    <div className="px-4 py-2 text-xs text-gray-400 border-t border-gray-100">
+                                        Showing first 50 of {filteredProducts.length} matches — type more to narrow down.
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        {open && search.trim() && filteredProducts.length === 0 && (
+                            <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg px-4 py-3 text-sm text-gray-500">
+                                No products match &ldquo;{search}&rdquo;.
+                            </div>
+                        )}
                     </div>
                     <div><label className="block text-xs font-black text-gray-500 uppercase mb-2">Quantity</label>
                         <input type="number" min={1} value={form.quantity} onChange={e=>setForm(p=>({...p,quantity:parseInt(e.target.value)||1}))} className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm font-black focus:outline-none focus:border-orange-400"/>
