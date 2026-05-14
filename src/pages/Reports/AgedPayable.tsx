@@ -1,9 +1,9 @@
 import { useNavigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { Clock, Download, AlertTriangle, CheckCircle , ArrowLeft, Printer } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { getPurchaseOrders } from '../../services/purchasesService';
+import { getPurchaseOrders, type SupplierPayment, type PurchaseOrder } from '../../services/purchasesService';
 import { formatCurrency } from '../../services/settingsService';
 
 interface AgedSupplier {
@@ -14,41 +14,94 @@ interface AgedSupplier {
     days60: number;
     days90: number;
     total: number;
-    orders: any[];
+    orders: (PurchaseOrder & { remaining: number })[];
 }
 
 export default function AgedPayable() {
     const navigate = useNavigate();
     const [data, setData] = useState<AgedSupplier[]>([]);
+    const [paidThisMonth, setPaidThisMonth] = useState({ amount: 0, count: 0 });
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
     const [expanded, setExpanded] = useState<string | null>(null);
 
     useEffect(() => {
+        // QuickBooks-style FIFO supplier-payment application.
+        // Supplier payments live in a separate localStorage bucket and are
+        // NOT written back to each PO's `amount_paid` field, so without this
+        // every PO would look fully unpaid. We instead:
+        //   1. Read all POs.
+        //   2. Read all supplier payments.
+        //   3. Per supplier, sort POs oldest-first and consume that supplier's
+        //      payment credit from the oldest open PO first.
         getPurchaseOrders().then(orders => {
+            const allPayments: SupplierPayment[] = (() => {
+                try { return JSON.parse(localStorage.getItem('supplier_payments') || '[]'); }
+                catch { return []; }
+            })();
+
+            // Sum payments per supplier and remember which fell in the current
+            // calendar month (drives the "Paid this month" KPI).
+            const creditBySupplier: Record<string, number> = {};
+            const now = new Date();
+            const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+            let paidAmt = 0;
+            let paidCount = 0;
+            allPayments.forEach(p => {
+                const sid = String(p.supplierId || '');
+                if (sid) creditBySupplier[sid] = (creditBySupplier[sid] || 0) + (Number(p.amount) || 0);
+                const t = new Date(p.date || 0).getTime();
+                if (!Number.isNaN(t) && t >= monthStart) {
+                    paidAmt += Number(p.amount) || 0;
+                    paidCount += 1;
+                }
+            });
+            setPaidThisMonth({ amount: paidAmt, count: paidCount });
+
+            // Group POs by supplier (skip ones already flagged 'Paid').
+            const bySupplier: Record<string, PurchaseOrder[]> = {};
+            orders.forEach(po => {
+                if (po.payment_status === 'Paid') return;
+                const sid = po.supplierId || po.supplierName || 'Unknown';
+                (bySupplier[sid] = bySupplier[sid] || []).push(po);
+            });
+
             const today = new Date();
-            const unpaid = orders.filter(o =>
-                ['Pending', 'Approved', 'GRN', 'Draft'].includes(o.status) &&
-                o.payment_status !== 'Paid'
-            );
+            const daysOldOf = (po: PurchaseOrder) => {
+                const d = po.date ? new Date(po.date) : today;
+                return Math.floor((today.getTime() - d.getTime()) / 86_400_000);
+            };
 
             const supplierMap: Record<string, AgedSupplier> = {};
-            unpaid.forEach(po => {
-                const name = po.supplierName || 'Unknown';
-                const id = po.supplierId || name;
-                if (!supplierMap[id]) {
-                    supplierMap[id] = { supplierId: id, supplierName: name, current: 0, days30: 0, days60: 0, days90: 0, total: 0, orders: [] };
-                }
-                const poDate = po.date ? new Date(po.date) : today;
-                const daysOld = Math.floor((today.getTime() - poDate.getTime()) / (1000 * 60 * 60 * 24));
-                const balance = (po.grandTotal || 0) - (po.amount_paid || 0);
-                if (balance <= 0) return;
-                if (daysOld <= 30) supplierMap[id].current += balance;
-                else if (daysOld <= 60) supplierMap[id].days30 += balance;
-                else if (daysOld <= 90) supplierMap[id].days60 += balance;
-                else supplierMap[id].days90 += balance;
-                supplierMap[id].total += balance;
-                supplierMap[id].orders.push(po);
+            Object.entries(bySupplier).forEach(([sid, list]) => {
+                // Oldest POs absorb payment credit first.
+                const sorted = [...list].sort(
+                    (a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime(),
+                );
+                let credit = creditBySupplier[sid] || 0;
+                sorted.forEach(po => {
+                    const total = Number(po.grandTotal) || 0;
+                    const explicitPaid = Number(po.amount_paid) || 0;
+                    let remaining = total - explicitPaid;
+                    if (credit > 0 && remaining > 0.01) {
+                        const used = Math.min(credit, remaining);
+                        credit -= used;
+                        remaining -= used;
+                    }
+                    if (remaining <= 0.01) return; // fully paid → don't bucket
+
+                    const name = po.supplierName || 'Unknown';
+                    if (!supplierMap[sid]) {
+                        supplierMap[sid] = { supplierId: sid, supplierName: name, current: 0, days30: 0, days60: 0, days90: 0, total: 0, orders: [] };
+                    }
+                    const days = daysOldOf(po);
+                    if (days <= 30)      supplierMap[sid].current += remaining;
+                    else if (days <= 60) supplierMap[sid].days30  += remaining;
+                    else if (days <= 90) supplierMap[sid].days60  += remaining;
+                    else                 supplierMap[sid].days90  += remaining;
+                    supplierMap[sid].total += remaining;
+                    supplierMap[sid].orders.push({ ...po, remaining });
+                });
             });
 
             setData(Object.values(supplierMap).sort((a, b) => b.total - a.total));
@@ -140,17 +193,35 @@ export default function AgedPayable() {
             </div>
 
             {/* KPIs */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <div className="bg-gray-50 border border-gray-300 rounded-2xl p-4">
+                    <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Total Payable</p>
+                    <p className="text-2xl font-black font-mono text-gray-900">{loading ? '...' : formatCurrency(totals.total)}</p>
+                    <p className="text-[10px] text-gray-400 mt-1">{filtered.length} supplier{filtered.length === 1 ? '' : 's'} with balance</p>
+                </div>
+                <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
+                    <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Overdue (61d+)</p>
+                    <p className="text-2xl font-black font-mono text-red-600">{loading ? '...' : formatCurrency(totals.days60 + totals.days90)}</p>
+                    <p className="text-[10px] text-gray-400 mt-1">Settle these first</p>
+                </div>
+                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4">
+                    <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Paid this month</p>
+                    <p className="text-2xl font-black font-mono text-emerald-700">{loading ? '...' : formatCurrency(paidThisMonth.amount)}</p>
+                    <p className="text-[10px] text-gray-400 mt-1">{paidThisMonth.count} payment{paidThisMonth.count === 1 ? '' : 's'} sent to suppliers</p>
+                </div>
+            </div>
+
+            {/* Aging buckets */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {[
-                    { label: 'Current (0–30d)', value: totals.current, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200' },
-                    { label: '31–60 Days', value: totals.days30, color: 'text-yellow-600', bg: 'bg-yellow-50', border: 'border-yellow-200' },
-                    { label: '61–90 Days', value: totals.days60, color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200' },
-                    { label: '90+ Days', value: totals.days90, color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-200' },
-                    { label: 'Total Payable', value: totals.total, color: 'text-gray-900', bg: 'bg-gray-50', border: 'border-gray-300' },
+                    { label: 'Current (0–30d)', value: totals.current, color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-100' },
+                    { label: '31–60 Days',       value: totals.days30,  color: 'text-yellow-700',  bg: 'bg-yellow-50',  border: 'border-yellow-100' },
+                    { label: '61–90 Days',       value: totals.days60,  color: 'text-orange-700',  bg: 'bg-orange-50',  border: 'border-orange-100' },
+                    { label: '90+ Days',         value: totals.days90,  color: 'text-rose-700',    bg: 'bg-rose-50',    border: 'border-rose-100' },
                 ].map((b, i) => (
-                    <div key={i} className={`${b.bg} border ${b.border} rounded-2xl p-4`}>
-                        <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">{b.label}</p>
-                        <p className={`text-lg font-black font-mono ${b.color}`}>{loading ? '...' : formatCurrency(b.value)}</p>
+                    <div key={i} className={`rounded-2xl p-5 border ${b.bg} ${b.border}`}>
+                        <p className={`text-sm font-semibold ${b.color}`}>{b.label}</p>
+                        <p className={`text-2xl font-black font-mono ${b.color} mt-1`}>{loading ? '...' : formatCurrency(b.value)}</p>
                     </div>
                 ))}
             </div>
@@ -186,8 +257,8 @@ export default function AgedPayable() {
                                 {filtered.map(s => {
                                     const badge = ageBadge(s);
                                     return (
-                                        <>
-                                            <tr key={s.supplierId} className="hover:bg-gray-50 cursor-pointer transition-all"
+                                        <Fragment key={s.supplierId}>
+                                            <tr className="hover:bg-gray-50 cursor-pointer transition-all"
                                                 onClick={() => setExpanded(expanded === s.supplierId ? null : s.supplierId)}>
                                                 <td className="px-5 py-4">
                                                     <p className="text-sm font-black text-gray-900">{s.supplierName}</p>
@@ -203,22 +274,23 @@ export default function AgedPayable() {
                                                 <td className="px-5 py-4 text-sm font-black font-mono text-gray-900">{formatCurrency(s.total)}</td>
                                             </tr>
                                             {expanded === s.supplierId && (
-                                                <tr key={`${s.supplierId}-exp`} className="bg-gray-50">
+                                                <tr className="bg-gray-50">
                                                     <td colSpan={7} className="px-5 py-3">
                                                         <div className="space-y-2">
-                                                            {s.orders.map((po: any) => (
-                                                                <div key={po.id} className="flex items-center justify-between text-xs bg-white rounded-lg px-4 py-2 border border-gray-100">
+                                                            {s.orders.map(po => (
+                                                                <div key={po.id} className="grid grid-cols-5 items-center gap-3 text-xs bg-white rounded-lg px-4 py-2 border border-gray-100">
                                                                     <span className="font-black text-gray-700">{po.poNumber}</span>
                                                                     <span className="text-gray-500">{po.date?.slice(0, 10)}</span>
                                                                     <span className={`font-black ${po.status === 'Pending' ? 'text-yellow-600' : 'text-blue-600'}`}>{po.status}</span>
-                                                                    <span className="font-black font-mono text-gray-900">{formatCurrency(po.grandTotal || 0)}</span>
+                                                                    <span className="text-right font-mono text-gray-500">Total {formatCurrency(po.grandTotal || 0)}</span>
+                                                                    <span className="text-right font-black font-mono text-rose-700">Owed {formatCurrency(po.remaining)}</span>
                                                                 </div>
                                                             ))}
                                                         </div>
                                                     </td>
                                                 </tr>
                                             )}
-                                        </>
+                                        </Fragment>
                                     );
                                 })}
                                 <tr className="bg-gray-900 text-white">
