@@ -389,12 +389,14 @@ export default function CustomerOverview() {
             const sortedPayments = [...custPayments].sort((a, b) => safeTime(b.payment_date) - safeTime(a.payment_date));
             const lastPayment = sortedPayments[0];
 
-            // 'Last Invoice' = most recent DEBIT entry in the ledger. This covers
-            // tracked invoices AND legacy charges represented as opening-balance /
-            // debit-note / van-sale rows — same source of truth the ledger tab
-            // uses, so the date never disagrees with what's visible there.
+            // 'Last Invoice' = most recent DEBIT entry in the ledger, EXCLUDING the
+            // opening-balance row. Opening balance is a carry-forward, not a sale,
+            // and its date is the moment the customer was created on the backend
+            // (today) — not a real invoice date. Skipping reference='OPENING' lets
+            // the tile fall back to 'No invoices yet' for legacy customers and
+            // show real invoice dates for everyone else.
             const debitLedgerRows = ledgerEntries
-                .filter((e) => Number(e.debit) > 0)
+                .filter((e) => Number(e.debit) > 0 && String(e.referenceNumber || '').toUpperCase() !== 'OPENING')
                 .sort((a, b) => safeTime(b.date) - safeTime(a.date));
             const lastInvoiceDate = debitLedgerRows[0]?.date || '';
 
