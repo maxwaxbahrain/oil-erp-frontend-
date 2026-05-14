@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, AlertTriangle, Check, RefreshCw, Search } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, Check, RefreshCw, Search, RotateCcw } from 'lucide-react';
 import { getCustomers, getInvoices, type Customer, type Invoice } from '../../services/api';
 import { getAccounts, DEFAULT_ACCOUNTS } from './ChartOfAccounts';
 import { formatCurrency } from '../../services/settingsService';
@@ -31,6 +31,18 @@ export default function BadDebtsJV() {
     const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
     const [notes, setNotes] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
+    const [recentJVs, setRecentJVs] = useState<any[]>([]);
+    const [reversingId, setReversingId] = useState<string | null>(null);
+
+    const loadRecentJVs = () => {
+        try {
+            const stored = JSON.parse(localStorage.getItem('journal_vouchers') || '[]');
+            // Only Bad Debt JVs, newest first, top 20
+            const badDebts = stored.filter((j: any) => j?.type === 'Bad Debt').slice(0, 20);
+            setRecentJVs(badDebts);
+        } catch { setRecentJVs([]); }
+    };
+    useEffect(() => { loadRecentJVs(); }, []);
 
     const filteredCandidates = useMemo(() => {
         const q = searchTerm.trim().toLowerCase();
@@ -120,6 +132,15 @@ export default function BadDebtsJV() {
                 reference: selectedCandidates.map(c => c.invoice.invoiceNumber).join(', '),
                 narration: notes || `Bad debt write-off: ${selectedCandidates.map(c => c.customer?.name || 'Unknown').join(', ')}`,
                 type: 'Bad Debt' as const,
+                // Snapshot of the customers/invoices/amounts so the JV can be reversed
+                // without having to re-derive them from the lines list.
+                affectedCustomers: selectedCandidates.map(c => ({
+                    customerId: c.invoice.customerId,
+                    customerName: c.customer?.name || '',
+                    invoiceId: c.invoice.id,
+                    invoiceNumber: c.invoice.invoiceNumber,
+                    amount: c.amount,
+                })),
                 lines: selectedCandidates.flatMap(c => [
                     {
                         id: `${Date.now()}-dr-${c.invoice.id}`,
@@ -210,11 +231,90 @@ export default function BadDebtsJV() {
                 setSuccess(`⚠️ JV ${jv.jvNumber} posted, but ${arFailures.length} customer balance(s) could not be reduced: ${arFailures.join(', ')}.`);
             }
             setSelected(new Set());
+            loadRecentJVs();
             setTimeout(() => setSuccess(''), 8000);
         } catch (e) {
             alert('Failed to create JV. Please try again.');
         } finally {
             setSaving(false);
+        }
+    };
+
+    const reverseBadDebtJV = async (jv: any) => {
+        if (jv?.status === 'Reversed') {
+            alert('This JV has already been reversed.');
+            return;
+        }
+        const affected = Array.isArray(jv?.affectedCustomers) ? jv.affectedCustomers : [];
+        if (affected.length === 0) {
+            alert('This JV does not have a customer snapshot — it cannot be auto-reversed. (Older JVs created before the reversal feature.)');
+            return;
+        }
+        const total = affected.reduce((s: number, x: any) => s + Number(x.amount || 0), 0);
+        if (!window.confirm(
+            `Reverse JV ${jv.jvNumber}?\n\n` +
+            `This will restore ${formatCurrency(total)} across ${affected.length} customer(s):\n` +
+            affected.map((x: any) => `  • ${x.customerName || 'Customer ' + x.customerId}: +${formatCurrency(x.amount)}`).join('\n') +
+            `\n\nA reversal JV will be posted and a debit entry will appear on each customer's ledger.`
+        )) return;
+
+        setReversingId(jv.id);
+        try {
+            const base = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '') + '/api';
+            const failures: string[] = [];
+            let ok = 0;
+            for (const a of affected) {
+                if (!a?.customerId) { failures.push(a?.invoiceNumber || 'unknown'); continue; }
+                const payload = {
+                    amount: Number(a.amount) || 0,
+                    payment_date: new Date().toISOString().slice(0, 10),
+                    payment_method: 'Bad Debt Reversal',
+                    reference: `REV ${jv.jvNumber} / ${a.invoiceNumber}`,
+                    notes: `Reversal of bad-debt write-off ${jv.jvNumber} — ${a.invoiceNumber}`,
+                    type: 'debit',
+                };
+                try {
+                    const r = await fetch(`${base}/customers/${a.customerId}/debits`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                    });
+                    if (r.ok) ok += 1;
+                    else failures.push(a.invoiceNumber || a.customerName || 'unknown');
+                } catch {
+                    failures.push(a.invoiceNumber || a.customerName || 'unknown');
+                }
+            }
+
+            // Mark original as Reversed and append a reversal JV (mirror entries).
+            const stored = JSON.parse(localStorage.getItem('journal_vouchers') || '[]');
+            const updated = stored.map((j: any) => j.id === jv.id ? { ...j, status: 'Reversed', reversedAt: new Date().toISOString() } : j);
+            const reversal = {
+                id: Date.now().toString(),
+                jvNumber: nextBDJVNumber(),
+                date: new Date().toISOString().slice(0, 10),
+                reference: `Reversal of ${jv.jvNumber}`,
+                narration: `Reversal of bad-debt write-off ${jv.jvNumber}`,
+                type: 'Bad Debt Reversal' as const,
+                lines: (jv.lines || []).map((l: any) => ({ ...l, debit: l.credit, credit: l.debit })),
+                totalDebit: jv.totalCredit,
+                totalCredit: jv.totalDebit,
+                isBalanced: true,
+                createdAt: new Date().toISOString(),
+                status: 'Posted' as const,
+                reverses: jv.jvNumber,
+            };
+            localStorage.setItem('journal_vouchers', JSON.stringify([reversal, ...updated]));
+
+            if (failures.length === 0) {
+                setSuccess(`✅ JV ${jv.jvNumber} reversed (${formatCurrency(total)}). Customer balances restored (${ok}/${affected.length}). Reversal JV: ${reversal.jvNumber}.`);
+            } else {
+                setSuccess(`⚠️ JV ${jv.jvNumber} marked reversed, but ${failures.length} customer balance(s) could not be restored: ${failures.join(', ')}.`);
+            }
+            loadRecentJVs();
+            setTimeout(() => setSuccess(''), 8000);
+        } finally {
+            setReversingId(null);
         }
     };
 
@@ -388,6 +488,50 @@ export default function BadDebtsJV() {
             <p className="text-xs text-gray-400 text-center">
                 Writing off a bad debt creates: Dr Bad Debts Expense / Cr Accounts Receivable · This is permanent and posts immediately
             </p>
+
+            {/* Recent write-offs with reverse buttons */}
+            {recentJVs.length > 0 && (
+                <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
+                    <div className="px-5 py-4 border-b border-gray-100">
+                        <p className="text-sm font-black text-gray-900">Recent Bad-Debt JVs</p>
+                        <p className="text-xs text-gray-400 mt-0.5">Click <span className="font-bold text-amber-600">Reverse</span> to undo a write-off — customer balance and ledger will be restored.</p>
+                    </div>
+                    <div className="divide-y divide-gray-50">
+                        {recentJVs.map(jv => {
+                            const total = Array.isArray(jv.affectedCustomers)
+                                ? jv.affectedCustomers.reduce((s: number, x: any) => s + Number(x.amount || 0), 0)
+                                : Number(jv.totalDebit || 0);
+                            const isReversed = jv.status === 'Reversed';
+                            return (
+                                <div key={jv.id} className="px-5 py-4 flex items-center justify-between gap-3">
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2">
+                                            <p className="text-sm font-black text-gray-900 font-mono">{jv.jvNumber}</p>
+                                            <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${isReversed ? 'bg-gray-100 text-gray-500' : 'bg-red-50 text-red-600'}`}>
+                                                {isReversed ? 'Reversed' : 'Posted'}
+                                            </span>
+                                        </div>
+                                        <p className="text-xs text-gray-500 mt-1 truncate">{jv.narration || '—'}</p>
+                                        <p className="text-[11px] text-gray-400 mt-0.5">{jv.date} · {Array.isArray(jv.affectedCustomers) ? `${jv.affectedCustomers.length} customer(s)` : '—'}</p>
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                        <p className="text-sm font-black font-mono text-red-600">{formatCurrency(total)}</p>
+                                    </div>
+                                    <button
+                                        onClick={() => reverseBadDebtJV(jv)}
+                                        disabled={isReversed || reversingId === jv.id || !Array.isArray(jv.affectedCustomers) || jv.affectedCustomers.length === 0}
+                                        className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white text-xs font-black rounded-xl hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all shrink-0"
+                                        title={isReversed ? 'Already reversed' : 'Reverse this write-off'}
+                                    >
+                                        {reversingId === jv.id ? <RefreshCw size={12} className="animate-spin" /> : <RotateCcw size={12} />}
+                                        {reversingId === jv.id ? 'Reversing…' : 'Reverse'}
+                                    </button>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
