@@ -555,7 +555,16 @@ export default function OutstandingBills() {
                 };
                 const waLink = (phone: string, msg: string) => `https://wa.me/${cleanPhone(phone).replace(/^\+/, '')}?text=${encodeURIComponent(msg)}`;
                 const smsLink = (phone: string, msg: string) => `sms:${cleanPhone(phone)}?&body=${encodeURIComponent(msg)}`;
-                const mailLink = (email: string, msg: string) => `mailto:${email}?subject=${encodeURIComponent('Outstanding balance reminder')}&body=${encodeURIComponent(msg)}`;
+                // Use Gmail's web compose URL instead of `mailto:` — `mailto:` does
+                // nothing in browsers that have no OS-level default mail handler
+                // registered (very common when users live in Gmail/Outlook web).
+                // Gmail compose opens reliably in a new tab; from there the user
+                // can also forward into Outlook etc. if needed.
+                const mailLink = (email: string, msg: string) =>
+                    `https://mail.google.com/mail/?view=cm&fs=1` +
+                    `&to=${encodeURIComponent(email)}` +
+                    `&su=${encodeURIComponent('Outstanding balance reminder')}` +
+                    `&body=${encodeURIComponent(msg)}`;
                 return (
                     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 print:hidden" onClick={() => setReminderOpen(false)}>
                         <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
@@ -618,6 +627,8 @@ export default function OutstandingBills() {
                                                         </a>
                                                         <a
                                                             href={hasEmail ? mailLink(r.email, msg) : undefined}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
                                                             aria-disabled={!hasEmail}
                                                             className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold transition-all ${hasEmail ? 'bg-orange-500 text-white hover:bg-orange-600' : 'bg-gray-200 text-gray-400 cursor-not-allowed pointer-events-none'}`}
                                                         >
