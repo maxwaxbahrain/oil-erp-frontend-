@@ -1,9 +1,10 @@
 import { useNavigate } from 'react-router-dom';
 import { useState, useEffect, useMemo } from 'react';
-import { FileText, Download, AlertCircle, CheckCircle, ArrowLeft, Printer, ChevronLeft, ChevronRight } from 'lucide-react';
+import { FileText, Download, AlertCircle, CheckCircle, ArrowLeft, Printer, ChevronLeft, ChevronRight, Send, MessageCircle, Mail, Smartphone, X } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { getInvoices, getPayments, type Invoice } from '../../services/api';
+import { getCustomers } from '../../services/customerService';
 import { formatCurrency } from '../../services/settingsService';
 
 // Page-size for the bottom pager.
@@ -65,13 +66,30 @@ export default function OutstandingBills() {
     const [sortBy, setSortBy] = useState<'date' | 'amount' | 'customer' | 'due'>('due');
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [page, setPage] = useState(1);
+    // Customer contact lookup so reminders know phone + email per customer.
+    const [contactsByCustomerId, setContactsByCustomerId] = useState<Record<string, { name: string; phone: string; email: string }>>({});
+    const [reminderOpen, setReminderOpen] = useState(false);
+    const defaultMessage = (name: string, amount: string) =>
+        `Hi ${name || 'there'},\n\nThis is a friendly reminder that your account currently has an outstanding balance of ${amount}. Please settle at your earliest convenience.\n\nThank you,\nSoltol Team`;
+    const [reminderMessage, setReminderMessage] = useState('');
 
     useEffect(() => {
         // QuickBooks-style: auto-apply each customer's payments to their oldest
         // open invoices first (FIFO). Backend invoices all have paid_amount=0
         // because customer payments live in a separate Transactions table and
         // are never linked to specific invoices.
-        Promise.all([getInvoices(), getPayments().catch(() => [])]).then(([invs, pays]) => {
+        Promise.all([getInvoices(), getPayments().catch(() => []), getCustomers().catch(() => [])]).then(([invs, pays, customers]) => {
+            const contacts: Record<string, { name: string; phone: string; email: string }> = {};
+            (customers || []).forEach((c: any) => {
+                const cid = String(c?.id ?? '');
+                if (!cid) return;
+                contacts[cid] = {
+                    name: String(c?.name ?? '').trim(),
+                    phone: String(c?.phone ?? '').trim(),
+                    email: String(c?.email ?? '').trim(),
+                };
+            });
+            setContactsByCustomerId(contacts);
             const creditByCustomer: Record<string, number> = {};
             (pays || []).forEach((p: any) => {
                 const cid = String(p?.customer_id ?? '');
@@ -267,6 +285,19 @@ export default function OutstandingBills() {
                         className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-sm font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                     >
                         <Download size={14} /> Export
+                    </button>
+                    <button
+                        onClick={() => {
+                            if (selected.size === 0) {
+                                alert('Select at least one bill (check the boxes in the table) to send a reminder.');
+                                return;
+                            }
+                            setReminderOpen(true);
+                        }}
+                        disabled={loading}
+                        className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-sm font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    >
+                        <Send size={14} /> Send reminders
                     </button>
                     <button
                         onClick={handlePrint}
@@ -482,6 +513,131 @@ export default function OutstandingBills() {
                     </>
                 )}
             </div>
+
+            {/* Send reminders modal */}
+            {reminderOpen && (() => {
+                // Group selected invoices by customer; sum balance per customer.
+                const groups: Record<string, { name: string; phone: string; email: string; balance: number; bills: string[] }> = {};
+                allInvoices.forEach(inv => {
+                    const id = String(inv.id);
+                    if (!selected.has(id)) return;
+                    const cid = String(inv.customerId || '');
+                    const contact = contactsByCustomerId[cid] || { name: inv.customerName || 'Unknown', phone: '', email: '' };
+                    if (!groups[cid]) {
+                        groups[cid] = { name: contact.name || inv.customerName || 'Unknown', phone: contact.phone || '', email: contact.email || '', balance: 0, bills: [] };
+                    }
+                    groups[cid].balance += balanceOf(inv);
+                    groups[cid].bills.push(inv.invoiceNumber || `#${inv.id}`);
+                });
+                const recipients = Object.values(groups);
+                const cleanPhone = (p: string) => p.replace(/[^\d+]/g, '');
+                const buildMessage = (name: string, balance: number) => {
+                    const tpl = reminderMessage.trim() || defaultMessage(name, formatCurrency(balance));
+                    return tpl
+                        .replace(/\{name\}/g, name || 'there')
+                        .replace(/\{amount\}/g, formatCurrency(balance));
+                };
+                const waLink = (phone: string, msg: string) => `https://wa.me/${cleanPhone(phone).replace(/^\+/, '')}?text=${encodeURIComponent(msg)}`;
+                const smsLink = (phone: string, msg: string) => `sms:${cleanPhone(phone)}?&body=${encodeURIComponent(msg)}`;
+                const mailLink = (email: string, msg: string) => `mailto:${email}?subject=${encodeURIComponent('Outstanding balance reminder')}&body=${encodeURIComponent(msg)}`;
+                return (
+                    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 print:hidden" onClick={() => setReminderOpen(false)}>
+                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+                            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                                <div>
+                                    <h2 className="text-lg font-black text-gray-900">Send reminders</h2>
+                                    <p className="text-xs text-gray-500 mt-0.5">{recipients.length} customer{recipients.length !== 1 ? 's' : ''} · {selected.size} bill{selected.size !== 1 ? 's' : ''}</p>
+                                </div>
+                                <button onClick={() => setReminderOpen(false)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
+                                    <X size={18} />
+                                </button>
+                            </div>
+
+                            <div className="px-6 py-4 border-b border-gray-100">
+                                <label className="block text-xs font-bold text-gray-600 uppercase mb-2">Message template <span className="text-gray-400 font-normal normal-case">(use <code className="bg-gray-100 px-1 rounded">{'{name}'}</code> and <code className="bg-gray-100 px-1 rounded">{'{amount}'}</code> placeholders)</span></label>
+                                <textarea
+                                    value={reminderMessage}
+                                    onChange={e => setReminderMessage(e.target.value)}
+                                    placeholder={defaultMessage('{name}', '{amount}')}
+                                    rows={5}
+                                    className="w-full px-4 py-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-orange-400 font-mono"
+                                />
+                                <p className="text-[11px] text-gray-400 mt-1">Leave blank to use the default template. Each customer's message will substitute their name and balance.</p>
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto px-6 py-4">
+                                {recipients.length === 0 ? (
+                                    <p className="text-sm text-gray-500 text-center py-6">No recipients — close this dialog and select bills first.</p>
+                                ) : (
+                                    <div className="space-y-3">
+                                        {recipients.map((r, idx) => {
+                                            const msg = buildMessage(r.name, r.balance);
+                                            const hasPhone = !!r.phone;
+                                            const hasEmail = !!r.email;
+                                            return (
+                                                <div key={idx} className="border border-gray-100 rounded-xl p-4 bg-gray-50">
+                                                    <div className="flex items-start justify-between gap-3 mb-3">
+                                                        <div>
+                                                            <p className="font-bold text-gray-900">{r.name}</p>
+                                                            <p className="text-xs text-gray-500 mt-0.5">{r.bills.length} bill{r.bills.length !== 1 ? 's' : ''} · balance <span className="font-mono font-bold text-rose-700">{formatCurrency(r.balance)}</span></p>
+                                                            <p className="text-[11px] text-gray-400 mt-1">📞 {r.phone || 'no phone'} · ✉ {r.email || 'no email'}</p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        <a
+                                                            href={hasPhone ? waLink(r.phone, msg) : undefined}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            aria-disabled={!hasPhone}
+                                                            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold transition-all ${hasPhone ? 'bg-emerald-500 text-white hover:bg-emerald-600' : 'bg-gray-200 text-gray-400 cursor-not-allowed pointer-events-none'}`}
+                                                        >
+                                                            <MessageCircle size={14} /> WhatsApp
+                                                        </a>
+                                                        <a
+                                                            href={hasPhone ? smsLink(r.phone, msg) : undefined}
+                                                            aria-disabled={!hasPhone}
+                                                            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold transition-all ${hasPhone ? 'bg-blue-500 text-white hover:bg-blue-600' : 'bg-gray-200 text-gray-400 cursor-not-allowed pointer-events-none'}`}
+                                                        >
+                                                            <Smartphone size={14} /> SMS
+                                                        </a>
+                                                        <a
+                                                            href={hasEmail ? mailLink(r.email, msg) : undefined}
+                                                            aria-disabled={!hasEmail}
+                                                            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold transition-all ${hasEmail ? 'bg-orange-500 text-white hover:bg-orange-600' : 'bg-gray-200 text-gray-400 cursor-not-allowed pointer-events-none'}`}
+                                                        >
+                                                            <Mail size={14} /> Email
+                                                        </a>
+                                                        <button
+                                                            onClick={() => { navigator.clipboard?.writeText(msg); }}
+                                                            className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border border-gray-200 text-gray-700 hover:bg-white transition-all"
+                                                            title="Copy the rendered message to clipboard"
+                                                        >
+                                                            Copy text
+                                                        </button>
+                                                    </div>
+                                                    <details className="mt-3">
+                                                        <summary className="text-[11px] text-gray-500 cursor-pointer">Preview message</summary>
+                                                        <pre className="mt-2 text-xs bg-white rounded p-3 whitespace-pre-wrap text-gray-700 border border-gray-100">{msg}</pre>
+                                                    </details>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="px-6 py-3 border-t border-gray-100 flex justify-end">
+                                <button
+                                    onClick={() => setReminderOpen(false)}
+                                    className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-bold hover:bg-gray-700"
+                                >
+                                    Done
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
         </div>
     );
 }
