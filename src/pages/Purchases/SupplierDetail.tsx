@@ -32,9 +32,6 @@ import { generateStandardPDF } from '../../utils/documentGenerator';
 import {
     getCompanyProfile, getSystemSettings, formatCurrency} from '../../services/settingsService';
 import {
-    getSupplierById,
-    getSupplierPurchases,
-    getSupplierPayments,
     createSupplierPayment,
     updatePurchaseOrder,
     updateSupplier,
@@ -43,6 +40,68 @@ import {
     type SupplierPayment,
     type SupplierLedgerEntry
 } from '../../services/purchasesService';
+
+// SupplierDetail v3 (direct API): bypasses the service layer for read paths
+// so cached old bundles can't show stale localStorage data. Writes still
+// go through the service (createSupplierPayment / updateSupplier).
+const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
+    .trim()
+    .replace(/\/+$/, '');
+const SUPPLIERS_API = `${API_HOST}/api/suppliers`;
+
+const fromApiSupplier = (r: any): Supplier => ({
+    id: String(r.id),
+    name: r.name || '',
+    code: r.code || '',
+    contactPerson: r.contact_person || '',
+    email: r.email || '',
+    phone: r.phone || '',
+    address: r.address || '',
+    taxId: r.tax_id || '',
+    status: (r.status === 'Blocked' ? 'Blocked' : 'Active'),
+    paymentTerms: r.payment_terms || 'Net 30',
+    currency: r.currency || 'USD',
+    rating: r.rating || undefined,
+    creditLimit: typeof r.credit_limit === 'number' ? r.credit_limit : 0,
+    openingBalance: typeof r.opening_balance === 'number' ? r.opening_balance : 0,
+    notes: r.notes || '',
+});
+
+const fetchSupplierFromApi = async (id: string): Promise<Supplier | null> => {
+    try {
+        const r = await fetch(`${SUPPLIERS_API}/${encodeURIComponent(id)}`);
+        if (r.status === 404) return null;
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return fromApiSupplier(await r.json());
+    } catch (e) {
+        console.error('[SupplierDetail v3] fetchSupplierFromApi failed:', e);
+        return null;
+    }
+};
+
+const fetchSupplierPurchasesFromApi = async (id: string): Promise<PurchaseOrder[]> => {
+    try {
+        const r = await fetch(`${SUPPLIERS_API}/${encodeURIComponent(id)}/purchases`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const rows = await r.json();
+        return Array.isArray(rows) ? rows : [];
+    } catch (e) {
+        console.error('[SupplierDetail v3] fetchSupplierPurchasesFromApi failed:', e);
+        return [];
+    }
+};
+
+const fetchSupplierPaymentsFromApi = async (id: string): Promise<SupplierPayment[]> => {
+    try {
+        const r = await fetch(`${SUPPLIERS_API}/${encodeURIComponent(id)}/payments`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const rows = await r.json();
+        return Array.isArray(rows) ? rows : [];
+    } catch (e) {
+        console.error('[SupplierDetail v3] fetchSupplierPaymentsFromApi failed:', e);
+        return [];
+    }
+};
 import { WORLD_CURRENCIES } from '../../constants/currencies';
 import SearchableSelect from '../../components/common/SearchableSelect';
 // import SupplierForm from './SupplierForm'; // Remove for now to fix lint
@@ -93,21 +152,23 @@ export default function SupplierDetail() {
         }
     }, [location.search]);
 
-    // Fetch supplier data
+    // Fetch supplier data — direct API to dodge stale service bundles.
     useEffect(() => {
         const fetchSupplier = async () => {
             if (!id) return;
             try {
                 setLoading(true);
-                const data = await getSupplierById(id);
+                const data = await fetchSupplierFromApi(id);
                 if (data) {
                     setSupplier(data);
                 } else {
-                    alert('Supplier not found');
+                    // Old URLs like /suppliers/SUP-1700... can't be resolved.
+                    // Bounce back to the list rather than alerting in a loop.
+                    console.warn(`[SupplierDetail v3] supplier id=${id} not on backend — redirecting to list`);
                     navigate('/purchases/suppliers');
                 }
             } catch (error) {
-                console.error('Error fetching supplier:', error);
+                console.error('[SupplierDetail v3] Error fetching supplier:', error);
                 navigate('/purchases/suppliers');
             } finally {
                 setLoading(false);
@@ -122,13 +183,12 @@ export default function SupplierDetail() {
         try {
             setLoadingDetails(true);
             const [suppPurchases, suppPayments] = await Promise.all([
-                getSupplierPurchases(id),
-                getSupplierPayments(id)
+                fetchSupplierPurchasesFromApi(id),
+                fetchSupplierPaymentsFromApi(id),
             ]);
 
-            // Debug trace — verifies the API path is wired. Visible in DevTools console.
             // eslint-disable-next-line no-console
-            console.log(`[SupplierDetail] id=${id} fetched POs=${suppPurchases.length} payments=${suppPayments.length}`, { samplePO: suppPurchases[0], samplePayment: suppPayments[0] });
+            console.log(`[SupplierDetail v3] id=${id} fetched POs=${suppPurchases.length} payments=${suppPayments.length}`, { samplePO: suppPurchases[0], samplePayment: suppPayments[0] });
 
             setPurchases(suppPurchases);
             setPayments(suppPayments);

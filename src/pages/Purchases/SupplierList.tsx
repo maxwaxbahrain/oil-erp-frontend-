@@ -1,7 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Plus, CheckCircle, ChevronRight } from 'lucide-react';
-import { getSuppliers, getSupplierBalance, type Supplier } from '../../services/purchasesService';
+import { type Supplier } from '../../services/purchasesService';
+
+// SupplierList v3 (direct API): bypasses the localStorage-backed service
+// layer entirely. Even if an old service bundle is cached in the browser,
+// this page always shows backend suppliers + backend balances.
+const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
+    .trim()
+    .replace(/\/+$/, '');
+const SUPPLIERS_API = `${API_HOST}/api/suppliers`;
 
 export default function SupplierList() {
     const navigate = useNavigate();
@@ -12,19 +20,59 @@ export default function SupplierList() {
     const [successMessage, setSuccessMessage] = useState('');
 
     useEffect(() => {
+        // Purge stale localStorage left over from the pre-backend era. Those
+        // rows had SUP-${Date.now()} ids that no longer resolve on the
+        // backend and would otherwise leak into the list on cached bundles.
+        try {
+            localStorage.removeItem('suppliers');
+            localStorage.removeItem('supplier_payments');
+            localStorage.removeItem('purchase_orders');
+        } catch { /* ignore quota / private-mode */ }
+
+        // eslint-disable-next-line no-console
+        console.log('[SupplierList v3] Loading suppliers from API:', `${SUPPLIERS_API}/`);
+
         const fetchSuppliers = async () => {
             setLoading(true);
             try {
-                const fetchedSuppliers = await getSuppliers();
-                const suppliersWithBalance = await Promise.all(
-                    fetchedSuppliers.map(async (s) => ({
-                        ...s,
-                        balance: await getSupplierBalance(s.id)
-                    }))
+                const res = await fetch(`${SUPPLIERS_API}/`);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const rows = await res.json();
+                const list: any[] = Array.isArray(rows) ? rows : [];
+                // Fan out: fetch each supplier's balance in parallel from the
+                // backend's computed /balance endpoint.
+                const withBalance = await Promise.all(
+                    list.map(async (s) => {
+                        let balance = 0;
+                        try {
+                            const br = await fetch(`${SUPPLIERS_API}/${s.id}/balance`);
+                            if (br.ok) {
+                                const j = await br.json();
+                                balance = Number(j.balance) || 0;
+                            }
+                        } catch { /* ignore one supplier */ }
+                        return {
+                            id: String(s.id),
+                            name: s.name || '',
+                            code: s.code || '',
+                            contactPerson: s.contact_person || '',
+                            email: s.email || '',
+                            phone: s.phone || '',
+                            address: s.address || '',
+                            taxId: s.tax_id || '',
+                            status: (s.status === 'Blocked' ? 'Blocked' : 'Active') as 'Active' | 'Blocked',
+                            paymentTerms: s.payment_terms || 'Net 30',
+                            currency: s.currency || 'USD',
+                            balance,
+                        } as Supplier & { balance: number };
+                    })
                 );
-                setSuppliers(suppliersWithBalance);
+                // eslint-disable-next-line no-console
+                console.log(`[SupplierList v3] Got ${withBalance.length} suppliers`,
+                    withBalance.map(s => ({ id: s.id, name: s.name, balance: s.balance })));
+                setSuppliers(withBalance);
             } catch (error) {
-                console.error('Failed to fetch suppliers:', error);
+                console.error('[SupplierList v3] Failed to fetch suppliers:', error);
             } finally {
                 setLoading(false);
             }
