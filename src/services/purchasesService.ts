@@ -94,12 +94,43 @@ const INITIAL_SUPPLIERS: Supplier[] = [
     { id: 'SUP-002', name: 'Valley Farms', code: 'S-102', contactPerson: 'Sarah Lee', email: 'sarah@valley.com', phone: '+1 555-0102', taxId: 'TAX-7721', status: 'Active', paymentTerms: 'Net 15', currency: 'USD', rating: 'B', address: '456 Farm Rd, Green Valley' },
 ];
 
+// Generate a supplier id that does not already appear in `existing`.
+// `SUP-${Date.now()}` alone can collide when two saves land in the same
+// millisecond or when imported data reuses ids — we append a random
+// suffix and retry until we hit something unused.
+const makeUniqueSupplierId = (existing: { id: string }[]): string => {
+    const used = new Set(existing.map(e => e.id));
+    let id = `SUP-${Date.now()}`;
+    while (used.has(id)) {
+        id = `SUP-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+    }
+    return id;
+};
+
 export const getSuppliers = async (): Promise<Supplier[]> => {
     let suppliers = getStorage<Supplier>('suppliers');
     if (suppliers.length === 0) {
         setStorage('suppliers', INITIAL_SUPPLIERS);
         suppliers = INITIAL_SUPPLIERS;
     }
+    // Self-heal duplicate ids. `getSupplierById` and `getSupplierBalance`
+    // both rely on `find()` which returns the FIRST match — so two suppliers
+    // sharing an id caused clicking one row to open the other's detail page.
+    // First-seen keeps its id; later duplicates get a brand-new unique id
+    // and we persist the cleaned array back to localStorage.
+    const seen = new Set<string>();
+    let mutated = false;
+    suppliers = suppliers.map(s => {
+        if (!s.id || seen.has(s.id)) {
+            mutated = true;
+            const fresh = makeUniqueSupplierId([...suppliers, ...Array.from(seen).map(id => ({ id }))]);
+            seen.add(fresh);
+            return { ...s, id: fresh };
+        }
+        seen.add(s.id);
+        return s;
+    });
+    if (mutated) setStorage('suppliers', suppliers);
     return suppliers;
 };
 
@@ -112,7 +143,7 @@ export const createSupplier = async (supplier: Partial<Supplier>): Promise<Suppl
     const suppliers = await getSuppliers();
     const newSupplier = {
         ...supplier,
-        id: `SUP-${Date.now()}`,
+        id: makeUniqueSupplierId(suppliers),
         status: (supplier.status || 'Active') as 'Active' | 'Blocked'
     } as Supplier;
     setStorage('suppliers', [newSupplier, ...suppliers]);
