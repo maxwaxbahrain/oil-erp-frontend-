@@ -34,12 +34,20 @@ export default function InventoryAdjustment() {
         if (!form.productId||!form.reason||form.quantity<=0) { alert('Please fill all fields.'); return; }
         setSaving(true);
         try {
-            const API = String(import.meta.env.VITE_API_URL||'http://localhost:8000').replace(/\/$/,'');
+            // Backend serves under /api/. Previous version hit /products/... which 404'd
+            // silently because no status check was done. Also: backend field is `stock`,
+            // not `current_stock` — the PUT was being accepted but ignored. (TC-48)
+            const base = String(import.meta.env.VITE_API_URL||'http://localhost:8000').replace(/\/$/,'') + '/api';
+            let resp: Response;
             if (form.type==='add') {
-                await fetch(`${API}/products/${form.productId}/add-stock`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({quantity:form.quantity,reference:`ADJ-${Date.now()}`})});
+                resp = await fetch(`${base}/products/${form.productId}/add-stock`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({quantity:form.quantity,reference:`ADJ-${Date.now()}`})});
             } else {
                 const newStock = Math.max(0,(sel?.current_stock||0)-form.quantity);
-                await fetch(`${API}/products/${form.productId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...sel,current_stock:newStock})});
+                resp = await fetch(`${base}/products/${form.productId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({stock:newStock})});
+            }
+            if (!resp.ok) {
+                const detail = await resp.text().catch(() => '');
+                throw new Error(`Backend ${resp.status}: ${detail.slice(0, 200) || resp.statusText}`);
             }
             const adj: Adjustment = {id:`ADJ-${Date.now()}`,productId:form.productId,productName:sel?.name||'',type:form.type,quantity:form.quantity,reason:form.reason,date:form.date,before:sel?.current_stock||0,after:preview};
             saveAdj(adj);
@@ -47,7 +55,9 @@ export default function InventoryAdjustment() {
             setSuccess(`Stock ${form.type==='add'?'increased':'reduced'} by ${form.quantity} units`);
             setTimeout(()=>setSuccess(''),4000);
             setForm(p=>({...p,productId:'',quantity:1,reason:''}));
-        } catch { alert('Failed to save. Try again.'); }
+        } catch (e) {
+            alert(`Failed to save: ${e instanceof Error ? e.message : 'unknown error'}`);
+        }
         finally { setSaving(false); }
     };
 
