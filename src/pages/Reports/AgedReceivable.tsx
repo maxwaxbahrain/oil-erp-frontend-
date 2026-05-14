@@ -1,7 +1,10 @@
 import { useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { Clock, Download, AlertTriangle, CheckCircle , ArrowLeft } from 'lucide-react';
+import { Clock, Download, AlertTriangle, CheckCircle , ArrowLeft, Printer } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { getInvoices, type Invoice } from '../../services/api';
+import { getCustomers } from '../../services/customerService';
 import { formatCurrency } from '../../services/settingsService';
 
 interface AgedCustomer {
@@ -24,16 +27,29 @@ export default function AgedReceivable() {
     const [asOf] = useState(new Date().toISOString().split('T')[0]);
 
     useEffect(() => {
-        getInvoices().then(invoices => {
+        // Pull customers alongside invoices so we can resolve the real customer
+        // name when an invoice row has an empty customerName field (common on
+        // BETTANO-imported invoices).
+        Promise.all([getInvoices(), getCustomers().catch(() => [])]).then(([invoices, customers]) => {
             const today = new Date();
+            const customerNameById: Record<string, string> = {};
+            (customers || []).forEach((c: any) => {
+                const cid = String(c?.id ?? '');
+                const nm = String(c?.name ?? '').trim();
+                if (cid) customerNameById[cid] = nm;
+            });
+
             const unpaid = invoices.filter(inv =>
                 ['Unpaid', 'Partial', 'Overdue'].includes(inv.status || '')
             );
 
             const customerMap: Record<string, AgedCustomer> = {};
             unpaid.forEach(inv => {
-                const name = inv.customerName || 'Unknown';
-                const id = inv.customerId || name;
+                const cid = inv.customerId ? String(inv.customerId) : '';
+                // Prefer the live customer record's name; fall back to whatever
+                // was on the invoice; final fallback is 'Unknown'.
+                const name = (cid && customerNameById[cid]) || inv.customerName || 'Unknown';
+                const id = cid || name;
                 if (!customerMap[id]) {
                     customerMap[id] = { customerId: id, customerName: name, current: 0, days30: 0, days60: 0, days90: 0, total: 0, invoices: [] };
                 }
@@ -63,6 +79,43 @@ export default function AgedReceivable() {
         total: acc.total + c.total
     }), { current: 0, days30: 0, days60: 0, days90: 0, total: 0 });
 
+    const exportPDF = () => {
+        const doc = new jsPDF({ orientation: 'landscape' });
+        doc.setFontSize(16);
+        doc.text('Aged Receivable Report', 14, 16);
+        doc.setFontSize(10);
+        doc.text(`As of ${asOf}`, 14, 22);
+        doc.text(`${filtered.length} customers · Total outstanding: ${formatCurrency(totals.total)}`, 14, 28);
+        autoTable(doc, {
+            startY: 34,
+            head: [['Customer', 'Status', 'Current (0–30d)', '31–60 Days', '61–90 Days', '90+ Days', 'Total']],
+            body: filtered.map(c => [
+                c.customerName,
+                ageBadge(c).label,
+                c.current > 0 ? formatCurrency(c.current) : '—',
+                c.days30 > 0 ? formatCurrency(c.days30) : '—',
+                c.days60 > 0 ? formatCurrency(c.days60) : '—',
+                c.days90 > 0 ? formatCurrency(c.days90) : '—',
+                formatCurrency(c.total),
+            ]),
+            foot: [[
+                'TOTAL',
+                '',
+                formatCurrency(totals.current),
+                formatCurrency(totals.days30),
+                formatCurrency(totals.days60),
+                formatCurrency(totals.days90),
+                formatCurrency(totals.total),
+            ]],
+            styles: { fontSize: 9 },
+            headStyles: { fillColor: [33, 33, 33] },
+            footStyles: { fillColor: [33, 33, 33], textColor: 255, fontStyle: 'bold' },
+        });
+        doc.save(`AgedReceivable_${asOf}.pdf`);
+    };
+
+    const handlePrint = () => window.print();
+
     const ageBadge = (c: AgedCustomer) => {
         if (c.days90 > 0) return { label: '90+ days', color: 'bg-red-100 text-red-700' };
         if (c.days60 > 0) return { label: '60+ days', color: 'bg-orange-100 text-orange-700' };
@@ -79,14 +132,27 @@ export default function AgedReceivable() {
                         <Clock size={24} className="text-red-600" />
                     </div>
                     <div>
-                        <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all"><ArrowLeft size={14} /> Back</button>
+                        <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all print:hidden"><ArrowLeft size={14} /> Back</button>
                     <h1 className="text-xl font-black text-gray-900 uppercase tracking-tight">Aged Receivable</h1>
                         <p className="text-xs text-gray-500 mt-0.5">As of {asOf} · Outstanding customer balances by age</p>
                     </div>
                 </div>
-                <button className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl text-xs font-black uppercase hover:bg-gray-700 transition-all">
-                    <Download size={14} /> Export PDF
-                </button>
+                <div className="flex items-center gap-2 print:hidden">
+                    <button
+                        onClick={handlePrint}
+                        disabled={loading || filtered.length === 0}
+                        className="flex items-center gap-2 px-4 py-2 border-2 border-gray-900 text-gray-900 rounded-xl text-xs font-black uppercase hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    >
+                        <Printer size={14} /> Print
+                    </button>
+                    <button
+                        onClick={exportPDF}
+                        disabled={loading || filtered.length === 0}
+                        className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl text-xs font-black uppercase hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    >
+                        <Download size={14} /> Export PDF
+                    </button>
+                </div>
             </div>
 
             {/* KPI Summary */}
