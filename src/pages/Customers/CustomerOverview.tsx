@@ -387,9 +387,16 @@ export default function CustomerOverview() {
                 return Number.isNaN(t) ? 0 : t;
             };
             const sortedPayments = [...custPayments].sort((a, b) => safeTime(b.payment_date) - safeTime(a.payment_date));
-            const sortedInvoices = [...custInvoices].sort((a, b) => safeTime(b.invoiceDate) - safeTime(a.invoiceDate));
             const lastPayment = sortedPayments[0];
-            const lastInvoice = sortedInvoices[0];
+
+            // 'Last Invoice' = most recent DEBIT entry in the ledger. This covers
+            // tracked invoices AND legacy charges represented as opening-balance /
+            // debit-note / van-sale rows — same source of truth the ledger tab
+            // uses, so the date never disagrees with what's visible there.
+            const debitLedgerRows = ledgerEntries
+                .filter((e) => Number(e.debit) > 0)
+                .sort((a, b) => safeTime(b.date) - safeTime(a.date));
+            const lastInvoiceDate = debitLedgerRows[0]?.date || '';
 
             setStats({
                 outstandingBalance,
@@ -400,7 +407,7 @@ export default function CustomerOverview() {
                 overdueDays: oldestOverdueDays,
                 lastPaymentAmount: lastPayment ? Number(lastPayment.amount) || 0 : 0,
                 lastPaymentDate: lastPayment?.payment_date || '',
-                lastInvoiceDate: lastInvoice?.invoiceDate || '',
+                lastInvoiceDate,
             });
 
         } catch (error) {
