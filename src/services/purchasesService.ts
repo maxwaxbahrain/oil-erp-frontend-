@@ -94,67 +94,152 @@ const INITIAL_SUPPLIERS: Supplier[] = [
     { id: 'SUP-002', name: 'Valley Farms', code: 'S-102', contactPerson: 'Sarah Lee', email: 'sarah@valley.com', phone: '+1 555-0102', taxId: 'TAX-7721', status: 'Active', paymentTerms: 'Net 15', currency: 'USD', rating: 'B', address: '456 Farm Rd, Green Valley' },
 ];
 
-// Generate a supplier id that does not already appear in `existing`.
-// `SUP-${Date.now()}` alone can collide when two saves land in the same
-// millisecond or when imported data reuses ids — we append a random
-// suffix and retry until we hit something unused.
-const makeUniqueSupplierId = (existing: { id: string }[]): string => {
-    const used = new Set(existing.map(e => e.id));
-    let id = `SUP-${Date.now()}`;
-    while (used.has(id)) {
-        id = `SUP-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+// ─────────────────────────────────────────────────────────────────────────────
+// Supplier persistence: backend-first with a one-time localStorage migration.
+//
+// Suppliers used to live in browser localStorage only — invisible from other
+// devices, no shared source of truth, vulnerable to id collisions (two
+// suppliers ending up with the same id, sending you to the wrong detail page).
+// They now persist via the FastAPI `/api/suppliers` endpoints. On first load,
+// if the backend returns an empty list AND there are leftover localStorage
+// suppliers, we POST each one up so legacy data isn't lost. After that,
+// localStorage acts only as an offline fallback when the API is unreachable.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
+    .trim()
+    .replace(/\/+$/, '');
+const SUPPLIERS_API = `${API_HOST}/api/suppliers`;
+const MIGRATION_FLAG = 'suppliers_migrated_to_api';
+
+// Backend → frontend translation (snake_case + integer id → camelCase + string id).
+const fromApi = (r: any): Supplier => ({
+    id: String(r.id),
+    name: r.name || '',
+    code: r.code || '',
+    contactPerson: r.contact_person || '',
+    email: r.email || '',
+    phone: r.phone || '',
+    address: r.address || '',
+    taxId: r.tax_id || '',
+    status: (r.status === 'Blocked' ? 'Blocked' : 'Active'),
+    paymentTerms: r.payment_terms || 'Net 30',
+    currency: r.currency || 'USD',
+    rating: r.rating || undefined,
+    creditLimit: typeof r.credit_limit === 'number' ? r.credit_limit : 0,
+    openingBalance: typeof r.opening_balance === 'number' ? r.opening_balance : 0,
+    notes: r.notes || '',
+});
+
+// Frontend → backend translation. Omits id; backend assigns it.
+const toApi = (s: Partial<Supplier>): Record<string, any> => ({
+    name: s.name,
+    code: s.code,
+    contact_person: s.contactPerson,
+    email: s.email,
+    phone: s.phone,
+    address: s.address,
+    tax_id: s.taxId,
+    status: s.status || 'Active',
+    payment_terms: s.paymentTerms || 'Net 30',
+    currency: s.currency || 'USD',
+    rating: s.rating,
+    credit_limit: s.creditLimit ?? 0,
+    opening_balance: s.openingBalance ?? 0,
+    notes: s.notes,
+});
+
+const migrateLocalStorageOnce = async (): Promise<void> => {
+    if (localStorage.getItem(MIGRATION_FLAG) === '1') return;
+    const local = getStorage<Supplier>('suppliers');
+    // Don't migrate the seed-data placeholders.
+    const meaningful = local.filter(s => s.id !== 'SUP-001' && s.id !== 'SUP-002');
+    if (meaningful.length === 0) {
+        localStorage.setItem(MIGRATION_FLAG, '1');
+        return;
     }
-    return id;
+    try {
+        for (const s of meaningful) {
+            await fetch(`${SUPPLIERS_API}/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(toApi(s)),
+            });
+        }
+        localStorage.setItem(MIGRATION_FLAG, '1');
+    } catch {
+        // Network blip — try again next call. Don't crash the page.
+    }
 };
 
 export const getSuppliers = async (): Promise<Supplier[]> => {
-    let suppliers = getStorage<Supplier>('suppliers');
-    if (suppliers.length === 0) {
-        setStorage('suppliers', INITIAL_SUPPLIERS);
-        suppliers = INITIAL_SUPPLIERS;
-    }
-    // Self-heal duplicate ids. `getSupplierById` and `getSupplierBalance`
-    // both rely on `find()` which returns the FIRST match — so two suppliers
-    // sharing an id caused clicking one row to open the other's detail page.
-    // First-seen keeps its id; later duplicates get a brand-new unique id
-    // and we persist the cleaned array back to localStorage.
-    const seen = new Set<string>();
-    let mutated = false;
-    suppliers = suppliers.map(s => {
-        if (!s.id || seen.has(s.id)) {
-            mutated = true;
-            const fresh = makeUniqueSupplierId([...suppliers, ...Array.from(seen).map(id => ({ id }))]);
-            seen.add(fresh);
-            return { ...s, id: fresh };
+    try {
+        const res = await fetch(`${SUPPLIERS_API}/`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const rows = await res.json();
+        if (Array.isArray(rows) && rows.length === 0) {
+            await migrateLocalStorageOnce();
+            // Re-fetch in case migration uploaded rows.
+            const res2 = await fetch(`${SUPPLIERS_API}/`);
+            if (res2.ok) {
+                const after = await res2.json();
+                return Array.isArray(after) ? after.map(fromApi) : [];
+            }
         }
-        seen.add(s.id);
-        return s;
-    });
-    if (mutated) setStorage('suppliers', suppliers);
-    return suppliers;
+        return Array.isArray(rows) ? rows.map(fromApi) : [];
+    } catch {
+        // Offline / API unreachable — fall back to localStorage so the user
+        // can keep working until the network returns.
+        return getStorage<Supplier>('suppliers');
+    }
 };
 
 export const getSupplierById = async (id: string): Promise<Supplier | null> => {
-    const suppliers = await getSuppliers();
-    return suppliers.find(s => s.id === id) || null;
+    try {
+        const res = await fetch(`${SUPPLIERS_API}/${encodeURIComponent(id)}`);
+        if (res.status === 404) return null;
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return fromApi(await res.json());
+    } catch {
+        const all = await getSuppliers();
+        return all.find(s => s.id === id) || null;
+    }
 };
 
 export const createSupplier = async (supplier: Partial<Supplier>): Promise<Supplier> => {
-    const suppliers = await getSuppliers();
-    const newSupplier = {
-        ...supplier,
-        id: makeUniqueSupplierId(suppliers),
-        status: (supplier.status || 'Active') as 'Active' | 'Blocked'
-    } as Supplier;
-    setStorage('suppliers', [newSupplier, ...suppliers]);
-    return newSupplier;
+    const res = await fetch(`${SUPPLIERS_API}/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(toApi(supplier)),
+    });
+    if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Failed to create supplier: ${res.status} ${text}`);
+    }
+    return fromApi(await res.json());
 };
 
 export const updateSupplier = async (id: string, data: Partial<Supplier>): Promise<Supplier> => {
-    const suppliers = await getSuppliers();
-    const updated = suppliers.map(s => s.id === id ? { ...s, ...data } : s);
-    setStorage('suppliers', updated);
-    return updated.find(s => s.id === id) as Supplier;
+    const res = await fetch(`${SUPPLIERS_API}/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(toApi(data)),
+    });
+    if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Failed to update supplier: ${res.status} ${text}`);
+    }
+    return fromApi(await res.json());
+};
+
+export const deleteSupplier = async (id: string): Promise<void> => {
+    const res = await fetch(`${SUPPLIERS_API}/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+    });
+    if (!res.ok && res.status !== 204) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Failed to delete supplier: ${res.status} ${text}`);
+    }
 };
 
 export const getPurchaseOrders = async (): Promise<PurchaseOrder[]> => {
