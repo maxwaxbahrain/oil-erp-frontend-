@@ -1,6 +1,8 @@
 import { useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { FileText, Download, Filter, AlertCircle, CheckCircle , ArrowLeft } from 'lucide-react';
+import { FileText, Download, Filter, AlertCircle, CheckCircle , ArrowLeft, Printer } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { getInvoices, type Invoice } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
 
@@ -50,6 +52,42 @@ export default function OutstandingBills() {
         return days > 0 ? days : null;
     };
 
+    const handlePrint = () => window.print();
+
+    const exportPDF = () => {
+        const doc = new jsPDF({ orientation: 'landscape' });
+        doc.setFontSize(16);
+        doc.text('Outstanding Bills', 14, 16);
+        doc.setFontSize(10);
+        doc.text(`As of ${new Date().toLocaleDateString()}`, 14, 22);
+        doc.text(`${filtered.length} invoices · Total outstanding: ${formatCurrency(totalOutstanding)}`, 14, 28);
+        autoTable(doc, {
+            startY: 34,
+            head: [['Invoice #', 'Customer', 'Date', 'Due Date', 'Status', 'Days Overdue', 'Total', 'Paid', 'Outstanding']],
+            body: filtered.map(inv => {
+                const dO = daysOverdue(inv);
+                const total = Number(inv.grandTotal) || 0;
+                const paid = Number(inv.amount_paid) || 0;
+                return [
+                    inv.invoiceNumber || '',
+                    inv.customerName || '',
+                    inv.invoiceDate || '',
+                    inv.dueDate || '',
+                    inv.status || '',
+                    dO != null ? `${dO} days` : '—',
+                    formatCurrency(total),
+                    formatCurrency(paid),
+                    formatCurrency(total - paid),
+                ];
+            }),
+            foot: [['TOTAL', '', '', '', '', '', '', '', formatCurrency(totalOutstanding)]],
+            styles: { fontSize: 8 },
+            headStyles: { fillColor: [33, 33, 33] },
+            footStyles: { fillColor: [33, 33, 33], textColor: 255, fontStyle: 'bold' },
+        });
+        doc.save(`OutstandingBills_${new Date().toISOString().slice(0, 10)}.pdf`);
+    };
+
     return (
         <div className="space-y-6 max-w-[1400px] mx-auto pb-10 animate-in fade-in duration-500">
             {/* Header */}
@@ -59,14 +97,27 @@ export default function OutstandingBills() {
                         <FileText size={24} className="text-orange-600" />
                     </div>
                     <div>
-                        <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all"><ArrowLeft size={14} /> Back</button>
+                        <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all print:hidden"><ArrowLeft size={14} /> Back</button>
                     <h1 className="text-xl font-black text-gray-900 uppercase tracking-tight">Outstanding Bills</h1>
                         <p className="text-xs text-gray-500 mt-0.5">All unpaid & partial invoices · {new Date().toLocaleDateString()}</p>
                     </div>
                 </div>
-                <button className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl text-xs font-black uppercase hover:bg-gray-700 transition-all">
-                    <Download size={14} /> Export
-                </button>
+                <div className="flex items-center gap-2 print:hidden">
+                    <button
+                        onClick={handlePrint}
+                        disabled={loading || filtered.length === 0}
+                        className="flex items-center gap-2 px-4 py-2 border-2 border-gray-900 text-gray-900 rounded-xl text-xs font-black uppercase hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    >
+                        <Printer size={14} /> Print
+                    </button>
+                    <button
+                        onClick={exportPDF}
+                        disabled={loading || filtered.length === 0}
+                        className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl text-xs font-black uppercase hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    >
+                        <Download size={14} /> Export PDF
+                    </button>
+                </div>
             </div>
 
             {/* KPIs */}

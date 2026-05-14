@@ -7,7 +7,7 @@ import {
     ArrowUpRight, ArrowDownRight, Activity, Calendar,
     Download, Target, Layers, Briefcase, Filter,
     Brain, Users, AlertTriangle, Star, Package, Bell
-, ArrowLeft } from 'lucide-react';
+, ArrowLeft, Printer } from 'lucide-react';
 import {
     AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
     BarChart, Bar, Cell, Pie, Legend
@@ -345,7 +345,7 @@ export default function ProfitabilityReports() {
             {/* HEADER */}
             <div className="bg-white p-6 border border-redwood-border rounded-sm shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                 <div>
-                    <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all"><ArrowLeft size={14} /> Back</button>
+                    <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all print:hidden"><ArrowLeft size={14} /> Back</button>
                     <h1 className="text-2xl font-black text-redwood-text-main tracking-tighter uppercase flex items-center gap-3">
                         <TrendingUp className="text-redwood-brand" size={28} />
                         Profitability & Financial Intelligence
@@ -354,12 +354,22 @@ export default function ProfitabilityReports() {
                         Comprehensive Reporting Suite • Tier 1 Financials
                     </p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 print:hidden">
                     <button className="px-5 py-2.5 bg-white border border-redwood-border rounded-sm text-xs font-black text-redwood-text-muted hover:bg-redwood-bg-light transition-all flex items-center gap-2 uppercase tracking-widest">
                         <Calendar size={14} /> Dec 2024
                     </button>
-                    <button className="px-6 py-2.5 bg-redwood-brand text-white rounded-sm text-xs font-black hover:bg-redwood-brand/90 transition-all flex items-center gap-2 uppercase tracking-widest shadow-lg">
-                        <Download size={14} /> Export Report
+                    <button
+                        onClick={() => window.print()}
+                        className="px-5 py-2.5 bg-white border-2 border-redwood-brand text-redwood-brand rounded-sm text-xs font-black hover:bg-redwood-brand/5 transition-all flex items-center gap-2 uppercase tracking-widest"
+                    >
+                        <Printer size={14} /> Print
+                    </button>
+                    <button
+                        onClick={() => window.print()}
+                        className="px-6 py-2.5 bg-redwood-brand text-white rounded-sm text-xs font-black hover:bg-redwood-brand/90 transition-all flex items-center gap-2 uppercase tracking-widest shadow-lg"
+                        title="Opens print dialog — pick 'Save as PDF' destination to export"
+                    >
+                        <Download size={14} /> Export PDF
                     </button>
                 </div>
             </div>

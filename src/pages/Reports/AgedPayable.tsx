@@ -1,6 +1,8 @@
 import { useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { Clock, Download, AlertTriangle, CheckCircle , ArrowLeft } from 'lucide-react';
+import { Clock, Download, AlertTriangle, CheckCircle , ArrowLeft, Printer } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { getPurchaseOrders } from '../../services/purchasesService';
 import { formatCurrency } from '../../services/settingsService';
 
@@ -63,6 +65,41 @@ export default function AgedPayable() {
         total: acc.total + s.total
     }), { current: 0, days30: 0, days60: 0, days90: 0, total: 0 });
 
+    const handlePrint = () => window.print();
+
+    const exportPDF = () => {
+        const doc = new jsPDF({ orientation: 'landscape' });
+        doc.setFontSize(16);
+        doc.text('Aged Payable Report', 14, 16);
+        doc.setFontSize(10);
+        doc.text(`As of ${new Date().toLocaleDateString()}`, 14, 22);
+        doc.text(`${filtered.length} suppliers · Total payable: ${formatCurrency(totals.total)}`, 14, 28);
+        autoTable(doc, {
+            startY: 34,
+            head: [['Supplier', 'Current (0–30d)', '31–60 Days', '61–90 Days', '90+ Days', 'Total']],
+            body: filtered.map(s => [
+                s.supplierName,
+                s.current > 0 ? formatCurrency(s.current) : '—',
+                s.days30 > 0 ? formatCurrency(s.days30) : '—',
+                s.days60 > 0 ? formatCurrency(s.days60) : '—',
+                s.days90 > 0 ? formatCurrency(s.days90) : '—',
+                formatCurrency(s.total),
+            ]),
+            foot: [[
+                'TOTAL',
+                formatCurrency(totals.current),
+                formatCurrency(totals.days30),
+                formatCurrency(totals.days60),
+                formatCurrency(totals.days90),
+                formatCurrency(totals.total),
+            ]],
+            styles: { fontSize: 9 },
+            headStyles: { fillColor: [33, 33, 33] },
+            footStyles: { fillColor: [33, 33, 33], textColor: 255, fontStyle: 'bold' },
+        });
+        doc.save(`AgedPayable_${new Date().toISOString().slice(0, 10)}.pdf`);
+    };
+
     const ageBadge = (s: AgedSupplier) => {
         if (s.days90 > 0) return { label: '90+ days', color: 'bg-red-100 text-red-700' };
         if (s.days60 > 0) return { label: '60+ days', color: 'bg-orange-100 text-orange-700' };
@@ -79,14 +116,27 @@ export default function AgedPayable() {
                         <Clock size={24} className="text-amber-600" />
                     </div>
                     <div>
-                        <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all"><ArrowLeft size={14} /> Back</button>
+                        <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all print:hidden"><ArrowLeft size={14} /> Back</button>
                     <h1 className="text-xl font-black text-gray-900 uppercase tracking-tight">Aged Payable</h1>
                         <p className="text-xs text-gray-500 mt-0.5">As of {new Date().toLocaleDateString()} · Outstanding supplier balances by age</p>
                     </div>
                 </div>
-                <button className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl text-xs font-black uppercase hover:bg-gray-700 transition-all">
-                    <Download size={14} /> Export PDF
-                </button>
+                <div className="flex items-center gap-2 print:hidden">
+                    <button
+                        onClick={handlePrint}
+                        disabled={loading || filtered.length === 0}
+                        className="flex items-center gap-2 px-4 py-2 border-2 border-gray-900 text-gray-900 rounded-xl text-xs font-black uppercase hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    >
+                        <Printer size={14} /> Print
+                    </button>
+                    <button
+                        onClick={exportPDF}
+                        disabled={loading || filtered.length === 0}
+                        className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl text-xs font-black uppercase hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    >
+                        <Download size={14} /> Export PDF
+                    </button>
+                </div>
             </div>
 
             {/* KPIs */}

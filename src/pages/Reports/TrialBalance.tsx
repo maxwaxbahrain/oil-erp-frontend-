@@ -1,6 +1,8 @@
 import { useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { Scale, Download, CheckCircle, XCircle , ArrowLeft } from 'lucide-react';
+import { Scale, Download, CheckCircle, XCircle , ArrowLeft, Printer } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { getInvoices, getPayments } from '../../services/api';
 import { getPurchaseOrders } from '../../services/purchasesService';
 import { formatCurrency } from '../../services/settingsService';
@@ -84,6 +86,37 @@ export default function TrialBalance() {
 
     const periodLabel = { month: 'This Month', quarter: 'This Quarter', year: 'This Year' };
 
+    const handlePrint = () => window.print();
+
+    const exportPDF = () => {
+        const doc = new jsPDF();
+        doc.setFontSize(16);
+        doc.text('Trial Balance', 14, 16);
+        doc.setFontSize(10);
+        doc.text(`${periodLabel[period]} · ${new Date().getFullYear()}`, 14, 22);
+        doc.text(
+            isBalanced
+                ? `Balanced · Totals: ${formatCurrency(totalDebit)}`
+                : `IMBALANCED · Difference: ${formatCurrency(Math.abs(totalDebit - totalCredit))}`,
+            14, 28,
+        );
+        autoTable(doc, {
+            startY: 34,
+            head: [['Account', 'Category', 'Debit', 'Credit']],
+            body: entries.map(e => [
+                e.account,
+                e.category,
+                e.debit > 0 ? formatCurrency(e.debit) : '—',
+                e.credit > 0 ? formatCurrency(e.credit) : '—',
+            ]),
+            foot: [['TOTAL', '', formatCurrency(totalDebit), formatCurrency(totalCredit)]],
+            styles: { fontSize: 9 },
+            headStyles: { fillColor: [33, 33, 33] },
+            footStyles: { fillColor: [33, 33, 33], textColor: 255, fontStyle: 'bold' },
+        });
+        doc.save(`TrialBalance_${period}_${new Date().getFullYear()}.pdf`);
+    };
+
     return (
         <div className="space-y-6 max-w-[1200px] mx-auto pb-10 animate-in fade-in duration-500">
             {/* Header */}
@@ -93,20 +126,31 @@ export default function TrialBalance() {
                         <Scale size={24} className="text-indigo-600" />
                     </div>
                     <div>
-                        <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all"><ArrowLeft size={14} /> Back</button>
+                        <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all print:hidden"><ArrowLeft size={14} /> Back</button>
                     <h1 className="text-xl font-black text-gray-900 uppercase tracking-tight">Trial Balance</h1>
                         <p className="text-xs text-gray-500 mt-0.5">All debits must equal all credits · {periodLabel[period]}</p>
                     </div>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 print:hidden">
                     {(['month', 'quarter', 'year'] as const).map(p => (
                         <button key={p} onClick={() => { setPeriod(p); setLoading(true); }}
                             className={`px-4 py-2 text-xs font-black uppercase rounded-xl transition-all ${period === p ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
                             {p === 'month' ? 'Monthly' : p === 'quarter' ? 'Quarterly' : 'Yearly'}
                         </button>
                     ))}
-                    <button className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl text-xs font-black uppercase hover:bg-gray-700 transition-all">
-                        <Download size={14} /> Export
+                    <button
+                        onClick={handlePrint}
+                        disabled={loading || entries.length === 0}
+                        className="flex items-center gap-2 px-4 py-2 border-2 border-gray-900 text-gray-900 rounded-xl text-xs font-black uppercase hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    >
+                        <Printer size={14} /> Print
+                    </button>
+                    <button
+                        onClick={exportPDF}
+                        disabled={loading || entries.length === 0}
+                        className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl text-xs font-black uppercase hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    >
+                        <Download size={14} /> Export PDF
                     </button>
                 </div>
             </div>
