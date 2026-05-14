@@ -325,45 +325,82 @@ export default function CustomerOverview() {
 
             setLedger(ledgerEntries);
 
-            // Calculate real stats from actual data
-            const totalSales = custInvoices.reduce((sum, inv) => sum + inv.grandTotal, 0);
+            // Calculate real stats from actual data.
+            // (1) Outstanding balance = the server-side customer.balance — same source
+            //     the Customers list shows. Single source of truth.
+            // (2) Total sales = sum of every debit entry in the ledger (invoices +
+            //     opening balance + van sales + debit notes). For BETTANO legacy
+            //     customers whose invoice rows are encoded as ledger opening
+            //     balance, this includes their historical billed total.
+            // (3) Overdue = any invoice older than 30 days with a remaining balance.
+            //     If a customer has no unpaid invoice rows but a positive
+            //     customer.balance (legacy BETTANO data), the whole outstanding
+            //     is treated as overdue.
+            // (4) Last payment / last invoice — pick the actual most-recent one by
+            //     date, not whatever happened to be at the end of the array. Guard
+            //     date math so 'NaN days ago' never appears.
+            const today = new Date();
+            const outstandingBalance = Number(customer?.balance) || 0;
+            const totalSales = ledgerEntries.reduce((sum, e) => sum + (Number(e.debit) || 0), 0);
             const creditLimit = customer?.credit_limit || 0;
 
-            // Calculate overdue invoices (unpaid invoices older than 30 days)
-            const today = new Date();
             const overdueInvoices = custInvoices.filter(inv => {
-                const dueDate = new Date(inv.dueDate);
-                const isOverdue = inv.status !== 'Paid' && dueDate < today;
-                return isOverdue;
+                const remaining = (Number(inv.grandTotal) || 0) - (Number(inv.amount_paid) || 0);
+                if (remaining <= 0) return false;
+                const ref = inv.dueDate || inv.invoiceDate || '';
+                const refDate = new Date(ref);
+                if (Number.isNaN(refDate.getTime())) return false;
+                const daysOld = Math.floor((today.getTime() - refDate.getTime()) / (1000 * 60 * 60 * 24));
+                return daysOld >= 30;
             });
 
-            const overdueAmount = overdueInvoices.reduce((sum, inv) => sum + (inv.grandTotal - (inv.amount_paid || 0)), 0);
+            const invoiceOverdueAmount = overdueInvoices.reduce(
+                (sum, inv) => sum + ((Number(inv.grandTotal) || 0) - (Number(inv.amount_paid) || 0)),
+                0,
+            );
+            // No tracked invoices but customer still owes? Treat as legacy overdue.
+            const overdueAmount = invoiceOverdueAmount > 0
+                ? invoiceOverdueAmount
+                : (outstandingBalance > 0 ? outstandingBalance : 0);
 
-            // Calculate oldest overdue days
             let oldestOverdueDays = 0;
             if (overdueInvoices.length > 0) {
                 const oldestInvoice = overdueInvoices.reduce((oldest, inv) => {
-                    const invDate = new Date(inv.dueDate);
-                    const oldestDate = new Date(oldest.dueDate);
-                    return invDate < oldestDate ? inv : oldest;
+                    const a = new Date(inv.dueDate || inv.invoiceDate || '');
+                    const b = new Date(oldest.dueDate || oldest.invoiceDate || '');
+                    return a < b ? inv : oldest;
                 });
-                oldestOverdueDays = Math.floor((today.getTime() - new Date(oldestInvoice.dueDate).getTime()) / (1000 * 60 * 60 * 24));
+                const oldRef = new Date(oldestInvoice.dueDate || oldestInvoice.invoiceDate || '');
+                oldestOverdueDays = Number.isNaN(oldRef.getTime())
+                    ? 0
+                    : Math.floor((today.getTime() - oldRef.getTime()) / (1000 * 60 * 60 * 24));
             }
 
-            // Calculate credit utilization
-            const creditUtilization = creditLimit > 0 ? Math.round((Math.abs(runningBalance) / creditLimit) * 100) : 0;
+            const creditUtilization = creditLimit > 0
+                ? Math.round((Math.abs(outstandingBalance) / creditLimit) * 100)
+                : 0;
 
-            // Update stats with calculated values
+            // Most-recent-by-date selection (not array order).
+            const safeTime = (s?: string) => {
+                if (!s) return 0;
+                const t = new Date(s).getTime();
+                return Number.isNaN(t) ? 0 : t;
+            };
+            const sortedPayments = [...custPayments].sort((a, b) => safeTime(b.payment_date) - safeTime(a.payment_date));
+            const sortedInvoices = [...custInvoices].sort((a, b) => safeTime(b.invoiceDate) - safeTime(a.invoiceDate));
+            const lastPayment = sortedPayments[0];
+            const lastInvoice = sortedInvoices[0];
+
             setStats({
-                outstandingBalance: runningBalance,
+                outstandingBalance,
                 totalSalesYTD: totalSales,
-                creditLimit: creditLimit,
-                creditUtilization: creditUtilization,
-                overdueAmount: overdueAmount,
+                creditLimit,
+                creditUtilization,
+                overdueAmount,
                 overdueDays: oldestOverdueDays,
-                lastPaymentAmount: custPayments.length > 0 ? custPayments[custPayments.length - 1].amount : 0,
-                lastPaymentDate: custPayments.length > 0 ? custPayments[custPayments.length - 1].payment_date : '',
-                lastInvoiceDate: custInvoices.length > 0 ? custInvoices[custInvoices.length - 1].invoiceDate : ''
+                lastPaymentAmount: lastPayment ? Number(lastPayment.amount) || 0 : 0,
+                lastPaymentDate: lastPayment?.payment_date || '',
+                lastInvoiceDate: lastInvoice?.invoiceDate || '',
             });
 
         } catch (error) {
@@ -535,7 +572,11 @@ export default function CustomerOverview() {
                         {stats.lastPaymentAmount.toLocaleString()}
                     </div>
                     <div className="text-xs text-gray-400 mt-1">
-                        {new Date(stats.lastPaymentDate).toLocaleDateString()}
+                        {(() => {
+                            if (!stats.lastPaymentDate) return 'No payments yet';
+                            const d = new Date(stats.lastPaymentDate);
+                            return Number.isNaN(d.getTime()) ? 'No payments yet' : d.toLocaleDateString();
+                        })()}
                     </div>
                 </div>
 
@@ -543,8 +584,12 @@ export default function CustomerOverview() {
                     <div className="text-xs font-bold text-gray-500 uppercase mb-1">Last Invoice</div>
                     <div className="text-lg font-bold text-gray-900">
                         {(() => {
-                            const days = Math.floor((new Date().getTime() - new Date(stats.lastInvoiceDate).getTime()) / (1000 * 60 * 60 * 24));
-                            return `${days} days ago`;
+                            if (!stats.lastInvoiceDate) return 'No invoices yet';
+                            const ts = new Date(stats.lastInvoiceDate).getTime();
+                            if (Number.isNaN(ts)) return 'No invoices yet';
+                            const days = Math.floor((new Date().getTime() - ts) / (1000 * 60 * 60 * 24));
+                            if (days < 0) return 'Today';
+                            return `${days} day${days === 1 ? '' : 's'} ago`;
                         })()}
                     </div>
                 </div>
