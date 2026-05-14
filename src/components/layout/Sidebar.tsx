@@ -80,7 +80,7 @@ export default function Sidebar() {
     );
 
     return (
-        <aside className="w-[260px] bg-redwood-midnight text-white flex flex-col z-40 border-r border-white/5 shadow-2xl h-full">
+        <aside className="w-[260px] bg-redwood-midnight text-white flex flex-col z-40 border-r border-white/5 shadow-2xl h-full print:hidden">
             {/* Sidebar Header */}
             <div className="h-[64px] flex items-center px-4 border-b border-white/5 bg-redwood-midnight/50 backdrop-blur-md shrink-0">
                 <div className="flex items-center gap-3 w-full">
