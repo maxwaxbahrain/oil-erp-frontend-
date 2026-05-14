@@ -14,34 +14,64 @@ export default function OutstandingBills() {
     const [statusFilter, setStatusFilter] = useState<'all' | 'Unpaid' | 'Partial' | 'Overdue'>('all');
     const [sortBy, setSortBy] = useState<'date' | 'amount' | 'customer'>('date');
 
+    // QuickBooks-style status derivation from actual amounts/dates, NOT the
+    // static inv.status string (the backend marks every new invoice 'unpaid'
+    // even if paid_amount is partial/full, so filters that match on
+    // inv.status === 'Partial' / 'Overdue' silently match nothing).
+    const balanceOf = (i: Invoice) => (Number(i.grandTotal) || 0) - (Number(i.amount_paid) || 0);
+    const isFullyPaid = (i: Invoice) => balanceOf(i) <= 0.01;
+    const isPartial = (i: Invoice) => Number(i.amount_paid) > 0 && balanceOf(i) > 0.01;
+    const isUnpaid = (i: Invoice) => Number(i.amount_paid || 0) === 0 && balanceOf(i) > 0.01;
+    const isOverdue = (i: Invoice) => {
+        if (balanceOf(i) <= 0.01 || !i.dueDate) return false;
+        const due = new Date(i.dueDate).getTime();
+        if (Number.isNaN(due)) return false;
+        return due < Date.now();
+    };
+    const computedStatus = (i: Invoice): 'Paid' | 'Partial' | 'Overdue' | 'Unpaid' => {
+        if (isFullyPaid(i)) return 'Paid';
+        if (isOverdue(i)) return 'Overdue';
+        if (isPartial(i)) return 'Partial';
+        return 'Unpaid';
+    };
+
     useEffect(() => {
+        // Outstanding bills = any invoice with a remaining balance > 0.
         getInvoices().then(inv => {
-            setInvoices(inv.filter(i => ['Unpaid', 'Partial', 'Overdue'].includes(i.status || '')));
+            setInvoices(inv.filter(i => !isFullyPaid(i)));
             setLoading(false);
         });
     }, []);
 
     const filtered = invoices
-        .filter(inv => statusFilter === 'all' || inv.status === statusFilter)
+        .filter(inv => {
+            if (statusFilter === 'all') return true;
+            if (statusFilter === 'Unpaid') return isUnpaid(inv) && !isOverdue(inv);
+            if (statusFilter === 'Partial') return isPartial(inv);
+            if (statusFilter === 'Overdue') return isOverdue(inv);
+            return true;
+        })
         .filter(inv =>
             !search ||
             inv.customerName?.toLowerCase().includes(search.toLowerCase()) ||
             inv.invoiceNumber?.toLowerCase().includes(search.toLowerCase())
         )
         .sort((a, b) => {
-            if (sortBy === 'amount') return (b.grandTotal || 0) - (a.grandTotal || 0);
+            if (sortBy === 'amount') return balanceOf(b) - balanceOf(a);
             if (sortBy === 'customer') return (a.customerName || '').localeCompare(b.customerName || '');
             return new Date(b.invoiceDate || 0).getTime() - new Date(a.invoiceDate || 0).getTime();
         });
 
-    const totalOutstanding = filtered.reduce((s, i) => s + (i.grandTotal || 0) - (i.amount_paid || 0), 0);
-    const totalOverdue = filtered.filter(i => i.status === 'Overdue').reduce((s, i) => s + (i.grandTotal || 0), 0);
-    const totalPartial = filtered.filter(i => i.status === 'Partial').reduce((s, i) => s + (i.grandTotal || 0) - (i.amount_paid || 0), 0);
+    // KPIs use the computed buckets so they reflect what's really in the data.
+    const totalOutstanding = filtered.reduce((s, i) => s + balanceOf(i), 0);
+    const totalOverdue = filtered.filter(isOverdue).reduce((s, i) => s + balanceOf(i), 0);
+    const totalPartial = filtered.filter(isPartial).reduce((s, i) => s + balanceOf(i), 0);
 
     const statusStyle = (s?: string) => {
         switch (s) {
             case 'Overdue': return 'bg-red-100 text-red-700';
             case 'Partial': return 'bg-yellow-100 text-yellow-700';
+            case 'Paid': return 'bg-emerald-100 text-emerald-700';
             default: return 'bg-orange-100 text-orange-700';
         }
     };
@@ -73,7 +103,7 @@ export default function OutstandingBills() {
                     inv.customerName || '',
                     inv.invoiceDate || '',
                     inv.dueDate || '',
-                    inv.status || '',
+                    computedStatus(inv),
                     dO != null ? `${dO} days` : '—',
                     formatCurrency(total),
                     formatCurrency(paid),
@@ -209,7 +239,10 @@ export default function OutstandingBills() {
                                                 )}
                                             </td>
                                             <td className="px-5 py-4">
-                                                <span className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase ${statusStyle(inv.status)}`}>{inv.status}</span>
+                                                {(() => {
+                                                    const cs = computedStatus(inv);
+                                                    return <span className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase ${statusStyle(cs)}`}>{cs}</span>;
+                                                })()}
                                             </td>
                                             <td className="px-5 py-4 text-sm font-black font-mono text-gray-900">{formatCurrency(inv.grandTotal || 0)}</td>
                                             <td className="px-5 py-4 text-sm font-mono text-emerald-600">{inv.amount_paid ? formatCurrency(inv.amount_paid) : '—'}</td>
