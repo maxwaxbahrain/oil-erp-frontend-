@@ -314,14 +314,9 @@ export default function CustomerOverview() {
             let runningBalance = 0;
             const ledgerEntries: LedgerEntry[] = sortedTransactions.map(tx => {
                 runningBalance += (tx.debit - tx.credit);
-                // Clamp display balance at 0 so legacy BETTANO customers (whose
-                // payments outweigh imported invoices) don't show confusing
-                // negative running totals. The raw debit/credit columns and the
-                // outstanding-balance tile are unaffected; this only changes
-                // what the ledger 'Balance' column shows.
                 return {
                     ...tx,
-                    balance: Math.max(0, runningBalance),
+                    balance: runningBalance,
                     relatedId: tx.relatedInvoiceId != null ? String(tx.relatedInvoiceId) : String(tx.id),
                     van_number: tx.van_number,
                     salesman_name: tx.salesman_name
@@ -346,11 +341,7 @@ export default function CustomerOverview() {
             //     date math so 'NaN days ago' never appears.
             const today = new Date();
             const outstandingBalance = Number(customer?.balance) || 0;
-            // Total Sales = sum of every real invoice's grandTotal — strictly the
-            // sales documents we issued to this customer. Opening-balance rows,
-            // payments, debit notes, and van-sale entries are intentionally
-            // excluded so this matches what 'invoices we sent them' means.
-            const totalSales = custInvoices.reduce((sum, inv) => sum + (Number(inv.grandTotal) || 0), 0);
+            const totalSales = ledgerEntries.reduce((sum, e) => sum + (Number(e.debit) || 0), 0);
             const creditLimit = customer?.credit_limit || 0;
 
             const overdueInvoices = custInvoices.filter(inv => {
@@ -398,12 +389,16 @@ export default function CustomerOverview() {
             const sortedPayments = [...custPayments].sort((a, b) => safeTime(b.payment_date) - safeTime(a.payment_date));
             const lastPayment = sortedPayments[0];
 
-            // 'Last Invoice' = most recent sales invoice we issued. Strictly the
-            // last invoice document, not opening balance / van sale / debit note.
-            // Pick from the actual invoices list (which contains only real
-            // invoices), most-recent-by-date.
-            const sortedInvoices = [...custInvoices].sort((a, b) => safeTime(b.invoiceDate) - safeTime(a.invoiceDate));
-            const lastInvoiceDate = sortedInvoices[0]?.invoiceDate || '';
+            // 'Last Invoice' = most recent DEBIT entry in the ledger, EXCLUDING the
+            // opening-balance row. Opening balance is a carry-forward, not a sale,
+            // and its date is the moment the customer was created on the backend
+            // (today) — not a real invoice date. Skipping reference='OPENING' lets
+            // the tile fall back to 'No invoices yet' for legacy customers and
+            // show real invoice dates for everyone else.
+            const debitLedgerRows = ledgerEntries
+                .filter((e) => Number(e.debit) > 0 && String(e.referenceNumber || '').toUpperCase() !== 'OPENING')
+                .sort((a, b) => safeTime(b.date) - safeTime(a.date));
+            const lastInvoiceDate = debitLedgerRows[0]?.date || '';
 
             setStats({
                 outstandingBalance,
