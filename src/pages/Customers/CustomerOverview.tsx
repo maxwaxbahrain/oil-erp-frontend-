@@ -258,69 +258,51 @@ export default function CustomerOverview() {
             setPayments(custPayments);
             setCreditNotes(custCreditNotes);
 
-            // Build Ledger - merge invoices, payments, and ledger entries (van sales, etc.)
-            const allTransactions: any[] = [
-                ...custInvoices.map(inv => ({
-                    id: inv.id,
-                    relatedInvoiceId: String(inv.id),
-                    date: inv.invoiceDate,
-                    type: 'Invoice' as const,
-                    referenceNumber: inv.invoiceNumber,
-                    description: `Sales Invoice - ${inv.lineItems.length} item(s)`,
-                    debit: inv.grandTotal,
-                    credit: 0
-                })),
-                ...custPayments.map(pay => ({
-                    id: pay.id,
-                    relatedInvoiceId: undefined as string | undefined,
-                    date: pay.payment_date,
-                    type: 'Payment' as const,
-                    referenceNumber: pay.reference || `PAY-${String(pay.id).slice(-4)}`,
-                    description: `Payment Received - ${pay.payment_method}`,
-                    debit: 0,
-                    credit: pay.amount
-                })),
-                // Add ledger entries (van sales, opening balance, etc.)
-                ...customerLedgerEntries.map(entry => {
-                    const invId =
-                        entry.invoice_id != null && entry.invoice_id !== ''
-                            ? String(entry.invoice_id)
-                            : entry.type === 'invoice'
-                              ? (() => {
-                                  const n = Number(entry.id);
-                                  return !Number.isNaN(n) && n >= 100000 ? String(n - 100000) : undefined;
-                                })()
-                              : undefined;
-                    return {
-                        id: entry.id,
-                        relatedInvoiceId: invId,
-                        date: entry.date,
-                        type: entry.type === 'van_sale' ? 'Van Sale' as const :
-                            entry.type === 'opening_balance' ? 'Credit Note' as const :
-                                entry.type === 'credit' ? 'Credit Note' as const :
-                                    entry.type === 'debit' ? 'Debit Note' as const :
-                                        'Invoice' as const, // Default or handle other types
-                        referenceNumber: entry.reference || entry.invoice_number || `${entry.type.toUpperCase()}-${String(entry.id).slice(-4)}`,
-                        description: entry.description || `${entry.type} transaction`,
-                        debit: entry.type === 'van_sale' || entry.type === 'invoice' || entry.type === 'debit' || entry.type === 'opening_balance' ? entry.amount : 0,
-                        credit:
-                            entry.type === 'payment' ||
-                            entry.type === 'credit' ||
-                            entry.type === 'credit_note' ||
-                            entry.type === 'return_credit' ||
-                            entry.type === 'credit_adjustment'
-                                ? entry.amount
-                                : 0,
-                        van_number: entry.van_number,
-                        salesman_name: entry.salesman_name
-                    };
-                })
-            ];
+            // Build Ledger from the backend ledger endpoint ONLY. That endpoint already
+            // returns invoices (as synthetic rows) and payments (as Transaction rows),
+            // so we don't need to merge in custInvoices/custPayments — which would
+            // duplicate every row and, when two payments share an empty reference,
+            // get collapsed by the dedup filter (losing one). Stats and the Sales /
+            // Payments tabs still use custInvoices and custPayments separately below.
+            const allTransactions: any[] = customerLedgerEntries.map(entry => {
+                const invId =
+                    entry.invoice_id != null && entry.invoice_id !== ''
+                        ? String(entry.invoice_id)
+                        : entry.type === 'invoice'
+                          ? (() => {
+                              const n = Number(entry.id);
+                              return !Number.isNaN(n) && n >= 100000 ? String(n - 100000) : undefined;
+                            })()
+                          : undefined;
+                return {
+                    id: entry.id,
+                    relatedInvoiceId: invId,
+                    date: entry.date,
+                    type: entry.type === 'van_sale' ? 'Van Sale' as const :
+                        entry.type === 'opening_balance' ? 'Credit Note' as const :
+                            entry.type === 'credit' ? 'Credit Note' as const :
+                                entry.type === 'debit' ? 'Debit Note' as const :
+                                    entry.type === 'payment' ? 'Payment' as const :
+                                        'Invoice' as const,
+                    referenceNumber: entry.reference || entry.invoice_number || `${entry.type.toUpperCase()}-${String(entry.id).slice(-4)}`,
+                    description: entry.description || `${entry.type} transaction`,
+                    debit: entry.type === 'van_sale' || entry.type === 'invoice' || entry.type === 'debit' || entry.type === 'opening_balance' ? entry.amount : 0,
+                    credit:
+                        entry.type === 'payment' ||
+                        entry.type === 'credit' ||
+                        entry.type === 'credit_note' ||
+                        entry.type === 'return_credit' ||
+                        entry.type === 'credit_adjustment'
+                            ? entry.amount
+                            : 0,
+                    van_number: entry.van_number,
+                    salesman_name: entry.salesman_name
+                };
+            });
 
-            // Remove duplicates (payments are in both custPayments and customerLedgerEntries)
-            const uniqueTransactions = allTransactions.filter((tx, index, self) =>
-                index === self.findIndex(t => t.referenceNumber === tx.referenceNumber)
-            );
+            // Single source of truth — no dedup needed. Each backend ledger row is one
+            // unique entry. Keeping the variable name for downstream compatibility.
+            const uniqueTransactions = allTransactions;
 
             // Compute running balance in chronological order (oldest first), then reverse
             // the display so the newest entry appears at the top — matching the user's
