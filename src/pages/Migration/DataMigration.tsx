@@ -6,7 +6,7 @@ import { saveImportedProduct } from '../../services/productService';
 const API = ((import.meta.env.VITE_API_URL as string) || 'https://bettano-erp-backend.onrender.com').replace(/\/$/, '');
 
 interface LogEntry { time: string; msg: string; type: 'info' | 'success' | 'error' | 'warn'; }
-interface Results { customers?: number; products?: number; suppliers?: number; invoices?: number; }
+interface Results { customers?: number; products?: number; suppliers?: number; invoices?: number; supplierPurchases?: number; supplierPayments?: number; }
 
 const ts = () => new Date().toLocaleTimeString();
 
@@ -70,6 +70,62 @@ export default function DataMigration() {
 
         const suppRows = q(`SELECT aname, address, phone FROM account_detail WHERE (a_type LIKE '%Creditors%' OR a_type LIKE '%Supplier%') AND status=1`);
         const suppliers = suppRows.map((r: any) => ({ name: String(r.aname || '').trim().slice(0, 150), address: String(r.address || '').slice(0, 300) || null, phone: String(r.phone || '').slice(0, 50) || null, email: null, notes: 'BETTANO import' })).filter((s: any) => s.name);
+        const supplierNameSet = new Set(suppliers.map((s: any) => s.name));
+
+        // ── Per-supplier PURCHASES (v_type='Purchase') ──────────────────────
+        // Vouchers in BETTANO use `debit='Purchase'` and `credit=<supplier>`.
+        // Pull the header + join the line items from the purchases table.
+        const poHeaders = q(`SELECT v_id, date, vch_no, amount, credit AS supplier_name FROM vouchers WHERE v_type='Purchase'`);
+        const poItemsRows = q(`SELECT v_id, item, units, cost_per_unit FROM purchases`);
+        const itemsByVoucher: Record<string, any[]> = {};
+        for (const it of poItemsRows) {
+            const k = String(it.v_id);
+            (itemsByVoucher[k] = itemsByVoucher[k] || []).push(it);
+        }
+        const purchase_orders = poHeaders
+            .filter((h: any) => supplierNameSet.has(String(h.supplier_name || '').trim()))
+            .map((h: any) => {
+                const sName = String(h.supplier_name || '').trim();
+                const grand = Number(h.amount) || 0;
+                const items = (itemsByVoucher[String(h.v_id)] || []).map((it: any) => {
+                    const qty = Number(it.units) || 0;
+                    const price = Number(it.cost_per_unit) || 0;
+                    return {
+                        product_id: '', product_name: String(it.item || '').slice(0, 200),
+                        uom: 'unit', quantity: qty, unit_price: price,
+                        tax_rate: 0, discount: 0, total: qty * price,
+                    };
+                });
+                return {
+                    po_number: String(h.vch_no || '').slice(0, 100),
+                    supplier_name: sName,
+                    date: String(h.date || '').slice(0, 20),
+                    expected_date: String(h.date || '').slice(0, 20),
+                    status: 'Received',
+                    payment_status: 'Unpaid',
+                    subtotal: grand,
+                    tax_total: 0,
+                    grand_total: grand,
+                    amount_paid: 0,
+                    notes: 'BETTANO import',
+                    items,
+                };
+            });
+
+        // ── Per-supplier PAYMENTS (v_type='Payment') ────────────────────────
+        // Vouchers in BETTANO use `debit=<supplier>` (decreasing AP) and
+        // `credit=<bank account>`. Match by supplier name.
+        const supplierPayRows = q(`SELECT v_id, date, vch_no, amount, debit AS supplier_name, credit AS bank, payment_reference FROM vouchers WHERE v_type='Payment'`);
+        const supplier_payments = supplierPayRows
+            .filter((p: any) => supplierNameSet.has(String(p.supplier_name || '').trim()))
+            .map((p: any) => ({
+                supplier_name: String(p.supplier_name || '').trim(),
+                date: String(p.date || '').slice(0, 20),
+                reference: String(p.vch_no || '').slice(0, 100),
+                amount: Number(p.amount) || 0,
+                payment_method: 'Bank Transfer',
+                notes: `BETTANO import · ${String(p.bank || '').trim()}`,
+            }));
 
         const prodRows = q(`SELECT item, units_name, sku, item_desc, defaultsellingprice, defaultpurchaseprice FROM item_measure WHERE item IS NOT NULL AND TRIM(item) != ''`);
         const products = prodRows.map((r: any) => ({ name: String(r.item || '').trim().slice(0, 150), sku: String(r.sku || '').replace('SKU:', '').trim().slice(0, 100), description: String(r.item_desc || r.units_name || '').slice(0, 300), price: Number(r.defaultsellingprice || 0), cost: Number(r.defaultpurchaseprice || 0), stock: 0, category: 'Imported', unit: String(r.units_name || 'unit').slice(0, 50) })).filter((p: any) => p.name);
@@ -82,7 +138,8 @@ export default function DataMigration() {
 
         db.close();
         log(`📦 ${products.length} products, ${suppliers.length} suppliers, ${invoices.length} invoices, ${payments.length} payments`, 'info');
-        return { customers, suppliers, products, invoices, payments };
+        log(`🛒 ${purchase_orders.length} supplier POs, ${supplier_payments.length} supplier payments`, 'info');
+        return { customers, suppliers, products, invoices, payments, purchase_orders, supplier_payments };
     };
 
     const importProductsDirect = async (products: any[]) => {
@@ -204,6 +261,94 @@ export default function DataMigration() {
         return created;
     };
 
+    // Builds a supplier-name → id map by hitting the backend list endpoint.
+    // POs and supplier payments reference suppliers by NAME in BETTANO; we
+    // need the freshly-assigned backend int id to POST them.
+    const buildSupplierNameMap = async (): Promise<Record<string, string>> => {
+        const map: Record<string, string> = {};
+        try {
+            const r = await fetch(`${API}/api/suppliers/`);
+            if (r.ok) {
+                const list = await r.json();
+                if (Array.isArray(list)) {
+                    for (const s of list) {
+                        const key = String(s.name || '').trim().toLowerCase();
+                        if (key && s.id != null) map[key] = String(s.id);
+                    }
+                }
+            }
+        } catch { /* continue */ }
+        return map;
+    };
+
+    const importSupplierPurchasesDirect = async (purchaseOrders: any[]) => {
+        const nameToId = await buildSupplierNameMap();
+        let created = 0;
+        let skipped = 0;
+        for (let i = 0; i < purchaseOrders.length; i++) {
+            const po = purchaseOrders[i];
+            const sid = nameToId[String(po.supplier_name || '').trim().toLowerCase()];
+            if (!sid) { skipped++; continue; }
+            const payload = {
+                poNumber: po.po_number || `PUR-${Date.now()}-${i}`,
+                date: po.date,
+                expectedDate: po.expected_date || po.date,
+                status: po.status || 'Received',
+                payment_status: po.payment_status || 'Unpaid',
+                subtotal: Number(po.subtotal) || 0,
+                taxTotal: Number(po.tax_total) || 0,
+                grandTotal: Number(po.grand_total) || 0,
+                amount_paid: Number(po.amount_paid) || 0,
+                notes: po.notes || 'BETTANO import',
+                items: (po.items || []).map((it: any) => ({
+                    productId: it.product_id || '',
+                    productName: it.product_name || '',
+                    uom: it.uom || 'unit',
+                    quantity: Number(it.quantity) || 0,
+                    unitPrice: Number(it.unit_price) || 0,
+                    taxRate: 0, discount: 0,
+                    total: Number(it.total) || 0,
+                })),
+            };
+            try {
+                const r = await fetch(`${API}/api/suppliers/${sid}/purchases`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                if (r.ok) created++; else skipped++;
+            } catch { skipped++; }
+            if (i % 10 === 0) prog(85 + Math.round((i / purchaseOrders.length) * 5), `Importing ${i + 1}/${purchaseOrders.length} supplier POs...`);
+        }
+        return { created, skipped };
+    };
+
+    const importSupplierPaymentsDirect = async (supplierPayments: any[]) => {
+        const nameToId = await buildSupplierNameMap();
+        let created = 0;
+        let skipped = 0;
+        for (let i = 0; i < supplierPayments.length; i++) {
+            const p = supplierPayments[i];
+            const sid = nameToId[String(p.supplier_name || '').trim().toLowerCase()];
+            if (!sid) { skipped++; continue; }
+            const payload = {
+                amount: Number(p.amount) || 0,
+                date: p.date,
+                paymentMethod: p.payment_method || 'Bank Transfer',
+                reference: p.reference || '',
+                notes: p.notes || 'BETTANO import',
+            };
+            try {
+                const r = await fetch(`${API}/api/suppliers/${sid}/payments`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                if (r.ok) created++; else skipped++;
+            } catch { skipped++; }
+            if (i % 10 === 0) prog(90 + Math.round((i / supplierPayments.length) * 3), `Importing ${i + 1}/${supplierPayments.length} supplier payments...`);
+        }
+        return { created, skipped };
+    };
+
     const importPaymentsIdempotent = async (payments: any[]) => {
         // Match payments to customers by name; skip if a payment with the same reference already exists.
         const nameToId: Record<string, number> = {};
@@ -323,6 +468,21 @@ export default function DataMigration() {
             backendResults.suppliers = { created: suppliersCreated };
         }
 
+        // Per-supplier purchases (POs) + payments. Must run AFTER suppliers
+        // exist so the name → id lookup resolves. Both endpoints are
+        // idempotent so re-runs are safe.
+        if (data.purchase_orders?.length) {
+            log(`🛒 Importing ${data.purchase_orders.length} supplier POs into respective profiles...`, 'info');
+            backendResults.supplierPurchases = await importSupplierPurchasesDirect(data.purchase_orders);
+            log(`🛒 POs: ${backendResults.supplierPurchases.created} created${backendResults.supplierPurchases.skipped ? `, ${backendResults.supplierPurchases.skipped} skipped` : ''}`, 'success');
+        }
+
+        if (data.supplier_payments?.length) {
+            log(`🏦 Importing ${data.supplier_payments.length} supplier payments into respective profiles...`, 'info');
+            backendResults.supplierPayments = await importSupplierPaymentsDirect(data.supplier_payments);
+            log(`🏦 Supplier payments: ${backendResults.supplierPayments.created} created${backendResults.supplierPayments.skipped ? `, ${backendResults.supplierPayments.skipped} skipped` : ''}`, 'success');
+        }
+
         if (!backendResults.invoices?.created && data.invoices?.length) {
             log(`📄 Importing ${data.invoices.length} invoices directly...`, 'info');
             const invoicesCreated = await importInvoicesDirect(data.invoices);
@@ -378,8 +538,15 @@ export default function DataMigration() {
 
             prog(100, 'Done!');
             setDone(true);
-            setResults({ customers: (backendResults.customers?.created || 0) + (backendResults.customers?.updated || 0), products: backendResults.products?.created || 0, suppliers: backendResults.suppliers?.created || 0, invoices: backendResults.invoices?.created || 0 });
-            log('🎉 Migration complete! Correct balances imported.', 'success');
+            setResults({
+                customers: (backendResults.customers?.created || 0) + (backendResults.customers?.updated || 0),
+                products: backendResults.products?.created || 0,
+                suppliers: backendResults.suppliers?.created || 0,
+                invoices: backendResults.invoices?.created || 0,
+                supplierPurchases: backendResults.supplierPurchases?.created || 0,
+                supplierPayments: backendResults.supplierPayments?.created || 0,
+            });
+            log('🎉 Migration complete! Suppliers populated with their POs and payments.', 'success');
         } catch (e: any) { log(`❌ ${e.message}`, 'error'); prog(0, ''); }
         finally { setBusy(false); }
     };
@@ -492,11 +659,13 @@ export default function DataMigration() {
                             <p className="text-xs text-emerald-600 mt-0.5">Real outstanding balances imported correctly</p>
                         </div>
                     </div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-4">
                         {(results.customers ?? 0) > 0 && <div className="bg-white rounded-xl p-3 text-center border border-emerald-100"><p className="text-2xl font-black">{results.customers?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Customers</p></div>}
                         {(results.products ?? 0) > 0 && <div className="bg-white rounded-xl p-3 text-center border border-emerald-100"><p className="text-2xl font-black">{results.products?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Products</p></div>}
                         {(results.invoices ?? 0) > 0 && <div className="bg-white rounded-xl p-3 text-center border border-emerald-100"><p className="text-2xl font-black">{results.invoices?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Invoices</p></div>}
                         {(results.suppliers ?? 0) > 0 && <div className="bg-white rounded-xl p-3 text-center border border-emerald-100"><p className="text-2xl font-black">{results.suppliers?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Suppliers</p></div>}
+                        {(results.supplierPurchases ?? 0) > 0 && <div className="bg-white rounded-xl p-3 text-center border border-emerald-100"><p className="text-2xl font-black">{results.supplierPurchases?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Supplier POs</p></div>}
+                        {(results.supplierPayments ?? 0) > 0 && <div className="bg-white rounded-xl p-3 text-center border border-emerald-100"><p className="text-2xl font-black">{results.supplierPayments?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Supplier Pays</p></div>}
                     </div>
                     <div className="flex gap-2 flex-wrap">
                         <a href="/customers" className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-black hover:bg-emerald-700">→ View Customers</a>

@@ -242,63 +242,153 @@ export const deleteSupplier = async (id: string): Promise<void> => {
     }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Purchase orders + supplier payments: backend persistence.
+//
+// Both used to live in localStorage. They now persist on the server via
+// /api/suppliers/{id}/purchases and /api/suppliers/{id}/payments so the
+// Supplier Detail "profile" page sees the same data from every device, and
+// Aged Payable can compute the correct balance.
+//
+// All API POSTs are idempotent (PO by poNumber, payment by reference) so
+// re-running the BETTANO migration doesn't duplicate rows.
+// Network-fail fallback returns whatever's in localStorage so the UI keeps
+// working when the API is unreachable.
+// ─────────────────────────────────────────────────────────────────────────────
+
 export const getPurchaseOrders = async (): Promise<PurchaseOrder[]> => {
-    return getStorage<PurchaseOrder>('purchase_orders');
+    // Fetch POs across all suppliers. Used by Aged Payable to compute totals.
+    try {
+        const sRes = await fetch(`${SUPPLIERS_API}/`);
+        if (!sRes.ok) throw new Error(`HTTP ${sRes.status}`);
+        const sList = await sRes.json();
+        if (!Array.isArray(sList)) return [];
+        const all: PurchaseOrder[] = [];
+        await Promise.all(
+            sList.map(async (s: any) => {
+                try {
+                    const r = await fetch(`${SUPPLIERS_API}/${s.id}/purchases`);
+                    if (!r.ok) return;
+                    const rows = await r.json();
+                    if (Array.isArray(rows)) all.push(...rows);
+                } catch { /* ignore one supplier */ }
+            }),
+        );
+        return all;
+    } catch {
+        return getStorage<PurchaseOrder>('purchase_orders');
+    }
 };
 
 export const getSupplierPurchases = async (supplierId: string): Promise<PurchaseOrder[]> => {
-    const all = await getPurchaseOrders();
-    return all.filter(po => po.supplierId === supplierId);
+    try {
+        const r = await fetch(`${SUPPLIERS_API}/${encodeURIComponent(supplierId)}/purchases`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const rows = await r.json();
+        return Array.isArray(rows) ? rows : [];
+    } catch {
+        const all = getStorage<PurchaseOrder>('purchase_orders');
+        return all.filter(po => po.supplierId === supplierId);
+    }
 };
 
 export const createPurchaseOrder = async (po: Omit<PurchaseOrder, 'id'>): Promise<PurchaseOrder> => {
-    const orders = await getPurchaseOrders();
-    const newPO = {
-        ...po,
-        id: `PO-${Date.now()}`
-    } as PurchaseOrder;
-    setStorage('purchase_orders', [newPO, ...orders]);
-    return newPO;
+    const supplierId = String(po.supplierId || '');
+    if (!supplierId) throw new Error('createPurchaseOrder: supplierId is required');
+    const r = await fetch(`${SUPPLIERS_API}/${encodeURIComponent(supplierId)}/purchases`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            poNumber: po.poNumber,
+            date: po.date,
+            expectedDate: po.expectedDate,
+            status: po.status,
+            payment_status: po.payment_status,
+            payment_method: po.payment_method,
+            subtotal: po.subtotal,
+            taxTotal: po.taxTotal,
+            grandTotal: po.grandTotal,
+            amount_paid: po.amount_paid,
+            notes: po.notes,
+            items: (po.items || []).map(it => ({
+                productId: it.productId,
+                productName: it.productName,
+                uom: it.uom,
+                quantity: it.quantity,
+                unitPrice: it.unitPrice,
+                taxRate: it.taxRate,
+                discount: it.discount,
+                total: it.total,
+            })),
+        }),
+    });
+    if (!r.ok) {
+        const text = await r.text().catch(() => '');
+        throw new Error(`Failed to create PO: ${r.status} ${text}`);
+    }
+    return await r.json();
 };
 
 export const updatePurchaseOrder = async (id: string, data: Partial<PurchaseOrder>): Promise<PurchaseOrder> => {
-    const orders = await getPurchaseOrders();
+    // Backend doesn't expose PATCH on POs yet — keep localStorage fallback
+    // so the Procurement Flow buttons (approve / GRN / pay) still work
+    // until those status transitions get backend support.
+    const orders = getStorage<PurchaseOrder>('purchase_orders');
     const updated = orders.map(o => o.id === id ? { ...o, ...data } : o);
     setStorage('purchase_orders', updated);
     return updated.find(o => o.id === id) as PurchaseOrder;
 };
 
 export const getSupplierPayments = async (supplierId: string): Promise<SupplierPayment[]> => {
-    const all = getStorage<SupplierPayment>('supplier_payments');
-    return all.filter(p => p.supplierId === supplierId);
+    try {
+        const r = await fetch(`${SUPPLIERS_API}/${encodeURIComponent(supplierId)}/payments`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const rows = await r.json();
+        return Array.isArray(rows) ? rows : [];
+    } catch {
+        const all = getStorage<SupplierPayment>('supplier_payments');
+        return all.filter(p => p.supplierId === supplierId);
+    }
 };
 
 export const createSupplierPayment = async (payment: Omit<SupplierPayment, 'id'>): Promise<SupplierPayment> => {
-    const payments = getStorage<SupplierPayment>('supplier_payments');
-    const newPayment = {
-        ...payment,
-        id: `SPAY-${Date.now()}`
-    } as SupplierPayment;
-    setStorage('supplier_payments', [newPayment, ...payments]);
-    return newPayment;
+    const supplierId = String(payment.supplierId || '');
+    if (!supplierId) throw new Error('createSupplierPayment: supplierId is required');
+    const r = await fetch(`${SUPPLIERS_API}/${encodeURIComponent(supplierId)}/payments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            amount: payment.amount,
+            date: payment.date,
+            paymentMethod: payment.paymentMethod,
+            reference: payment.reference,
+            notes: payment.notes,
+        }),
+    });
+    if (!r.ok) {
+        const text = await r.text().catch(() => '');
+        throw new Error(`Failed to create supplier payment: ${r.status} ${text}`);
+    }
+    return await r.json();
 };
 
 export const getSupplierBalance = async (supplierId: string): Promise<number> => {
-    const allPurchases = await getSupplierPurchases(supplierId);
-    const allPayments = await getSupplierPayments(supplierId);
-
-    const supplier = await getSupplierById(supplierId);
-    const openingBalance = supplier?.openingBalance || 0;
-
-    // Credit (Increases liability): Purchases (Received or Completed)
-    const totalPurchases = allPurchases
-        .filter(p => p.status === 'Received' || p.status === 'Completed' || p.status === 'Approved')
-        .reduce((sum, p) => sum + p.grandTotal, 0);
-
-    // Debit (Decreases liability): Payments sent to supplier
-    const totalPayments = allPayments.reduce((sum, p) => sum + p.amount, 0);
-
-    return openingBalance + totalPurchases - totalPayments;
+    // Backend computes it: opening + purchases − payments.
+    try {
+        const r = await fetch(`${SUPPLIERS_API}/${encodeURIComponent(supplierId)}/balance`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const j = await r.json();
+        return Number(j.balance) || 0;
+    } catch {
+        // Fallback to local math.
+        const allPurchases = await getSupplierPurchases(supplierId);
+        const allPayments = await getSupplierPayments(supplierId);
+        const supplier = await getSupplierById(supplierId);
+        const openingBalance = supplier?.openingBalance || 0;
+        const totalPurchases = allPurchases.reduce((sum, p) => sum + (p.grandTotal || 0), 0);
+        const totalPayments = allPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+        return openingBalance + totalPurchases - totalPayments;
+    }
 };
 
 // ── Procurement Flow Actions ─────────────────────────────────────────────────
