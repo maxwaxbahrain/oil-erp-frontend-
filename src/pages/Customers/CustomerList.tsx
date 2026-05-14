@@ -98,23 +98,38 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
     {
       header: 'Nexus Location',
       headerClassName: tableHead,
-      accessor: (c: Customer) => (
-        <span className="text-[11px] text-redwood-text-muted font-bold tracking-tight uppercase">
-          {c.address && c.address.trim() !== '' ? (c.address.length > 30 ? c.address.slice(0, 30) + '...' : c.address) : 'NOT SPECIFIED'}
-        </span>
-      )
+      accessor: (c: Customer) => {
+        // Prefer the stored address. If empty, try to pull the location half
+        // out of the BETTANO-style name (split on " - " or first comma).
+        const fromField = (c.address || '').trim();
+        let addr = fromField;
+        if (!addr) {
+          const name = (c.name || '').trim();
+          if (name.includes(' - ')) addr = name.split(' - ').slice(1).join(' - ').trim();
+          else if (name.includes(',')) addr = name.split(',').slice(1).join(',').trim();
+        }
+        if (!addr) {
+          return <span className="text-xs text-gray-400">—</span>;
+        }
+        const shown = addr.length > 40 ? `${addr.slice(0, 40)}…` : addr;
+        return <span className="text-xs text-gray-500">{shown}</span>;
+      }
     },
     {
-      header: 'Fiscal Balance',
+      header: 'Outstanding Balance',
       headerClassName: tableHead,
-      accessor: (c: Customer) => (
-        <div className="flex flex-col items-end w-full">
-          <span className={`text-[13px] font-black font-mono ${(c.balance || 0) > 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
-            ${(c.balance || 0).toLocaleString()}
-          </span>
-          <span className="text-[9px] text-redwood-text-muted/80 font-bold tracking-widest">FISCAL BALANCE</span>
-        </div>
-      ),
+      accessor: (c: Customer) => {
+        const bal = Number(c.balance || 0);
+        const owes = bal > 0;
+        return (
+          <div className="flex flex-col items-end w-full">
+            <span className={`text-[13px] font-black font-mono ${owes ? 'text-rose-500' : 'text-emerald-600'}`}>
+              ${bal.toLocaleString()}
+            </span>
+            <span className="text-[9px] text-redwood-text-muted/80 font-bold tracking-widest">OUTSTANDING BALANCE</span>
+          </div>
+        );
+      },
       className: 'text-right'
     }
   ];
