@@ -148,6 +148,17 @@ export default function OutstandingBills() {
         });
     }, []);
 
+    // Resolve a customer display name. Some imported invoices have an empty
+    // customerName field; fall back to the live customer contact lookup so
+    // the table never shows a blank Customer column for those rows.
+    // (Declared BEFORE the useMemo that uses it — temporal-dead-zone safety.)
+    const nameOf = (inv: Invoice) => {
+        const n = (inv.customerName || '').trim();
+        if (n) return n;
+        const cid = String(inv.customerId || '');
+        return contactsByCustomerId[cid]?.name?.trim() || 'Unknown';
+    };
+
     // Customer list for the dropdown — distinct resolved names sorted alphabetically.
     const customerOptions = useMemo(() => {
         const set = new Set<string>();
@@ -229,16 +240,6 @@ export default function OutstandingBills() {
         const next = new Set(selected);
         if (next.has(id)) next.delete(id); else next.add(id);
         setSelected(next);
-    };
-
-    // Resolve a customer display name. Some imported invoices have an empty
-    // customerName field; fall back to the live customer contact lookup so
-    // the table never shows a blank Customer column for those rows.
-    const nameOf = (inv: Invoice) => {
-        const n = (inv.customerName || '').trim();
-        if (n) return n;
-        const cid = String(inv.customerId || '');
-        return contactsByCustomerId[cid]?.name?.trim() || 'Unknown';
     };
 
     const handlePrint = () => window.print();
@@ -441,7 +442,7 @@ export default function OutstandingBills() {
                                                 className="rounded"
                                             />
                                         </th>
-                                        {['Bill #', 'Customer', 'Bill date', 'Due date', 'Status', 'Total', 'Balance'].map(h => (
+                                        {['Bill #', 'Bill date', 'Due date', 'Status', 'Total', 'Customer', 'Balance'].map(h => (
                                             <th key={h} className="px-4 py-3 text-[11px] font-bold text-gray-500 uppercase tracking-wider">{h}</th>
                                         ))}
                                     </tr>
@@ -463,7 +464,6 @@ export default function OutstandingBills() {
                                                     />
                                                 </td>
                                                 <td className="px-4 py-4 text-sm font-bold text-gray-900 font-mono">{inv.invoiceNumber}</td>
-                                                <td className="px-4 py-4 text-sm font-semibold text-gray-800">{nameOf(inv)}</td>
                                                 <td className="px-4 py-4 text-sm text-gray-500 font-mono">{inv.invoiceDate || '—'}</td>
                                                 <td className="px-4 py-4">
                                                     <p className="text-sm text-gray-500 font-mono">{inv.dueDate || '—'}</p>
@@ -479,6 +479,7 @@ export default function OutstandingBills() {
                                                     </span>
                                                 </td>
                                                 <td className="px-4 py-4 text-sm font-bold font-mono text-gray-900">{formatCurrency(Number(inv.grandTotal) || 0)}</td>
+                                                <td className="px-4 py-4 text-sm font-semibold text-gray-800">{nameOf(inv)}</td>
                                                 <td className="px-4 py-4 text-sm font-black font-mono text-rose-700">{formatCurrency(balance)}</td>
                                             </tr>
                                         );
