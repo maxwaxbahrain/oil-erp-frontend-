@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { FileText, Download, Filter, AlertCircle, CheckCircle , ArrowLeft, Printer } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { getInvoices, type Invoice } from '../../services/api';
+import { getInvoices, getPayments, type Invoice } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
 
 export default function OutstandingBills() {
@@ -24,9 +24,13 @@ export default function OutstandingBills() {
     const isUnpaid = (i: Invoice) => Number(i.amount_paid || 0) === 0 && balanceOf(i) > 0.01;
     const isOverdue = (i: Invoice) => {
         if (balanceOf(i) <= 0.01 || !i.dueDate) return false;
-        const due = new Date(i.dueDate).getTime();
-        if (Number.isNaN(due)) return false;
-        return due < Date.now();
+        const due = new Date(i.dueDate);
+        if (Number.isNaN(due.getTime())) return false;
+        // QuickBooks rule: 'due today' is NOT overdue. Compare day-only.
+        const dueDay = new Date(due.getFullYear(), due.getMonth(), due.getDate()).getTime();
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+        return dueDay < today;
     };
     const computedStatus = (i: Invoice): 'Paid' | 'Partial' | 'Overdue' | 'Unpaid' => {
         if (isFullyPaid(i)) return 'Paid';
@@ -36,9 +40,54 @@ export default function OutstandingBills() {
     };
 
     useEffect(() => {
-        // Outstanding bills = any invoice with a remaining balance > 0.
-        getInvoices().then(inv => {
-            setInvoices(inv.filter(i => !isFullyPaid(i)));
+        // QuickBooks-style: auto-apply each customer's payments to their oldest
+        // open invoices first (FIFO). Backend invoices all have paid_amount=0
+        // because customer payments live in a separate Transactions table and
+        // are never linked to specific invoices. Without this, every invoice
+        // shows fully unpaid and 100% of revenue looks overdue.
+        Promise.all([getInvoices(), getPayments().catch(() => [])]).then(([allInvoices, allPayments]) => {
+            // Total payment credit available per customer.
+            const creditByCustomer: Record<string, number> = {};
+            (allPayments || []).forEach((p: any) => {
+                const cid = String(p?.customer_id ?? '');
+                if (!cid) return;
+                creditByCustomer[cid] = (creditByCustomer[cid] || 0) + (Number(p?.amount) || 0);
+            });
+
+            // Apply credits to invoices oldest-first per customer.
+            const invoicesByCustomer: Record<string, Invoice[]> = {};
+            allInvoices.forEach(inv => {
+                const cid = String(inv.customerId || '');
+                (invoicesByCustomer[cid] = invoicesByCustomer[cid] || []).push(inv);
+            });
+
+            const applied: Invoice[] = [];
+            Object.keys(invoicesByCustomer).forEach(cid => {
+                const list = [...invoicesByCustomer[cid]].sort(
+                    (a, b) => new Date(a.invoiceDate || a.createdAt || 0).getTime()
+                        - new Date(b.invoiceDate || b.createdAt || 0).getTime(),
+                );
+                let credit = creditByCustomer[cid] || 0;
+                list.forEach(inv => {
+                    const explicitPaid = Number(inv.amount_paid) || 0;
+                    const total = Number(inv.grandTotal) || 0;
+                    let remaining = total - explicitPaid;
+                    let appliedFromCredit = 0;
+                    if (credit > 0 && remaining > 0.01) {
+                        appliedFromCredit = Math.min(credit, remaining);
+                        credit -= appliedFromCredit;
+                        remaining -= appliedFromCredit;
+                    }
+                    applied.push({
+                        ...inv,
+                        amount_paid: explicitPaid + appliedFromCredit,
+                        remaining_balance: Math.max(0, remaining),
+                    });
+                });
+            });
+
+            // Show only invoices that still have a balance after applying credits.
+            setInvoices(applied.filter(i => !isFullyPaid(i)));
             setLoading(false);
         });
     }, []);
