@@ -27,45 +27,66 @@ export default function AgedReceivable() {
     const [asOf] = useState(new Date().toISOString().split('T')[0]);
 
     useEffect(() => {
-        // Pull customers alongside invoices so we can resolve the real customer
-        // name when an invoice row has an empty customerName field (common on
-        // BETTANO-imported invoices).
+        // The report's source of truth is the customer's outstanding balance —
+        // the same number shown in the Customers list. Invoices give the
+        // per-bucket aging detail where they exist; for legacy / BETTANO-imported
+        // customers without invoice records, the unallocated balance lands in
+        // the '90+ days' bucket (the data predates today).
         Promise.all([getInvoices(), getCustomers().catch(() => [])]).then(([invoices, customers]) => {
             const today = new Date();
-            const customerNameById: Record<string, string> = {};
+
+            // Bucket unpaid invoices by customer id for quick lookup.
+            const invoicesByCustomer: Record<string, Invoice[]> = {};
+            invoices.forEach(inv => {
+                if (!['Unpaid', 'Partial', 'Overdue'].includes(inv.status || '')) return;
+                const cid = inv.customerId ? String(inv.customerId) : '';
+                if (!cid) return;
+                const bal = (inv.grandTotal || inv.subtotal || 0) - (inv.amount_paid || 0);
+                if (bal <= 0) return;
+                (invoicesByCustomer[cid] = invoicesByCustomer[cid] || []).push(inv);
+            });
+
+            const aged: AgedCustomer[] = [];
             (customers || []).forEach((c: any) => {
                 const cid = String(c?.id ?? '');
-                const nm = String(c?.name ?? '').trim();
-                if (cid) customerNameById[cid] = nm;
+                if (!cid) return;
+                const balance = Number(c?.balance) || 0;
+                if (balance <= 0) return; // customer is paid up
+                const name = String(c?.name ?? '').trim() || 'Unknown';
+                const custInvoices = invoicesByCustomer[cid] || [];
+
+                const item: AgedCustomer = {
+                    customerId: cid,
+                    customerName: name,
+                    current: 0,
+                    days30: 0,
+                    days60: 0,
+                    days90: 0,
+                    total: balance,
+                    invoices: custInvoices,
+                };
+
+                let bucketed = 0;
+                custInvoices.forEach(inv => {
+                    const due = inv.dueDate ? new Date(inv.dueDate) : new Date(inv.invoiceDate || inv.createdAt || today);
+                    const daysOverdue = Math.floor((today.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
+                    const invBal = (inv.grandTotal || inv.subtotal || 0) - (inv.amount_paid || 0);
+                    if (invBal <= 0) return;
+                    if (daysOverdue <= 0) item.current += invBal;
+                    else if (daysOverdue <= 30) item.days30 += invBal;
+                    else if (daysOverdue <= 60) item.days60 += invBal;
+                    else item.days90 += invBal;
+                    bucketed += invBal;
+                });
+
+                // Any balance not covered by tracked invoices is legacy debt.
+                const remainder = balance - bucketed;
+                if (remainder > 0.01) item.days90 += remainder;
+
+                aged.push(item);
             });
 
-            const unpaid = invoices.filter(inv =>
-                ['Unpaid', 'Partial', 'Overdue'].includes(inv.status || '')
-            );
-
-            const customerMap: Record<string, AgedCustomer> = {};
-            unpaid.forEach(inv => {
-                const cid = inv.customerId ? String(inv.customerId) : '';
-                // Prefer the live customer record's name; fall back to whatever
-                // was on the invoice; final fallback is 'Unknown'.
-                const name = (cid && customerNameById[cid]) || inv.customerName || 'Unknown';
-                const id = cid || name;
-                if (!customerMap[id]) {
-                    customerMap[id] = { customerId: id, customerName: name, current: 0, days30: 0, days60: 0, days90: 0, total: 0, invoices: [] };
-                }
-                const due = inv.dueDate ? new Date(inv.dueDate) : new Date(inv.invoiceDate || inv.createdAt || today);
-                const daysOverdue = Math.floor((today.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
-                const balance = (inv.grandTotal || inv.subtotal || 0) - (inv.amount_paid || 0);
-                if (balance <= 0) return;
-                if (daysOverdue <= 0) customerMap[id].current += balance;
-                else if (daysOverdue <= 30) customerMap[id].days30 += balance;
-                else if (daysOverdue <= 60) customerMap[id].days60 += balance;
-                else customerMap[id].days90 += balance;
-                customerMap[id].total += balance;
-                customerMap[id].invoices.push(inv);
-            });
-
-            setData(Object.values(customerMap).sort((a, b) => b.total - a.total));
+            setData(aged.sort((a, b) => b.total - a.total));
             setLoading(false);
         });
     }, []);
