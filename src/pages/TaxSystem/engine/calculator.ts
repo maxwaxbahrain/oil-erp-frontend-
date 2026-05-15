@@ -27,19 +27,26 @@ export function pickRule(rules: TaxRule[], jurisdiction: string, productCategory
     return candidates.find(r => !r.productCategory) || candidates[0];
 }
 
-/** Compute tax for an amount given the loaded rules and a jurisdiction. */
+/** Compute tax for an amount given the loaded rules and a jurisdiction.
+ *
+ * Defensive coercion: amount is forced to a finite number so callers
+ * passing NaN, "" or undefined still get a sane zero result instead of
+ * NaN propagating into the rendered total.
+ */
 export function calculateTax(
     amount: number,
     jurisdiction: string,
     rules: TaxRule[],
     productCategory?: string,
 ): TaxComputation {
+    const safeAmount = Number.isFinite(amount) ? amount : 0;
+
     const rule = pickRule(rules, jurisdiction, productCategory);
     if (rule) {
         const rate = Number(rule.rate) || 0;
         return {
             rate,
-            taxAmount: amount * (rate / 100),
+            taxAmount: safeAmount * (rate / 100),
             source: 'rule',
             matchedRule: rule,
         };
@@ -52,7 +59,7 @@ export function calculateTax(
         const state = usMatch[1].toUpperCase();
         const rate = US_STATE_RATES[state];
         if (rate !== undefined) {
-            return { rate, taxAmount: amount * (rate / 100), source: 'us-state-default' };
+            return { rate, taxAmount: safeAmount * (rate / 100), source: 'us-state-default' };
         }
     }
     return { rate: 0, taxAmount: 0, source: 'no-rate' };
