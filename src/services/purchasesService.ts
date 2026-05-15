@@ -84,9 +84,8 @@ const getStorage = <T>(key: string): T[] => {
     return data ? JSON.parse(data) : [];
 };
 
-const setStorage = <T>(key: string, data: T[]) => {
-    localStorage.setItem(key, JSON.stringify(data));
-};
+// setStorage was removed alongside the localStorage write paths. All writes
+// now go to the backend. getStorage stays for read-only offline fallbacks.
 
 // NOTE: The old INITIAL_SUPPLIERS seed (Global Foods Ltd / Valley Farms) was
 // removed when suppliers moved to the backend. Those rows were leaking into
@@ -329,13 +328,31 @@ export const createPurchaseOrder = async (po: Omit<PurchaseOrder, 'id'>): Promis
 };
 
 export const updatePurchaseOrder = async (id: string, data: Partial<PurchaseOrder>): Promise<PurchaseOrder> => {
-    // Backend doesn't expose PATCH on POs yet — keep localStorage fallback
-    // so the Procurement Flow buttons (approve / GRN / pay) still work
-    // until those status transitions get backend support.
-    const orders = getStorage<PurchaseOrder>('purchase_orders');
-    const updated = orders.map(o => o.id === id ? { ...o, ...data } : o);
-    setStorage('purchase_orders', updated);
-    return updated.find(o => o.id === id) as PurchaseOrder;
+    // Calls the backend PATCH /api/purchase-orders/{id} so procurement-flow
+    // transitions (approve, GRN, mark paid) actually persist instead of
+    // silently writing to localStorage.
+    const res = await fetch(`${API_HOST}/api/purchase-orders/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            status: data.status,
+            payment_status: data.payment_status,
+            payment_method: data.payment_method,
+            amount_paid: data.amount_paid,
+            remaining_balance: data.remaining_balance,
+            notes: data.notes,
+            // The backend ignores these but we forward them so the payload
+            // matches the existing caller signatures without churn.
+            approved_date: (data as any).approved_date,
+            grn_date: (data as any).grn_date,
+            paid_date: (data as any).paid_date,
+        }),
+    });
+    if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Failed to update PO: ${res.status} ${text}`);
+    }
+    return await res.json();
 };
 
 export const getSupplierPayments = async (supplierId: string): Promise<SupplierPayment[]> => {
