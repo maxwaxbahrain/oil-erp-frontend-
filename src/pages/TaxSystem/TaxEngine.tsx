@@ -3,7 +3,7 @@
 // Session 1A (foundation): health badge + quick calculator + read-only rules table.
 // Session 1B (this update): full CRUD for rules — add, edit, delete, active toggle.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Calculator, Plus, Edit2, Trash2 } from 'lucide-react';
 import { HealthBadge } from './components/HealthBadge';
@@ -27,6 +27,11 @@ export default function TaxEngine() {
     // Rule editor state: null = closed, {} = create mode, {id…} = edit mode.
     const [editing, setEditing] = useState<Partial<TaxRule> | null>(null);
     const [flash, setFlash] = useState<string | null>(null);
+    // Timer for clearing the flash. Tracked in a ref so successive
+    // showFlash() calls cancel the previous timer (otherwise the older
+    // 4-second timeout would clear a newer flash too early), and so the
+    // pending timer can be cleared on unmount.
+    const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const [demoAmount, setDemoAmount] = useState('1000');
     const [demoJurisdiction, setDemoJurisdiction] = useState('US-NY');
@@ -37,11 +42,25 @@ export default function TaxEngine() {
         finally { setLoading(false); }
     };
 
-    useEffect(() => { reloadRules(); }, []);
+    useEffect(() => {
+        reloadRules();
+        return () => {
+            if (flashTimer.current) clearTimeout(flashTimer.current);
+        };
+    }, []);
 
     const showFlash = (msg: string) => {
+        if (flashTimer.current) clearTimeout(flashTimer.current);
         setFlash(msg);
-        setTimeout(() => setFlash(null), 4000);
+        flashTimer.current = setTimeout(() => setFlash(null), 4000);
+    };
+
+    // Pencil-icon click handler — sets edit mode and scrolls the form
+    // into view. Rows near the bottom of a long rules table were
+    // opening the form off-screen at the top of the page.
+    const openEdit = (rule: TaxRule) => {
+        setEditing(rule);
+        setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 0);
     };
 
     const handleSubmit = async (payload: Partial<TaxRule>): Promise<string | null> => {
@@ -106,9 +125,9 @@ export default function TaxEngine() {
                         </p>
                     </div>
                     <div className="flex items-center gap-3">
-                        <HealthBadge />
+                        <HealthBadge externalRuleCount={rules.length} />
                         <button
-                            onClick={() => setEditing({})}
+                            onClick={() => { setEditing({}); setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 0); }}
                             className="flex items-center gap-2 px-4 py-2 bg-gray-900 hover:bg-gray-700 text-white rounded-xl text-xs font-black uppercase tracking-wide transition-all"
                         >
                             <Plus size={14} /> Add Rule
@@ -210,7 +229,7 @@ export default function TaxEngine() {
                                     <td className="px-5 py-3 text-right">
                                         <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all">
                                             <button
-                                                onClick={() => setEditing(r)}
+                                                onClick={() => openEdit(r)}
                                                 className="p-1.5 hover:bg-blue-50 rounded-lg text-blue-500 hover:text-blue-700"
                                                 title="Edit rule"
                                             >

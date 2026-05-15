@@ -7,7 +7,15 @@ import { CheckCircle, AlertCircle, RefreshCw } from 'lucide-react';
 import { fetchEngineHealth } from '../integrations/taxEngineApi';
 import type { TaxEngineHealth } from '../data/types';
 
-export function HealthBadge() {
+interface Props {
+    /** When provided, displays this rule count instead of the polled one
+     *  so the badge stays in sync with the live page state after CRUD —
+     *  the /health endpoint only refreshes every 60 s and would otherwise
+     *  show stale "0 rules" for up to a minute after adding the first one. */
+    externalRuleCount?: number;
+}
+
+export function HealthBadge({ externalRuleCount }: Props = {}) {
     const [health, setHealth] = useState<TaxEngineHealth | null>(null);
     const [loading, setLoading] = useState(true);
 
@@ -31,6 +39,7 @@ export function HealthBadge() {
         );
     }
     const ok = health?.status === 'ok';
+    const ruleCount = externalRuleCount ?? health?.ruleCount ?? 0;
     return (
         <span
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold border ${
@@ -38,10 +47,10 @@ export function HealthBadge() {
                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                     : 'bg-rose-50 text-rose-700 border-rose-200'
             }`}
-            title={health ? `version ${health.version} · ${health.ruleCount} rules · ${new Date(health.timestamp).toLocaleString()}` : ''}
+            title={health ? `version ${health.version} · ${ruleCount} rules · last checked ${new Date(health.timestamp).toLocaleString()}` : ''}
         >
             {ok ? <CheckCircle size={12} /> : <AlertCircle size={12} />}
-            Engine {ok ? 'online' : 'offline'} · {health?.ruleCount ?? 0} rules
+            Engine {ok ? 'online' : 'offline'} · {ruleCount} rules
         </span>
     );
 }
