@@ -3,8 +3,8 @@ import { useState, useEffect } from 'react';
 import { Scale, Download, CheckCircle, XCircle , ArrowLeft, Printer } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { getInvoices, getPayments } from '../../services/api';
-import { getPurchaseOrders } from '../../services/purchasesService';
+import { getInvoices, getPayments, getCustomers } from '../../services/api';
+import { getPurchaseOrders, getSuppliers, getSupplierBalance } from '../../services/purchasesService';
 import { formatCurrency } from '../../services/settingsService';
 
 interface TrialEntry {
@@ -24,8 +24,16 @@ export default function TrialBalance() {
         Promise.all([
             getInvoices().catch(() => []),
             getPayments().catch(() => []),
-            getPurchaseOrders().catch(() => [])
-        ]).then(([invoices, payments, pos]) => {
+            getPurchaseOrders().catch(() => []),
+            // Customers + suppliers are needed for the AR / AP balance lines —
+            // a Trial Balance always shows current account BALANCES (not flows
+            // filtered by period), so we pull them from the reconciled
+            // customer & supplier ledgers instead of summing raw invoice /
+            // PO records (which on imported data have paid_amount=0 across
+            // the board and would give 9× too much AR).
+            getCustomers().catch(() => []),
+            getSuppliers().catch(() => []),
+        ]).then(async ([invoices, payments, pos, customers, suppliers]) => {
             const now = new Date();
             const filterDate = (dateStr: string) => {
                 const d = new Date(dateStr);
@@ -37,16 +45,29 @@ export default function TrialBalance() {
                 return d.getFullYear() === now.getFullYear();
             };
 
-            const validInvoices = invoices.filter(i => i.status !== 'Paid' && filterDate(i.invoiceDate || i.createdAt?.slice(0,10) || ''));
+            // FLOW accounts (revenue, cash receipts, purchases) ARE date-filtered.
+            const validInvoices = invoices.filter(i => filterDate(i.invoiceDate || i.createdAt?.slice(0, 10) || ''));
             const validPayments = payments.filter(p => filterDate(p.payment_date || ''));
             const validPOs = pos.filter(po => filterDate(po.date || ''));
 
             const totalRevenue = validInvoices.reduce((s, i) => s + (i.grandTotal || i.subtotal || 0), 0);
             const totalReceived = validPayments.reduce((s, p) => s + (p.amount || 0), 0);
-            const totalReceivable = validInvoices.filter(i => ['Unpaid', 'Partial', 'Overdue'].includes(i.status || '')).reduce((s, i) => s + ((i.grandTotal || 0) - (i.amount_paid || 0)), 0);
             const totalPurchases = validPOs.reduce((s, po) => s + (po.grandTotal || 0), 0);
-            const totalPayable = validPOs.filter(po => po.payment_status !== 'Paid').reduce((s, po) => s + (po.grandTotal || 0) - (po.amount_paid || 0), 0);
             const cogs = totalPurchases;
+
+            // BALANCE accounts (AR / AP) come from the reconciled ledgers, not
+            // raw invoice / PO records.  AR = sum of positive customer balances
+            // (same source as Aged Receivable, COA, Banking).
+            const totalReceivable = (customers || []).reduce(
+                (s: number, c: any) => s + Math.max(0, Number(c?.balance) || 0), 0,
+            );
+            // AP = sum of positive supplier outstanding (same as COA / Banking).
+            const supplierBalances = await Promise.all(
+                (suppliers || []).map((s: any) => getSupplierBalance(s.id).catch(() => 0)),
+            );
+            const totalPayable = supplierBalances.reduce(
+                (s: number, b: number) => s + Math.max(0, b), 0,
+            );
 
             // For a balanced trial balance:
             // Total Debits = AR + Cash + COGS
