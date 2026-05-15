@@ -142,7 +142,15 @@ export default function TaxEngine() {
     };
 
     const amt = parseFloat(demoAmount) || 0;
-    const result = calculateTax(amt, demoJurisdiction, rules, undefined, nexusList);
+    // Only pass nexusList to the calculator once the API has answered.
+    // While loadingNexus is true the list is [], and an empty array means
+    // "we KNOW there's no nexus" — which would briefly flash the amber
+    // no-nexus warning even before we'd actually checked. Pass undefined
+    // to skip enforcement during that window.
+    const result = calculateTax(
+        amt, demoJurisdiction, rules, undefined,
+        loadingNexus ? undefined : nexusList,
+    );
 
     const TABS: { id: Tab; label: string; count?: number }[] = [
         { id: 'rules', label: '📜 Rules', count: rules.length },
