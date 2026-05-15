@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, Plus, Trash2, Save, ShoppingCart } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Save, ShoppingCart, CheckCircle } from 'lucide-react';
 import { getSuppliers, createSupplier, getSupplierBalance, createPurchaseOrder, type Supplier, type PurchaseOrderItem } from '../../services/purchasesService';
 import { getProducts, type Product } from '../../services/api';
 import { PAYMENT_METHODS } from '../../constants/data';
@@ -137,7 +137,7 @@ export default function PurchaseOrderForm() {
 
     const handleAddLineItem = () => {
         const newItem: POLineItem = {
-            id: Date.now().toString(),
+            id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
             productId: '',
             product: '',
             description: '',
@@ -150,6 +150,22 @@ export default function PurchaseOrderForm() {
             ...prev,
             lineItems: [...prev.lineItems, newItem]
         }));
+    };
+
+    // Xero/QuickBooks-style: if the user touches the LAST row, auto-append a
+    // blank row underneath. Removes the need to click "Append" between every
+    // item. Idempotent — only adds when the current row is the last one.
+    const ensureTrailingBlankRow = (touchedId: string) => {
+        setFormData(prev => {
+            const isLast = prev.lineItems[prev.lineItems.length - 1]?.id === touchedId;
+            if (!isLast) return prev;
+            const blank: POLineItem = {
+                id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+                productId: '', product: '', description: '',
+                quantity: 1, rate: 0, amount: 0,
+            };
+            return { ...prev, lineItems: [...prev.lineItems, blank] };
+        });
     };
 
     const handleRemoveLineItem = (id: string) => {
@@ -184,9 +200,16 @@ export default function PurchaseOrderForm() {
                 };
             })
         }));
+        // If the user picked a product on the last row, append a blank row
+        // so they can immediately type the next item without clicking "Add".
+        ensureTrailingBlankRow(lineId);
     };
 
     const handleLineItemChange = (id: string, field: keyof POLineItem, value: string | number) => {
+        // Auto-add a trailing blank row when the user touches the last row.
+        // Runs FIRST so the state update for the blank row composes with the
+        // field change below.
+        ensureTrailingBlankRow(id);
         setFormData(prev => ({
             ...prev,
             lineItems: prev.lineItems.map(item => {
@@ -345,12 +368,17 @@ export default function PurchaseOrderForm() {
 
             {/* Form */}
             <div className="bg-white border-2 border-gray-200 rounded-xl shadow-md p-8 space-y-8">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pb-8 border-b-2 border-gray-100">
-                    <div>
+                {/* Vendor row only — the "Procurement Status" yellow notice card was
+                    removed because (a) the status is already conveyed by the
+                    Auto-approve toggle + Save button label in the header and
+                    (b) it added a screen of vertical space with no input. A tiny
+                    pill on the right shows the destination state instead. */}
+                <div className="flex items-end gap-6 pb-6 border-b-2 border-gray-100">
+                    <div className="flex-1">
                         <div className="flex items-center justify-between mb-2">
-                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Authorised Vendor <span className="text-red-500">*</span></label>
+                            <label className="text-xs font-semibold text-gray-600">Vendor <span className="text-red-500">*</span></label>
                             <button type="button" onClick={() => setShowNewSupplier(true)}
-                                className="flex items-center gap-1 text-xs font-black text-orange-600 hover:text-orange-800 transition-all">
+                                className="text-xs font-bold text-orange-600 hover:text-orange-800 transition-all">
                                 + New Supplier
                             </button>
                         </div>
@@ -358,7 +386,7 @@ export default function PurchaseOrderForm() {
                             options={suppliers}
                             value={formData.supplierId}
                             onChange={handleSupplierChange}
-                            placeholder="Find partner in registry..."
+                            placeholder="Search supplier..."
                             displayKey="name"
                             disabled={loading}
                         />
@@ -381,17 +409,16 @@ export default function PurchaseOrderForm() {
                             </div>
                         )}
                     </div>
-                    <div>
-                        <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">
-                            Procurement Status
-                        </label>
-                        <div className="w-full border-2 border-yellow-400 bg-yellow-50 rounded-lg px-4 py-3 flex items-center gap-3">
-                            <span className="text-lg">🟡</span>
-                            <div>
-                                <p className="text-sm font-black text-yellow-800 uppercase tracking-wide">Pending Requisition</p>
-                                <p className="text-[10px] text-yellow-600 mt-0.5">New POs always start here. Manager approves from the orders list.</p>
-                            </div>
-                        </div>
+                    <div className="pb-3">
+                        {formData.autoApprove ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-[11px] font-bold">
+                                <CheckCircle size={12} /> Will ship as Approved
+                            </span>
+                        ) : (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-yellow-50 text-yellow-700 border border-yellow-200 rounded-full text-[11px] font-bold">
+                                🟡 Will ship as Pending
+                            </span>
+                        )}
                     </div>
                 </div>
 
@@ -518,37 +545,34 @@ export default function PurchaseOrderForm() {
                     </button>
                 </div>
 
-                {/* Fiscal Terms Section */}
-                <div className="border-t-2 border-gray-100 pt-8 mt-8">
-                    <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.4em] mb-6 flex items-center gap-4">
-                        <div className="h-px bg-gray-200 flex-1"></div>
-                        Fiscal Settlement Terms
-                        <div className="h-px bg-gray-200 flex-1"></div>
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8 bg-gray-900 p-8 rounded-2xl shadow-xl">
-                        <div className="space-y-3">
-                            <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest">Liability Status</label>
+                {/* Payment Details — lightened from a heavy gray-900 panel to a
+                    plain white section so the form reads as a single page. */}
+                <div className="border-t-2 border-gray-100 pt-6 mt-6">
+                    <h3 className="text-sm font-bold text-gray-700 mb-4">Payment Details</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label className="block text-xs font-semibold text-gray-600 mb-1.5">Status</label>
                             <select
                                 value={formData.paymentStatus}
                                 onChange={(e) => setFormData(p => ({ ...p, paymentStatus: e.target.value as any, paymentMethod: '', amountPaid: 0 }))}
-                                className="w-full bg-gray-800 border-2 border-gray-700 rounded-xl px-4 py-4 text-sm font-black text-white focus:border-orange-500 outline-none transition-all uppercase"
+                                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm font-semibold focus:border-orange-400 outline-none transition-all"
                             >
                                 <option value="Unpaid">🔴 Unpaid (Accounts Payable)</option>
                                 <option value="Paid">🔵 Paid (Settled)</option>
-                                <option value="Advance Paid">🟡 Advance / Partial Payment</option>
+                                <option value="Advance Paid">🟡 Advance / Partial</option>
                             </select>
                         </div>
 
                         {(formData.paymentStatus === 'Paid' || formData.paymentStatus === 'Advance Paid') && (
-                            <div className="space-y-3">
-                                <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest">Disbursement Channel</label>
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Payment Method</label>
                                 <select
                                     value={formData.paymentMethod}
                                     onChange={(e) => setFormData(p => ({ ...p, paymentMethod: e.target.value }))}
-                                    className="w-full bg-gray-800 border-2 border-gray-700 rounded-xl px-4 py-4 text-sm font-black text-white focus:border-orange-500 outline-none transition-all uppercase"
+                                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm font-semibold focus:border-orange-400 outline-none transition-all"
                                     required
                                 >
-                                    <option value="">-- Select Channel --</option>
+                                    <option value="">-- Select --</option>
                                     {PAYMENT_METHODS.map(m => (
                                         <option key={m} value={m}>{m}</option>
                                     ))}
@@ -557,27 +581,26 @@ export default function PurchaseOrderForm() {
                         )}
 
                         {formData.paymentStatus === 'Advance Paid' && (
-                            <div className="space-y-4">
-                                <div className="space-y-3">
-                                    <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest">Upfront Amount</label>
+                            <div className="md:col-span-1 space-y-3">
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">Upfront Amount</label>
                                     <input
                                         type="number"
                                         value={formData.amountPaid || ''}
                                         onChange={(e) => setFormData(p => ({ ...p, amountPaid: parseFloat(e.target.value) || 0 }))}
-                                        className="w-full bg-gray-800 border-2 border-gray-700 rounded-xl px-4 py-4 text-lg font-mono font-black text-white focus:border-orange-500 outline-none transition-all"
-                                        placeholder="Enter amount paid"
+                                        className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm font-mono font-semibold focus:border-orange-400 outline-none transition-all"
+                                        placeholder="0.00"
                                     />
                                 </div>
-                                <div className="space-y-3">
-                                    <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest">Payment For (Invoice / PO Reference)</label>
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">Payment Reference</label>
                                     <input
                                         type="text"
                                         value={formData.paymentReference || formData.poNumber}
                                         onChange={(e) => setFormData(p => ({ ...p, paymentReference: e.target.value }))}
-                                        className="w-full bg-gray-800 border-2 border-gray-700 rounded-xl px-4 py-4 text-sm font-mono font-black text-orange-400 focus:border-orange-500 outline-none transition-all"
-                                        placeholder="e.g. PO-123456 or INV-789"
+                                        className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm font-mono font-semibold focus:border-orange-400 outline-none transition-all"
+                                        placeholder="PO-123 or INV-789"
                                     />
-                                    <p className="text-[10px] text-gray-500 italic">Auto-filled with this PO number. Edit if paying against a different invoice.</p>
                                 </div>
                             </div>
                         )}
