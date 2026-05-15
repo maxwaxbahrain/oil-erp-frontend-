@@ -359,7 +359,13 @@ export default function Banking() {
             description: txForm.description.trim(),
             type: txForm.type,
             amount: amt,
-            reference: txForm.reference || `REF-${Date.now().toString().slice(-6)}`,
+            // On CREATE, auto-generate a REF if blank so every row has a
+            // reference for the ledger / export PDF. On EDIT, never
+            // auto-generate — a user who CLEARS the reference field
+            // expects empty to be saved as empty.
+            reference: editingId
+                ? (txForm.reference || '')
+                : (txForm.reference || `REF-${Date.now().toString().slice(-6)}`),
             category: txForm.category,
         };
 
@@ -552,7 +558,16 @@ export default function Banking() {
                                 <input placeholder="Cheque/Ref no" value={txForm.reference} onChange={e => setTxForm(p=>({...p,reference:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none" /></div>
                             <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Category</label>
                                 <select value={txForm.category} onChange={e => setTxForm(p=>({...p,category:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none">
-                                    {['General','Sales','Purchase','Salary','Utility','Rent','Other'].map(cat=><option key={cat}>{cat}</option>)}
+                                    {(() => {
+                                        const standard = ['General','Sales','Purchase','Salary','Utility','Rent','Other'];
+                                        // If the row being edited has a custom category not in
+                                        // the standard list, surface it as a first option so
+                                        // the select doesn't silently change it on Update.
+                                        const options = txForm.category && !standard.includes(txForm.category)
+                                            ? [txForm.category, ...standard]
+                                            : standard;
+                                        return options.map(cat => <option key={cat} value={cat}>{cat}</option>);
+                                    })()}
                                 </select></div>
                         </div>
                         <div className="flex gap-3">
