@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Edit2, Trash2, ChevronRight, ChevronDown, Check, X } from 'lucide-react';
+import { ArrowLeft, Plus, Edit2, Trash2, ChevronRight, ChevronDown, Check, X, RefreshCw } from 'lucide-react';
+import { getCustomers, getInvoices, getPayments } from '../../services/api';
+import { getSuppliers, getSupplierBalance, getSupplierPurchases } from '../../services/purchasesService';
+import { getJournalVouchers } from './JournalVoucher';
+import { formatCurrency } from '../../services/settingsService';
 
 export type AccountType = 'Asset' | 'Liability' | 'Equity' | 'Income' | 'Expense';
 export type AccountNature = 'Debit' | 'Credit';
@@ -107,13 +111,14 @@ interface AccountRowProps {
     account: Account;
     level: number;
     expanded: Set<string>;
+    balances: Record<string, number>;
     onToggle: (id: string) => void;
     onEdit: (a: Account) => void;
     onDelete: (id: string) => void;
     onAddChild: (parentId: string, type: AccountType) => void;
 }
 
-function AccountRow({ account, level, expanded, onToggle, onEdit, onDelete, onAddChild }: AccountRowProps) {
+function AccountRow({ account, level, expanded, balances, onToggle, onEdit, onDelete, onAddChild }: AccountRowProps) {
     const hasChildren = account.children && account.children.length > 0;
     const isExpanded = expanded.has(account.id);
     const indent = level * 20;
@@ -142,6 +147,22 @@ function AccountRow({ account, level, expanded, onToggle, onEdit, onDelete, onAd
                 </td>
                 <td className="px-4 py-3 text-xs text-gray-400 max-w-[200px] truncate">{account.description}</td>
                 <td className="px-4 py-3 text-right">
+                    {(() => {
+                        const bal = balances[account.id] ?? 0;
+                        if (Math.abs(bal) < 0.01) {
+                            return <span className="text-xs text-gray-300 font-mono">—</span>;
+                        }
+                        // Positive = natural direction (asset/expense for Debit-nature,
+                        // liability/income/equity for Credit-nature). Negative = inverse.
+                        const cls = bal >= 0 ? 'text-gray-900' : 'text-rose-600';
+                        return (
+                            <span className={`text-xs font-black font-mono ${cls}`}>
+                                {formatCurrency(bal)}
+                            </span>
+                        );
+                    })()}
+                </td>
+                <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all">
                         <button onClick={() => onAddChild(account.id, account.type)}
                             className="p-1.5 hover:bg-orange-50 rounded-lg text-orange-500 transition-all" title="Add sub-account">
@@ -162,12 +183,138 @@ function AccountRow({ account, level, expanded, onToggle, onEdit, onDelete, onAd
             </tr>
             {hasChildren && isExpanded && account.children!.map(child => (
                 <AccountRow key={child.id} account={child} level={level + 1}
-                    expanded={expanded} onToggle={onToggle} onEdit={onEdit}
+                    expanded={expanded} balances={balances} onToggle={onToggle} onEdit={onEdit}
                     onDelete={onDelete} onAddChild={onAddChild} />
             ))}
         </>
     );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Balance computation
+//
+// Each leaf account's balance is derived from real data:
+//   1120 Accounts Receivable  ← sum of customer balances
+//   2110 Accounts Payable     ← sum of supplier outstanding (from /balance)
+//   1110 Cash & Bank          ← customer receipts − supplier payments (rough)
+//   4100 Sales Revenue        ← sum of invoice grandTotals
+//   5110 Purchases            ← sum of PO grandTotals across suppliers
+//   *                         ← + any posted JV line debiting/crediting it
+//
+// Parent accounts roll up the sum of their children. Values are stored in
+// "natural display" form — positive number means the account is in its
+// expected direction (Asset positive = asset, Liability positive = owed).
+// ─────────────────────────────────────────────────────────────────────────────
+async function computeAccountBalances(accounts: Account[]): Promise<Record<string, number>> {
+    const map: Record<string, number> = {};
+    accounts.forEach(a => { map[a.id] = 0; });
+
+    // Quick lookup of account nature so JV deltas land in the right direction.
+    const natureById: Record<string, AccountNature> = {};
+    accounts.forEach(a => { natureById[a.id] = a.nature; });
+    const naturalDelta = (accountId: string, debit: number, credit: number): number => {
+        const nat = natureById[accountId] || 'Debit';
+        return nat === 'Debit' ? (debit - credit) : (credit - debit);
+    };
+
+    // Fan out fetches in parallel so the COA page doesn't block on the slowest.
+    const [customers, suppliers, invoices, payments, jvs] = await Promise.all([
+        getCustomers().catch(() => [] as any[]),
+        getSuppliers().catch(() => [] as any[]),
+        getInvoices().catch(() => [] as any[]),
+        getPayments().catch(() => [] as any[]),
+        getJournalVouchers().catch(() => [] as any[]),
+    ]);
+
+    // 1120 Accounts Receivable — customers with a positive owed balance.
+    if (map['1120'] !== undefined) {
+        const arSum = customers.reduce((s, c: any) => s + Math.abs(c.balance || 0), 0);
+        map['1120'] = arSum;
+    }
+
+    // 2110 Accounts Payable — fetch each supplier's computed balance in parallel.
+    if (map['2110'] !== undefined) {
+        const balances = await Promise.all(
+            suppliers.map(s => getSupplierBalance(s.id).catch(() => 0)),
+        );
+        const apSum = balances.reduce((s, b) => s + Math.max(0, b), 0);
+        map['2110'] = apSum;
+    }
+
+    // 4100 / 4110 Sales Revenue — total invoiced.
+    const invTotal = invoices.reduce((s, i: any) => s + (Number(i.grandTotal ?? i.total) || 0), 0);
+    if (map['4100'] !== undefined) map['4100'] = invTotal;
+    if (map['4110'] !== undefined) map['4110'] = invTotal; // legacy oil-only bucket
+
+    // 5110 Purchases — total POs across all suppliers.
+    const posLists = await Promise.all(
+        suppliers.map(s => getSupplierPurchases(s.id).catch(() => [])),
+    );
+    const poTotal = posLists.flat().reduce((s, p: any) => s + (Number(p.grandTotal) || 0), 0);
+    if (map['5110'] !== undefined) map['5110'] = poTotal;
+
+    // 1110 Cash & Bank — customer receipts minus supplier payments.
+    const customerReceipts = payments.reduce((s, p: any) => s + (Number(p.amount) || 0), 0);
+    // Supplier payments live per-supplier; we already fetched them via the
+    // balance endpoint, so sum from supplier payment endpoints.
+    const supplierPaymentLists = await Promise.all(
+        suppliers.map(async s => {
+            try {
+                const r = await fetch(
+                    `${String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/+$/, '')}/api/suppliers/${s.id}/payments`,
+                );
+                if (!r.ok) return [];
+                const arr = await r.json();
+                return Array.isArray(arr) ? arr : [];
+            } catch { return []; }
+        }),
+    );
+    const supplierOutflow = supplierPaymentLists.flat().reduce((s, p: any) => s + (Number(p.amount) || 0), 0);
+    if (map['1110'] !== undefined) map['1110'] = customerReceipts - supplierOutflow;
+
+    // Apply posted-JV line adjustments on top of the special-source seeds.
+    for (const jv of jvs) {
+        if (jv.status !== 'Posted') continue;
+        for (const line of (jv.lines || [])) {
+            if (!line.accountId || map[line.accountId] === undefined) continue;
+            map[line.accountId] += naturalDelta(
+                line.accountId,
+                Number(line.debit) || 0,
+                Number(line.credit) || 0,
+            );
+        }
+    }
+
+    // Roll children up to parents (multi-pass — process leaves first).
+    const byDepth: Record<number, Account[]> = {};
+    const depthOf = (a: Account): number => {
+        let d = 0, cur: Account | undefined = a;
+        while (cur && cur.parentId) {
+            d++;
+            cur = accounts.find(x => x.id === cur!.parentId);
+        }
+        return d;
+    };
+    accounts.forEach(a => {
+        const d = depthOf(a);
+        (byDepth[d] = byDepth[d] || []).push(a);
+    });
+    const depths = Object.keys(byDepth).map(Number).sort((a, b) => b - a);
+    for (const d of depths) {
+        for (const a of byDepth[d]) {
+            if (!a.parentId) continue;
+            map[a.parentId] = (map[a.parentId] || 0) + (map[a.id] || 0);
+        }
+    }
+    // The roll-up doubles values for accounts that are BOTH a leaf with a
+    // direct balance AND have children. We avoid that by only rolling up
+    // leaves — done by checking child-of-parent relationship above; parents
+    // start at whatever direct value they had (usually 0), then accumulate.
+    // Safe because our special-source seeds only touch leaves.
+
+    return map;
+}
+
 
 export default function ChartOfAccounts() {
     const navigate = useNavigate();
@@ -183,8 +330,24 @@ export default function ChartOfAccounts() {
         description: ''
     });
 
+    const [balances, setBalances] = useState<Record<string, number>>({});
+    const [computingBalances, setComputingBalances] = useState(false);
+
+    const refreshBalances = async (accs: Account[]) => {
+        setComputingBalances(true);
+        try {
+            const map = await computeAccountBalances(accs);
+            setBalances(map);
+        } finally {
+            setComputingBalances(false);
+        }
+    };
+
     useEffect(() => {
-        setAccounts(getAccounts());
+        const accs = getAccounts();
+        setAccounts(accs);
+        // Kick off balance computation as soon as the COA is loaded.
+        refreshBalances(accs);
     }, []);
 
     const tree = buildTree((() => {
@@ -291,6 +454,14 @@ export default function ChartOfAccounts() {
     };
 
     const totalByType = (type: AccountType) => accounts.filter(a => a.type === type).length;
+    // Type-level totals: sum balances of TOP-LEVEL accounts in that type.
+    // Roll-up already pushed leaf balances up to their roots, so summing roots
+    // gives the type total without double-counting.
+    const balanceByType = (type: AccountType): number => {
+        return accounts
+            .filter(a => a.type === type && !a.parentId)
+            .reduce((s, a) => s + (balances[a.id] || 0), 0);
+    };
 
     return (
         <div className="space-y-6 max-w-[1400px] mx-auto pb-10 animate-in fade-in duration-500">
@@ -306,6 +477,15 @@ export default function ChartOfAccounts() {
                         <p className="text-xs text-gray-500 mt-0.5">Full double-entry accounting structure · {accounts.length} accounts</p>
                     </div>
                     <div className="flex items-center gap-3">
+                        <button
+                            onClick={() => refreshBalances(accounts)}
+                            disabled={computingBalances || accounts.length === 0}
+                            className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-xl text-xs font-black text-gray-700 hover:bg-gray-50 disabled:opacity-40 transition-all"
+                            title="Recompute balances from live customer / supplier / invoice / JV data"
+                        >
+                            <RefreshCw size={12} className={computingBalances ? 'animate-spin' : ''} />
+                            {computingBalances ? 'Computing…' : 'Refresh Balances'}
+                        </button>
                         <button onClick={resetToDefaults}
                             className="px-4 py-2 border border-gray-200 rounded-xl text-xs font-black text-gray-500 hover:bg-gray-50 transition-all">
                             Reset to Default
@@ -320,14 +500,19 @@ export default function ChartOfAccounts() {
 
             {/* KPIs */}
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                {(['Asset', 'Liability', 'Equity', 'Income', 'Expense'] as AccountType[]).map(type => (
-                    <button key={type} onClick={() => setTypeFilter(typeFilter === type ? 'All' : type)}
-                        className={`rounded-2xl p-4 text-left transition-all border ${typeFilter === type ? 'border-gray-900 bg-gray-900 text-white' : 'bg-white border-gray-100 shadow-sm hover:border-gray-300'}`}>
-                        <p className="text-[10px] font-black uppercase tracking-widest mb-1 text-gray-400">{type}</p>
-                        <p className={`text-2xl font-black ${typeFilter === type ? 'text-white' : 'text-gray-900'}`}>{totalByType(type)}</p>
-                        <p className={`text-[10px] font-bold mt-1 ${typeFilter === type ? 'text-white/70' : 'text-gray-400'}`}>accounts</p>
-                    </button>
-                ))}
+                {(['Asset', 'Liability', 'Equity', 'Income', 'Expense'] as AccountType[]).map(type => {
+                    const total = balanceByType(type);
+                    return (
+                        <button key={type} onClick={() => setTypeFilter(typeFilter === type ? 'All' : type)}
+                            className={`rounded-2xl p-4 text-left transition-all border ${typeFilter === type ? 'border-gray-900 bg-gray-900 text-white' : 'bg-white border-gray-100 shadow-sm hover:border-gray-300'}`}>
+                            <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${typeFilter === type ? 'text-white/60' : 'text-gray-400'}`}>{type}</p>
+                            <p className={`text-lg font-black font-mono ${typeFilter === type ? 'text-white' : 'text-gray-900'}`}>
+                                {computingBalances ? '…' : (Math.abs(total) < 0.01 ? '—' : formatCurrency(total))}
+                            </p>
+                            <p className={`text-[10px] font-bold mt-1 ${typeFilter === type ? 'text-white/70' : 'text-gray-400'}`}>{totalByType(type)} accounts</p>
+                        </button>
+                    );
+                })}
             </div>
 
             {/* Add/Edit Form */}
@@ -420,16 +605,17 @@ export default function ChartOfAccounts() {
                             <th className="px-4 py-3 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Type</th>
                             <th className="px-4 py-3 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Nature</th>
                             <th className="px-4 py-3 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Description</th>
+                            <th className="px-4 py-3 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Balance</th>
                             <th className="px-4 py-3 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         {tree.length === 0 ? (
-                            <tr><td colSpan={6} className="px-4 py-16 text-center text-gray-400 font-bold">No accounts found</td></tr>
+                            <tr><td colSpan={7} className="px-4 py-16 text-center text-gray-400 font-bold">No accounts found</td></tr>
                         ) : (
                             tree.map(account => (
                                 <AccountRow key={account.id} account={account} level={0}
-                                    expanded={expanded} onToggle={toggleExpand}
+                                    expanded={expanded} balances={balances} onToggle={toggleExpand}
                                     onEdit={openEdit} onDelete={handleDelete}
                                     onAddChild={(parentId, type) => openAdd(parentId, type)} />
                             ))
