@@ -32,7 +32,10 @@ async function getBankTxsApi(): Promise<any[]> {
         const r = await fetch(`${BANK_TX_API}/`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const rows = await r.json();
-        return Array.isArray(rows) ? rows.map(t => ({ ...t, balance: 0, isManual: true })) : [];
+        const out = Array.isArray(rows) ? rows.map(t => ({ ...t, balance: 0, isManual: true })) : [];
+        // eslint-disable-next-line no-console
+        console.log(`[Banking] GET /api/bank-transactions/ → ${out.length} rows`);
+        return out;
     } catch (e) {
         console.error('[Banking] Failed to fetch bank transactions:', e);
         return [];
@@ -299,6 +302,8 @@ export default function Banking() {
             alert('Description and a positive amount are required.');
             return;
         }
+        // eslint-disable-next-line no-console
+        console.log('[Banking] POST manual transaction', txForm);
         const created = await createBankTxApi({
             date: txForm.date || new Date().toISOString().slice(0, 10),
             description: txForm.description.trim(),
@@ -308,13 +313,25 @@ export default function Banking() {
             category: txForm.category,
         });
         if (!created) return; // alert already shown by createBankTxApi
-        // Re-fetch from server so the ledger reflects what was actually saved
-        // (catches edge cases like server-side validation tweaks).
-        const fresh = await getBankTxsApi();
-        setManualTxs(fresh);
+        // eslint-disable-next-line no-console
+        console.log('[Banking] saved on server, id=', created.id);
+
+        // Optimistic update: add the just-saved row to local state IMMEDIATELY
+        // so the user sees their entry in the ledger right away. Don't wait
+        // for a re-fetch — if that fails (network blip, Render free-tier cold
+        // start, etc.) the row was vanishing and the page looked broken.
+        const newRow = { ...created, balance: 0, isManual: true };
+        setManualTxs(prev => [newRow, ...prev.filter(t => String(t.id) !== String(created.id))]);
+
+        // Re-fetch in the BACKGROUND to reconcile with whatever the server
+        // actually has — but if the re-fetch comes back empty (transient
+        // failure), keep our optimistic state instead of wiping it.
+        getBankTxsApi().then(fresh => {
+            if (fresh.length > 0) setManualTxs(fresh);
+        }).catch(() => { /* keep optimistic state */ });
+
         setTxForm({ date: new Date().toISOString().slice(0, 10), description: '', type: 'Credit', amount: '', reference: '', category: 'General' });
         setShowAddTx(false);
-        // Brief green banner so the user knows the save worked.
         setSavedFlash(`✅ ${created.type} of ${created.amount} saved — ${created.description}`);
         setTimeout(() => setSavedFlash(null), 4000);
     };
