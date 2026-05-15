@@ -35,6 +35,7 @@ interface POFormData {
     remainingBalance: number;
     paymentReference: string;
     status: 'Pending' | 'Approved' | 'GRN' | 'Paid' | 'Received';
+    autoApprove: boolean;
 }
 
 export default function PurchaseOrderForm() {
@@ -80,7 +81,11 @@ export default function PurchaseOrderForm() {
         amountPaid: 0,
         remainingBalance: 0,
         paymentReference: '',
-        status: 'Pending'
+        status: 'Pending',
+        // When on, the PO ships as Approved and skips the pending-requisition
+        // queue. Useful for trusted suppliers where requisition review adds
+        // no value.
+        autoApprove: false,
     });
 
     useEffect(() => {
@@ -263,12 +268,18 @@ export default function PurchaseOrderForm() {
                 payment_method: formData.paymentMethod,
                 amount_paid: formData.paymentStatus === 'Paid' ? formData.grandTotal : formData.amountPaid,
                 remaining_balance: formData.remainingBalance,
-                status: formData.status
+                // Auto-approve flag flips the initial status to 'Approved' so
+                // the PO bypasses the pending-requisition step.
+                status: formData.autoApprove ? 'Approved' : formData.status,
             };
 
             await createPurchaseOrder(poData);
 
-            alert(`✅ Purchase Requisition Submitted!\n\nPO: ${formData.poNumber}\nSupplier: ${formData.supplierName}\nTotal: ${formData.grandTotal.toLocaleString()}\n\nStatus: PENDING REQUISITION\nNext: A manager must approve this PO from the orders list.`);
+            if (formData.autoApprove) {
+                alert(`✅ Purchase Order Approved!\n\nPO: ${formData.poNumber}\nSupplier: ${formData.supplierName}\nTotal: ${formData.grandTotal.toLocaleString()}\n\nStatus: APPROVED (auto-approved)\nNext: Warehouse can confirm Goods Received.`);
+            } else {
+                alert(`✅ Purchase Requisition Submitted!\n\nPO: ${formData.poNumber}\nSupplier: ${formData.supplierName}\nTotal: ${formData.grandTotal.toLocaleString()}\n\nStatus: PENDING REQUISITION\nNext: A manager must approve this PO from the orders list.`);
+            }
 
             navigate(`/suppliers/${formData.supplierId}?tab=purchases`);
         } catch (error: any) {
@@ -300,7 +311,20 @@ export default function PurchaseOrderForm() {
                         </div>
                     </div>
 
-                    <div className="flex gap-2">
+                    <div className="flex items-center gap-3">
+                        {/* Auto-approve toggle. Trust signal for repeat suppliers — flips
+                            the PO straight to Approved on save, skipping the queue. */}
+                        <label className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-100 transition-all">
+                            <input
+                                type="checkbox"
+                                checked={formData.autoApprove}
+                                onChange={(e) => setFormData({ ...formData, autoApprove: e.target.checked })}
+                                className="w-4 h-4 accent-orange-600 cursor-pointer"
+                            />
+                            <span className="text-[10px] font-black text-gray-700 uppercase tracking-widest select-none">
+                                Auto-approve
+                            </span>
+                        </label>
                         <button
                             onClick={() => navigate(-1)}
                             className="px-6 py-3 bg-white border-2 border-gray-300 rounded-lg text-sm font-bold hover:bg-gray-50 uppercase tracking-widest text-[10px]"
@@ -313,7 +337,7 @@ export default function PurchaseOrderForm() {
                             className="px-8 py-3 bg-orange-600 text-white rounded-lg text-sm font-black hover:bg-orange-700 flex items-center gap-2 disabled:opacity-50 shadow-xl uppercase tracking-widest text-[10px]"
                         >
                             <Save size={18} />
-                            {saving ? 'Processing...' : 'Authorize Order'}
+                            {saving ? 'Processing...' : formData.autoApprove ? 'Authorize & Approve' : 'Authorize Order'}
                         </button>
                     </div>
                 </div>

@@ -9,7 +9,7 @@ export interface PurchaseOrderItem {
     total: number;
 }
 
-export type POStatus = 'Pending' | 'Approved' | 'GRN' | 'Paid' | 'Received' | 'Completed' | 'Draft';
+export type POStatus = 'Pending' | 'Approved' | 'GRN' | 'Paid' | 'Received' | 'Completed' | 'Draft' | 'Rejected';
 
 export interface PurchaseOrder {
     id: string;
@@ -414,6 +414,15 @@ export const approvePurchaseOrder = async (id: string): Promise<PurchaseOrder> =
     return updatePurchaseOrder(id, {
         status: 'Approved',
         approved_date: new Date().toISOString()
+    });
+};
+
+// Reject a pending PO. Keeps the row in the table for audit but locks it
+// out of the procurement flow (no GRN, no payment, no resurrection).
+export const rejectPurchaseOrder = async (id: string, reason?: string): Promise<PurchaseOrder> => {
+    return updatePurchaseOrder(id, {
+        status: 'Rejected',
+        notes: reason ? `Rejected: ${reason}` : 'Rejected',
     });
 };
 

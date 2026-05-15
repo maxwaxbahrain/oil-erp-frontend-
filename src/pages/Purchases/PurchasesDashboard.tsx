@@ -9,16 +9,20 @@ import {
     Download,
     ShieldCheck,
     Filter,
-    CheckCircle
+    CheckCircle,
+    X,
+    XCircle,
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { getPurchaseOrders, approvePurchaseOrder, confirmGRN, markPOPaid, type PurchaseOrder } from '../../services/purchasesService';
+import { getPurchaseOrders, approvePurchaseOrder, rejectPurchaseOrder, confirmGRN, markPOPaid, type PurchaseOrder } from '../../services/purchasesService';
 const PurchasesDashboard = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
     const [showSuccess, setShowSuccess] = useState(false);
     const [successMessage, setSuccessMessage] = useState('');
+    // PO under review — when set, the approve/reject modal is shown.
+    const [reviewPO, setReviewPO] = useState<PurchaseOrder | null>(null);
 
     useEffect(() => {
         // Fetch purchase orders
@@ -43,6 +47,7 @@ const PurchasesDashboard = () => {
             case 'Approved': return 'bg-blue-500';
             case 'GRN': return 'bg-emerald-500';
             case 'Paid': return 'bg-gray-400';
+            case 'Rejected': return 'bg-rose-500';
             case 'Received': return 'bg-emerald-500';
             case 'Completed': return 'bg-gray-400';
             case 'Draft': return 'bg-amber-500';
@@ -59,6 +64,7 @@ const PurchasesDashboard = () => {
             case 'Received': return '🟢 Goods Received';
             case 'Completed': return '✅ Completed';
             case 'Draft': return '⚪ Draft';
+            case 'Rejected': return '🚫 Rejected';
             default: return status;
         }
     };
@@ -69,7 +75,22 @@ const PurchasesDashboard = () => {
             await approvePurchaseOrder(id);
             const updated = await getPurchaseOrders();
             setPurchaseOrders(updated);
+            setReviewPO(null);
             setSuccessMessage('✅ PO Approved! Warehouse can now confirm Goods Received.');
+            setShowSuccess(true);
+            setTimeout(() => setShowSuccess(false), 5000);
+        } catch (e: any) { alert('Error: ' + e.message); }
+    };
+
+    const handleReject = async (id: string) => {
+        const reason = prompt('Reason for rejecting this PO? (optional, used for audit)') || '';
+        if (!confirm('Reject this Purchase Order? It will be locked out of the procurement flow.')) return;
+        try {
+            await rejectPurchaseOrder(id, reason);
+            const updated = await getPurchaseOrders();
+            setPurchaseOrders(updated);
+            setReviewPO(null);
+            setSuccessMessage('🚫 PO Rejected. It stays in the list for audit but cannot proceed.');
             setShowSuccess(true);
             setTimeout(() => setShowSuccess(false), 5000);
         } catch (e: any) { alert('Error: ' + e.message); }
@@ -212,7 +233,17 @@ const PurchasesDashboard = () => {
                                 </tr>
                             ) : (
                                 purchaseOrders.map((order) => (
-                                    <tr key={order.id} className="hover:bg-redwood-bg-light/20 transition-all group border-l-4 border-transparent hover:border-l-redwood-brand cursor-pointer">
+                                    <tr
+                                        key={order.id}
+                                        // Clicking a pending row opens the review modal with the full
+                                        // line-item list + Approve / Reject buttons.
+                                        onClick={() => {
+                                            if (order.status === 'Pending' || order.status === 'Draft') {
+                                                setReviewPO(order);
+                                            }
+                                        }}
+                                        className="hover:bg-redwood-bg-light/20 transition-all group border-l-4 border-transparent hover:border-l-redwood-brand cursor-pointer"
+                                    >
                                         <td className="px-8 py-6">
                                             <div className="font-black text-redwood-text-main tracking-tight uppercase transition-colors group-hover:text-redwood-brand">{order.supplierName}</div>
                                             <div className="text-[10px] text-redwood-text-muted font-bold uppercase tracking-widest mt-1 italic">Supplier ID: {order.supplierId}</div>
@@ -230,12 +261,25 @@ const PurchasesDashboard = () => {
                                             </div>
                                             <div className="flex items-center gap-2 mt-1">
                                                 {(order.status === 'Pending' || order.status === 'Draft') && (
-                                                    <button
-                                                        onClick={(e) => { e.stopPropagation(); handleApprove(order.id); }}
-                                                        className="px-3 py-1.5 bg-blue-600 text-white text-[10px] font-black uppercase tracking-wide rounded hover:bg-blue-700 transition-all"
-                                                    >
-                                                        ✓ Approve PO
-                                                    </button>
+                                                    <>
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); handleApprove(order.id); }}
+                                                            className="px-3 py-1.5 bg-blue-600 text-white text-[10px] font-black uppercase tracking-wide rounded hover:bg-blue-700 transition-all"
+                                                        >
+                                                            ✓ Approve PO
+                                                        </button>
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); handleReject(order.id); }}
+                                                            className="px-3 py-1.5 bg-rose-600 text-white text-[10px] font-black uppercase tracking-wide rounded hover:bg-rose-700 transition-all"
+                                                        >
+                                                            ✗ Reject
+                                                        </button>
+                                                    </>
+                                                )}
+                                                {order.status === 'Rejected' && (
+                                                    <span className="px-3 py-1.5 bg-rose-100 text-rose-700 text-[10px] font-black uppercase tracking-wide rounded border border-rose-200">
+                                                        🚫 Rejected
+                                                    </span>
                                                 )}
                                                 {order.status === 'Approved' && (
                                                     <button
@@ -280,6 +324,97 @@ const PurchasesDashboard = () => {
                     <p className="text-[10px] text-redwood-text-muted max-w-[400px] mx-auto leading-relaxed font-bold uppercase tracking-widest italic px-6 opacity-80">Synchronize and audit strategic vendor interactions and purchase requisition lifecycles within this unified enterprise portal.</p>
                 </div>
             </div>
+
+            {/* Review modal — opens when a pending row is clicked. */}
+            {reviewPO && (
+                <div
+                    className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+                    onClick={() => setReviewPO(null)}
+                >
+                    <div
+                        className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50">
+                            <div>
+                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Purchase Order Review</p>
+                                <h3 className="text-xl font-black text-gray-900 mt-1">{reviewPO.poNumber}</h3>
+                                <p className="text-xs text-gray-500 mt-0.5">
+                                    {reviewPO.supplierName} · {new Date(reviewPO.date).toLocaleDateString()}
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => setReviewPO(null)}
+                                className="p-2 rounded-lg hover:bg-gray-200 text-gray-500"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto px-6 py-4">
+                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Line Items</p>
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="border-b border-gray-100">
+                                        <th className="py-2 text-left text-[10px] font-black text-gray-400 uppercase">Item</th>
+                                        <th className="py-2 text-right text-[10px] font-black text-gray-400 uppercase">Qty</th>
+                                        <th className="py-2 text-right text-[10px] font-black text-gray-400 uppercase">Rate</th>
+                                        <th className="py-2 text-right text-[10px] font-black text-gray-400 uppercase">Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-50">
+                                    {(reviewPO.items || []).map((it, i) => (
+                                        <tr key={i}>
+                                            <td className="py-3 text-gray-800 font-semibold">{it.productName || '—'}</td>
+                                            <td className="py-3 text-right font-mono text-gray-600">{it.quantity}</td>
+                                            <td className="py-3 text-right font-mono text-gray-600">${(it.unitPrice || 0).toFixed(2)}</td>
+                                            <td className="py-3 text-right font-mono font-bold text-gray-900">${(it.total || 0).toFixed(2)}</td>
+                                        </tr>
+                                    ))}
+                                    {(reviewPO.items?.length ?? 0) === 0 && (
+                                        <tr>
+                                            <td colSpan={4} className="py-6 text-center text-xs text-gray-400 italic">
+                                                No line items on this PO.
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                                <tfoot>
+                                    <tr className="border-t-2 border-gray-900">
+                                        <td colSpan={3} className="pt-3 text-right text-[11px] font-black uppercase tracking-widest text-gray-600">
+                                            Grand Total
+                                        </td>
+                                        <td className="pt-3 text-right text-lg font-black font-mono text-gray-900">
+                                            ${(reviewPO.grandTotal || 0).toFixed(2)}
+                                        </td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                            {reviewPO.notes && (
+                                <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+                                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Notes</p>
+                                    <p className="text-xs text-gray-700">{reviewPO.notes}</p>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-gray-100 bg-gray-50">
+                            <button
+                                onClick={() => handleReject(reviewPO.id)}
+                                className="flex items-center gap-2 px-5 py-2.5 bg-rose-600 text-white rounded-lg text-sm font-black hover:bg-rose-700 transition-all"
+                            >
+                                <XCircle size={16} /> Reject
+                            </button>
+                            <button
+                                onClick={() => handleApprove(reviewPO.id)}
+                                className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-black hover:bg-blue-700 transition-all"
+                            >
+                                <CheckCircle size={16} /> Approve
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
