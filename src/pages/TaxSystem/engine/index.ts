@@ -3,5 +3,5 @@
 // so future refactors (e.g. moving to a worker, adding caching) only
 // touch the engine internals.
 
-export { calculateTax, calculateTaxWithProvider, pickRule, hasNexus } from './calculator';
+export { calculateTax, calculateTaxWithProvider, pickRule, hasNexus, findExemption } from './calculator';
 export type { TaxComputation } from './calculator';

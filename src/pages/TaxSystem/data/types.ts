@@ -68,3 +68,33 @@ export interface ProviderQuote {
         special?: number;
     };
 }
+
+// Session 1E — Exemption certificates.
+// A certificate proves a customer doesn't owe sales tax in a jurisdiction
+// (resale, nonprofit, government, manufacturing, etc.). When an active +
+// non-expired certificate matches the (customer, jurisdiction) tuple, the
+// calculator returns 0 and stamps source='exempt'.
+export type ExemptionType =
+    | 'resale'
+    | 'nonprofit'
+    | 'government'
+    | 'manufacturing'
+    | 'agricultural'
+    | 'other';
+
+export interface TaxExemption {
+    id: string;
+    customerId: string;           // free-form for now (customer name / ref)
+    customerName?: string;        // pretty label for the row
+    jurisdiction: string;         // e.g. "US-NY", or "*" for all jurisdictions
+    exemptionType: ExemptionType;
+    certificateNumber: string;    // free-form cert id
+    issuedDate?: string;          // ISO date
+    /** ISO date; when set + in the past, the cert is treated as expired
+     *  regardless of isActive. */
+    expiryDate?: string;
+    notes?: string;
+    isActive: boolean;
+    createdAt: string;
+    updatedAt: string;
+}

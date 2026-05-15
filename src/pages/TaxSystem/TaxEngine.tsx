@@ -3,18 +3,21 @@
 // Session 1A (foundation): health badge + quick calculator + read-only rules.
 // Session 1B: full CRUD for rules.
 // Session 1C: tabs (Rules / Nexus), nexus CRUD, calculator enforces nexus.
-// Session 1D (this update): Providers tab + external-provider integration
-//   (TaxJar / Avalara, currently stubbed). When a provider is active, the
-//   calculator delegates to it and shows a "via TaxJar" / "via Avalara"
-//   badge; on provider failure it falls back to the internal engine.
+// Session 1D: Providers tab + external-provider integration (TaxJar /
+//   Avalara, stubbed). Provider-aware async calculator with fallback.
+// Session 1E (this update): Exemptions tab + customer-aware calculator.
+//   A valid certificate for (customer, jurisdiction) zeros out tax with
+//   source='exempt', regardless of rule / state default / provider quote /
+//   nexus status — the customer's exemption wins.
 
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Calculator, Plus, Edit2, Trash2, MapPin, Plug } from 'lucide-react';
+import { ArrowLeft, Calculator, Plus, Edit2, Trash2, MapPin, Plug, FileCheck } from 'lucide-react';
 import { HealthBadge } from './components/HealthBadge';
 import { RuleForm } from './components/RuleForm';
 import { NexusForm } from './components/NexusForm';
 import { ProviderForm } from './components/ProviderForm';
+import { ExemptionForm } from './components/ExemptionForm';
 import {
     listTaxRules,
     createTaxRule,
@@ -28,11 +31,15 @@ import {
     saveProviderConfig,
     setActiveProvider,
     deleteProviderConfig,
+    listExemptions,
+    createExemption,
+    updateExemption,
+    deleteExemption,
 } from './integrations/taxEngineApi';
 import { calculateTax, calculateTaxWithProvider } from './engine';
 import type { TaxComputation } from './engine';
-import { TAX_ENGINE_VERSION, NEXUS_TYPE_LABELS, PROVIDERS, PROVIDER_BY_ID } from './data/constants';
-import type { TaxRule, TaxNexus, TaxProviderConfig, ProviderId } from './data/types';
+import { TAX_ENGINE_VERSION, NEXUS_TYPE_LABELS, PROVIDERS, PROVIDER_BY_ID, EXEMPTION_TYPE_LABELS, EXEMPTION_ANY_JURISDICTION } from './data/constants';
+import type { TaxRule, TaxNexus, TaxProviderConfig, ProviderId, TaxExemption } from './data/types';
 import { formatCurrency } from '../../services/settingsService';
 
 // Calculator was pulled out of the tab strip in Session 1C-fix because it's
@@ -40,7 +47,7 @@ import { formatCurrency } from '../../services/settingsService';
 // behind a tab as the *last* option meant users had to click through
 // twice on first visit to see any calculation. It now lives above the
 // tabs and is always visible.
-type Tab = 'rules' | 'nexus' | 'providers';
+type Tab = 'rules' | 'nexus' | 'providers' | 'exemptions';
 
 // Static class lookup for provider chips — Tailwind v4 still does
 // build-time class scanning, so `bg-${accent}-50` would be tree-shaken
@@ -73,11 +80,18 @@ export default function TaxEngine() {
     const [providerConfigs, setProviderConfigs] = useState<TaxProviderConfig[]>([]);
     const [editingProvider, setEditingProvider] = useState<(Partial<TaxProviderConfig> & { id: ProviderId }) | null>(null);
 
+    // Exemptions (Session 1E) — customer-level certificates that zero out
+    // tax for matching (customer, jurisdiction) tuples.
+    const [exemptions, setExemptions] = useState<TaxExemption[]>([]);
+    const [loadingExemptions, setLoadingExemptions] = useState(true);
+    const [editingExemption, setEditingExemption] = useState<Partial<TaxExemption> | null>(null);
+
     const [flash, setFlash] = useState<string | null>(null);
     const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const [demoAmount, setDemoAmount] = useState('1000');
     const [demoJurisdiction, setDemoJurisdiction] = useState('US-NY');
+    const [demoCustomer, setDemoCustomer] = useState('');
     // Provider-aware calc is async, so the result lives in state instead of
     // being derived inline like in 1C. The effect below re-runs whenever
     // inputs change.
@@ -97,11 +111,17 @@ export default function TaxEngine() {
     const reloadProviders = async () => {
         setProviderConfigs(await listProviderConfigs());
     };
+    const reloadExemptions = async () => {
+        setLoadingExemptions(true);
+        try { setExemptions(await listExemptions()); }
+        finally { setLoadingExemptions(false); }
+    };
 
     useEffect(() => {
         reloadRules();
         reloadNexus();
         reloadProviders();
+        reloadExemptions();
         return () => {
             if (flashTimer.current) clearTimeout(flashTimer.current);
         };
@@ -213,35 +233,74 @@ export default function TaxEngine() {
         setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 0);
     };
 
+    // ─── Exemption handlers (Session 1E) ───────────────────────────────
+    const handleExemptionSubmit = async (payload: Partial<TaxExemption>): Promise<string | null> => {
+        if (editingExemption?.id) {
+            const { exemption, error } = await updateExemption(String(editingExemption.id), payload);
+            if (error || !exemption) return error || 'Failed to update exemption';
+            setExemptions(prev => prev.map(x => x.id === exemption.id ? exemption : x));
+            showFlash(`✅ Updated exemption: ${exemption.customerName || exemption.customerId} · ${exemption.jurisdiction}`);
+        } else {
+            const { exemption, error } = await createExemption(payload);
+            if (error || !exemption) return error || 'Failed to create exemption';
+            setExemptions(prev => [exemption, ...prev]);
+            showFlash(`✅ Created exemption: ${exemption.customerName || exemption.customerId} · ${exemption.jurisdiction}`);
+        }
+        setEditingExemption(null);
+        return null;
+    };
+    const handleExemptionDelete = async (x: TaxExemption) => {
+        if (!confirm(`Delete exemption for "${x.customerName || x.customerId}" (${x.jurisdiction})?`)) return;
+        await deleteExemption(x.id);
+        setExemptions(prev => prev.filter(e => e.id !== x.id));
+        showFlash(`🗑 Deleted exemption: ${x.customerName || x.customerId} · ${x.jurisdiction}`);
+    };
+    const handleExemptionToggleActive = async (x: TaxExemption) => {
+        const { exemption, error } = await updateExemption(x.id, { isActive: !x.isActive });
+        if (error || !exemption) { alert(`❌ ${error || 'Failed to update'}`); return; }
+        setExemptions(prev => prev.map(e => e.id === exemption.id ? exemption : e));
+    };
+    const openExemptionEdit = (x: TaxExemption) => {
+        setEditingExemption(x);
+        setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 0);
+    };
+
+    // Today's ISO date used to flag expired certs in the table.
+    const todayISO = new Date().toISOString().slice(0, 10);
+    const isCertExpired = (x: TaxExemption) => !!x.expiryDate && x.expiryDate < todayISO;
+
     const amt = parseFloat(demoAmount) || 0;
 
     // Provider-aware calc — re-runs whenever any input changes. Same nexus
-    // gating as 1C: while loadingNexus is true we pass undefined so the
-    // amber "no-nexus" banner doesn't flash before the registry has loaded.
+    // gating as 1C: while loading we pass undefined so the amber / purple
+    // banners don't flash before the registries have loaded.
     useEffect(() => {
         let cancelled = false;
         const effectiveNexus = loadingNexus ? undefined : nexusList;
+        const effectiveExemptions = loadingExemptions ? undefined : exemptions;
+        const cust = demoCustomer.trim() || undefined;
 
         // Fast path — no external provider, run the pure sync calc.
         if (!activeProvider) {
-            setResult(calculateTax(amt, demoJurisdiction, rules, undefined, effectiveNexus));
+            setResult(calculateTax(amt, demoJurisdiction, rules, undefined, effectiveNexus, effectiveExemptions, cust));
             return;
         }
 
         // Slow path — provider takes ~250 ms (real or stubbed). Show a
         // lightweight "calculating" hint and update when the quote returns.
         setCalculating(true);
-        calculateTaxWithProvider(amt, demoJurisdiction, rules, undefined, effectiveNexus, activeProvider)
+        calculateTaxWithProvider(amt, demoJurisdiction, rules, undefined, effectiveNexus, activeProvider, effectiveExemptions, cust)
             .then(r => { if (!cancelled) setResult(r); })
             .finally(() => { if (!cancelled) setCalculating(false); });
 
         return () => { cancelled = true; };
-    }, [amt, demoJurisdiction, rules, nexusList, loadingNexus, activeProvider]);
+    }, [amt, demoJurisdiction, demoCustomer, rules, nexusList, loadingNexus, activeProvider, exemptions, loadingExemptions]);
 
     const TABS: { id: Tab; label: string; count?: number }[] = [
         { id: 'rules', label: '📜 Rules', count: rules.length },
         { id: 'nexus', label: '📍 Nexus', count: nexusList.length },
         { id: 'providers', label: '🔌 Providers', count: providerConfigs.length },
+        { id: 'exemptions', label: '📄 Exemptions', count: exemptions.length },
     ];
 
     return (
@@ -291,6 +350,14 @@ export default function TaxEngine() {
                                 Pick a provider below to configure
                             </span>
                         )}
+                        {activeTab === 'exemptions' && (
+                            <button
+                                onClick={() => { setEditingExemption({}); setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 0); }}
+                                className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-black uppercase tracking-wide transition-all"
+                            >
+                                <FileCheck size={14} /> Add Exemption
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>
@@ -317,7 +384,7 @@ export default function TaxEngine() {
                         </p>
                     </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div>
                         <label className="block text-[10px] font-black text-gray-400 uppercase mb-1.5">Amount</label>
                         <input
@@ -337,28 +404,42 @@ export default function TaxEngine() {
                             className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-orange-400"
                         />
                     </div>
+                    <div>
+                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-1.5">Customer (optional)</label>
+                        <input
+                            type="text"
+                            value={demoCustomer}
+                            onChange={e => setDemoCustomer(e.target.value)}
+                            placeholder="ID to check for exemption"
+                            className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-purple-400"
+                        />
+                    </div>
                     <div className="flex flex-col justify-end">
                         <label className="block text-[10px] font-black text-gray-400 uppercase mb-1.5">Computed Tax</label>
                         <div className={`rounded-xl px-4 py-2.5 border ${
-                            result.source === 'no-nexus' ? 'bg-amber-50 border-amber-200'
+                            result.source === 'exempt' ? 'bg-purple-50 border-purple-200'
+                                : result.source === 'no-nexus' ? 'bg-amber-50 border-amber-200'
                                 : result.source === 'provider' ? 'bg-indigo-50 border-indigo-200'
                                 : 'bg-orange-50 border-orange-200'
                         }`}>
                             <p className={`text-lg font-black font-mono ${
-                                result.source === 'no-nexus' ? 'text-amber-700'
+                                result.source === 'exempt' ? 'text-purple-700'
+                                    : result.source === 'no-nexus' ? 'text-amber-700'
                                     : result.source === 'provider' ? 'text-indigo-700'
                                     : 'text-orange-700'
                             }`}>
                                 {formatCurrency(result.taxAmount)}
                             </p>
                             <p className={`text-[10px] font-bold ${
-                                result.source === 'no-nexus' ? 'text-amber-700'
+                                result.source === 'exempt' ? 'text-purple-600'
+                                    : result.source === 'no-nexus' ? 'text-amber-700'
                                     : result.source === 'provider' ? 'text-indigo-600'
                                     : 'text-orange-600'
                             }`}>
                                 {result.rate.toFixed(3)}% · source: {result.source}
-                                {result.providerId ? ` · ${PROVIDER_BY_ID[result.providerId].label}` : ''}
+                                {result.providerId && result.source !== 'exempt' ? ` · ${PROVIDER_BY_ID[result.providerId].label}` : ''}
                                 {result.matchedRule ? ` · ${result.matchedRule.name}` : ''}
+                                {result.matchedExemption ? ` · ${result.matchedExemption.certificateNumber}` : ''}
                             </p>
                         </div>
                     </div>
@@ -375,6 +456,16 @@ export default function TaxEngine() {
                 {result.providerFallbackReason && (
                     <div className="mt-4 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3 text-xs font-bold text-rose-700">
                         ⚠️ {activeProvider ? PROVIDER_BY_ID[activeProvider.id].label : 'Provider'} quote failed — <em>{result.providerFallbackReason}</em>. Falling back to internal engine.
+                    </div>
+                )}
+                {result.source === 'exempt' && result.matchedExemption && (
+                    <div className="mt-4 bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 text-xs font-bold text-purple-700">
+                        📄 Customer <strong>{result.matchedExemption.customerName || result.matchedExemption.customerId}</strong> holds an active{' '}
+                        <strong>{EXEMPTION_TYPE_LABELS[result.matchedExemption.exemptionType]}</strong>
+                        {' '}(<span className="font-mono">{result.matchedExemption.certificateNumber}</span>)
+                        {' '}for <strong>{result.matchedExemption.jurisdiction === EXEMPTION_ANY_JURISDICTION ? 'any jurisdiction' : result.matchedExemption.jurisdiction}</strong>.
+                        Tax of <strong>{result.rate.toFixed(3)}%</strong> suppressed.
+                        {result.matchedExemption.expiryDate ? ` Expires ${result.matchedExemption.expiryDate}.` : ''}
                     </div>
                 )}
             </div>
@@ -405,6 +496,11 @@ export default function TaxEngine() {
             {/* Provider editor */}
             {activeTab === 'providers' && editingProvider !== null && (
                 <ProviderForm initial={editingProvider} onSubmit={handleProviderSubmit} onCancel={() => setEditingProvider(null)} />
+            )}
+
+            {/* Exemption editor */}
+            {activeTab === 'exemptions' && editingExemption !== null && (
+                <ExemptionForm initial={editingExemption} onSubmit={handleExemptionSubmit} onCancel={() => setEditingExemption(null)} />
             )}
 
             {/* ───── Rules tab ───── */}
@@ -636,8 +732,94 @@ export default function TaxEngine() {
                 </div>
             )}
 
+            {/* ───── Exemptions tab (Session 1E) ───── */}
+            {activeTab === 'exemptions' && (
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <div className="p-5 border-b border-gray-100">
+                        <p className="text-sm font-black text-gray-700 uppercase tracking-widest">
+                            Exemption Certificates · {exemptions.length}
+                        </p>
+                        <p className="text-xs text-gray-400 mt-1">
+                            Customers with an <strong>active</strong>, non-expired certificate matching the jurisdiction (or <code className="font-mono">*</code> for any) pay <strong>$0 tax</strong>, regardless of rule / nexus / provider quote. Enter a customer in the calculator above to see suppression in action.
+                        </p>
+                    </div>
+                    {loadingExemptions ? (
+                        <div className="p-12 text-center text-gray-400 font-bold">Loading…</div>
+                    ) : exemptions.length === 0 ? (
+                        <div className="p-12 text-center">
+                            <p className="text-gray-400 font-bold uppercase text-sm">No exemption certificates on file</p>
+                            <p className="text-gray-300 text-xs mt-1">Click <strong>Add Exemption</strong> to record a customer's resale / nonprofit / govt cert.</p>
+                        </div>
+                    ) : (
+                        <table className="w-full text-left">
+                            <thead className="bg-gray-50 border-b border-gray-100">
+                                <tr>
+                                    {['Customer', 'Jurisdiction', 'Type', 'Cert #', 'Expires', 'Active', 'Actions'].map(h => (
+                                        <th key={h} className={`px-5 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest ${h === 'Actions' ? 'text-right' : ''}`}>{h}</th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50">
+                                {exemptions.map(x => {
+                                    const expired = isCertExpired(x);
+                                    return (
+                                        <tr key={x.id} className="hover:bg-gray-50 group">
+                                            <td className="px-5 py-3 text-sm text-gray-900">
+                                                <div className="font-bold">{x.customerName || x.customerId}</div>
+                                                {x.customerName && x.customerName !== x.customerId && (
+                                                    <div className="text-[10px] text-gray-400 font-mono">{x.customerId}</div>
+                                                )}
+                                            </td>
+                                            <td className="px-5 py-3 text-sm font-bold text-gray-900 font-mono">
+                                                {x.jurisdiction === EXEMPTION_ANY_JURISDICTION
+                                                    ? <span className="text-purple-600">* (any)</span>
+                                                    : x.jurisdiction}
+                                            </td>
+                                            <td className="px-5 py-3">
+                                                <span className="text-[10px] font-bold uppercase px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full">
+                                                    {EXEMPTION_TYPE_LABELS[x.exemptionType] || x.exemptionType}
+                                                </span>
+                                            </td>
+                                            <td className="px-5 py-3 text-xs text-gray-600 font-mono">{x.certificateNumber}</td>
+                                            <td className="px-5 py-3 text-xs font-mono">
+                                                {x.expiryDate ? (
+                                                    <span className={expired ? 'text-rose-600 font-bold' : 'text-gray-500'}>
+                                                        {x.expiryDate}{expired ? ' (expired)' : ''}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-gray-400">never</span>
+                                                )}
+                                            </td>
+                                            <td className="px-5 py-3">
+                                                <button
+                                                    onClick={() => handleExemptionToggleActive(x)}
+                                                    className={`relative w-9 h-5 rounded-full transition-all ${x.isActive ? 'bg-emerald-500' : 'bg-gray-300'}`}
+                                                    title={x.isActive ? 'Active — click to deactivate' : 'Inactive — click to activate'}
+                                                >
+                                                    <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${x.isActive ? 'left-4' : 'left-0.5'}`} />
+                                                </button>
+                                            </td>
+                                            <td className="px-5 py-3 text-right">
+                                                <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                                    <button onClick={() => openExemptionEdit(x)} className="p-1.5 hover:bg-blue-50 rounded-lg text-blue-500 hover:text-blue-700" title="Edit exemption">
+                                                        <Edit2 size={13} />
+                                                    </button>
+                                                    <button onClick={() => handleExemptionDelete(x)} className="p-1.5 hover:bg-red-50 rounded-lg text-red-400 hover:text-red-600" title="Delete exemption">
+                                                        <Trash2 size={13} />
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
+            )}
+
             <p className="text-xs text-gray-400 text-center">
-                Tax Engine v{TAX_ENGINE_VERSION} · Session 1D: external provider integration
+                Tax Engine v{TAX_ENGINE_VERSION} · Session 1E: exemption certificates
             </p>
         </div>
     );

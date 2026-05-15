@@ -1,6 +1,6 @@
 // Tax Engine — constants.
 
-export const TAX_ENGINE_VERSION = '1.0.0-session-1D';
+export const TAX_ENGINE_VERSION = '1.0.0-session-1E';
 
 // US state default combined sales tax rates (avg, used when no API or
 // nexus-specific override is available). Mirrors the lookup in
@@ -71,3 +71,26 @@ export const PROVIDERS: ProviderMeta[] = [
 export const PROVIDER_BY_ID: Record<ProviderId, ProviderMeta> = Object.fromEntries(
     PROVIDERS.map(p => [p.id, p]),
 ) as Record<ProviderId, ProviderMeta>;
+
+// Session 1E — exemption certificate types for the dropdown.
+export const EXEMPTION_TYPES = [
+    'resale',
+    'nonprofit',
+    'government',
+    'manufacturing',
+    'agricultural',
+    'other',
+] as const;
+export const EXEMPTION_TYPE_LABELS: Record<string, string> = {
+    resale: 'Resale Certificate',
+    nonprofit: 'Nonprofit Organization',
+    government: 'Government Entity',
+    manufacturing: 'Manufacturing Exemption',
+    agricultural: 'Agricultural Exemption',
+    other: 'Other',
+};
+
+/** Sentinel jurisdiction value meaning "this certificate applies to ANY
+ *  jurisdiction" — useful for federal-level nonprofits, multi-state
+ *  resellers, etc. Stored as the literal string '*'. */
+export const EXEMPTION_ANY_JURISDICTION = '*';

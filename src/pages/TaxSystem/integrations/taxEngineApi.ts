@@ -2,7 +2,7 @@
 // One place that talks to /api/tax-engine/*. Pages and other engine
 // modules import from here so the URL / error handling stays consistent.
 
-import type { TaxEngineHealth, TaxRule, TaxNexus, TaxProviderConfig, ProviderId } from '../data/types';
+import type { TaxEngineHealth, TaxRule, TaxNexus, TaxProviderConfig, ProviderId, TaxExemption } from '../data/types';
 
 const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
     .trim()
@@ -245,5 +245,100 @@ export async function setActiveProvider(
 export async function deleteProviderConfig(providerId: ProviderId): Promise<{ ok: boolean }> {
     const list = readProviderStore().filter(p => p.id !== providerId);
     writeProviderStore(list);
+    return { ok: true };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Session 1E — Exemption certificates.
+//
+// localStorage-backed, same pattern as provider configs. Backend endpoints
+// /api/tax-engine/exemptions will land in 1E-B. Async signatures match the
+// eventual fetch impl so callers don't change.
+// ──────────────────────────────────────────────────────────────────────────
+
+const EXEMPTION_STORAGE_KEY = 'taxEngine.exemptions.v1';
+
+function readExemptionStore(): TaxExemption[] {
+    try {
+        const raw = localStorage.getItem(EXEMPTION_STORAGE_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
+function writeExemptionStore(list: TaxExemption[]) {
+    try {
+        localStorage.setItem(EXEMPTION_STORAGE_KEY, JSON.stringify(list));
+    } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('[taxEngineApi] writeExemptionStore failed:', e);
+    }
+}
+
+function genId(): string {
+    // Same id shape the backend would emit ('exm_' + 12 hex chars). Stable
+    // enough for local storage without dragging in a uuid dep.
+    return 'exm_' + Math.random().toString(16).slice(2, 14).padEnd(12, '0');
+}
+
+export async function listExemptions(): Promise<TaxExemption[]> {
+    return readExemptionStore();
+}
+
+export async function createExemption(
+    payload: Partial<TaxExemption>,
+): Promise<{ exemption: TaxExemption | null; error?: string }> {
+    if (!payload.customerId?.trim()) return { exemption: null, error: 'Customer is required' };
+    if (!payload.jurisdiction?.trim()) return { exemption: null, error: 'Jurisdiction is required' };
+    if (!payload.certificateNumber?.trim()) return { exemption: null, error: 'Certificate number is required' };
+    const now = new Date().toISOString();
+    const exemption: TaxExemption = {
+        id: genId(),
+        customerId: payload.customerId.trim(),
+        customerName: payload.customerName?.trim() || payload.customerId.trim(),
+        jurisdiction: payload.jurisdiction.trim().toUpperCase(),
+        exemptionType: payload.exemptionType || 'resale',
+        certificateNumber: payload.certificateNumber.trim(),
+        issuedDate: payload.issuedDate || undefined,
+        expiryDate: payload.expiryDate || undefined,
+        notes: payload.notes?.trim() || undefined,
+        isActive: payload.isActive ?? true,
+        createdAt: now,
+        updatedAt: now,
+    };
+    const list = readExemptionStore();
+    list.unshift(exemption);
+    writeExemptionStore(list);
+    return { exemption };
+}
+
+export async function updateExemption(
+    id: string,
+    payload: Partial<TaxExemption>,
+): Promise<{ exemption: TaxExemption | null; error?: string }> {
+    const list = readExemptionStore();
+    const idx = list.findIndex(x => x.id === id);
+    if (idx < 0) return { exemption: null, error: 'Exemption not found' };
+    const merged: TaxExemption = {
+        ...list[idx],
+        ...payload,
+        // Normalize a few fields when present.
+        jurisdiction: (payload.jurisdiction ?? list[idx].jurisdiction).trim().toUpperCase(),
+        customerId: (payload.customerId ?? list[idx].customerId).trim(),
+        customerName: payload.customerName?.trim() ?? list[idx].customerName,
+        certificateNumber: (payload.certificateNumber ?? list[idx].certificateNumber).trim(),
+        updatedAt: new Date().toISOString(),
+    };
+    list[idx] = merged;
+    writeExemptionStore(list);
+    return { exemption: merged };
+}
+
+export async function deleteExemption(id: string): Promise<{ ok: boolean }> {
+    const list = readExemptionStore().filter(x => x.id !== id);
+    writeExemptionStore(list);
     return { ok: true };
 }
