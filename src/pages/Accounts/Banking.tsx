@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Landmark, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownLeft, RefreshCw, Download, DollarSign, CreditCard, Building2 } from 'lucide-react';
+import { Landmark, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownLeft, RefreshCw, Download, DollarSign, CreditCard, Building2, Edit2, Trash2 } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { getPayments, getInvoices, getCustomers, type Payment, type Invoice } from '../../services/api';
 import { getSuppliers } from '../../services/purchasesService';
 import { getCompanyProfile } from '../../services/settingsService';
@@ -60,6 +62,41 @@ async function createBankTxApi(tx: {
     } catch (e: any) {
         alert(`❌ ${e.message || 'Failed to save transaction'}`);
         return null;
+    }
+}
+
+async function updateBankTxApi(id: string, tx: {
+    date: string; description: string; type: 'Credit' | 'Debit';
+    amount: number; reference: string; category: string;
+}): Promise<any | null> {
+    try {
+        const r = await fetch(`${BANK_TX_API}/${encodeURIComponent(id)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(tx),
+        });
+        if (!r.ok) {
+            const text = await r.text().catch(() => '');
+            throw new Error(`HTTP ${r.status} ${text}`);
+        }
+        return await r.json();
+    } catch (e: any) {
+        alert(`❌ ${e.message || 'Failed to update transaction'}`);
+        return null;
+    }
+}
+
+async function deleteBankTxApi(id: string): Promise<boolean> {
+    try {
+        const r = await fetch(`${BANK_TX_API}/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        if (!r.ok && r.status !== 204) {
+            const text = await r.text().catch(() => '');
+            throw new Error(`HTTP ${r.status} ${text}`);
+        }
+        return true;
+    } catch (e: any) {
+        alert(`❌ ${e.message || 'Failed to delete transaction'}`);
+        return false;
     }
 }
 
@@ -156,6 +193,9 @@ export default function Banking() {
     // (see the useEffect below). Empty array as the starting placeholder.
     const [manualTxs, setManualTxs] = useState<any[]>([]);
     const [savedFlash, setSavedFlash] = useState<string | null>(null);
+    // If set, the form is in EDIT mode for that manual-tx id; Save Transaction
+    // PATCHes instead of POSTing.
+    const [editingId, setEditingId] = useState<string | null>(null);
     const [pdcList, setPdcList] = useState<PDCheque[]>([]);
     const [showPDCForm, setShowPDCForm] = useState(false);
     const [pdcForm, setPdcForm] = useState({ date: '', chequeNo: '', bankName: '', payee: '', amount: '', type: 'Received' as PDCheque['type'], description: '' });
@@ -314,38 +354,111 @@ export default function Banking() {
             alert('Description and a positive amount are required.');
             return;
         }
-        // eslint-disable-next-line no-console
-        console.log('[Banking] POST manual transaction', txForm);
-        const created = await createBankTxApi({
+        const payload = {
             date: txForm.date || new Date().toISOString().slice(0, 10),
             description: txForm.description.trim(),
             type: txForm.type,
             amount: amt,
             reference: txForm.reference || `REF-${Date.now().toString().slice(-6)}`,
             category: txForm.category,
-        });
-        if (!created) return; // alert already shown by createBankTxApi
-        // eslint-disable-next-line no-console
-        console.log('[Banking] saved on server, id=', created.id);
+        };
 
-        // Optimistic update: add the just-saved row to local state IMMEDIATELY
-        // so the user sees their entry in the ledger right away. Don't wait
-        // for a re-fetch — if that fails (network blip, Render free-tier cold
-        // start, etc.) the row was vanishing and the page looked broken.
-        const newRow = { ...created, balance: 0, isManual: true };
-        setManualTxs(prev => [newRow, ...prev.filter(t => String(t.id) !== String(created.id))]);
+        let saved: any;
+        if (editingId) {
+            // Edit-mode: PATCH instead of POST so we update the existing row.
+            saved = await updateBankTxApi(editingId, payload);
+        } else {
+            saved = await createBankTxApi(payload);
+        }
+        if (!saved) return; // error alert already shown by the helper
 
-        // Re-fetch in the BACKGROUND to reconcile with whatever the server
-        // actually has — but if the re-fetch comes back empty (transient
-        // failure), keep our optimistic state instead of wiping it.
+        // Optimistic state update — the just-saved row replaces any
+        // existing copy with the same id, then re-fetch in the background.
+        const newRow = { ...saved, balance: 0, isManual: true };
+        setManualTxs(prev => [newRow, ...prev.filter(t => String(t.id) !== String(saved.id))]);
         getBankTxsApi().then(fresh => {
             if (fresh.length > 0) setManualTxs(fresh);
         }).catch(() => { /* keep optimistic state */ });
 
         setTxForm({ date: new Date().toISOString().slice(0, 10), description: '', type: 'Credit', amount: '', reference: '', category: 'General' });
         setShowAddTx(false);
-        setSavedFlash(`✅ ${created.type} of ${created.amount} saved — ${created.description}`);
+        const action = editingId ? 'updated' : 'saved';
+        setEditingId(null);
+        setSavedFlash(`✅ ${saved.type} of ${saved.amount} ${action} — ${saved.description}`);
         setTimeout(() => setSavedFlash(null), 4000);
+    };
+
+    // Click the pencil icon on a manual row → load it into the form for edit.
+    const editManualTx = (tx: any) => {
+        setEditingId(String(tx.id));
+        setTxForm({
+            date: tx.date || new Date().toISOString().slice(0, 10),
+            description: tx.description || '',
+            type: (tx.type === 'Debit' ? 'Debit' : 'Credit'),
+            amount: String(tx.amount || ''),
+            reference: tx.reference || '',
+            category: tx.category || 'General',
+        });
+        setShowAddTx(true);
+        // Scroll the form into view so the user knows it's open.
+        setTimeout(() => window.scrollTo({ top: 200, behavior: 'smooth' }), 0);
+    };
+
+    // Click the trash icon on a manual row → confirm + DELETE.
+    const deleteManualTx = async (tx: any) => {
+        if (!confirm(`Delete this transaction?\n\n${tx.description} · ${tx.type} ${tx.amount}`)) return;
+        const ok = await deleteBankTxApi(String(tx.id));
+        if (!ok) return;
+        setManualTxs(prev => prev.filter(t => String(t.id) !== String(tx.id)));
+        // Reconcile in background.
+        getBankTxsApi().then(fresh => {
+            if (fresh.length > 0 || prevHadNothingButThis(tx)) setManualTxs(fresh);
+        }).catch(() => { /* keep local */ });
+        setSavedFlash(`🗑 Deleted: ${tx.description}`);
+        setTimeout(() => setSavedFlash(null), 4000);
+    };
+    // Helper just to make the line above readable — true when the deleted row
+    // was the only manual entry, so re-fetching empty is the right answer.
+    const prevHadNothingButThis = (tx: any) => manualTxs.length === 1 && String(manualTxs[0].id) === String(tx.id);
+
+    // Export Statement → PDF of currently-visible (filtered) transactions.
+    const exportStatementPDF = () => {
+        const doc = new jsPDF({ orientation: 'landscape' });
+        doc.setFontSize(16);
+        doc.text('Bank Statement', 14, 16);
+        doc.setFontSize(10);
+        const today = new Date().toLocaleDateString();
+        const periodStr = (dateFrom || dateTo)
+            ? `${dateFrom || 'earliest'} to ${dateTo || today}`
+            : `Up to ${today}`;
+        doc.text(`${getCompanyProfile().name || 'Company'}  ·  ${periodStr}`, 14, 22);
+        doc.text(
+            `Cash In: ${formatCurrency(totalCredits)}   ·   Cash Out: ${formatCurrency(totalDebits)}   ·   Net: ${formatCurrency(netBalance)}`,
+            14, 28,
+        );
+        autoTable(doc, {
+            startY: 34,
+            head: [['Date', 'Description', 'Reference', 'Category', 'Type', 'Amount', 'Balance']],
+            body: filtered.map(tx => [
+                tx.date,
+                tx.description,
+                tx.reference || '',
+                tx.category || '',
+                tx.type,
+                (tx.type === 'Credit' ? '+' : '-') + formatCurrency(tx.amount),
+                formatCurrency(tx.balance),
+            ]),
+            foot: [[
+                '', '', '', '',
+                'TOTAL',
+                `+${formatCurrency(totalCredits)} / -${formatCurrency(totalDebits)}`,
+                formatCurrency(netBalance),
+            ]],
+            styles: { fontSize: 8 },
+            headStyles: { fillColor: [33, 33, 33] },
+            footStyles: { fillColor: [33, 33, 33], textColor: 255, fontStyle: 'bold' },
+        });
+        doc.save(`BankStatement_${new Date().toISOString().slice(0, 10)}.pdf`);
     };
 
         return (
@@ -367,7 +480,11 @@ export default function Banking() {
                         <p className="text-gray-400 text-sm mt-1">Real-time transaction ledger • {getCompanyProfile().name}</p>
                     </div>
                 </div>
-                <button className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 rounded-xl text-sm font-bold transition-all">
+                <button
+                    onClick={exportStatementPDF}
+                    disabled={loading || filtered.length === 0}
+                    className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 disabled:opacity-40 rounded-xl text-sm font-bold transition-all"
+                >
                     <Download size={16} /> Export Statement
                 </button>
             </div>
@@ -407,13 +524,18 @@ export default function Banking() {
             {activeTab === 'ledger' && (<>
                 {/* Add Transaction Button + Form */}
                 <div className="flex justify-end">
-                    <button onClick={() => setShowAddTx(!showAddTx)} className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl text-xs font-black hover:bg-gray-700 transition-all">
+                    <button
+                        onClick={() => { setEditingId(null); setTxForm({ date: new Date().toISOString().slice(0, 10), description: '', type: 'Credit', amount: '', reference: '', category: 'General' }); setShowAddTx(!showAddTx); }}
+                        className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl text-xs font-black hover:bg-gray-700 transition-all"
+                    >
                         + Add Transaction
                     </button>
                 </div>
                 {showAddTx && (
                     <div className="bg-white rounded-2xl border-2 border-orange-200 p-5 shadow-sm space-y-3">
-                        <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Add Manual Transaction</p>
+                        <p className="text-xs font-black text-gray-500 uppercase tracking-widest">
+                            {editingId ? '✏️ Edit Transaction' : 'Add Manual Transaction'}
+                        </p>
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                             <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Date</label>
                                 <input type="date" value={txForm.date} onChange={e => setTxForm(p=>({...p,date:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none" /></div>
@@ -434,8 +556,15 @@ export default function Banking() {
                                 </select></div>
                         </div>
                         <div className="flex gap-3">
-                            <button onClick={saveManualTx} disabled={!txForm.description||!txForm.amount} className="px-6 py-2.5 bg-gray-900 text-white rounded-xl text-sm font-black hover:bg-gray-700 disabled:opacity-50 transition-all">Save Transaction</button>
-                            <button onClick={() => setShowAddTx(false)} className="px-4 py-2.5 text-sm font-black text-gray-400 hover:text-gray-700">Cancel</button>
+                            <button onClick={saveManualTx} disabled={!txForm.description||!txForm.amount} className="px-6 py-2.5 bg-gray-900 text-white rounded-xl text-sm font-black hover:bg-gray-700 disabled:opacity-50 transition-all">
+                                {editingId ? 'Update Transaction' : 'Save Transaction'}
+                            </button>
+                            <button
+                                onClick={() => { setEditingId(null); setShowAddTx(false); }}
+                                className="px-4 py-2.5 text-sm font-black text-gray-400 hover:text-gray-700"
+                            >
+                                Cancel
+                            </button>
                         </div>
                     </div>
                 )}
@@ -517,14 +646,14 @@ export default function Banking() {
                         <table className="w-full text-left">
                             <thead className="bg-gray-50 border-b border-gray-100">
                                 <tr>
-                                    {['Date', 'Description', 'Reference', 'Category', 'Type', 'Amount', 'Balance'].map(h => (
-                                        <th key={h} className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">{h}</th>
+                                    {['Date', 'Description', 'Reference', 'Category', 'Type', 'Amount', 'Balance', 'Actions'].map(h => (
+                                        <th key={h} className={`px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest ${h === 'Actions' ? 'text-right' : ''}`}>{h}</th>
                                     ))}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">
                                 {filtered.slice(0, 50).map(tx => (
-                                    <tr key={tx.id} className="hover:bg-gray-50 transition-all">
+                                    <tr key={tx.id} className="hover:bg-gray-50 transition-all group">
                                         <td className="px-6 py-4 text-sm text-gray-500 font-mono">{tx.date}</td>
                                         <td className="px-6 py-4 text-sm font-bold text-gray-900">{tx.description}</td>
                                         <td className="px-6 py-4 text-xs font-mono text-orange-600 font-bold">{tx.reference}</td>
@@ -541,6 +670,32 @@ export default function Banking() {
                                             {tx.type === 'Credit' ? '+' : '-'}{formatCurrency(tx.amount)}
                                         </td>
                                         <td className="px-6 py-4 text-sm font-black font-mono text-gray-700">{formatCurrency(tx.balance)}</td>
+                                        {/* Actions: edit + delete on MANUAL rows only. System rows
+                                            (customer / supplier payments) have to be edited from
+                                            their source pages — that's how QuickBooks & Xero handle
+                                            this too. */}
+                                        <td className="px-6 py-4 text-right">
+                                            {(tx as any).isManual ? (
+                                                <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                                    <button
+                                                        onClick={() => editManualTx(tx)}
+                                                        className="p-1.5 hover:bg-blue-50 rounded-lg text-blue-500 hover:text-blue-700 transition-all"
+                                                        title="Edit transaction"
+                                                    >
+                                                        <Edit2 size={13} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => deleteManualTx(tx)}
+                                                        className="p-1.5 hover:bg-red-50 rounded-lg text-red-400 hover:text-red-600 transition-all"
+                                                        title="Delete transaction"
+                                                    >
+                                                        <Trash2 size={13} />
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <span className="text-[10px] text-gray-300 italic" title="System-generated. Edit on the customer or supplier page.">auto</span>
+                                            )}
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
