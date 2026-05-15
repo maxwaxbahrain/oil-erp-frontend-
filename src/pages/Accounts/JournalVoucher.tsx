@@ -31,24 +31,60 @@ export interface JournalVoucher {
     type: 'General' | 'Bad Debt' | 'Depreciation' | 'Opening Balance' | 'Adjustment';
 }
 
-// ── Storage ───────────────────────────────────────────────────────────────────
+// ── Storage: backend-persisted via /api/journal-vouchers ──────────────────────
 
-const JV_KEY = 'journal_vouchers';
+const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
+    .trim()
+    .replace(/\/+$/, '');
+const JV_API = `${API_HOST}/api/journal-vouchers`;
 
-export const getJournalVouchers = (): JournalVoucher[] => {
-    try { return JSON.parse(localStorage.getItem(JV_KEY) || '[]'); } catch { return []; }
+export const getJournalVouchers = async (): Promise<JournalVoucher[]> => {
+    try {
+        const r = await fetch(`${JV_API}/`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const rows = await r.json();
+        return Array.isArray(rows) ? rows : [];
+    } catch (e) {
+        console.error('[JournalVoucher] Failed to load vouchers:', e);
+        return [];
+    }
 };
 
-const saveJV = (jv: JournalVoucher) => {
-    const list = getJournalVouchers();
-    const idx = list.findIndex(j => j.id === jv.id);
-    if (idx >= 0) list[idx] = jv; else list.unshift(jv);
-    localStorage.setItem(JV_KEY, JSON.stringify(list));
+// Returns the newly-created (or unchanged Posted) JV from the server so the
+// caller can show the assigned jvNumber + id.
+const createJV = async (jv: JournalVoucher): Promise<JournalVoucher> => {
+    const r = await fetch(`${JV_API}/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            date: jv.date,
+            reference: jv.reference,
+            narration: jv.narration,
+            type: jv.type,
+            status: jv.status,
+            lines: jv.lines.map(l => ({
+                accountId: l.accountId,
+                accountCode: l.accountCode,
+                accountName: l.accountName,
+                description: l.description,
+                debit: l.debit,
+                credit: l.credit,
+            })),
+        }),
+    });
+    if (!r.ok) {
+        const text = await r.text().catch(() => '');
+        throw new Error(`Failed to save journal voucher: ${r.status} ${text}`);
+    }
+    return await r.json();
 };
 
-const deleteJV = (id: string) => {
-    const list = getJournalVouchers().filter(j => j.id !== id);
-    localStorage.setItem(JV_KEY, JSON.stringify(list));
+const deleteJVApi = async (id: string): Promise<void> => {
+    const r = await fetch(`${JV_API}/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (!r.ok && r.status !== 204) {
+        const text = await r.text().catch(() => '');
+        throw new Error(`Failed to delete voucher: ${r.status} ${text}`);
+    }
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -59,13 +95,9 @@ const emptyLine = (): JVLine => ({
     description: '', debit: 0, credit: 0
 });
 
-const nextJVNumber = (): string => {
-    const list = getJournalVouchers();
-    const last = list[0]?.jvNumber;
-    if (!last) return 'JV-0001';
-    const num = parseInt(last.replace('JV-', '')) + 1;
-    return `JV-${String(num).padStart(4, '0')}`;
-};
+// JV number is now assigned by the backend on POST so it's globally unique
+// instead of per-browser. The form shows a placeholder until save returns.
+const PLACEHOLDER_JV_NUMBER = 'Auto-assigned on save';
 
 // ── JV Form Component ─────────────────────────────────────────────────────────
 
@@ -77,7 +109,7 @@ interface JVFormProps {
 }
 
 function JVForm({ accounts, editJV, onSave, onCancel }: JVFormProps) {
-    const [jvNumber] = useState(editJV?.jvNumber || nextJVNumber());
+    const [jvNumber] = useState(editJV?.jvNumber || PLACEHOLDER_JV_NUMBER);
     const [date, setDate] = useState(editJV?.date || new Date().toISOString().slice(0, 10));
     const [reference, setReference] = useState(editJV?.reference || '');
     const [narration, setNarration] = useState(editJV?.narration || '');
@@ -441,22 +473,33 @@ export default function JournalVoucher() {
             accs = DEFAULT_ACCOUNTS;
         }
         setAccounts(accs);
-        setVouchers(getJournalVouchers());
+        getJournalVouchers().then(setVouchers);
     }, []);
 
-    const handleSave = (jv: JournalVoucher, post: boolean) => {
-        saveJV(jv);
-        setVouchers(getJournalVouchers());
-        setMode('list');
-        alert(`✅ ${jv.jvNumber} ${post ? 'posted' : 'saved as draft'} successfully!`);
+    const handleSave = async (jv: JournalVoucher, post: boolean) => {
+        try {
+            // Backend assigns jvNumber + id and validates balance before posting.
+            const saved = await createJV(jv);
+            const fresh = await getJournalVouchers();
+            setVouchers(fresh);
+            setMode('list');
+            alert(`✅ ${saved.jvNumber} ${post ? 'posted' : 'saved as draft'} successfully!`);
+        } catch (e: any) {
+            alert(`❌ ${e.message || 'Failed to save voucher'}`);
+        }
     };
 
-    const handleDelete = (id: string) => {
+    const handleDelete = async (id: string) => {
         const jv = vouchers.find(j => j.id === id);
         if (jv?.status === 'Posted') { alert('Cannot delete a posted journal entry. Create a reversing entry instead.'); return; }
         if (!confirm('Delete this draft journal voucher?')) return;
-        deleteJV(id);
-        setVouchers(getJournalVouchers());
+        try {
+            await deleteJVApi(id);
+            const fresh = await getJournalVouchers();
+            setVouchers(fresh);
+        } catch (e: any) {
+            alert(`❌ ${e.message || 'Failed to delete voucher'}`);
+        }
     };
 
     const filtered = vouchers
