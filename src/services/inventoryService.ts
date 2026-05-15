@@ -469,59 +469,131 @@ export interface CostMethodValuation {
     }[];
 }
 
-export async function calculateFIFOValuation(): Promise<CostMethodValuation> {
+// ─────────────────────────────────────────────────────────────────────────────
+// FIFO / LIFO valuation (TC-46)
+//
+// Rewritten so it actually produces numbers on the live backend data:
+//
+//  - Old version matched PO line items via i.name === product.name and
+//    i.productId === product.id. But PO items have `productName` (not `name`),
+//    and our imports left `productId` blank — so nothing ever matched and
+//    every product was valued at $0.
+//  - Old version pulled stock from product.locations, which doesn't exist
+//    on the FastAPI Product model — products only carry a single `stock`
+//    field that's currently 0 because GRN doesn't write back to it yet.
+//
+// New approach:
+//
+//  - Stock-in ledger: union of every PO line item (matched by NAME via
+//    normalised substring — see normaliseName below). Each line is a
+//    cost layer keyed by PO date.
+//  - Stock-out ledger: union of every INVOICE line item with the same
+//    fuzzy-name match. We subtract sold quantity from each product's
+//    layered stock-in.
+//  - FIFO: consume the oldest layer first. Whatever's left after sales
+//    is what we still own → valued at the cost of those remaining layers.
+//  - LIFO: consume the newest layer first.
+//
+// This makes FIFO ≠ LIFO whenever any product has at least one sale and
+// at least two POs at different unit costs.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const normaliseName = (s: string): string =>
+    String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+
+const matchesProduct = (lineItemName: string, productName: string): boolean => {
+    const a = normaliseName(lineItemName);
+    const b = normaliseName(productName);
+    if (!a || !b) return false;
+    if (a === b) return true;
+    // Substring match handles "MOBIL SPECIAL 5W30" (invoice) vs
+    // "MOBIL SPECIAL 5W30 6X1QT" (PO) and vice versa.
+    return a.includes(b) || b.includes(a);
+};
+
+interface CostLayer { qty: number; cost: number; date: string; }
+
+async function buildLayersForProduct(productName: string, pos: any[]): Promise<CostLayer[]> {
+    // Sort POs oldest-first so callers can decide FIFO (use them in order)
+    // or LIFO (reverse before consuming).
+    const sorted = [...pos].sort(
+        (a, b) => new Date(a.date || '').getTime() - new Date(b.date || '').getTime(),
+    );
+    const layers: CostLayer[] = [];
+    for (const po of sorted) {
+        for (const item of (po.items || [])) {
+            const name = (item as any).productName || (item as any).name || '';
+            if (!matchesProduct(name, productName)) continue;
+            const qty = Number((item as any).quantity) || 0;
+            const cost = Number((item as any).unitPrice || (item as any).rate) || 0;
+            if (qty > 0) layers.push({ qty, cost, date: po.date || '' });
+        }
+    }
+    return layers;
+}
+
+async function totalSoldForProduct(productName: string, invoices: any[]): Promise<number> {
+    let qty = 0;
+    for (const inv of invoices) {
+        for (const item of (inv.items || inv.lineItems || [])) {
+            const name = (item as any).product || (item as any).productName || (item as any).name || '';
+            if (!matchesProduct(name, productName)) continue;
+            qty += Number((item as any).quantity) || 0;
+        }
+    }
+    return qty;
+}
+
+async function buildValuation(method: 'FIFO' | 'LIFO'): Promise<CostMethodValuation> {
     const products = await getProducts();
     const pos = await getPurchaseOrders();
+    // Pull invoices for stock-out deduction. Imported via fetch since the
+    // existing import path here doesn't include it.
+    let invoices: any[] = [];
+    try {
+        const { getInvoices } = await import('./api');
+        invoices = await getInvoices();
+    } catch { /* keep empty; total purchased will be used as remaining stock */ }
 
     let totalValue = 0;
     let totalUnits = 0;
 
-    const items = products.map(product => {
-        const stock = product.locations?.reduce((s, l) => s + (l.currentStock || 0), 0) || 0;
-        // Get PO receipts for this product sorted oldest first (FIFO = use oldest cost)
-        const productPOs = pos
-            .filter(po => po.items?.some((i: any) => i.productId === product.id || i.name === product.name))
-            .sort((a, b) => new Date(a.date || '').getTime() - new Date(b.date || '').getTime());
+    const items = await Promise.all(products.map(async (product: any) => {
+        const layers = await buildLayersForProduct(product.name, pos);
+        // If FIFO consume oldest first (layers already oldest-first); if LIFO
+        // consume newest first (reverse).
+        const consumeOrder = method === 'FIFO' ? layers : [...layers].reverse();
 
-        // Build cost layers (oldest first)
-        const layers: { qty: number; cost: number; date: string }[] = [];
-        productPOs.forEach(po => {
-            const item = po.items?.find((i: any) => i.productId === product.id || i.name === product.name);
-            if (item && item.quantity > 0) {
-                layers.push({
-                    qty: Number(item.quantity) || 0,
-                    cost: Number((item as any).unitPrice || (item as any).rate || product.pricing?.purchasePriceExWorks || product.pricing?.landedCost || 0),
-                    date: po.date || ''
-                });
+        const totalPurchased = layers.reduce((s, l) => s + l.qty, 0);
+        const sold = await totalSoldForProduct(product.name, invoices);
+        // Whatever's left on the shelf after sales.
+        const stockRemaining = Math.max(0, totalPurchased - sold);
+        // ALSO consider product.stock if it's > 0 (some other system may
+        // have written to it). Use the larger of the two — favours the
+        // value the user is most likely to recognise.
+        const stock = Math.max(stockRemaining, Number((product as any).stock) || 0);
+
+        // Walk the consume order, but value the REMAINING (unconsumed) layers
+        // — that's what's still in stock. So we burn `sold` units off the
+        // front of consumeOrder first, then sum whatever's left.
+        let toSell = Math.min(sold, totalPurchased);
+        const remainingLayers: CostLayer[] = [];
+        for (const layer of consumeOrder) {
+            if (toSell >= layer.qty) {
+                toSell -= layer.qty;
+                continue;
             }
-        });
-
-        // If no PO history, use current cost
-        if (layers.length === 0) {
-            layers.push({
-                qty: stock,
-                cost: product.pricing?.purchasePriceExWorks || product.pricing?.landedCost || 0,
-                date: new Date().toISOString().slice(0, 10)
-            });
+            const leftInLayer = layer.qty - toSell;
+            toSell = 0;
+            remainingLayers.push({ qty: leftInLayer, cost: layer.cost, date: layer.date });
         }
 
-        // FIFO: use oldest layers first for current stock
-        let remaining = stock;
-        let fifoValue = 0;
-        for (const layer of layers) {
-            if (remaining <= 0) break;
-            const use = Math.min(remaining, layer.qty);
-            fifoValue += use * layer.cost;
-            remaining -= use;
-        }
-        // Any remaining stock not covered by PO layers - use latest cost
-        if (remaining > 0) {
-            const latestCost = layers[layers.length - 1]?.cost || 0;
-            fifoValue += remaining * latestCost;
-        }
+        const value = remainingLayers.reduce((s, l) => s + l.qty * l.cost, 0);
+        // Show the layers in display order (FIFO = oldest first, LIFO = newest first).
+        const displayLayers = (method === 'FIFO' ? remainingLayers : [...remainingLayers]).slice(0, 5);
 
-        const unitCost = stock > 0 ? fifoValue / stock : 0;
-        totalValue += fifoValue;
+        const unitCost = stock > 0 ? value / stock : 0;
+        totalValue += value;
         totalUnits += stock;
 
         return {
@@ -529,87 +601,26 @@ export async function calculateFIFOValuation(): Promise<CostMethodValuation> {
             sku: product.sku || '',
             units: stock,
             unitCost: Math.round(unitCost * 100) / 100,
-            totalValue: Math.round(fifoValue * 100) / 100,
-            costLayers: layers.slice(0, 5)
+            totalValue: Math.round(value * 100) / 100,
+            costLayers: displayLayers,
         };
-    });
+    }));
 
     return {
-        method: 'FIFO',
+        method,
         totalValue: Math.round(totalValue * 100) / 100,
         totalUnits,
         unitCost: totalUnits > 0 ? Math.round((totalValue / totalUnits) * 100) / 100 : 0,
-        items
+        items,
     };
 }
 
+export async function calculateFIFOValuation(): Promise<CostMethodValuation> {
+    return buildValuation('FIFO');
+}
+
 export async function calculateLIFOValuation(): Promise<CostMethodValuation> {
-    const products = await getProducts();
-    const pos = await getPurchaseOrders();
-
-    let totalValue = 0;
-    let totalUnits = 0;
-
-    const items = products.map(product => {
-        const stock = product.locations?.reduce((s, l) => s + (l.currentStock || 0), 0) || 0;
-        // LIFO: newest purchases first
-        const productPOs = pos
-            .filter(po => po.items?.some((i: any) => i.productId === product.id || i.name === product.name))
-            .sort((a, b) => new Date(b.date || '').getTime() - new Date(a.date || '').getTime()); // newest first
-
-        const layers: { qty: number; cost: number; date: string }[] = [];
-        productPOs.forEach(po => {
-            const item = po.items?.find((i: any) => i.productId === product.id || i.name === product.name);
-            if (item) {
-                layers.push({
-                    qty: Number(item.quantity) || 0,
-                    cost: Number((item as any).unitPrice || (item as any).rate || product.pricing?.purchasePriceExWorks || product.pricing?.landedCost || 0),
-                    date: po.date || ''
-                });
-            }
-        });
-
-        if (layers.length === 0) {
-            layers.push({
-                qty: stock,
-                cost: product.pricing?.purchasePriceExWorks || product.pricing?.landedCost || 0,
-                date: new Date().toISOString().slice(0, 10)
-            });
-        }
-
-        let remaining = stock;
-        let lifoValue = 0;
-        for (const layer of layers) {
-            if (remaining <= 0) break;
-            const use = Math.min(remaining, layer.qty);
-            lifoValue += use * layer.cost;
-            remaining -= use;
-        }
-        if (remaining > 0) {
-            lifoValue += remaining * (layers[layers.length - 1]?.cost || 0);
-        }
-
-        const unitCost = stock > 0 ? lifoValue / stock : 0;
-        totalValue += lifoValue;
-        totalUnits += stock;
-
-        return {
-            name: product.name || 'Unknown',
-            sku: product.sku || '',
-            units: stock,
-            unitCost: Math.round(unitCost * 100) / 100,
-            totalValue: Math.round(lifoValue * 100) / 100,
-            costLayers: layers.slice(0, 5)
-        };
-    });
-
-    return {
-        method: 'LIFO',
-        totalValue: Math.round(totalValue * 100) / 100,
-        totalUnits,
-        unitCost: totalUnits > 0 ? Math.round((totalValue / totalUnits) * 100) / 100 : 0,
-        items
-    };
+    return buildValuation('LIFO');
 }
 
 export async function calculateAvgCostValuation(): Promise<CostMethodValuation> {
