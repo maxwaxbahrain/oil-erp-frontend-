@@ -21,4 +21,20 @@ export interface TaxEngineHealth {
     timestamp: string;
     version: string;
     ruleCount: number;
+    nexusCount?: number;
+}
+
+// Session 1C — Nexus.
+export type NexusType = 'physical' | 'economic' | 'click-through' | 'affiliate';
+
+export interface TaxNexus {
+    id: string;
+    jurisdiction: string;
+    nexusType: NexusType;
+    establishedDate?: string;
+    thresholdAmount?: number | null;
+    notes?: string;
+    isActive: boolean;
+    createdAt: string;
+    updatedAt: string;
 }

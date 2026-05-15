@@ -1,6 +1,6 @@
 // Tax Engine — constants.
 
-export const TAX_ENGINE_VERSION = '1.0.0-session-1A';
+export const TAX_ENGINE_VERSION = '1.0.0-session-1C';
 
 // US state default combined sales tax rates (avg, used when no API or
 // nexus-specific override is available). Mirrors the lookup in
@@ -17,3 +17,12 @@ export const US_STATE_RATES: Record<string, number> = {
 };
 
 export const TAX_TYPES = ['sales', 'vat', 'gst'] as const;
+
+// Session 1C — nexus type options for the form dropdown.
+export const NEXUS_TYPES = ['physical', 'economic', 'click-through', 'affiliate'] as const;
+export const NEXUS_TYPE_LABELS: Record<string, string> = {
+    physical: 'Physical Presence',
+    economic: 'Economic Threshold',
+    'click-through': 'Click-Through',
+    affiliate: 'Affiliate',
+};
