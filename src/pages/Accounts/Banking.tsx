@@ -24,6 +24,41 @@ interface PDCheque {
 const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
     .trim().replace(/\/+$/, '');
 const PDC_API = `${API_HOST}/api/pdc`;
+const BANK_TX_API = `${API_HOST}/api/bank-transactions`;
+
+// Manual bank transactions (rent, salary, deposit, etc.) — backend persisted.
+async function getBankTxsApi(): Promise<any[]> {
+    try {
+        const r = await fetch(`${BANK_TX_API}/`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const rows = await r.json();
+        return Array.isArray(rows) ? rows.map(t => ({ ...t, balance: 0, isManual: true })) : [];
+    } catch (e) {
+        console.error('[Banking] Failed to fetch bank transactions:', e);
+        return [];
+    }
+}
+
+async function createBankTxApi(tx: {
+    date: string; description: string; type: 'Credit' | 'Debit';
+    amount: number; reference: string; category: string;
+}): Promise<any | null> {
+    try {
+        const r = await fetch(`${BANK_TX_API}/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(tx),
+        });
+        if (!r.ok) {
+            const text = await r.text().catch(() => '');
+            throw new Error(`HTTP ${r.status} ${text}`);
+        }
+        return await r.json();
+    } catch (e: any) {
+        alert(`❌ ${e.message || 'Failed to save transaction'}`);
+        return null;
+    }
+}
 
 async function getPDC(): Promise<PDCheque[]> {
     try {
@@ -110,7 +145,10 @@ export default function Banking() {
     const [activeTab, setActiveTab] = useState<'ledger' | 'pdc'>('ledger');
     const [showAddTx, setShowAddTx] = useState(false);
     const [txForm, setTxForm] = useState({ date: new Date().toISOString().slice(0,10), description: '', type: 'Credit' as 'Credit'|'Debit', amount: '', reference: '', category: 'General' });
-    const [manualTxs, setManualTxs] = useState<any[]>(() => { try { return JSON.parse(localStorage.getItem('banking_manual_txs') || '[]'); } catch { return []; } });
+    // Manual transactions now load from /api/bank-transactions on mount
+    // (see the useEffect below). Empty array as the starting placeholder.
+    const [manualTxs, setManualTxs] = useState<any[]>([]);
+    const [savedFlash, setSavedFlash] = useState<string | null>(null);
     const [pdcList, setPdcList] = useState<PDCheque[]>([]);
     const [showPDCForm, setShowPDCForm] = useState(false);
     const [pdcForm, setPdcForm] = useState({ date: '', chequeNo: '', bankName: '', payee: '', amount: '', type: 'Received' as PDCheque['type'], description: '' });
@@ -145,6 +183,8 @@ export default function Banking() {
             }
         })();
         getPDC().then(setPdcList);
+        // Pull backend-persisted manual transactions on mount.
+        getBankTxsApi().then(setManualTxs);
     }, []);
 
     // ─────────────────────────────────────────────────────────────────────
@@ -253,18 +293,40 @@ export default function Banking() {
     const pendingPDC = pdcList.filter(p => p.status === 'Pending');
     const dueTodayPDC = pendingPDC.filter(p => p.date <= today);
 
-    const saveManualTx = () => {
-        if (!txForm.description || !txForm.amount) return;
-        const tx = { id: `MTX-${Date.now()}`, date: txForm.date, description: txForm.description, type: txForm.type, amount: parseFloat(txForm.amount) || 0, reference: txForm.reference || `REF-${Date.now().toString().slice(-6)}`, category: txForm.category, balance: 0, isManual: true };
-        const updated = [tx, ...manualTxs];
-        setManualTxs(updated);
-        localStorage.setItem('banking_manual_txs', JSON.stringify(updated));
-        setTxForm({ date: new Date().toISOString().slice(0,10), description: '', type: 'Credit', amount: '', reference: '', category: 'General' });
+    const saveManualTx = async () => {
+        const amt = parseFloat(txForm.amount) || 0;
+        if (!txForm.description?.trim() || amt <= 0) {
+            alert('Description and a positive amount are required.');
+            return;
+        }
+        const created = await createBankTxApi({
+            date: txForm.date || new Date().toISOString().slice(0, 10),
+            description: txForm.description.trim(),
+            type: txForm.type,
+            amount: amt,
+            reference: txForm.reference || `REF-${Date.now().toString().slice(-6)}`,
+            category: txForm.category,
+        });
+        if (!created) return; // alert already shown by createBankTxApi
+        // Re-fetch from server so the ledger reflects what was actually saved
+        // (catches edge cases like server-side validation tweaks).
+        const fresh = await getBankTxsApi();
+        setManualTxs(fresh);
+        setTxForm({ date: new Date().toISOString().slice(0, 10), description: '', type: 'Credit', amount: '', reference: '', category: 'General' });
         setShowAddTx(false);
+        // Brief green banner so the user knows the save worked.
+        setSavedFlash(`✅ ${created.type} of ${created.amount} saved — ${created.description}`);
+        setTimeout(() => setSavedFlash(null), 4000);
     };
 
         return (
         <div className="space-y-6 animate-in fade-in duration-500 max-w-[1400px] mx-auto pb-10">
+            {/* Success flash — visible for 4s after a manual transaction saves. */}
+            {savedFlash && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 flex items-center gap-2 text-sm font-bold text-emerald-700 animate-in slide-in-from-top-2">
+                    {savedFlash}
+                </div>
+            )}
             {/* Header */}
             <div className="bg-gradient-to-r from-gray-900 to-gray-800 p-6 rounded-2xl text-white flex items-center justify-between">
                 <div className="flex items-center gap-4">
