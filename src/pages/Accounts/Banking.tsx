@@ -17,11 +17,63 @@ interface PDCheque {
     createdAt: string;
 }
 
-const PDC_KEY = 'bettano_pdc_cheques';
-function getPDC(): PDCheque[] {
-    try { return JSON.parse(localStorage.getItem(PDC_KEY) || '[]'); } catch { return []; }
+// PDC persistence: backend via /api/pdc.
+// Previously stored in localStorage so cheques only existed on the browser
+// that recorded them. Now everyone sees the same PDC ledger.
+const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
+    .trim().replace(/\/+$/, '');
+const PDC_API = `${API_HOST}/api/pdc`;
+
+async function getPDC(): Promise<PDCheque[]> {
+    try {
+        const r = await fetch(`${PDC_API}/`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const rows = await r.json();
+        return Array.isArray(rows) ? rows : [];
+    } catch (e) {
+        console.error('[Banking] Failed to fetch PDCs:', e);
+        return [];
+    }
 }
-function savePDC(list: PDCheque[]) { localStorage.setItem(PDC_KEY, JSON.stringify(list)); }
+
+async function createPDCApi(p: Omit<PDCheque, 'id' | 'status' | 'createdAt'>): Promise<PDCheque | null> {
+    try {
+        const r = await fetch(`${PDC_API}/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                date: p.date, chequeNo: p.chequeNo, bankName: p.bankName,
+                payee: p.payee, amount: p.amount, type: p.type, description: p.description,
+            }),
+        });
+        if (!r.ok) {
+            const text = await r.text().catch(() => '');
+            throw new Error(`HTTP ${r.status} ${text}`);
+        }
+        return await r.json();
+    } catch (e: any) {
+        alert(`❌ ${e.message || 'Failed to save PDC'}`);
+        return null;
+    }
+}
+
+async function patchPDCApi(id: string, status: PDCheque['status']): Promise<boolean> {
+    try {
+        const r = await fetch(`${PDC_API}/${encodeURIComponent(id)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status }),
+        });
+        if (!r.ok) {
+            const text = await r.text().catch(() => '');
+            throw new Error(`HTTP ${r.status} ${text}`);
+        }
+        return true;
+    } catch (e: any) {
+        alert(`❌ ${e.message || 'Failed to update PDC'}`);
+        return false;
+    }
+}
 
 interface Transaction {
     id: string;
@@ -57,7 +109,7 @@ export default function Banking() {
                 setInvoices(i);
             })
             .finally(() => setLoading(false));
-        setPdcList(getPDC());
+        getPDC().then(setPdcList);
     }, []);
 
     // Build transaction ledger from real payments + invoices
@@ -107,27 +159,34 @@ export default function Banking() {
         return matchFilter && matchSearch;
     });
 
-    const savePDCEntry = () => {
+    const savePDCEntry = async () => {
         if (!pdcForm.chequeNo || !pdcForm.amount || !pdcForm.date) {
             alert('Cheque number, date and amount are required');
             return;
         }
-        const entry: PDCheque = {
-            id: Date.now().toString(),
-            date: pdcForm.date, chequeNo: pdcForm.chequeNo, bankName: pdcForm.bankName,
-            payee: pdcForm.payee, amount: parseFloat(pdcForm.amount) || 0,
-            type: pdcForm.type, status: 'Pending', description: pdcForm.description,
-            createdAt: new Date().toISOString()
-        };
-        const updated = [entry, ...pdcList];
-        savePDC(updated); setPdcList(updated);
+        const created = await createPDCApi({
+            date: pdcForm.date,
+            chequeNo: pdcForm.chequeNo,
+            bankName: pdcForm.bankName,
+            payee: pdcForm.payee,
+            amount: parseFloat(pdcForm.amount) || 0,
+            type: pdcForm.type,
+            description: pdcForm.description,
+        });
+        if (!created) return; // error alert was shown by createPDCApi
+        // Re-fetch from server so the list reflects whatever the backend
+        // actually has (handles concurrent edits from other browsers too).
+        const fresh = await getPDC();
+        setPdcList(fresh);
         setPdcForm({ date: '', chequeNo: '', bankName: '', payee: '', amount: '', type: 'Received', description: '' });
         setShowPDCForm(false);
     };
 
-    const updatePDCStatus = (id: string, status: PDCheque['status']) => {
-        const updated = pdcList.map(p => p.id === id ? { ...p, status } : p);
-        savePDC(updated); setPdcList(updated);
+    const updatePDCStatus = async (id: string, status: PDCheque['status']) => {
+        const ok = await patchPDCApi(id, status);
+        if (!ok) return;
+        const fresh = await getPDC();
+        setPdcList(fresh);
     };
 
     const today = new Date().toISOString().slice(0, 10);
