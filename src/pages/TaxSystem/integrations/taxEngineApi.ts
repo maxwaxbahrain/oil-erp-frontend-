@@ -47,7 +47,18 @@ export async function listTaxRules(activeOnly = false): Promise<TaxRule[]> {
     }
 }
 
-export async function createTaxRule(payload: Partial<TaxRule>): Promise<TaxRule | null> {
+// Shared helper that surfaces a useful error message from the server.
+async function readError(r: Response): Promise<string> {
+    try {
+        const data = await r.json();
+        if (data?.detail) return String(data.detail);
+        return `HTTP ${r.status}`;
+    } catch {
+        return `HTTP ${r.status}`;
+    }
+}
+
+export async function createTaxRule(payload: Partial<TaxRule>): Promise<{ rule: TaxRule | null; error?: string }> {
     try {
         const r = await fetch(`${TAX_ENGINE_API}/rules`, {
             method: 'POST',
@@ -62,14 +73,41 @@ export async function createTaxRule(payload: Partial<TaxRule>): Promise<TaxRule 
                 notes: payload.notes,
             }),
         });
-        if (!r.ok) {
-            const text = await r.text().catch(() => '');
-            throw new Error(`HTTP ${r.status} ${text}`);
-        }
-        return (await r.json()) as TaxRule;
+        if (!r.ok) return { rule: null, error: await readError(r) };
+        return { rule: (await r.json()) as TaxRule };
     } catch (e: any) {
-        // eslint-disable-next-line no-console
-        console.error('[taxEngineApi] createTaxRule failed:', e);
-        return null;
+        return { rule: null, error: e?.message || 'Network error' };
+    }
+}
+
+export async function updateTaxRule(id: string, payload: Partial<TaxRule>): Promise<{ rule: TaxRule | null; error?: string }> {
+    try {
+        const r = await fetch(`${TAX_ENGINE_API}/rules/${encodeURIComponent(id)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                jurisdiction: payload.jurisdiction,
+                name: payload.name,
+                rate: payload.rate,
+                taxType: payload.taxType,
+                productCategory: payload.productCategory,
+                isActive: payload.isActive,
+                notes: payload.notes,
+            }),
+        });
+        if (!r.ok) return { rule: null, error: await readError(r) };
+        return { rule: (await r.json()) as TaxRule };
+    } catch (e: any) {
+        return { rule: null, error: e?.message || 'Network error' };
+    }
+}
+
+export async function deleteTaxRule(id: string): Promise<{ ok: boolean; error?: string }> {
+    try {
+        const r = await fetch(`${TAX_ENGINE_API}/rules/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        if (!r.ok && r.status !== 204) return { ok: false, error: await readError(r) };
+        return { ok: true };
+    } catch (e: any) {
+        return { ok: false, error: e?.message || 'Network error' };
     }
 }

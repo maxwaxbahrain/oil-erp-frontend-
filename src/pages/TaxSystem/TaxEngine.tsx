@@ -1,19 +1,19 @@
-// TaxEngine — landing page for the Tax Engine module (Session 1A).
+// TaxEngine — landing page for the Tax Engine module.
 //
-// What this page shows today:
-//   - Health badge (live backend health + rule count)
-//   - The engine version
-//   - A tiny calculator demo wired to engine/calculator.ts
-//   - List of currently configured rules from the backend
-//
-// Sessions 1B–1F will add: rule editor UI, jurisdiction setup, nexus
-// management, exemption certificates, filing periods, etc.
+// Session 1A (foundation): health badge + quick calculator + read-only rules table.
+// Session 1B (this update): full CRUD for rules — add, edit, delete, active toggle.
 
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Calculator } from 'lucide-react';
+import { ArrowLeft, Calculator, Plus, Edit2, Trash2 } from 'lucide-react';
 import { HealthBadge } from './components/HealthBadge';
-import { listTaxRules } from './integrations/taxEngineApi';
+import { RuleForm } from './components/RuleForm';
+import {
+    listTaxRules,
+    createTaxRule,
+    updateTaxRule,
+    deleteTaxRule,
+} from './integrations/taxEngineApi';
 import { calculateTax } from './engine';
 import { TAX_ENGINE_VERSION } from './data/constants';
 import type { TaxRule } from './data/types';
@@ -24,18 +24,72 @@ export default function TaxEngine() {
     const [rules, setRules] = useState<TaxRule[]>([]);
     const [loading, setLoading] = useState(true);
 
+    // Rule editor state: null = closed, {} = create mode, {id…} = edit mode.
+    const [editing, setEditing] = useState<Partial<TaxRule> | null>(null);
+    const [flash, setFlash] = useState<string | null>(null);
+
     const [demoAmount, setDemoAmount] = useState('1000');
     const [demoJurisdiction, setDemoJurisdiction] = useState('US-NY');
 
-    useEffect(() => {
-        listTaxRules().then(rs => { setRules(rs); setLoading(false); });
-    }, []);
+    const reloadRules = async () => {
+        setLoading(true);
+        try { setRules(await listTaxRules()); }
+        finally { setLoading(false); }
+    };
+
+    useEffect(() => { reloadRules(); }, []);
+
+    const showFlash = (msg: string) => {
+        setFlash(msg);
+        setTimeout(() => setFlash(null), 4000);
+    };
+
+    const handleSubmit = async (payload: Partial<TaxRule>): Promise<string | null> => {
+        if (editing?.id) {
+            const { rule, error } = await updateTaxRule(String(editing.id), payload);
+            if (error || !rule) return error || 'Failed to update rule';
+            // Optimistic replace in local state, then re-fetch.
+            setRules(prev => prev.map(r => r.id === rule.id ? rule : r));
+            showFlash(`✅ Updated: ${rule.jurisdiction} · ${rule.name}`);
+        } else {
+            const { rule, error } = await createTaxRule(payload);
+            if (error || !rule) return error || 'Failed to create rule';
+            setRules(prev => [rule, ...prev]);
+            showFlash(`✅ Created: ${rule.jurisdiction} · ${rule.name}`);
+        }
+        setEditing(null);
+        // Background reconcile to pick up any server-side normalisation.
+        listTaxRules().then(fresh => { if (fresh.length > 0) setRules(fresh); });
+        return null;
+    };
+
+    const handleDelete = async (rule: TaxRule) => {
+        if (!confirm(`Delete rule "${rule.name}" (${rule.jurisdiction})?`)) return;
+        const { ok, error } = await deleteTaxRule(rule.id);
+        if (!ok) { alert(`❌ ${error || 'Failed to delete'}`); return; }
+        setRules(prev => prev.filter(r => r.id !== rule.id));
+        showFlash(`🗑 Deleted: ${rule.jurisdiction} · ${rule.name}`);
+    };
+
+    // Quick toggle without opening the form.
+    const handleToggleActive = async (rule: TaxRule) => {
+        const { rule: updated, error } = await updateTaxRule(rule.id, { isActive: !rule.isActive });
+        if (error || !updated) { alert(`❌ ${error || 'Failed to update'}`); return; }
+        setRules(prev => prev.map(r => r.id === updated.id ? updated : r));
+    };
 
     const amt = parseFloat(demoAmount) || 0;
     const result = calculateTax(amt, demoJurisdiction, rules);
 
     return (
         <div className="space-y-6 max-w-[1200px] mx-auto pb-10 animate-in fade-in duration-500">
+            {/* Flash banner */}
+            {flash && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-sm font-bold text-emerald-700 animate-in slide-in-from-top-2">
+                    {flash}
+                </div>
+            )}
+
             {/* Header */}
             <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
                 <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all">
@@ -51,9 +105,26 @@ export default function TaxEngine() {
                             Foundation module · version {TAX_ENGINE_VERSION}
                         </p>
                     </div>
-                    <HealthBadge />
+                    <div className="flex items-center gap-3">
+                        <HealthBadge />
+                        <button
+                            onClick={() => setEditing({})}
+                            className="flex items-center gap-2 px-4 py-2 bg-gray-900 hover:bg-gray-700 text-white rounded-xl text-xs font-black uppercase tracking-wide transition-all"
+                        >
+                            <Plus size={14} /> Add Rule
+                        </button>
+                    </div>
                 </div>
             </div>
+
+            {/* Rule editor (visible when adding or editing) */}
+            {editing !== null && (
+                <RuleForm
+                    initial={editing}
+                    onSubmit={handleSubmit}
+                    onCancel={() => setEditing(null)}
+                />
+            )}
 
             {/* Quick calculator */}
             <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
@@ -86,6 +157,7 @@ export default function TaxEngine() {
                             </p>
                             <p className="text-[10px] text-orange-600 font-bold">
                                 {result.rate.toFixed(3)}% · source: {result.source}
+                                {result.matchedRule ? ` · ${result.matchedRule.name}` : ''}
                             </p>
                         </div>
                     </div>
@@ -104,20 +176,20 @@ export default function TaxEngine() {
                 ) : rules.length === 0 ? (
                     <div className="p-12 text-center">
                         <p className="text-gray-400 font-bold uppercase text-sm">No tax rules configured yet</p>
-                        <p className="text-gray-300 text-xs mt-1">Session 1B will add the rule editor. For now you can POST to <code className="bg-gray-100 px-1.5 py-0.5 rounded">/api/tax-engine/rules</code>.</p>
+                        <p className="text-gray-300 text-xs mt-1">Click <strong>Add Rule</strong> to create the first one.</p>
                     </div>
                 ) : (
                     <table className="w-full text-left">
                         <thead className="bg-gray-50 border-b border-gray-100">
                             <tr>
-                                {['Jurisdiction', 'Name', 'Type', 'Rate', 'Category', 'Status'].map(h => (
-                                    <th key={h} className="px-5 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">{h}</th>
+                                {['Jurisdiction', 'Name', 'Type', 'Rate', 'Category', 'Active', 'Actions'].map(h => (
+                                    <th key={h} className={`px-5 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest ${h === 'Actions' ? 'text-right' : ''}`}>{h}</th>
                                 ))}
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-50">
                             {rules.map(r => (
-                                <tr key={r.id} className="hover:bg-gray-50">
+                                <tr key={r.id} className="hover:bg-gray-50 group">
                                     <td className="px-5 py-3 text-sm font-bold text-gray-900 font-mono">{r.jurisdiction}</td>
                                     <td className="px-5 py-3 text-sm text-gray-700">{r.name}</td>
                                     <td className="px-5 py-3">
@@ -126,9 +198,32 @@ export default function TaxEngine() {
                                     <td className="px-5 py-3 text-sm font-mono font-bold text-orange-600">{r.rate.toFixed(3)}%</td>
                                     <td className="px-5 py-3 text-xs text-gray-500">{r.productCategory || '—'}</td>
                                     <td className="px-5 py-3">
-                                        <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${r.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
-                                            {r.isActive ? 'Active' : 'Inactive'}
-                                        </span>
+                                        {/* Click to toggle active without opening the form */}
+                                        <button
+                                            onClick={() => handleToggleActive(r)}
+                                            className={`relative w-9 h-5 rounded-full transition-all ${r.isActive ? 'bg-emerald-500' : 'bg-gray-300'}`}
+                                            title={r.isActive ? 'Active — click to deactivate' : 'Inactive — click to activate'}
+                                        >
+                                            <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${r.isActive ? 'left-4' : 'left-0.5'}`} />
+                                        </button>
+                                    </td>
+                                    <td className="px-5 py-3 text-right">
+                                        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                            <button
+                                                onClick={() => setEditing(r)}
+                                                className="p-1.5 hover:bg-blue-50 rounded-lg text-blue-500 hover:text-blue-700"
+                                                title="Edit rule"
+                                            >
+                                                <Edit2 size={13} />
+                                            </button>
+                                            <button
+                                                onClick={() => handleDelete(r)}
+                                                className="p-1.5 hover:bg-red-50 rounded-lg text-red-400 hover:text-red-600"
+                                                title="Delete rule"
+                                            >
+                                                <Trash2 size={13} />
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             ))}
@@ -138,7 +233,7 @@ export default function TaxEngine() {
             </div>
 
             <p className="text-xs text-gray-400 text-center">
-                Tax Engine v{TAX_ENGINE_VERSION} · Session 1A: project setup + health endpoint + foundation models
+                Tax Engine v{TAX_ENGINE_VERSION} · Session 1B: rule editor (add / edit / delete / toggle active)
             </p>
         </div>
     );
