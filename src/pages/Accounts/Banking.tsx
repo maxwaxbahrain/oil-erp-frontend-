@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Landmark, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownLeft, RefreshCw, Download, DollarSign, CreditCard, Building2 } from 'lucide-react';
 import { getPayments, getInvoices, type Payment, type Invoice } from '../../services/api';
+import { getSuppliers } from '../../services/purchasesService';
 import { getCompanyProfile } from '../../services/settingsService';
 import { formatCurrency } from '../../services/settingsService';
 
@@ -86,9 +87,22 @@ interface Transaction {
     category: string;
 }
 
+// Supplier payment shape on /api/suppliers/{id}/payments.
+interface SupplierPaymentRow {
+    id: string;
+    supplierId: string;
+    amount: number;
+    date: string;
+    paymentMethod?: string;
+    reference?: string;
+    notes?: string;
+}
+
 export default function Banking() {
     const [payments, setPayments] = useState<Payment[]>([]);
     const [invoices, setInvoices] = useState<Invoice[]>([]);
+    // Supplier payments (cash going OUT). Fetched per-supplier and aggregated.
+    const [supplierPayments, setSupplierPayments] = useState<{ row: SupplierPaymentRow; supplierName: string }[]>([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
     const [filter, setFilter] = useState<'all' | 'Credit' | 'Debit'>('all');
@@ -103,59 +117,105 @@ export default function Banking() {
     const [dateTo, setDateTo] = useState('');
 
     useEffect(() => {
-        Promise.all([getPayments(), getInvoices()])
-            .then(([p, i]) => {
+        (async () => {
+            try {
+                const [p, i, suppliers] = await Promise.all([
+                    getPayments().catch(() => []),
+                    getInvoices().catch(() => []),
+                    getSuppliers().catch(() => []),
+                ]);
                 setPayments(p);
                 setInvoices(i);
-            })
-            .finally(() => setLoading(false));
+                // Fan out per-supplier payment fetches in parallel. Each row
+                // is annotated with the supplier name so it can render with
+                // "Payment to <Supplier>" in the ledger description.
+                const supPayLists = await Promise.all(
+                    suppliers.map(async s => {
+                        try {
+                            const r = await fetch(`${API_HOST}/api/suppliers/${s.id}/payments`);
+                            if (!r.ok) return [];
+                            const rows: SupplierPaymentRow[] = await r.json();
+                            return Array.isArray(rows) ? rows.map(row => ({ row, supplierName: s.name })) : [];
+                        } catch { return []; }
+                    }),
+                );
+                setSupplierPayments(supPayLists.flat());
+            } finally {
+                setLoading(false);
+            }
+        })();
         getPDC().then(setPdcList);
     }, []);
 
-    // Build transaction ledger from real payments + invoices
-    const transactions: Transaction[] = [
-        // Payments received from customers (Credits)
+    // ─────────────────────────────────────────────────────────────────────
+    // Bank ledger = REAL CASH MOVEMENT only.
+    //
+    // Previously this page listed unpaid invoices as "Debits" — but those
+    // aren't cash going out, they're accounts receivable (money customers
+    // owe us). Mixing them with cash receipts made the Net Balance number
+    // meaningless. Now the ledger contains:
+    //   - Customer payments  → Credit (cash in)
+    //   - Supplier payments  → Debit  (cash out)
+    //   - Manual entries     → user-chosen Credit/Debit
+    // AR (unpaid invoice total) is kept as a SEPARATE "Outstanding" KPI
+    // so it's still visible but doesn't contaminate the bank balance.
+    // ─────────────────────────────────────────────────────────────────────
+    const systemTx: Transaction[] = [
+        // Cash IN from customers
         ...payments.map((p, idx) => ({
             id: `PAY-${p.id || idx}`,
             date: p.payment_date || new Date().toISOString().split('T')[0],
-            description: `Payment received`,
+            description: 'Payment received from customer',
             type: 'Credit' as const,
             amount: p.amount || 0,
             balance: 0,
             reference: `PAY-${String(p.id || idx).slice(0, 6).toUpperCase()}`,
-            category: 'Customer Payment'
+            category: 'Customer Payment',
         })),
-        // Unpaid invoices (outstanding receivables as Debits)
-        ...invoices
-            .filter(i => ['Unpaid', 'Partial', 'Overdue'].includes(i.status || ''))
-            .map((inv, idx) => ({
-                id: `INV-${inv.id || idx}`,
-                date: inv.invoiceDate || inv.createdAt?.slice(0, 10) || new Date().toISOString().split('T')[0],
-                description: `Invoice ${inv.invoiceNumber || ''} — ${inv.customerName || 'Customer'}`,
-                type: 'Debit' as const,
-                amount: inv.grandTotal || inv.subtotal || 0,
-                balance: 0,
-                reference: inv.invoiceNumber || `INV-${idx}`,
-                category: 'Sales Invoice'
-            }))
-    ]
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-        .map((tx, idx, arr) => {
-            // Calculate running balance
-            const bal = arr.slice(idx).reduce((sum, t) => sum + (t.type === 'Credit' ? t.amount : -t.amount), 0);
-            return { ...tx, balance: bal };
-        });
+        // Cash OUT to suppliers
+        ...supplierPayments.map(({ row, supplierName }, idx) => ({
+            id: `SPAY-${row.id || idx}`,
+            date: row.date || new Date().toISOString().split('T')[0],
+            description: `Payment to ${supplierName || 'supplier'}`,
+            type: 'Debit' as const,
+            amount: row.amount || 0,
+            balance: 0,
+            reference: row.reference || `SPAY-${String(row.id || idx).slice(0, 6).toUpperCase()}`,
+            category: 'Supplier Payment',
+        })),
+    ];
 
-    const totalCredits = transactions.filter(t => t.type === 'Credit').reduce((s, t) => s + t.amount, 0);
-    const totalDebits = transactions.filter(t => t.type === 'Debit').reduce((s, t) => s + t.amount, 0);
+    // Merge system + manual BEFORE sorting so the user's just-added entry
+    // (likely dated today) ends up at the top of the ledger.
+    const allTransactions: Transaction[] = [...systemTx, ...manualTxs as Transaction[]]
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    // Running balance: working backwards from the newest entry. Each row's
+    // displayed balance is the cash position AFTER that transaction.
+    const ledgerWithBalance = allTransactions.map((tx, idx, arr) => {
+        const balanceAfterRow = arr.slice(idx).reduce(
+            (sum, t) => sum + (t.type === 'Credit' ? t.amount : -t.amount), 0,
+        );
+        return { ...tx, balance: balanceAfterRow };
+    });
+
+    const totalCredits = systemTx.filter(t => t.type === 'Credit').reduce((s, t) => s + t.amount, 0)
+        + (manualTxs as Transaction[]).filter(t => t.type === 'Credit').reduce((s, t) => s + t.amount, 0);
+    const totalDebits = systemTx.filter(t => t.type === 'Debit').reduce((s, t) => s + t.amount, 0)
+        + (manualTxs as Transaction[]).filter(t => t.type === 'Debit').reduce((s, t) => s + t.amount, 0);
     const netBalance = totalCredits - totalDebits;
 
-    const allTransactions = [...transactions, ...manualTxs];
-    const filtered = allTransactions.filter(t => {
+    // Outstanding AR stays as a SEPARATE KPI — money customers owe but
+    // haven't paid. Not part of the bank balance.
+    const outstandingAR = invoices
+        .filter(i => ['Unpaid', 'Partial', 'Overdue'].includes(i.status || ''))
+        .reduce((s, i) => s + (i.grandTotal || i.subtotal || 0), 0);
+
+    const filtered = ledgerWithBalance.filter(t => {
         if (dateFrom && t.date < dateFrom) return false;
         if (dateTo && t.date > dateTo) return false;
         const matchFilter = filter === 'all' || t.type === filter;
-        const matchSearch = !search || t.description.toLowerCase().includes(search.toLowerCase()) || t.reference.toLowerCase().includes(search.toLowerCase());
+        const matchSearch = !search || (t.description || '').toLowerCase().includes(search.toLowerCase()) || (t.reference || '').toLowerCase().includes(search.toLowerCase());
         return matchFilter && matchSearch;
     });
 
@@ -234,10 +294,10 @@ export default function Banking() {
             {/* KPI Cards */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 {[
-                    { label: 'Net Balance', value: formatCurrency(netBalance), icon: DollarSign, color: netBalance >= 0 ? 'text-emerald-600' : 'text-red-600', bg: 'bg-emerald-50', border: 'border-emerald-200' },
-                    { label: 'Total Receipts', value: formatCurrency(totalCredits), icon: ArrowDownLeft, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200' },
-                    { label: 'Outstanding', value: formatCurrency(totalDebits), icon: ArrowUpRight, color: 'text-rose-600', bg: 'bg-rose-50', border: 'border-rose-200' },
-                    { label: 'Transactions', value: String(transactions.length), icon: CreditCard, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200' },
+                    { label: 'Net Cash Balance', value: formatCurrency(netBalance), icon: DollarSign, color: netBalance >= 0 ? 'text-emerald-600' : 'text-red-600', bg: 'bg-emerald-50', border: 'border-emerald-200' },
+                    { label: 'Total Cash In', value: formatCurrency(totalCredits), icon: ArrowDownLeft, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200' },
+                    { label: 'Total Cash Out', value: formatCurrency(totalDebits), icon: ArrowUpRight, color: 'text-rose-600', bg: 'bg-rose-50', border: 'border-rose-200' },
+                    { label: 'Outstanding AR', value: formatCurrency(outstandingAR), icon: CreditCard, color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-200' },
                 ].map((kpi, i) => (
                     <div key={i} className={`bg-white rounded-2xl border ${kpi.border} p-5 shadow-sm`}>
                         <div className="flex items-center justify-between mb-3">
@@ -301,12 +361,16 @@ export default function Banking() {
                 <p className="text-orange-100 text-sm">Available Balance</p>
                 <div className="mt-4 flex items-center gap-6 text-sm">
                     <div>
-                        <p className="opacity-60 text-xs uppercase">Payments Received</p>
-                        <p className="font-black">{payments.length} records</p>
+                        <p className="opacity-60 text-xs uppercase">Cash In</p>
+                        <p className="font-black">{payments.length} customer receipts</p>
                     </div>
                     <div>
-                        <p className="opacity-60 text-xs uppercase">Outstanding Invoices</p>
-                        <p className="font-black">{invoices.filter(i => ['Unpaid', 'Partial', 'Overdue'].includes(i.status || '')).length} pending</p>
+                        <p className="opacity-60 text-xs uppercase">Cash Out</p>
+                        <p className="font-black">{supplierPayments.length} supplier payouts</p>
+                    </div>
+                    <div>
+                        <p className="opacity-60 text-xs uppercase">Manual</p>
+                        <p className="font-black">{manualTxs.length} entries</p>
                     </div>
                 </div>
             </div>
