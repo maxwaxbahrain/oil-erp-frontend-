@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Landmark, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownLeft, RefreshCw, Download, DollarSign, CreditCard, Building2 } from 'lucide-react';
-import { getPayments, getInvoices, type Payment, type Invoice } from '../../services/api';
+import { getPayments, getInvoices, getCustomers, type Payment, type Invoice } from '../../services/api';
 import { getSuppliers } from '../../services/purchasesService';
 import { getCompanyProfile } from '../../services/settingsService';
 import { formatCurrency } from '../../services/settingsService';
@@ -138,7 +138,11 @@ interface SupplierPaymentRow {
 
 export default function Banking() {
     const [payments, setPayments] = useState<Payment[]>([]);
-    const [invoices, setInvoices] = useState<Invoice[]>([]);
+    // We still fetch invoices on mount in case downstream features (export
+    // statement, reconciliation) need them, but they're no longer the source
+    // of Outstanding AR — that comes from customer balances now.
+    const [, setInvoices] = useState<Invoice[]>([]);
+    const [customers, setCustomers] = useState<any[]>([]);
     // Supplier payments (cash going OUT). Fetched per-supplier and aggregated.
     const [supplierPayments, setSupplierPayments] = useState<{ row: SupplierPaymentRow; supplierName: string }[]>([]);
     const [loading, setLoading] = useState(true);
@@ -160,13 +164,15 @@ export default function Banking() {
     useEffect(() => {
         (async () => {
             try {
-                const [p, i, suppliers] = await Promise.all([
+                const [p, i, c, suppliers] = await Promise.all([
                     getPayments().catch(() => []),
                     getInvoices().catch(() => []),
+                    getCustomers().catch(() => []),
                     getSuppliers().catch(() => []),
                 ]);
                 setPayments(p);
                 setInvoices(i);
+                setCustomers(c as any[]);
                 // Fan out per-supplier payment fetches in parallel. Each row
                 // is annotated with the supplier name so it can render with
                 // "Payment to <Supplier>" in the ledger description.
@@ -248,11 +254,17 @@ export default function Banking() {
         + (manualTxs as Transaction[]).filter(t => t.type === 'Debit').reduce((s, t) => s + t.amount, 0);
     const netBalance = totalCredits - totalDebits;
 
-    // Outstanding AR stays as a SEPARATE KPI — money customers owe but
-    // haven't paid. Not part of the bank balance.
-    const outstandingAR = invoices
-        .filter(i => ['Unpaid', 'Partial', 'Overdue'].includes(i.status || ''))
-        .reduce((s, i) => s + (i.grandTotal || i.subtotal || 0), 0);
+    // Outstanding AR — sourced from CUSTOMER BALANCES, not raw invoice
+    // grand totals. The imported invoices all have status='unpaid' and
+    // paid_amount=0 (the migration never reconciled them with the 802
+    // customer payments), so summing invoice.balance gave 9× the real
+    // figure ($406k vs the actual $45k). Customer balances ARE the
+    // reconciled ledger total, and this matches the Aged Receivable
+    // report + the COA Accounts Receivable tile.
+    const outstandingAR = (customers || []).reduce(
+        (s: number, c: any) => s + Math.max(0, Number(c?.balance) || 0),
+        0,
+    );
 
     const filtered = ledgerWithBalance.filter(t => {
         if (dateFrom && t.date < dateFrom) return false;

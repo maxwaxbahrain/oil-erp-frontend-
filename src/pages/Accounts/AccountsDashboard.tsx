@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import GeneralLedger from '../../modules/accounts/GeneralLedger';
-import { getInvoices, getPayments } from '../../services/api';
+import { getInvoices, getPayments, getCustomers } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
 
 const AccountsDashboard = () => {
@@ -21,10 +21,21 @@ const AccountsDashboard = () => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        Promise.all([getInvoices(), getPayments()]).then(([invoices, payments]) => {
-            const unpaid = invoices.filter(i => ['Unpaid', 'Partial', 'Overdue'].includes(i.status || ''));
-            setTotalReceivable(unpaid.reduce((s, i) => s + (i.grandTotal || i.subtotal || 0), 0));
-            setTotalRevenue(invoices.filter(i => i.status !== 'Paid').reduce((s, i) => s + (i.grandTotal || i.subtotal || 0), 0));
+        Promise.all([getInvoices(), getPayments(), getCustomers()]).then(([invoices, payments, customers]) => {
+            // Accounts Receivable is sum of positive customer balances — the
+            // same source the COA Asset tile, Aged Receivable report, and
+            // Banking Outstanding AR all use. Previously this summed
+            // invoice grand totals, which gave 9× the real number because
+            // the imported invoices all have paid_amount=0 (the migration
+            // never reconciled the 802 customer payments against the 807
+            // invoices).
+            const ar = (customers || []).reduce(
+                (s: number, c: any) => s + Math.max(0, Number(c?.balance) || 0),
+                0,
+            );
+            setTotalReceivable(ar);
+            // Total Revenue stays accrual-based: gross sales invoiced.
+            setTotalRevenue(invoices.reduce((s, i) => s + (i.grandTotal || i.subtotal || 0), 0));
             setCashReceived(payments.reduce((s, p) => s + (p.amount || 0), 0));
             setOverdueCount(invoices.filter(i => i.status === 'Overdue').length);
             setLoading(false);
