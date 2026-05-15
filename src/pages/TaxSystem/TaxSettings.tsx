@@ -144,7 +144,17 @@ export default function TaxSettings() {
                             <p className="text-gray-400 text-xs mt-0.5">US Sales Tax · TaxJar API · Manual rates · Optional</p>
                         </div>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 flex-wrap">
+                        {/* Quick link to the Tax Engine (Session 1A foundation page).
+                            Lives in the header so it's always reachable regardless
+                            of which tab is active. */}
+                        <button
+                            onClick={() => navigate('/tax/engine')}
+                            className="flex items-center gap-2 px-5 py-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-black transition-all shadow-md"
+                            title="Open the Tax Engine module"
+                        >
+                            <Zap size={14} /> Open Tax Engine
+                        </button>
                         <div className="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-xl">
                             <span className="text-xs font-black text-gray-300">Tax Collection</span>
                             <button onClick={() => upd('enabled', !config.enabled)}
