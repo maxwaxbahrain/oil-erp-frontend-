@@ -872,7 +872,11 @@ export default function SupplierDetail() {
                                         ) : (
                                             filteredLedger.map(entry => (
                                                 <tr
-                                                    key={entry.id}
+                                                    // Compound key — PO ids and supplier-payment ids both auto-increment
+                                                    // from 1, so a plain `key={entry.id}` collided (e.g. PO id=1 and
+                                                    // Payment id=1) and React silently dropped the duplicates,
+                                                    // hiding several purchases from the ledger.
+                                                    key={`${entry.type}-${entry.id}`}
                                                     className="hover:bg-redwood-bg-light/20 transition-all group cursor-pointer"
                                                     onClick={() => {
                                                         if (entry.type === 'Purchase') {
@@ -1095,25 +1099,37 @@ export default function SupplierDetail() {
                         <div className="p-8 space-y-6">
                             <div>
                                 <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Invoice / PO Reference</label>
-                                <select
+                                {/* SearchableSelect lets the user type to filter when a supplier has dozens of POs. */}
+                                <SearchableSelect
+                                    options={[
+                                        { id: '', name: '-- Direct Payment (General) --', code: '' },
+                                        ...purchases
+                                            .filter(p => p.status !== 'Draft')
+                                            .map(po => {
+                                                const bal = Number(po.remaining_balance ?? po.grandTotal) || 0;
+                                                return {
+                                                    id: String(po.id),
+                                                    // `name` is what SearchableSelect displays + searches over.
+                                                    name: `${po.poNumber}  ·  Balance ${formatCurrency(bal)}`,
+                                                    // `code` is a secondary searchable field — typing the PO
+                                                    // number alone (e.g. "PUR-01") matches.
+                                                    code: po.poNumber || '',
+                                                };
+                                            }),
+                                    ]}
                                     value={paymentForm.poId}
-                                    onChange={(e) => {
-                                        const po = purchases.find(p => p.id === e.target.value);
+                                    onChange={(poId) => {
+                                        const po = purchases.find(p => String(p.id) === String(poId));
                                         setPaymentForm({
                                             ...paymentForm,
-                                            poId: e.target.value,
-                                            amount: po ? (po.remaining_balance || po.grandTotal) : paymentForm.amount
+                                            poId,
+                                            amount: po
+                                                ? Number(po.remaining_balance ?? po.grandTotal) || 0
+                                                : paymentForm.amount,
                                         });
                                     }}
-                                    className="w-full border-2 border-gray-100 bg-gray-50 rounded-xl px-4 py-4 text-sm font-black focus:border-redwood-brand focus:bg-white outline-none transition-all uppercase"
-                                >
-                                    <option value="">-- Direct Payment (General) --</option>
-                                    {purchases.filter(p => p.status !== 'Draft').map(po => (
-                                        <option key={po.id} value={po.id}>
-                                            {po.poNumber} (Balance: {po.remaining_balance || po.grandTotal})
-                                        </option>
-                                    ))}
-                                </select>
+                                    placeholder="Search invoice / PO number..."
+                                />
                             </div>
                             <div>
                                 <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Operation Date</label>
