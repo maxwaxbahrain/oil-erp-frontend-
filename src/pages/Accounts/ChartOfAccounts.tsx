@@ -226,9 +226,15 @@ async function computeAccountBalances(accounts: Account[]): Promise<Record<strin
         getJournalVouchers().catch(() => [] as any[]),
     ]);
 
-    // 1120 Accounts Receivable — customers with a positive owed balance.
+    // 1120 Accounts Receivable — sum of POSITIVE customer balances only.
+    // (Previously used abs(balance), which would have incorrectly counted
+    // any customer credit balance as AR rather than as a customer-payable
+    // liability.) Matches the Aged Receivable + Banking + AccountsDashboard
+    // calculations exactly.
     if (map['1120'] !== undefined) {
-        const arSum = customers.reduce((s, c: any) => s + Math.abs(c.balance || 0), 0);
+        const arSum = customers.reduce(
+            (s, c: any) => s + Math.max(0, Number(c.balance) || 0), 0,
+        );
         map['1120'] = arSum;
     }
 
@@ -277,7 +283,26 @@ async function computeAccountBalances(accounts: Account[]): Promise<Record<strin
         }),
     );
     const supplierOutflow = supplierPaymentLists.flat().reduce((s, p: any) => s + (Number(p.amount) || 0), 0);
-    if (map['1110'] !== undefined) map['1110'] = customerReceipts - supplierOutflow;
+
+    // Manual bank transactions (rent, salary, owner draws, cash deposits, …)
+    // also affect Cash & Bank. Fetch them so the COA tile matches the Net
+    // Cash Balance shown on the Banking page exactly.
+    let manualBankNet = 0;
+    try {
+        const apiHost = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/+$/, '');
+        const r = await fetch(`${apiHost}/api/bank-transactions/`);
+        if (r.ok) {
+            const rows: any[] = await r.json();
+            if (Array.isArray(rows)) {
+                manualBankNet = rows.reduce(
+                    (s, t) => s + (t.type === 'Credit' ? (Number(t.amount) || 0) : -(Number(t.amount) || 0)),
+                    0,
+                );
+            }
+        }
+    } catch { /* keep manualBankNet=0 on failure */ }
+
+    if (map['1110'] !== undefined) map['1110'] = customerReceipts - supplierOutflow + manualBankNet;
 
     // Apply posted-JV line adjustments on top of the special-source seeds.
     for (const jv of jvs) {
