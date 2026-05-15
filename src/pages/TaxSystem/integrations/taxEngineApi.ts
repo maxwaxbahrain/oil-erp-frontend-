@@ -2,7 +2,7 @@
 // One place that talks to /api/tax-engine/*. Pages and other engine
 // modules import from here so the URL / error handling stays consistent.
 
-import type { TaxEngineHealth, TaxRule, TaxNexus } from '../data/types';
+import type { TaxEngineHealth, TaxRule, TaxNexus, TaxProviderConfig, ProviderId } from '../data/types';
 
 const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
     .trim()
@@ -181,4 +181,69 @@ export async function deleteNexus(id: string): Promise<{ ok: boolean; error?: st
     } catch (e: any) {
         return { ok: false, error: e?.message || 'Network error' };
     }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Session 1D — External provider config (TaxJar / Avalara).
+//
+// Persisted client-side (localStorage) for now — the backend endpoints
+// /api/tax-engine/providers will land in 1D-B. The async signatures here
+// match what the eventual fetch-based impl will return, so callers don't
+// change when we flip the storage backend.
+// ──────────────────────────────────────────────────────────────────────────
+
+const PROVIDER_STORAGE_KEY = 'taxEngine.providerConfigs.v1';
+
+function readProviderStore(): TaxProviderConfig[] {
+    try {
+        const raw = localStorage.getItem(PROVIDER_STORAGE_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
+function writeProviderStore(list: TaxProviderConfig[]) {
+    try {
+        localStorage.setItem(PROVIDER_STORAGE_KEY, JSON.stringify(list));
+    } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('[taxEngineApi] writeProviderStore failed:', e);
+    }
+}
+
+export async function listProviderConfigs(): Promise<TaxProviderConfig[]> {
+    return readProviderStore();
+}
+
+export async function saveProviderConfig(
+    config: TaxProviderConfig,
+): Promise<{ config: TaxProviderConfig | null; error?: string }> {
+    if (!config.id) return { config: null, error: 'Provider id is required' };
+    const list = readProviderStore();
+    const next: TaxProviderConfig = { ...config, updatedAt: new Date().toISOString() };
+    const idx = list.findIndex(p => p.id === config.id);
+    if (idx >= 0) list[idx] = next; else list.push(next);
+    writeProviderStore(list);
+    return { config: next };
+}
+
+/** Toggle exactly one provider active (the other configured providers are
+ *  flipped off in the same write so the calculator has an unambiguous
+ *  source). Pass providerId='internal' to disable all external providers. */
+export async function setActiveProvider(
+    providerId: ProviderId,
+): Promise<{ ok: boolean; active: ProviderId }> {
+    const list = readProviderStore();
+    const next = list.map(p => ({ ...p, isActive: p.id === providerId, updatedAt: new Date().toISOString() }));
+    writeProviderStore(next);
+    return { ok: true, active: providerId };
+}
+
+export async function deleteProviderConfig(providerId: ProviderId): Promise<{ ok: boolean }> {
+    const list = readProviderStore().filter(p => p.id !== providerId);
+    writeProviderStore(list);
+    return { ok: true };
 }

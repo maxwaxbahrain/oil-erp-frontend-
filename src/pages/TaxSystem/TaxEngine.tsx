@@ -2,15 +2,19 @@
 //
 // Session 1A (foundation): health badge + quick calculator + read-only rules.
 // Session 1B: full CRUD for rules.
-// Session 1C (this update): tabs (Rules / Nexus / Calculator), nexus CRUD,
-//                           calculator enforces nexus.
+// Session 1C: tabs (Rules / Nexus), nexus CRUD, calculator enforces nexus.
+// Session 1D (this update): Providers tab + external-provider integration
+//   (TaxJar / Avalara, currently stubbed). When a provider is active, the
+//   calculator delegates to it and shows a "via TaxJar" / "via Avalara"
+//   badge; on provider failure it falls back to the internal engine.
 
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Calculator, Plus, Edit2, Trash2, MapPin } from 'lucide-react';
+import { ArrowLeft, Calculator, Plus, Edit2, Trash2, MapPin, Plug } from 'lucide-react';
 import { HealthBadge } from './components/HealthBadge';
 import { RuleForm } from './components/RuleForm';
 import { NexusForm } from './components/NexusForm';
+import { ProviderForm } from './components/ProviderForm';
 import {
     listTaxRules,
     createTaxRule,
@@ -20,10 +24,15 @@ import {
     createNexus,
     updateNexus,
     deleteNexus,
+    listProviderConfigs,
+    saveProviderConfig,
+    setActiveProvider,
+    deleteProviderConfig,
 } from './integrations/taxEngineApi';
-import { calculateTax } from './engine';
-import { TAX_ENGINE_VERSION, NEXUS_TYPE_LABELS } from './data/constants';
-import type { TaxRule, TaxNexus } from './data/types';
+import { calculateTax, calculateTaxWithProvider } from './engine';
+import type { TaxComputation } from './engine';
+import { TAX_ENGINE_VERSION, NEXUS_TYPE_LABELS, PROVIDERS, PROVIDER_BY_ID } from './data/constants';
+import type { TaxRule, TaxNexus, TaxProviderConfig, ProviderId } from './data/types';
 import { formatCurrency } from '../../services/settingsService';
 
 // Calculator was pulled out of the tab strip in Session 1C-fix because it's
@@ -31,7 +40,17 @@ import { formatCurrency } from '../../services/settingsService';
 // behind a tab as the *last* option meant users had to click through
 // twice on first visit to see any calculation. It now lives above the
 // tabs and is always visible.
-type Tab = 'rules' | 'nexus';
+type Tab = 'rules' | 'nexus' | 'providers';
+
+// Static class lookup for provider chips — Tailwind v4 still does
+// build-time class scanning, so `bg-${accent}-50` would be tree-shaken
+// out and the chip would render unstyled. Listing the full class names
+// here keeps them in the scanner's view.
+const PROVIDER_ICON_CLASSES: Record<string, string> = {
+    gray: 'bg-gray-50 text-gray-600',
+    emerald: 'bg-emerald-50 text-emerald-600',
+    indigo: 'bg-indigo-50 text-indigo-600',
+};
 
 export default function TaxEngine() {
     const navigate = useNavigate();
@@ -47,11 +66,23 @@ export default function TaxEngine() {
     const [loadingNexus, setLoadingNexus] = useState(true);
     const [editingNexus, setEditingNexus] = useState<Partial<TaxNexus> | null>(null);
 
+    // Providers (Session 1D) — external tax APIs (TaxJar / Avalara). Only one
+    // is "active" at a time; activeProvider is the source of truth for the
+    // calculator. providerConfigs holds saved configs for any provider the
+    // user has set up (active or not).
+    const [providerConfigs, setProviderConfigs] = useState<TaxProviderConfig[]>([]);
+    const [editingProvider, setEditingProvider] = useState<(Partial<TaxProviderConfig> & { id: ProviderId }) | null>(null);
+
     const [flash, setFlash] = useState<string | null>(null);
     const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const [demoAmount, setDemoAmount] = useState('1000');
     const [demoJurisdiction, setDemoJurisdiction] = useState('US-NY');
+    // Provider-aware calc is async, so the result lives in state instead of
+    // being derived inline like in 1C. The effect below re-runs whenever
+    // inputs change.
+    const [result, setResult] = useState<TaxComputation>(() => calculateTax(1000, 'US-NY', []));
+    const [calculating, setCalculating] = useState(false);
 
     const reloadRules = async () => {
         setLoadingRules(true);
@@ -63,14 +94,20 @@ export default function TaxEngine() {
         try { setNexusList(await listNexus()); }
         finally { setLoadingNexus(false); }
     };
+    const reloadProviders = async () => {
+        setProviderConfigs(await listProviderConfigs());
+    };
 
     useEffect(() => {
         reloadRules();
         reloadNexus();
+        reloadProviders();
         return () => {
             if (flashTimer.current) clearTimeout(flashTimer.current);
         };
     }, []);
+
+    const activeProvider = providerConfigs.find(p => p.isActive) || null;
 
     const showFlash = (msg: string) => {
         if (flashTimer.current) clearTimeout(flashTimer.current);
@@ -146,20 +183,65 @@ export default function TaxEngine() {
         setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 0);
     };
 
+    // ─── Provider handlers (Session 1D) ────────────────────────────────
+    const handleProviderSubmit = async (payload: TaxProviderConfig): Promise<string | null> => {
+        // If the user is flipping this provider on, switch active to it
+        // first so we don't briefly have two active providers in storage.
+        if (payload.isActive) {
+            await setActiveProvider(payload.id);
+        }
+        const { config, error } = await saveProviderConfig(payload);
+        if (error || !config) return error || 'Failed to save provider';
+        await reloadProviders();
+        setEditingProvider(null);
+        showFlash(`✅ Saved ${PROVIDER_BY_ID[config.id].label}${config.isActive ? ' (now active)' : ''}`);
+        return null;
+    };
+    const handleProviderDelete = async (id: ProviderId) => {
+        if (!confirm(`Remove ${PROVIDER_BY_ID[id].label} configuration?`)) return;
+        await deleteProviderConfig(id);
+        await reloadProviders();
+        showFlash(`🗑 Removed ${PROVIDER_BY_ID[id].label}`);
+    };
+    const handleSetActive = async (id: ProviderId) => {
+        await setActiveProvider(id);
+        await reloadProviders();
+        showFlash(`🔌 Active provider: ${PROVIDER_BY_ID[id].label}`);
+    };
+    const openProviderEdit = (cfg: TaxProviderConfig | { id: ProviderId }) => {
+        setEditingProvider(cfg as Partial<TaxProviderConfig> & { id: ProviderId });
+        setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 0);
+    };
+
     const amt = parseFloat(demoAmount) || 0;
-    // Only pass nexusList to the calculator once the API has answered.
-    // While loadingNexus is true the list is [], and an empty array means
-    // "we KNOW there's no nexus" — which would briefly flash the amber
-    // no-nexus warning even before we'd actually checked. Pass undefined
-    // to skip enforcement during that window.
-    const result = calculateTax(
-        amt, demoJurisdiction, rules, undefined,
-        loadingNexus ? undefined : nexusList,
-    );
+
+    // Provider-aware calc — re-runs whenever any input changes. Same nexus
+    // gating as 1C: while loadingNexus is true we pass undefined so the
+    // amber "no-nexus" banner doesn't flash before the registry has loaded.
+    useEffect(() => {
+        let cancelled = false;
+        const effectiveNexus = loadingNexus ? undefined : nexusList;
+
+        // Fast path — no external provider, run the pure sync calc.
+        if (!activeProvider) {
+            setResult(calculateTax(amt, demoJurisdiction, rules, undefined, effectiveNexus));
+            return;
+        }
+
+        // Slow path — provider takes ~250 ms (real or stubbed). Show a
+        // lightweight "calculating" hint and update when the quote returns.
+        setCalculating(true);
+        calculateTaxWithProvider(amt, demoJurisdiction, rules, undefined, effectiveNexus, activeProvider)
+            .then(r => { if (!cancelled) setResult(r); })
+            .finally(() => { if (!cancelled) setCalculating(false); });
+
+        return () => { cancelled = true; };
+    }, [amt, demoJurisdiction, rules, nexusList, loadingNexus, activeProvider]);
 
     const TABS: { id: Tab; label: string; count?: number }[] = [
         { id: 'rules', label: '📜 Rules', count: rules.length },
         { id: 'nexus', label: '📍 Nexus', count: nexusList.length },
+        { id: 'providers', label: '🔌 Providers', count: providerConfigs.length },
     ];
 
     return (
@@ -204,6 +286,11 @@ export default function TaxEngine() {
                                 <MapPin size={14} /> Add Nexus
                             </button>
                         )}
+                        {activeTab === 'providers' && !editingProvider && (
+                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider">
+                                Pick a provider below to configure
+                            </span>
+                        )}
                     </div>
                 </div>
             </div>
@@ -217,9 +304,18 @@ export default function TaxEngine() {
                     <h2 className="text-sm font-black text-gray-700 uppercase tracking-widest flex items-center gap-2">
                         🧮 Quick Calculator
                     </h2>
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                        live · re-runs as you type
-                    </p>
+                    <div className="flex items-center gap-2">
+                        {activeProvider && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase px-2 py-1 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-full">
+                                <Plug size={10} />
+                                via {PROVIDER_BY_ID[activeProvider.id].label}
+                                <span className="opacity-60">· {activeProvider.environment}</span>
+                            </span>
+                        )}
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                            {calculating ? 'calculating…' : 'live · re-runs as you type'}
+                        </p>
+                    </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
@@ -243,12 +339,25 @@ export default function TaxEngine() {
                     </div>
                     <div className="flex flex-col justify-end">
                         <label className="block text-[10px] font-black text-gray-400 uppercase mb-1.5">Computed Tax</label>
-                        <div className={`rounded-xl px-4 py-2.5 border ${result.source === 'no-nexus' ? 'bg-amber-50 border-amber-200' : 'bg-orange-50 border-orange-200'}`}>
-                            <p className={`text-lg font-black font-mono ${result.source === 'no-nexus' ? 'text-amber-700' : 'text-orange-700'}`}>
+                        <div className={`rounded-xl px-4 py-2.5 border ${
+                            result.source === 'no-nexus' ? 'bg-amber-50 border-amber-200'
+                                : result.source === 'provider' ? 'bg-indigo-50 border-indigo-200'
+                                : 'bg-orange-50 border-orange-200'
+                        }`}>
+                            <p className={`text-lg font-black font-mono ${
+                                result.source === 'no-nexus' ? 'text-amber-700'
+                                    : result.source === 'provider' ? 'text-indigo-700'
+                                    : 'text-orange-700'
+                            }`}>
                                 {formatCurrency(result.taxAmount)}
                             </p>
-                            <p className={`text-[10px] font-bold ${result.source === 'no-nexus' ? 'text-amber-700' : 'text-orange-600'}`}>
+                            <p className={`text-[10px] font-bold ${
+                                result.source === 'no-nexus' ? 'text-amber-700'
+                                    : result.source === 'provider' ? 'text-indigo-600'
+                                    : 'text-orange-600'
+                            }`}>
                                 {result.rate.toFixed(3)}% · source: {result.source}
+                                {result.providerId ? ` · ${PROVIDER_BY_ID[result.providerId].label}` : ''}
                                 {result.matchedRule ? ` · ${result.matchedRule.name}` : ''}
                             </p>
                         </div>
@@ -256,7 +365,16 @@ export default function TaxEngine() {
                 </div>
                 {result.source === 'no-nexus' && (
                     <div className="mt-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs font-bold text-amber-700">
-                        ⚠️ No active nexus on file for <strong>{demoJurisdiction.toUpperCase()}</strong> — a rule rated {result.rate.toFixed(3)}% would have applied but tax is suppressed. Add an active nexus on the <strong>Nexus</strong> tab to start collecting.
+                        ⚠️ No active nexus on file for <strong>{demoJurisdiction.toUpperCase()}</strong> —{' '}
+                        {result.providerId
+                            ? <>{PROVIDER_BY_ID[result.providerId].label} quoted <strong>{result.rate.toFixed(3)}%</strong></>
+                            : <>a rule rated <strong>{result.rate.toFixed(3)}%</strong> would have applied</>}
+                        {' '}but tax is suppressed. Add an active nexus on the <strong>Nexus</strong> tab to start collecting.
+                    </div>
+                )}
+                {result.providerFallbackReason && (
+                    <div className="mt-4 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3 text-xs font-bold text-rose-700">
+                        ⚠️ {activeProvider ? PROVIDER_BY_ID[activeProvider.id].label : 'Provider'} quote failed — <em>{result.providerFallbackReason}</em>. Falling back to internal engine.
                     </div>
                 )}
             </div>
@@ -282,6 +400,11 @@ export default function TaxEngine() {
             {/* Nexus editor */}
             {activeTab === 'nexus' && editingNexus !== null && (
                 <NexusForm initial={editingNexus} onSubmit={handleNexusSubmit} onCancel={() => setEditingNexus(null)} />
+            )}
+
+            {/* Provider editor */}
+            {activeTab === 'providers' && editingProvider !== null && (
+                <ProviderForm initial={editingProvider} onSubmit={handleProviderSubmit} onCancel={() => setEditingProvider(null)} />
             )}
 
             {/* ───── Rules tab ───── */}
@@ -411,8 +534,110 @@ export default function TaxEngine() {
                 </div>
             )}
 
+            {/* ───── Providers tab (Session 1D) ───── */}
+            {activeTab === 'providers' && (
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <div className="p-5 border-b border-gray-100">
+                        <p className="text-sm font-black text-gray-700 uppercase tracking-widest">
+                            External Tax Providers
+                        </p>
+                        <p className="text-xs text-gray-400 mt-1">
+                            Choose where the calculator gets its rates. The <strong>Internal Engine</strong> uses your configured rules + US state defaults. <strong>TaxJar</strong> and <strong>Avalara</strong> would normally call external APIs — Session 1D ships them as stubs so you can see the integration flow without API keys.
+                        </p>
+                    </div>
+                    <div className="divide-y divide-gray-50">
+                        {PROVIDERS.map(meta => {
+                            const cfg = providerConfigs.find(c => c.id === meta.id);
+                            const isInternal = meta.id === 'internal';
+                            const isActive = isInternal ? !activeProvider : !!cfg?.isActive;
+                            const isConfigured = isInternal || !!cfg;
+
+                            return (
+                                <div key={meta.id} className="p-5 flex items-center justify-between gap-4 flex-wrap hover:bg-gray-50">
+                                    <div className="flex items-start gap-3 min-w-0 flex-1">
+                                        <div className={`mt-0.5 w-10 h-10 rounded-xl flex items-center justify-center ${PROVIDER_ICON_CLASSES[meta.accent] || PROVIDER_ICON_CLASSES.gray}`}>
+                                            <Plug size={18} />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <p className="text-sm font-black text-gray-900">{meta.label}</p>
+                                                {isActive && (
+                                                    <span className="text-[10px] font-black uppercase px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full">
+                                                        Active
+                                                    </span>
+                                                )}
+                                                {meta.mocked && (
+                                                    <span className="text-[10px] font-black uppercase px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full">
+                                                        Stub
+                                                    </span>
+                                                )}
+                                                {cfg && (
+                                                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full">
+                                                        {cfg.environment}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <p className="text-xs text-gray-500 mt-1">{meta.blurb}</p>
+                                            {cfg?.lastSyncedAt && (
+                                                <p className="text-[10px] text-gray-400 mt-1">
+                                                    Last tested {new Date(cfg.lastSyncedAt).toLocaleString()}
+                                                </p>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                        {!isInternal && !isConfigured && (
+                                            <button
+                                                onClick={() => openProviderEdit({ id: meta.id })}
+                                                className="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl text-xs font-black uppercase tracking-wide transition-all"
+                                            >
+                                                Configure
+                                            </button>
+                                        )}
+                                        {!isInternal && isConfigured && (
+                                            <>
+                                                {!isActive && (
+                                                    <button
+                                                        onClick={() => handleSetActive(meta.id)}
+                                                        className="px-3 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-black uppercase tracking-wide transition-all"
+                                                    >
+                                                        Set Active
+                                                    </button>
+                                                )}
+                                                <button
+                                                    onClick={() => cfg && openProviderEdit(cfg)}
+                                                    className="p-2 hover:bg-blue-50 rounded-lg text-blue-500 hover:text-blue-700"
+                                                    title="Edit provider"
+                                                >
+                                                    <Edit2 size={14} />
+                                                </button>
+                                                <button
+                                                    onClick={() => handleProviderDelete(meta.id)}
+                                                    className="p-2 hover:bg-red-50 rounded-lg text-red-400 hover:text-red-600"
+                                                    title="Remove configuration"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            </>
+                                        )}
+                                        {isInternal && !isActive && (
+                                            <button
+                                                onClick={() => handleSetActive('internal')}
+                                                className="px-3 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl text-xs font-black uppercase tracking-wide transition-all"
+                                            >
+                                                Set Active
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
             <p className="text-xs text-gray-400 text-center">
-                Tax Engine v{TAX_ENGINE_VERSION} · Session 1C: nexus enforcement
+                Tax Engine v{TAX_ENGINE_VERSION} · Session 1D: external provider integration
             </p>
         </div>
     );

@@ -1,6 +1,6 @@
 // Tax Engine — constants.
 
-export const TAX_ENGINE_VERSION = '1.0.0-session-1C';
+export const TAX_ENGINE_VERSION = '1.0.0-session-1D';
 
 // US state default combined sales tax rates (avg, used when no API or
 // nexus-specific override is available). Mirrors the lookup in
@@ -26,3 +26,48 @@ export const NEXUS_TYPE_LABELS: Record<string, string> = {
     'click-through': 'Click-Through',
     affiliate: 'Affiliate',
 };
+
+// Session 1D — external tax providers.
+// 'internal' is always present and means "use local rules + state defaults"
+// (the engine that shipped in 1A–1C). The other two are real SaaS providers
+// whose live API integration is stubbed in Session 1D — the frontend handles
+// config + the request/response shape, but quote() returns simulated numbers
+// so a developer without TaxJar / Avalara API keys can still see the flow.
+import type { ProviderId } from './types';
+
+export interface ProviderMeta {
+    id: ProviderId;
+    label: string;
+    blurb: string;
+    accent: string;  // tailwind colour family token used by the UI chip
+    /** Live integration not yet wired — quote() returns simulated rates. */
+    mocked: boolean;
+}
+
+export const PROVIDERS: ProviderMeta[] = [
+    {
+        id: 'internal',
+        label: 'Internal Engine',
+        blurb: 'Local rules + US state defaults. Free, always on, what 1A–1C built.',
+        accent: 'gray',
+        mocked: false,
+    },
+    {
+        id: 'taxjar',
+        label: 'TaxJar',
+        blurb: 'Stripe-owned SaaS. Real-time US sales tax with rooftop-accurate rates.',
+        accent: 'emerald',
+        mocked: true,
+    },
+    {
+        id: 'avalara',
+        label: 'Avalara AvaTax',
+        blurb: 'Enterprise-grade global tax. US + 190+ countries, VAT/GST, filings.',
+        accent: 'indigo',
+        mocked: true,
+    },
+];
+
+export const PROVIDER_BY_ID: Record<ProviderId, ProviderMeta> = Object.fromEntries(
+    PROVIDERS.map(p => [p.id, p]),
+) as Record<ProviderId, ProviderMeta>;

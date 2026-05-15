@@ -1,20 +1,38 @@
 // Tax Engine — pure calculation helpers.
 //
-// Stays pure / framework-agnostic so it can be unit-tested without
-// React. Session 1B will plug TaxJar lookups in here; for 1A we just
-// look at the rules array we've already loaded.
+// calculateTax() stays pure / framework-agnostic so it can be unit-tested
+// without React. Session 1D adds calculateTaxWithProvider() which can
+// optionally consult an external provider (TaxJar / Avalara) — that one
+// is async and falls back to the pure calc on provider error.
 
-import type { TaxRule, TaxNexus } from '../data/types';
+import type { TaxRule, TaxNexus, TaxProviderConfig, ProviderId } from '../data/types';
 import { US_STATE_RATES } from '../data/constants';
+import { quote as providerQuote } from '../integrations/providerClient';
 
 export interface TaxComputation {
     rate: number;        // percent
     taxAmount: number;   // currency
-    source: 'rule' | 'us-state-default' | 'no-rate' | 'no-nexus';
+    source: 'rule' | 'us-state-default' | 'no-rate' | 'no-nexus' | 'provider';
     matchedRule?: TaxRule;
     /** True when a rule / fallback existed but we suppressed tax because
      *  there's no active nexus for the jurisdiction. */
     nexusMissing?: boolean;
+    /** Session 1D — set when source='provider'. Identifies which external
+     *  service answered the quote, so the UI can render a "via TaxJar"
+     *  badge without re-deriving it. */
+    providerId?: ProviderId;
+    /** Optional jurisdiction breakdown (state/county/city/special).
+     *  Provider-supplied; not populated by the internal engine. */
+    providerBreakdown?: {
+        state?: number;
+        county?: number;
+        city?: number;
+        special?: number;
+    };
+    /** Session 1D — set when the provider was tried but failed and we fell
+     *  back to the internal engine. UI uses this to show a small banner
+     *  explaining the source mismatch. */
+    providerFallbackReason?: string;
 }
 
 /** True if an active nexus exists for the jurisdiction. */
@@ -94,6 +112,59 @@ export function calculateTax(
     // nexus exists, return 0 and mark source='no-nexus' so the UI can
     // explain the suppression.
     if (nexusList !== undefined && provisional.source !== 'no-rate' && !hasNexus(nexusList, jurisdiction)) {
+        return {
+            ...provisional,
+            taxAmount: 0,
+            source: 'no-nexus',
+            nexusMissing: true,
+        };
+    }
+
+    return provisional;
+}
+
+/** Session 1D — async calc that prefers the external provider when one is
+ *  active. Behaviour:
+ *
+ *    1. If no active provider, just runs calculateTax() and returns.
+ *    2. If active provider exists, asks it for a quote.
+ *       - Success → source='provider', rate/amount from the quote.
+ *       - Failure → falls back to calculateTax() and stamps
+ *         `providerFallbackReason` so the UI can flag it.
+ *    3. Nexus enforcement runs AFTER the provider answers — so even a
+ *       provider-supplied quote gets suppressed when no nexus exists.
+ *       (Provider only knows rates; nexus is an internal concern.)
+ */
+export async function calculateTaxWithProvider(
+    amount: number,
+    jurisdiction: string,
+    rules: TaxRule[],
+    productCategory: string | undefined,
+    nexusList: TaxNexus[] | undefined,
+    activeProvider: TaxProviderConfig | null | undefined,
+): Promise<TaxComputation> {
+    const internal = calculateTax(amount, jurisdiction, rules, productCategory, nexusList);
+
+    if (!activeProvider || activeProvider.id === 'internal' || !activeProvider.isActive) {
+        return internal;
+    }
+
+    const { quote: q, error } = await providerQuote(activeProvider, { amount, jurisdiction, productCategory });
+    if (!q) {
+        return { ...internal, providerFallbackReason: error || 'Provider returned no quote' };
+    }
+
+    const provisional: TaxComputation = {
+        rate: q.rate,
+        taxAmount: q.taxAmount,
+        source: 'provider',
+        providerId: q.providerId,
+        providerBreakdown: q.breakdown,
+    };
+
+    // Nexus enforcement applies to provider quotes too — provider doesn't
+    // know whether we have a collection obligation in that jurisdiction.
+    if (nexusList !== undefined && !hasNexus(nexusList, jurisdiction)) {
         return {
             ...provisional,
             taxAmount: 0,
