@@ -82,6 +82,44 @@ export default function ProfitabilityReports() {
                 getProducts().catch(() => [])
             ]);
 
+            // Build a normalised name → product.cost lookup so we can compute
+            // REAL COGS per invoice line instead of the old hardcoded
+            // `revenue * 0.65` guess. Normalisation matches the same fuzzy
+            // strategy used in inventoryService FIFO/LIFO so we hit the same
+            // products: lowercase + strip non-alphanumeric, then prefix/contains.
+            const norm = (s: string) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+            const productCostByNorm: { key: string; cost: number }[] = (products as any[])
+                .map(p => ({ key: norm(p.name || ''), cost: Number(p.cost) || 0 }))
+                .filter(p => p.key && p.cost > 0);
+            const costForLineName = (lineName: string): number => {
+                const k = norm(lineName);
+                if (!k) return 0;
+                const exact = productCostByNorm.find(p => p.key === k);
+                if (exact) return exact.cost;
+                const contains = productCostByNorm.find(p => k.includes(p.key) || p.key.includes(k));
+                return contains?.cost || 0;
+            };
+            // Per-invoice COGS = sum over lines of (qty × matched-product cost).
+            // Falls back to 65% of grandTotal only if NO line matches (legacy
+            // data with no product linkage at all).
+            const cogsForInvoice = (inv: any): number => {
+                const lines = (inv.items as any[]) || (inv.lineItems as any[]) || [];
+                let cogs = 0;
+                let matched = 0;
+                for (const line of lines) {
+                    const qty = Number(line.quantity) || 0;
+                    const c = costForLineName(line.product || line.productName || line.description || '');
+                    if (c > 0 && qty > 0) {
+                        cogs += qty * c;
+                        matched += qty;
+                    }
+                }
+                // No product matches → fallback so the report still shows
+                // SOMETHING (was the old default for the entire dataset).
+                if (matched === 0) return (inv.grandTotal || 0) * 0.65;
+                return cogs;
+            };
+
             // Monthly Revenue (last 12 months)
             const monthMap: Record<string, {revenue: number; profit: number; cogs: number}> = {};
             const now = new Date();
@@ -97,7 +135,7 @@ export default function ProfitabilityReports() {
                 const key = `${months2[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`;
                 if (monthMap[key]) {
                     const rev = inv.grandTotal || 0;
-                    const cogs = rev * 0.65; // estimated 65% COGS
+                    const cogs = cogsForInvoice(inv);
                     monthMap[key].revenue += rev;
                     monthMap[key].cogs += cogs;
                     monthMap[key].profit += rev - cogs;
@@ -118,35 +156,43 @@ export default function ProfitabilityReports() {
             invoices.forEach(inv => {
                 const name = inv.customerName || 'Unknown';
                 if (!custMarginMap[name]) custMarginMap[name] = 0;
-                const margin = inv.grandTotal > 0 ? ((inv.grandTotal - inv.subtotal * 0.65) / inv.grandTotal) * 100 : 0;
+                // Real margin per invoice: (revenue − real COGS) / revenue.
+                // Was previously using `subtotal * 0.65` as a fake COGS guess.
+                const cogs = cogsForInvoice(inv);
+                const margin = inv.grandTotal > 0 ? ((inv.grandTotal - cogs) / inv.grandTotal) * 100 : 0;
                 custMarginMap[name] = Math.max(custMarginMap[name], margin);
             });
             setTopCustomers(
                 Object.entries(custMap)
-                    .map(([name, v]) => ({ name, revenue: v.revenue, invoices: v.invoices, margin: Math.round(custMarginMap[name] || 35) }))
+                    .map(([name, v]) => ({ name, revenue: v.revenue, invoices: v.invoices, margin: Math.round(custMarginMap[name] || 0) }))
                     .sort((a, b) => b.revenue - a.revenue)
                     .slice(0, 10)
             );
 
-            // Top Products by Revenue from invoices
-            const prodMap: Record<string, {revenue: number; units: number}> = {};
+            // Top Products by Revenue from invoices — real per-line profit.
+            const prodMap: Record<string, {revenue: number; units: number; cogs: number}> = {};
             invoices.forEach(inv => {
-                (inv.lineItems || []).forEach((item: any) => {
-                    const name = item.product || item.description || 'Unknown';
-                    if (!prodMap[name]) prodMap[name] = { revenue: 0, units: 0 };
-                    prodMap[name].revenue += item.amount || 0;
-                    prodMap[name].units += item.quantity || 0;
+                // Backend serialises line items under `items`; some legacy
+                // imports used `lineItems`. Accept both.
+                const lines = ((inv as any).items || (inv as any).lineItems || []) as any[];
+                lines.forEach((item: any) => {
+                    const name = item.product || item.productName || item.description || 'Unknown';
+                    if (!prodMap[name]) prodMap[name] = { revenue: 0, units: 0, cogs: 0 };
+                    const qty = Number(item.quantity) || 0;
+                    const revLine = Number(item.amount) || (Number(item.rate) || 0) * qty;
+                    const costLine = costForLineName(name) * qty;
+                    prodMap[name].revenue += revLine;
+                    prodMap[name].units += qty;
+                    prodMap[name].cogs += costLine;
                 });
             });
             setTopProducts(
                 Object.entries(prodMap)
-                    .map(([name, v]) => ({
-                        name,
-                        revenue: v.revenue,
-                        profit: v.revenue * 0.35,
-                        margin: 35,
-                        units: v.units
-                    }))
+                    .map(([name, v]) => {
+                        const profit = v.revenue - v.cogs;
+                        const margin = v.revenue > 0 ? Math.round((profit / v.revenue) * 100) : 0;
+                        return { name, revenue: v.revenue, profit, margin, units: v.units };
+                    })
                     .sort((a, b) => b.revenue - a.revenue)
                     .slice(0, 10)
             );
