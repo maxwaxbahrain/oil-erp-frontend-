@@ -26,7 +26,12 @@ import { TAX_ENGINE_VERSION, NEXUS_TYPE_LABELS } from './data/constants';
 import type { TaxRule, TaxNexus } from './data/types';
 import { formatCurrency } from '../../services/settingsService';
 
-type Tab = 'rules' | 'nexus' | 'calculator';
+// Calculator was pulled out of the tab strip in Session 1C-fix because it's
+// the primary thing users hit the Tax Engine for — keeping it tucked
+// behind a tab as the *last* option meant users had to click through
+// twice on first visit to see any calculation. It now lives above the
+// tabs and is always visible.
+type Tab = 'rules' | 'nexus';
 
 export default function TaxEngine() {
     const navigate = useNavigate();
@@ -155,7 +160,6 @@ export default function TaxEngine() {
     const TABS: { id: Tab; label: string; count?: number }[] = [
         { id: 'rules', label: '📜 Rules', count: rules.length },
         { id: 'nexus', label: '📍 Nexus', count: nexusList.length },
-        { id: 'calculator', label: '🧮 Calculator' },
     ];
 
     return (
@@ -202,6 +206,59 @@ export default function TaxEngine() {
                         )}
                     </div>
                 </div>
+            </div>
+
+            {/* Quick Calculator — pinned at the top, ALWAYS visible.
+                Was previously buried as the third (last) tab so users
+                couldn't see any calculation result without two extra clicks
+                on first visit. */}
+            <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
+                <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                    <h2 className="text-sm font-black text-gray-700 uppercase tracking-widest flex items-center gap-2">
+                        🧮 Quick Calculator
+                    </h2>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                        live · re-runs as you type
+                    </p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-1.5">Amount</label>
+                        <input
+                            type="number"
+                            value={demoAmount}
+                            onChange={e => setDemoAmount(e.target.value)}
+                            className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-orange-400"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-1.5">Jurisdiction</label>
+                        <input
+                            type="text"
+                            value={demoJurisdiction}
+                            onChange={e => setDemoJurisdiction(e.target.value)}
+                            placeholder="e.g. US-NY"
+                            className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-orange-400"
+                        />
+                    </div>
+                    <div className="flex flex-col justify-end">
+                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-1.5">Computed Tax</label>
+                        <div className={`rounded-xl px-4 py-2.5 border ${result.source === 'no-nexus' ? 'bg-amber-50 border-amber-200' : 'bg-orange-50 border-orange-200'}`}>
+                            <p className={`text-lg font-black font-mono ${result.source === 'no-nexus' ? 'text-amber-700' : 'text-orange-700'}`}>
+                                {formatCurrency(result.taxAmount)}
+                            </p>
+                            <p className={`text-[10px] font-bold ${result.source === 'no-nexus' ? 'text-amber-700' : 'text-orange-600'}`}>
+                                {result.rate.toFixed(3)}% · source: {result.source}
+                                {result.matchedRule ? ` · ${result.matchedRule.name}` : ''}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                {result.source === 'no-nexus' && (
+                    <div className="mt-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs font-bold text-amber-700">
+                        ⚠️ No active nexus on file for <strong>{demoJurisdiction.toUpperCase()}</strong> — a rule rated {result.rate.toFixed(3)}% would have applied but tax is suppressed. Add an active nexus on the <strong>Nexus</strong> tab to start collecting.
+                    </div>
+                )}
             </div>
 
             {/* Tabs */}
@@ -350,51 +407,6 @@ export default function TaxEngine() {
                                 ))}
                             </tbody>
                         </table>
-                    )}
-                </div>
-            )}
-
-            {/* ───── Calculator tab ───── */}
-            {activeTab === 'calculator' && (
-                <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
-                    <h2 className="text-sm font-black text-gray-700 uppercase tracking-widest mb-4">Quick Calculator</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div>
-                            <label className="block text-[10px] font-black text-gray-400 uppercase mb-1.5">Amount</label>
-                            <input
-                                type="number"
-                                value={demoAmount}
-                                onChange={e => setDemoAmount(e.target.value)}
-                                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-orange-400"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-[10px] font-black text-gray-400 uppercase mb-1.5">Jurisdiction</label>
-                            <input
-                                type="text"
-                                value={demoJurisdiction}
-                                onChange={e => setDemoJurisdiction(e.target.value)}
-                                placeholder="e.g. US-NY"
-                                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-orange-400"
-                            />
-                        </div>
-                        <div className="flex flex-col justify-end">
-                            <label className="block text-[10px] font-black text-gray-400 uppercase mb-1.5">Computed Tax</label>
-                            <div className={`rounded-xl px-4 py-2.5 border ${result.source === 'no-nexus' ? 'bg-amber-50 border-amber-200' : 'bg-orange-50 border-orange-200'}`}>
-                                <p className={`text-lg font-black font-mono ${result.source === 'no-nexus' ? 'text-amber-700' : 'text-orange-700'}`}>
-                                    {formatCurrency(result.taxAmount)}
-                                </p>
-                                <p className={`text-[10px] font-bold ${result.source === 'no-nexus' ? 'text-amber-700' : 'text-orange-600'}`}>
-                                    {result.rate.toFixed(3)}% · source: {result.source}
-                                    {result.matchedRule ? ` · ${result.matchedRule.name}` : ''}
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                    {result.source === 'no-nexus' && (
-                        <div className="mt-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs font-bold text-amber-700">
-                            ⚠️ No active nexus on file for <strong>{demoJurisdiction.toUpperCase()}</strong> — a rule rated {result.rate.toFixed(3)}% would have applied but tax is suppressed. Add an active nexus on the <strong>Nexus</strong> tab to start collecting.
-                        </div>
                     )}
                 </div>
             )}
