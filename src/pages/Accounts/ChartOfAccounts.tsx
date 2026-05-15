@@ -241,10 +241,17 @@ async function computeAccountBalances(accounts: Account[]): Promise<Record<strin
         map['2110'] = apSum;
     }
 
-    // 4100 / 4110 Sales Revenue — total invoiced.
+    // Sales Revenue — total invoiced. Set ONLY the leaf account; the
+    // roll-up below sums it into the parent. Setting both 4100 (parent)
+    // and 4110 (child) caused the parent to double-count after roll-up.
+    // 4110 "Oil & Lubricant Sales" is the natural bucket since Soltol is
+    // an oil-products business; fall back to 4100 if the leaf is missing.
     const invTotal = invoices.reduce((s, i: any) => s + (Number(i.grandTotal ?? i.total) || 0), 0);
-    if (map['4100'] !== undefined) map['4100'] = invTotal;
-    if (map['4110'] !== undefined) map['4110'] = invTotal; // legacy oil-only bucket
+    if (map['4110'] !== undefined) {
+        map['4110'] = invTotal;
+    } else if (map['4100'] !== undefined) {
+        map['4100'] = invTotal;
+    }
 
     // 5110 Purchases — total POs across all suppliers.
     const posLists = await Promise.all(
