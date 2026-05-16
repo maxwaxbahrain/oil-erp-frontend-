@@ -15,12 +15,15 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import {
+    calculateInvoiceTax,
     calculateTax,
     findExemption,
     hasNexus,
     pickRule,
 } from './calculator';
+import type { InvoiceTaxLineItem } from './calculator';
 import type { TaxExemption, TaxNexus, TaxRule } from '../data/types';
+import { US_STATES, US_STATE_RATES } from '../data/constants';
 
 // ─── Time mocking ─────────────────────────────────────────────────────
 // findExemption() inside calculator.ts calls `new Date()` each time it
@@ -242,10 +245,10 @@ describe('calculateTax', () => {
     it('falls back to the US state default when no rule matches a US jurisdiction', () => {
         const result = calculateTax(1000, 'US-CA', []);
         expect(result.source).toBe('us-state-default');
-        // CA default is 10.25% in US_STATE_RATES — change this if the
-        // constant changes.
-        expect(result.rate).toBe(10.25);
-        expect(result.taxAmount).toBeCloseTo(102.5, 5);
+        // CA = 7.25 state + 1.57 local = 8.82 combined (Session 1B retrofit).
+        // If US_STATES['CA'] changes, this test changes.
+        expect(result.rate).toBe(8.82);
+        expect(result.taxAmount).toBeCloseTo(88.2, 5);
     });
 
     it('returns no-rate for an unknown non-US jurisdiction', () => {
@@ -355,5 +358,213 @@ describe('calculateTax', () => {
         );
         // Cert expired → not matched → nexus check kicks in → no-nexus.
         expect(result.source).toBe('no-nexus');
+    });
+});
+
+// ─── US_STATES coverage (Session 1B retrofit) ────────────────────────
+//
+// The prompt asked for all 50 states + DC. These tests assert that the
+// table is complete, internally consistent (stateRate + avgLocalRate ===
+// combinedRate within float tolerance), and that the derived
+// US_STATE_RATES lookup matches the combined rate. Catches typos in the
+// data table (e.g. someone editing avgLocalRate without recomputing
+// combinedRate) before they ship into customer tax bills.
+
+describe('US_STATES coverage', () => {
+    const EXPECTED_CODES = [
+        'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA',
+        'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD',
+        'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
+        'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC',
+        'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY',
+        'DC',
+    ];
+
+    it('has all 50 states + DC (exactly 51 entries)', () => {
+        expect(Object.keys(US_STATES).sort()).toEqual([...EXPECTED_CODES].sort());
+    });
+
+    it.each(EXPECTED_CODES)('%s: stateRate + avgLocalRate === combinedRate', (code) => {
+        const info = US_STATES[code];
+        // Sum to 3 decimals to absorb float noise (MN has .875 + .580 = 7.455).
+        expect(Math.round((info.stateRate + info.avgLocalRate) * 1000) / 1000)
+            .toBeCloseTo(info.combinedRate, 3);
+    });
+
+    it.each(EXPECTED_CODES)('%s: derived US_STATE_RATES matches combinedRate', (code) => {
+        expect(US_STATE_RATES[code]).toBe(US_STATES[code].combinedRate);
+    });
+
+    it.each(EXPECTED_CODES)('%s: stateCode field matches the key', (code) => {
+        expect(US_STATES[code].stateCode).toBe(code);
+    });
+
+    it.each(EXPECTED_CODES)('%s: stateName is a non-empty string', (code) => {
+        expect(typeof US_STATES[code].stateName).toBe('string');
+        expect(US_STATES[code].stateName.length).toBeGreaterThan(0);
+    });
+});
+
+// ─── 2-decimal rounding (Session 1B retrofit) ────────────────────────
+//
+// All taxAmount values surfaced by the engine pass through round2() so
+// the UI never has to render $88.789012. Tests assert that the result
+// has at most 2 decimal places for inputs that would otherwise produce
+// more — including edge cases where the float math is ugly.
+
+describe('2-decimal rounding on taxAmount', () => {
+    function decimalPlaces(n: number): number {
+        const s = n.toString();
+        const dot = s.indexOf('.');
+        return dot === -1 ? 0 : s.length - dot - 1;
+    }
+
+    it('rounds rule-based output (1000 * 8.875% = 88.75 → exact)', () => {
+        const result = calculateTax(1000, 'US-NY', [rule({ rate: 8.875 })]);
+        expect(result.taxAmount).toBe(88.75);
+        expect(decimalPlaces(result.taxAmount)).toBeLessThanOrEqual(2);
+    });
+
+    it('rounds rule-based output to 2dp for an awkward float input', () => {
+        // 999.99 * 8.875% = 88.74911...625 → should round to 88.75.
+        const result = calculateTax(999.99, 'US-NY', [rule({ rate: 8.875 })]);
+        expect(result.taxAmount).toBe(88.75);
+        expect(decimalPlaces(result.taxAmount)).toBeLessThanOrEqual(2);
+    });
+
+    it('rounds us-state-default output to 2dp', () => {
+        // 137 * 9.22% = 12.6314 → should round to 12.63.
+        const result = calculateTax(137, 'US-AL', []);
+        expect(result.taxAmount).toBe(12.63);
+        expect(decimalPlaces(result.taxAmount)).toBeLessThanOrEqual(2);
+    });
+
+    it('does NOT round provisional rate (rate stays at the configured precision)', () => {
+        // Rounding is for currency display, not rate display.
+        const result = calculateTax(1000, 'US-NY', [rule({ rate: 8.875 })]);
+        expect(result.rate).toBe(8.875);
+    });
+});
+
+// ─── calculateInvoiceTax (Session 1B retrofit) ───────────────────────
+//
+// The function invoice pages will call. Per-line math is delegated to
+// calculateTax so all rule / nexus / exemption logic is shared; this
+// covers the aggregation, state/local split, effectiveRate, and the
+// passthrough fields the UI renders.
+
+describe('calculateInvoiceTax', () => {
+    const line = (over: Partial<InvoiceTaxLineItem> = {}): InvoiceTaxLineItem => ({
+        amount: 100,
+        ...over,
+    });
+
+    it('handles an empty invoice (no lines) without dividing by zero', () => {
+        const result = calculateInvoiceTax([], 'US-NY', [rule()]);
+        expect(result.totalTax).toBe(0);
+        expect(result.stateTax).toBe(0);
+        expect(result.localTax).toBe(0);
+        expect(result.effectiveRate).toBe(0);
+        expect(result.lineBreakdown).toEqual([]);
+    });
+
+    it('computes single-line tax via the underlying calculateTax', () => {
+        const result = calculateInvoiceTax([line({ amount: 1000 })], 'US-NY', [rule({ rate: 8.875 })]);
+        expect(result.totalTax).toBe(88.75);
+        expect(result.lineBreakdown).toHaveLength(1);
+        expect(result.lineBreakdown[0].amount).toBe(1000);
+        expect(result.lineBreakdown[0].taxAmount).toBe(88.75);
+        expect(result.lineBreakdown[0].source).toBe('rule');
+        // effectiveRate = 88.75 / 1000 * 100 = 8.875%, rounded to 3dp.
+        expect(result.effectiveRate).toBe(8.875);
+    });
+
+    it('sums multi-line tax + reports a useful effectiveRate', () => {
+        // Two lines, both at NY rule rate. Subtotal = 1500, totalTax = 133.13.
+        // (1000 * 0.08875 = 88.75; 500 * 0.08875 = 44.375 → rounds to 44.38;
+        //  88.75 + 44.38 = 133.13)
+        const result = calculateInvoiceTax(
+            [line({ amount: 1000, lineId: 'a' }), line({ amount: 500, lineId: 'b' })],
+            'US-NY',
+            [rule({ rate: 8.875 })],
+        );
+        expect(result.totalTax).toBe(133.13);
+        expect(result.lineBreakdown.map(l => l.lineId)).toEqual(['a', 'b']);
+        // effectiveRate ≈ 8.875% (modulo a fraction of a basis point from
+        // per-line rounding).
+        expect(result.effectiveRate).toBeCloseTo(8.875, 2);
+    });
+
+    it('splits stateTax + localTax in US_STATES ratio for US jurisdictions', () => {
+        // NY = 4.00 state + 4.52 local = 8.52 combined. Ratio: state share
+        // = 4.00 / 8.52 ≈ 0.4695. For a $1000 line at 8.52% combined
+        // (state-default path), totalTax = 85.20; stateTax = 85.20 * 0.4695
+        // ≈ 40.00; localTax = remainder = 45.20.
+        const result = calculateInvoiceTax([line({ amount: 1000 })], 'US-NY', []);
+        expect(result.totalTax).toBe(85.20);
+        expect(result.stateTax).toBe(40.00);
+        expect(result.localTax).toBe(45.20);
+        // stateTax + localTax must equal totalTax exactly — that's the
+        // "no $0.01 drift" guarantee.
+        expect(result.stateTax + result.localTax).toBe(result.totalTax);
+    });
+
+    it('attributes the entire amount to stateTax for non-US jurisdictions', () => {
+        const result = calculateInvoiceTax([line({ amount: 1000 })], 'BH', [rule({ jurisdiction: 'BH', rate: 10 })]);
+        expect(result.totalTax).toBe(100);
+        expect(result.stateTax).toBe(100);
+        expect(result.localTax).toBe(0);
+    });
+
+    it('returns $0 totals when every line is exempt for the customer', () => {
+        const result = calculateInvoiceTax(
+            [line({ amount: 1000 }), line({ amount: 500 })],
+            'US-NY',
+            [rule({ rate: 8.875 })],
+            [nexus()],
+            [exemption()],
+            'ACME',
+        );
+        expect(result.totalTax).toBe(0);
+        expect(result.stateTax).toBe(0);
+        expect(result.localTax).toBe(0);
+        expect(result.lineBreakdown.every(l => l.source === 'exempt')).toBe(true);
+        expect(result.lineBreakdown.every(l => l.matchedExemption?.certificateNumber === 'ST-119-001')).toBe(true);
+    });
+
+    it('returns $0 totals when nexus is missing', () => {
+        const result = calculateInvoiceTax(
+            [line({ amount: 1000 })],
+            'US-NY',
+            [rule({ rate: 8.875 })],
+            [],                              // no nexus
+        );
+        expect(result.totalTax).toBe(0);
+        expect(result.stateTax).toBe(0);
+        expect(result.localTax).toBe(0);
+        expect(result.lineBreakdown[0].source).toBe('no-nexus');
+        // Rate preserved on the line so the UI can still show "would have
+        // been 8.875%".
+        expect(result.lineBreakdown[0].rate).toBe(8.875);
+    });
+
+    it('routes per-line productCategory through to pickRule', () => {
+        const generic = rule({ id: 'g', rate: 10 });
+        const food    = rule({ id: 'f', rate: 0, productCategory: 'food' });
+        const result = calculateInvoiceTax(
+            [line({ amount: 100, productCategory: 'food' }), line({ amount: 100 })],
+            'US-NY',
+            [generic, food],
+        );
+        expect(result.lineBreakdown[0].matchedRule?.id).toBe('f');   // food line uses food rule (0%)
+        expect(result.lineBreakdown[1].matchedRule?.id).toBe('g');   // other line uses generic (10%)
+        expect(result.lineBreakdown[0].taxAmount).toBe(0);
+        expect(result.lineBreakdown[1].taxAmount).toBe(10);
+    });
+
+    it('effectiveRate is 0 when subtotal is 0 (no divide-by-zero)', () => {
+        const result = calculateInvoiceTax([line({ amount: 0 })], 'US-NY', [rule()]);
+        expect(result.effectiveRate).toBe(0);
+        expect(result.totalTax).toBe(0);
     });
 });

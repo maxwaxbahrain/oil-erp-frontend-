@@ -6,8 +6,15 @@
 // is async and falls back to the pure calc on provider error.
 
 import type { TaxRule, TaxNexus, TaxProviderConfig, ProviderId, TaxExemption } from '../data/types';
-import { US_STATE_RATES, EXEMPTION_ANY_JURISDICTION } from '../data/constants';
+import { US_STATES, US_STATE_RATES, EXEMPTION_ANY_JURISDICTION } from '../data/constants';
 import { quote as providerQuote } from '../integrations/providerClient';
+
+/** Round to 2 decimal places using half-up (the convention every
+ *  invoicing system uses for money display). All tax amounts surface
+ *  through this so the UI never has to show `$88.789012` again. */
+function round2(n: number): number {
+    return Math.round(n * 100) / 100;
+}
 
 export interface TaxComputation {
     rate: number;        // percent
@@ -133,7 +140,7 @@ export function calculateTax(
         const rate = Number(rule.rate) || 0;
         provisional = {
             rate,
-            taxAmount: safeAmount * (rate / 100),
+            taxAmount: round2(safeAmount * (rate / 100)),
             source: 'rule',
             matchedRule: rule,
         };
@@ -146,7 +153,7 @@ export function calculateTax(
             const state = usMatch[1].toUpperCase();
             const rate = US_STATE_RATES[state];
             if (rate !== undefined) {
-                provisional = { rate, taxAmount: safeAmount * (rate / 100), source: 'us-state-default' };
+                provisional = { rate, taxAmount: round2(safeAmount * (rate / 100)), source: 'us-state-default' };
             } else {
                 provisional = { rate: 0, taxAmount: 0, source: 'no-rate' };
             }
@@ -257,4 +264,144 @@ export async function calculateTaxWithProvider(
     }
 
     return provisional;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Session 1B retrofit — invoice-level tax.
+//
+// calculateTax() is the per-line primitive. calculateInvoiceTax() is the
+// thing invoice pages call: hand it the whole invoice's line items and it
+// returns the totals + a per-line breakdown ready to render. Each line is
+// computed through calculateTax() so all the rules / nexus / exemption /
+// rounding logic is shared (no duplicated math).
+//
+// State vs local split (totalTax → stateTax + localTax):
+//   When the jurisdiction looks like US-XX and US_STATES has data for it,
+//   we split the line's totalTax in proportion to the state's published
+//   stateRate / avgLocalRate ratio. This is the best we can do without
+//   line-level rate sourcing from a real provider — and matches what tax
+//   filings expect on a Schedule. For non-US jurisdictions (or unknown
+//   states), the entire amount is attributed to stateTax with localTax=0.
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface InvoiceTaxLineItem {
+    /** Line subtotal in invoice currency, BEFORE tax. */
+    amount: number;
+    /** Optional category that picks a more specific configured rule
+     *  (see pickRule). Free-form today; matches the rule's productCategory
+     *  field as a case-insensitive string. */
+    productCategory?: string;
+    /** Optional opaque identifier passed straight through to the
+     *  lineBreakdown entry — useful for invoice pages that need to map a
+     *  result back to a specific product / line. */
+    lineId?: string;
+}
+
+export interface InvoiceTaxLineBreakdown {
+    lineId?: string;
+    amount: number;
+    rate: number;
+    /** State-portion of taxAmount (rounded to 2dp). */
+    stateTax: number;
+    /** Local-portion of taxAmount (rounded to 2dp). */
+    localTax: number;
+    /** stateTax + localTax (≤ rounding error vs the underlying per-line
+     *  result; matches lineTax for non-US jurisdictions where the entire
+     *  amount lands in stateTax). */
+    taxAmount: number;
+    source: TaxComputation['source'];
+    matchedRule?: TaxRule;
+    matchedExemption?: TaxExemption;
+}
+
+export interface InvoiceTaxResult {
+    /** Sum of all stateTax across line items, rounded to 2dp. */
+    stateTax: number;
+    /** Sum of all localTax across line items, rounded to 2dp. */
+    localTax: number;
+    /** stateTax + localTax (re-rounded so the displayed total matches the
+     *  displayed pieces — pieces are rounded INDIVIDUALLY before summing
+     *  to avoid a $0.01 drift on long invoices). */
+    totalTax: number;
+    /** totalTax as a percent of the invoice subtotal, rounded to 3dp.
+     *  Useful for the audit / filing summary. Returns 0 when subtotal=0. */
+    effectiveRate: number;
+    /** Per-line detail in input order. Source / matchedRule / matchedExemption
+     *  are passed through from each line's calculateTax() result so callers
+     *  can render "via TaxJar" / "exempt by cert #..." badges without
+     *  re-deriving them. */
+    lineBreakdown: InvoiceTaxLineBreakdown[];
+}
+
+/** Split a line's totalTax into stateTax + localTax using the published
+ *  state-rate / local-rate ratio for the jurisdiction. Falls back to
+ *  "all state, no local" for non-US jurisdictions or US states we don't
+ *  have breakdown data for. */
+function splitStateLocal(jurisdiction: string, totalTax: number): { stateTax: number; localTax: number } {
+    const usMatch = /^US-([A-Z]{2})$/i.exec(jurisdiction || '');
+    if (!usMatch) return { stateTax: round2(totalTax), localTax: 0 };
+    const info = US_STATES[usMatch[1].toUpperCase()];
+    if (!info || info.combinedRate <= 0) return { stateTax: round2(totalTax), localTax: 0 };
+    // Proportional split — preserves the totalTax exactly (modulo 2dp
+    // rounding) and matches what a state filing would expect.
+    const stateShare = info.stateRate / info.combinedRate;
+    const stateTax = round2(totalTax * stateShare);
+    // Compute local as the remainder so stateTax + localTax === totalTax
+    // exactly (avoids a 1-cent drift from two independent roundings).
+    const localTax = round2(totalTax - stateTax);
+    return { stateTax, localTax };
+}
+
+export function calculateInvoiceTax(
+    lineItems: InvoiceTaxLineItem[],
+    jurisdiction: string,
+    rules: TaxRule[],
+    nexusList?: TaxNexus[],
+    exemptions?: TaxExemption[],
+    customerId?: string,
+): InvoiceTaxResult {
+    let stateTotal = 0;
+    let localTotal = 0;
+    let subtotal = 0;
+    const lineBreakdown: InvoiceTaxLineBreakdown[] = [];
+
+    for (const line of lineItems) {
+        const result = calculateTax(
+            line.amount,
+            jurisdiction,
+            rules,
+            line.productCategory,
+            nexusList,
+            exemptions,
+            customerId,
+        );
+        const { stateTax, localTax } = splitStateLocal(jurisdiction, result.taxAmount);
+        lineBreakdown.push({
+            lineId: line.lineId,
+            amount: line.amount,
+            rate: result.rate,
+            stateTax,
+            localTax,
+            taxAmount: result.taxAmount,
+            source: result.source,
+            matchedRule: result.matchedRule,
+            matchedExemption: result.matchedExemption,
+        });
+        stateTotal += stateTax;
+        localTotal += localTax;
+        subtotal += Number.isFinite(line.amount) ? line.amount : 0;
+    }
+
+    const totalTax = round2(stateTotal + localTotal);
+    const effectiveRate = subtotal > 0
+        ? Math.round((totalTax / subtotal) * 100 * 1000) / 1000  // 3dp
+        : 0;
+
+    return {
+        stateTax: round2(stateTotal),
+        localTax: round2(localTotal),
+        totalTax,
+        effectiveRate,
+        lineBreakdown,
+    };
 }

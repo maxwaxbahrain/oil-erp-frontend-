@@ -2,19 +2,94 @@
 
 export const TAX_ENGINE_VERSION = '1.0.0-session-1E-B';
 
-// US state default combined sales tax rates (avg, used when no API or
-// nexus-specific override is available). Mirrors the lookup in
-// TaxSettings.tsx so any consumer of the engine sees the same defaults.
-export const US_STATE_RATES: Record<string, number> = {
-    AL: 9.00, AK: 1.76, AZ: 8.37, AR: 9.47, CA: 10.25, CO: 7.72, CT: 6.35,
-    DE: 0.00, FL: 7.02, GA: 7.35, HI: 4.44, ID: 6.02, IL: 10.00, IN: 7.00,
-    IA: 6.94, KS: 8.68, KY: 6.00, LA: 9.55, ME: 5.50, MD: 6.00, MA: 6.25,
-    MI: 6.00, MN: 7.46, MS: 7.07, MO: 8.18, MT: 0.00, NE: 6.94, NV: 8.23,
-    NH: 0.00, NJ: 6.63, NM: 7.83, NY: 8.88, NC: 6.98, ND: 6.96, OH: 7.24,
-    OK: 8.95, OR: 0.00, PA: 6.34, RI: 7.00, SC: 7.43, SD: 6.40, TN: 9.55,
-    TX: 8.25, UT: 7.19, VT: 6.18, VA: 5.75, WA: 10.23, WV: 6.60, WI: 5.43,
-    WY: 5.36, DC: 6.00,
+// US state sales-tax reference data (Session 1B retrofit).
+//
+// Replaces the old flat `Record<string, number>` of combined rates with a
+// richer per-state record that splits state vs avg-local, names each state
+// for UI display, and flags origin- vs destination-based sourcing.
+//
+// The COMBINED rates here are the literal 2025-averages from the Session
+// 1B prompt — they differ slightly from our prior numbers (which were
+// inherited from the old TaxSettings module). The change is intentional:
+// the prompt's table is internally consistent (state + local = combined)
+// while the old table only had combined, which made the split unverifiable.
+//
+// destinationBased: which state's rate to charge when seller and buyer are
+// in different states. Most US states are destination-based (use buyer's
+// rate); a short list of "origin-based" states tax in-state sales at the
+// SELLER's local rate. The flag is a starting reference for the eventual
+// origin/destination logic — today's calculator doesn't use it yet.
+// Sources differ slightly; the list below is a defensible default.
+export interface USStateInfo {
+    stateCode: string;
+    stateName: string;
+    stateRate: number;       // percent — state-level portion
+    avgLocalRate: number;    // percent — average county / city / special
+    combinedRate: number;    // = stateRate + avgLocalRate
+    destinationBased: boolean;
+}
+
+export const US_STATES: Record<string, USStateInfo> = {
+    AL: { stateCode: 'AL', stateName: 'Alabama',        stateRate: 4.000, avgLocalRate: 5.220, combinedRate: 9.220, destinationBased: true },
+    AK: { stateCode: 'AK', stateName: 'Alaska',         stateRate: 0.000, avgLocalRate: 1.760, combinedRate: 1.760, destinationBased: true },
+    AZ: { stateCode: 'AZ', stateName: 'Arizona',        stateRate: 5.600, avgLocalRate: 2.770, combinedRate: 8.370, destinationBased: false },
+    AR: { stateCode: 'AR', stateName: 'Arkansas',       stateRate: 6.500, avgLocalRate: 2.930, combinedRate: 9.430, destinationBased: true },
+    CA: { stateCode: 'CA', stateName: 'California',     stateRate: 7.250, avgLocalRate: 1.570, combinedRate: 8.820, destinationBased: true },
+    CO: { stateCode: 'CO', stateName: 'Colorado',       stateRate: 2.900, avgLocalRate: 4.820, combinedRate: 7.720, destinationBased: true },
+    CT: { stateCode: 'CT', stateName: 'Connecticut',    stateRate: 6.350, avgLocalRate: 0.000, combinedRate: 6.350, destinationBased: true },
+    DE: { stateCode: 'DE', stateName: 'Delaware',       stateRate: 0.000, avgLocalRate: 0.000, combinedRate: 0.000, destinationBased: true },
+    FL: { stateCode: 'FL', stateName: 'Florida',        stateRate: 6.000, avgLocalRate: 1.050, combinedRate: 7.050, destinationBased: true },
+    GA: { stateCode: 'GA', stateName: 'Georgia',        stateRate: 4.000, avgLocalRate: 3.320, combinedRate: 7.320, destinationBased: true },
+    HI: { stateCode: 'HI', stateName: 'Hawaii',         stateRate: 4.000, avgLocalRate: 0.440, combinedRate: 4.440, destinationBased: true },
+    ID: { stateCode: 'ID', stateName: 'Idaho',          stateRate: 6.000, avgLocalRate: 0.030, combinedRate: 6.030, destinationBased: true },
+    IL: { stateCode: 'IL', stateName: 'Illinois',       stateRate: 6.250, avgLocalRate: 2.490, combinedRate: 8.740, destinationBased: false },
+    IN: { stateCode: 'IN', stateName: 'Indiana',        stateRate: 7.000, avgLocalRate: 0.000, combinedRate: 7.000, destinationBased: true },
+    IA: { stateCode: 'IA', stateName: 'Iowa',           stateRate: 6.000, avgLocalRate: 0.940, combinedRate: 6.940, destinationBased: true },
+    KS: { stateCode: 'KS', stateName: 'Kansas',         stateRate: 6.500, avgLocalRate: 2.220, combinedRate: 8.720, destinationBased: false },
+    KY: { stateCode: 'KY', stateName: 'Kentucky',       stateRate: 6.000, avgLocalRate: 0.000, combinedRate: 6.000, destinationBased: false },
+    LA: { stateCode: 'LA', stateName: 'Louisiana',      stateRate: 4.450, avgLocalRate: 5.100, combinedRate: 9.550, destinationBased: true },
+    ME: { stateCode: 'ME', stateName: 'Maine',          stateRate: 5.500, avgLocalRate: 0.000, combinedRate: 5.500, destinationBased: true },
+    MD: { stateCode: 'MD', stateName: 'Maryland',       stateRate: 6.000, avgLocalRate: 0.000, combinedRate: 6.000, destinationBased: true },
+    MA: { stateCode: 'MA', stateName: 'Massachusetts',  stateRate: 6.250, avgLocalRate: 0.000, combinedRate: 6.250, destinationBased: true },
+    MI: { stateCode: 'MI', stateName: 'Michigan',       stateRate: 6.000, avgLocalRate: 0.000, combinedRate: 6.000, destinationBased: true },
+    MN: { stateCode: 'MN', stateName: 'Minnesota',      stateRate: 6.875, avgLocalRate: 0.580, combinedRate: 7.455, destinationBased: true },
+    MS: { stateCode: 'MS', stateName: 'Mississippi',    stateRate: 7.000, avgLocalRate: 0.070, combinedRate: 7.070, destinationBased: true },
+    MO: { stateCode: 'MO', stateName: 'Missouri',       stateRate: 4.225, avgLocalRate: 3.900, combinedRate: 8.125, destinationBased: false },
+    MT: { stateCode: 'MT', stateName: 'Montana',        stateRate: 0.000, avgLocalRate: 0.000, combinedRate: 0.000, destinationBased: true },
+    NE: { stateCode: 'NE', stateName: 'Nebraska',       stateRate: 5.500, avgLocalRate: 1.440, combinedRate: 6.940, destinationBased: true },
+    NV: { stateCode: 'NV', stateName: 'Nevada',         stateRate: 6.850, avgLocalRate: 1.380, combinedRate: 8.230, destinationBased: true },
+    NH: { stateCode: 'NH', stateName: 'New Hampshire',  stateRate: 0.000, avgLocalRate: 0.000, combinedRate: 0.000, destinationBased: true },
+    NJ: { stateCode: 'NJ', stateName: 'New Jersey',     stateRate: 6.625, avgLocalRate: 0.000, combinedRate: 6.625, destinationBased: true },
+    NM: { stateCode: 'NM', stateName: 'New Mexico',     stateRate: 5.000, avgLocalRate: 2.720, combinedRate: 7.720, destinationBased: false },
+    NY: { stateCode: 'NY', stateName: 'New York',       stateRate: 4.000, avgLocalRate: 4.520, combinedRate: 8.520, destinationBased: true },
+    NC: { stateCode: 'NC', stateName: 'North Carolina', stateRate: 4.750, avgLocalRate: 2.220, combinedRate: 6.970, destinationBased: true },
+    ND: { stateCode: 'ND', stateName: 'North Dakota',   stateRate: 5.000, avgLocalRate: 1.850, combinedRate: 6.850, destinationBased: true },
+    OH: { stateCode: 'OH', stateName: 'Ohio',           stateRate: 5.750, avgLocalRate: 1.480, combinedRate: 7.230, destinationBased: false },
+    OK: { stateCode: 'OK', stateName: 'Oklahoma',       stateRate: 4.500, avgLocalRate: 4.450, combinedRate: 8.950, destinationBased: true },
+    OR: { stateCode: 'OR', stateName: 'Oregon',         stateRate: 0.000, avgLocalRate: 0.000, combinedRate: 0.000, destinationBased: true },
+    PA: { stateCode: 'PA', stateName: 'Pennsylvania',   stateRate: 6.000, avgLocalRate: 0.340, combinedRate: 6.340, destinationBased: false },
+    RI: { stateCode: 'RI', stateName: 'Rhode Island',   stateRate: 7.000, avgLocalRate: 0.000, combinedRate: 7.000, destinationBased: true },
+    SC: { stateCode: 'SC', stateName: 'South Carolina', stateRate: 6.000, avgLocalRate: 1.430, combinedRate: 7.430, destinationBased: true },
+    SD: { stateCode: 'SD', stateName: 'South Dakota',   stateRate: 4.500, avgLocalRate: 1.900, combinedRate: 6.400, destinationBased: true },
+    TN: { stateCode: 'TN', stateName: 'Tennessee',      stateRate: 7.000, avgLocalRate: 2.550, combinedRate: 9.550, destinationBased: false },
+    TX: { stateCode: 'TX', stateName: 'Texas',          stateRate: 6.250, avgLocalRate: 1.950, combinedRate: 8.200, destinationBased: false },
+    UT: { stateCode: 'UT', stateName: 'Utah',           stateRate: 6.100, avgLocalRate: 1.090, combinedRate: 7.190, destinationBased: false },
+    VT: { stateCode: 'VT', stateName: 'Vermont',        stateRate: 6.000, avgLocalRate: 0.180, combinedRate: 6.180, destinationBased: true },
+    VA: { stateCode: 'VA', stateName: 'Virginia',       stateRate: 5.300, avgLocalRate: 0.450, combinedRate: 5.750, destinationBased: false },
+    WA: { stateCode: 'WA', stateName: 'Washington',     stateRate: 6.500, avgLocalRate: 2.670, combinedRate: 9.170, destinationBased: true },
+    WV: { stateCode: 'WV', stateName: 'West Virginia',  stateRate: 6.000, avgLocalRate: 0.390, combinedRate: 6.390, destinationBased: true },
+    WI: { stateCode: 'WI', stateName: 'Wisconsin',      stateRate: 5.000, avgLocalRate: 0.430, combinedRate: 5.430, destinationBased: true },
+    WY: { stateCode: 'WY', stateName: 'Wyoming',        stateRate: 4.000, avgLocalRate: 1.420, combinedRate: 5.420, destinationBased: true },
+    DC: { stateCode: 'DC', stateName: 'District of Columbia', stateRate: 6.000, avgLocalRate: 0.000, combinedRate: 6.000, destinationBased: true },
 };
+
+/** Backward-compat lookup table preserved for existing callers
+ *  (calculator.ts, providerClient.ts). Truly derived from US_STATES so
+ *  there's no risk of the two drifting out of sync. New code should
+ *  reach for US_STATES directly to get the richer fields. */
+export const US_STATE_RATES: Record<string, number> = Object.fromEntries(
+    Object.entries(US_STATES).map(([code, info]) => [code, info.combinedRate]),
+);
 
 export const TAX_TYPES = ['sales', 'vat', 'gst'] as const;
 
