@@ -108,7 +108,7 @@ export function ProviderForm({ initial, onSubmit, onCancel }: Props) {
                         className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:border-indigo-400"
                     />
                     <p className="text-[10px] text-gray-400 mt-1">
-                        Stored locally for now (Session 1D). Backend persistence lands in 1D-B.
+                        Saved to your database — syncs across devices &amp; users. Provider quote is currently stubbed; for testing, any string of 8+ characters passes <em>Test Connection</em> (e.g. <span className="font-mono">test12345</span>).
                     </p>
                 </div>
                 <div>

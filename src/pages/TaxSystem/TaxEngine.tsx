@@ -649,7 +649,7 @@ export default function TaxEngine() {
                             External Tax Providers
                         </p>
                         <p className="text-xs text-gray-400 mt-1">
-                            Choose where the calculator gets its rates. The <strong>Internal Engine</strong> uses your configured rules + US state defaults. <strong>TaxJar</strong> and <strong>Avalara</strong> would normally call external APIs — Session 1D ships them as stubs so you can see the integration flow without API keys.
+                            Choose where the calculator gets its rates. The <strong>Internal Engine</strong> uses your configured rules + US state defaults. <strong>TaxJar</strong> and <strong>Avalara</strong> would normally call external APIs — they currently return stubbed quotes so you can see the integration flow without real API keys. Configurations are saved to your database and sync across devices.
                         </p>
                     </div>
                     <div className="divide-y divide-gray-50">
@@ -830,7 +830,7 @@ export default function TaxEngine() {
             )}
 
             <p className="text-xs text-gray-400 text-center">
-                Tax Engine v{TAX_ENGINE_VERSION} · Session 1E: exemption certificates
+                Tax Engine v{TAX_ENGINE_VERSION} · Sessions 1D-B + 1E-B: providers &amp; exemptions backend-persisted
             </p>
         </div>
     );

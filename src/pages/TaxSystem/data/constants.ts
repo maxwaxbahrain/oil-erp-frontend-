@@ -1,6 +1,6 @@
 // Tax Engine — constants.
 
-export const TAX_ENGINE_VERSION = '1.0.0-session-1E';
+export const TAX_ENGINE_VERSION = '1.0.0-session-1E-B';
 
 // US state default combined sales tax rates (avg, used when no API or
 // nexus-specific override is available). Mirrors the lookup in
