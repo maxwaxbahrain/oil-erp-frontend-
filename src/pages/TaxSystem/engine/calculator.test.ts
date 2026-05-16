@@ -12,7 +12,7 @@
 // this test, that bug would have crept back the next time someone
 // touched the function).
 
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import {
     calculateTax,
@@ -22,11 +22,30 @@ import {
 } from './calculator';
 import type { TaxExemption, TaxNexus, TaxRule } from '../data/types';
 
+// ─── Time mocking ─────────────────────────────────────────────────────
+// findExemption() inside calculator.ts calls `new Date()` each time it
+// runs to decide whether a cert is expired. The test fixtures below build
+// dates relative to "now" too. Without a frozen clock, the fixture clock
+// and the engine clock can resolve `today` to different ISO dates if the
+// test happens to cross midnight UTC mid-run — a ~few-millisecond window
+// per day that would make the "expires today" test flake roughly once
+// every 6 months on a busy CI. Pinning the clock removes the dependency
+// on wall time entirely.
+const FIXED_NOW = new Date('2026-06-15T12:00:00.000Z');
+
+beforeAll(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FIXED_NOW);
+});
+afterAll(() => {
+    vi.useRealTimers();
+});
+
 // ─── Test fixtures ────────────────────────────────────────────────────
 
-const today = new Date().toISOString().slice(0, 10);
-const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
-const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+const today = FIXED_NOW.toISOString().slice(0, 10);                                    // '2026-06-15'
+const yesterday = new Date(FIXED_NOW.getTime() - 86_400_000).toISOString().slice(0, 10);
+const tomorrow = new Date(FIXED_NOW.getTime() + 86_400_000).toISOString().slice(0, 10);
 
 function rule(overrides: Partial<TaxRule> = {}): TaxRule {
     return {
