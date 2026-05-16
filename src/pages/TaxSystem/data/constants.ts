@@ -169,3 +169,37 @@ export const EXEMPTION_TYPE_LABELS: Record<string, string> = {
  *  jurisdiction" — useful for federal-level nonprofits, multi-state
  *  resellers, etc. Stored as the literal string '*'. */
 export const EXEMPTION_ANY_JURISDICTION = '*';
+
+// ─────────────────────────────────────────────────────────────────────
+// Product categories (Session 1E — frontend dropdown).
+// Single source of truth so the Calculator's category dropdown and any
+// future per-row category-aware code use the same list.  The CODE is
+// what gets sent to the backend; the LABEL is for display.
+//
+// Built-in tax defaults are handled by the BACKEND's CATEGORY_EXEMPTIONS
+// table (app/engine/constants.py).  Listing the categories with hints
+// here gives users at-a-glance taxability information in the dropdown.
+// ─────────────────────────────────────────────────────────────────────
+
+export interface ProductCategoryMeta {
+    code: string;
+    label: string;
+    note: string;
+}
+
+export const PRODUCT_CATEGORIES: ProductCategoryMeta[] = [
+    { code: 'GENERAL',      label: 'General merchandise', note: 'Taxed at state default' },
+    { code: 'ELECTRONICS',  label: 'Electronics',         note: 'Taxed at state default' },
+    { code: 'CLOTHING',     label: 'Clothing',            note: 'Exempt in PA, NJ, NY, MN, VT' },
+    { code: 'FOOD',         label: 'Food / groceries',    note: 'Exempt in all states' },
+    { code: 'MEDICAL',      label: 'Medical',             note: 'Exempt in all states' },
+    { code: 'INDUSTRIAL',   label: 'Industrial',          note: 'Taxed at state default' },
+    { code: 'OFFICE',       label: 'Office supplies',     note: 'Taxed at state default' },
+    { code: 'RAW_MATERIAL', label: 'Raw materials',       note: 'Exempt with valid cert only' },
+    { code: 'SERVICES',     label: 'Services',            note: 'Exempt in most states' },
+    { code: 'CHEMICALS',    label: 'Chemicals',           note: 'Taxed at state default' },
+];
+
+export const PRODUCT_CATEGORY_LABEL: Record<string, string> = Object.fromEntries(
+    PRODUCT_CATEGORIES.map(c => [c.code, c.label]),
+);

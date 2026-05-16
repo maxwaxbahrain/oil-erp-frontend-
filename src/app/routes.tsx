@@ -75,6 +75,9 @@ import CreditIntelligence from '../pages/Credit/CreditIntelligence';
 import CRMPage from '../pages/CRM/CRM'; // CRM exports as 'CRM'
 import TaxSettings from '../pages/TaxSystem/TaxSettings';
 import TaxEngine from '../pages/TaxSystem/TaxEngine';
+import TaxCalculatorPage from '../pages/TaxSystem/Calculator';
+import TaxTransactions from '../pages/TaxSystem/Transactions';
+import TaxRates from '../pages/TaxSystem/Rates';
 import AmazonIntegration from '../pages/Amazon/AmazonIntegration';
 import Pulse from '../pages/Pulse/Pulse';
 import DataMigration from '../pages/Migration/DataMigration'; // CRM exports as 'CRM'
@@ -206,6 +209,9 @@ export const AppRoutes = () => {
             <Route path="/crm" element={<CRMPage />} />
             <Route path="/tax" element={<TaxSettings />} />
             <Route path="/tax/engine" element={<TaxEngine />} />
+            <Route path="/tax/calculator" element={<TaxCalculatorPage />} />
+            <Route path="/tax/transactions" element={<TaxTransactions />} />
+            <Route path="/tax/rates" element={<TaxRates />} />
             <Route path="/amazon" element={<AmazonIntegration />} />
             <Route path="/pulse" element={<Pulse />} />
             <Route path="/migrate" element={<DataMigration />} />

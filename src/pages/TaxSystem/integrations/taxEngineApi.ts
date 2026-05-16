@@ -8,6 +8,11 @@ const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
     .trim()
     .replace(/\/+$/, '');
 export const TAX_ENGINE_API = `${API_HOST}/api/tax-engine`;
+// Session 1C Track A — the v1 tax API (calculate / commit / cancel /
+// transactions).  Co-exists with /api/tax-engine/* (rules, nexus,
+// providers, exemptions config); the v1 namespace is the
+// transaction-shaped one.
+export const TAX_V1_API = `${API_HOST}/api/v1/tax`;
 
 // Down-state used whenever the engine is unreachable for ANY reason —
 // HTTP error, network failure, CORS, Render cold start timeout, etc.
@@ -48,9 +53,13 @@ export async function listTaxRules(activeOnly = false): Promise<TaxRule[]> {
 }
 
 // Shared helper that surfaces a useful error message from the server.
+// Handles both FastAPI default {"detail": "..."} and the v1-tax
+// {"error": "..."} formats (the latter from the strict US-state-validation
+// handler in app/main.py).
 async function readError(r: Response): Promise<string> {
     try {
         const data = await r.json();
+        if (data?.error) return String(data.error);
         if (data?.detail) return String(data.detail);
         return `HTTP ${r.status}`;
     } catch {
@@ -451,4 +460,173 @@ export async function migrateLocalStorageToBackend(): Promise<MigrationResult> {
         console.info('[taxEngine migration] result:', result);
     }
     return result;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Session 1C Track A — v1 tax transaction API client.
+//
+// These talk to the backend's POST /api/v1/tax/calculate + the
+// transactions list/get/commit/cancel endpoints.  Used by the Session 1E
+// frontend pages (Calculator, Transactions).
+// ──────────────────────────────────────────────────────────────────────────
+
+export interface CalculateLineItemInput {
+    description?: string;
+    category?: string;
+    quantity: number;
+    unitPrice: number;
+    taxable?: boolean;
+    lineId?: string;
+}
+
+export interface CalculateRequest {
+    sellerState?: string;
+    buyerState: string;
+    lineItems: CalculateLineItemInput[];
+    customerId?: string;
+    exemptCertNum?: string;
+    enforceNexus?: boolean;
+}
+
+export interface CalculateLineBreakdown {
+    lineId?: string;
+    description?: string;
+    category?: string;
+    quantity: number;
+    unitPrice: number;
+    lineTotal: number;
+    taxable: boolean;
+    rate: number;
+    stateTax: number;
+    localTax: number;
+    totalTax: number;
+    source: string;
+}
+
+export interface CalculateResponse {
+    transactionId: string;
+    sellerState?: string;
+    buyerState: string;
+    customerId?: string | null;
+    exemptCertNum?: string | null;
+    subtotal: number;
+    stateTax: number;
+    localTax: number;
+    totalTax: number;
+    grandTotal: number;
+    effectiveRate: number;
+    status: string;
+    filed?: boolean;
+    createdAt?: string;
+    updatedAt?: string;
+    lineBreakdown: CalculateLineBreakdown[];
+}
+
+export interface TaxTransactionRow extends CalculateResponse {}
+
+/** POST /api/v1/tax/calculate — compute tax + persist as draft.
+ *  Returns the transaction with its line breakdown, OR an error string.
+ *  State validation errors (buyerState / sellerState not valid US codes)
+ *  come back as `{ error: "Invalid buyer_state: '...'. Must be a valid
+ *  2-letter US state code." }` — readError() handles both `error` and
+ *  `detail` keys so callers get a clean string either way. */
+export async function calculateTaxApi(
+    payload: CalculateRequest,
+): Promise<{ result: CalculateResponse | null; error?: string }> {
+    try {
+        const r = await fetch(`${TAX_V1_API}/calculate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!r.ok) return { result: null, error: await readError(r) };
+        return { result: (await r.json()) as CalculateResponse };
+    } catch (e: any) {
+        return { result: null, error: e?.message || 'Network error' };
+    }
+}
+
+export interface ListTransactionsFilters {
+    status?: 'draft' | 'committed' | 'cancelled';
+    customerId?: string;
+    limit?: number;
+    offset?: number;
+}
+
+/** GET /api/v1/tax/transactions — paginated list, newest first. */
+export async function listTaxTransactions(
+    filters: ListTransactionsFilters = {},
+): Promise<TaxTransactionRow[]> {
+    try {
+        const url = new URL(`${TAX_V1_API}/transactions`);
+        if (filters.status) url.searchParams.set('status', filters.status);
+        if (filters.customerId) url.searchParams.set('customerId', filters.customerId);
+        if (filters.limit !== undefined) url.searchParams.set('limit', String(filters.limit));
+        if (filters.offset !== undefined) url.searchParams.set('offset', String(filters.offset));
+        const r = await fetch(url.toString());
+        if (!r.ok) return [];
+        const rows = await r.json();
+        return Array.isArray(rows) ? rows : [];
+    } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('[taxEngineApi] listTaxTransactions network error:', e);
+        return [];
+    }
+}
+
+/** GET /api/v1/tax/transaction/{id} — one transaction + line breakdown. */
+export async function getTaxTransaction(transactionId: string): Promise<TaxTransactionRow | null> {
+    try {
+        const r = await fetch(`${TAX_V1_API}/transaction/${encodeURIComponent(transactionId)}`);
+        if (!r.ok) return null;
+        return (await r.json()) as TaxTransactionRow;
+    } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('[taxEngineApi] getTaxTransaction network error:', e);
+        return null;
+    }
+}
+
+/** POST /api/v1/tax/commit — flip status='draft' → 'committed'. */
+export async function commitTaxTransaction(transactionId: string): Promise<{ ok: boolean; error?: string }> {
+    try {
+        const r = await fetch(`${TAX_V1_API}/commit`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transactionId }),
+        });
+        if (!r.ok) return { ok: false, error: await readError(r) };
+        return { ok: true };
+    } catch (e: any) {
+        return { ok: false, error: e?.message || 'Network error' };
+    }
+}
+
+/** POST /api/v1/tax/cancel — void a transaction (preserves audit row). */
+export async function cancelTaxTransaction(
+    transactionId: string,
+    reason?: string,
+): Promise<{ ok: boolean; error?: string }> {
+    try {
+        const r = await fetch(`${TAX_V1_API}/cancel`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transactionId, reason }),
+        });
+        if (!r.ok) return { ok: false, error: await readError(r) };
+        return { ok: true };
+    } catch (e: any) {
+        return { ok: false, error: e?.message || 'Network error' };
+    }
+}
+
+/** DELETE /api/v1/tax/transaction/{id} — only allowed for draft status. */
+export async function deleteTaxTransaction(transactionId: string): Promise<{ ok: boolean; error?: string }> {
+    try {
+        const r = await fetch(`${TAX_V1_API}/transaction/${encodeURIComponent(transactionId)}`, { method: 'DELETE' });
+        if (!r.ok && r.status !== 204) return { ok: false, error: await readError(r) };
+        return { ok: true };
+    } catch (e: any) {
+        return { ok: false, error: e?.message || 'Network error' };
+    }
 }
