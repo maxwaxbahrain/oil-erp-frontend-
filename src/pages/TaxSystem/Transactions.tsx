@@ -9,7 +9,7 @@
 // transactions.  Each line item gets its own row so the export is
 // directly importable into a spreadsheet.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Receipt, Search, Download, RefreshCw, ChevronDown, ChevronRight, X } from 'lucide-react';
 import {
@@ -317,9 +317,8 @@ export default function Transactions() {
                                 {filtered.map(t => {
                                     const expanded = expandedTxn === t.transactionId;
                                     return (
-                                        <>
+                                        <Fragment key={t.transactionId}>
                                             <tr
-                                                key={t.transactionId}
                                                 className="hover:bg-gray-50 cursor-pointer"
                                                 onClick={() => setExpandedTxn(expanded ? null : t.transactionId)}
                                             >
@@ -349,7 +348,7 @@ export default function Transactions() {
                                                     </td>
                                                 </tr>
                                             )}
-                                        </>
+                                        </Fragment>
                                     );
                                 })}
                             </tbody>
