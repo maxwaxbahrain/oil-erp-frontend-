@@ -35,6 +35,7 @@ import {
     createExemption,
     updateExemption,
     deleteExemption,
+    migrateLocalStorageToBackend,
 } from './integrations/taxEngineApi';
 import { calculateTax, calculateTaxWithProvider } from './engine';
 import type { TaxComputation } from './engine';
@@ -118,10 +119,20 @@ export default function TaxEngine() {
     };
 
     useEffect(() => {
-        reloadRules();
-        reloadNexus();
-        reloadProviders();
-        reloadExemptions();
+        // 1D-B / 1E-B cutover: if the user has provider configs or exemptions
+        // sitting in localStorage from the pre-backend window, upload them
+        // before we list — so the data they see is the same data they had
+        // five minutes ago, just now backed by the database. The helper is
+        // safe to call every load (in-memory flag + only-when-backend-empty
+        // guard); it's just sequenced before the lists to avoid a flash of
+        // "no providers / no exemptions" while migration runs.
+        (async () => {
+            await migrateLocalStorageToBackend();
+            reloadRules();
+            reloadNexus();
+            reloadProviders();
+            reloadExemptions();
+        })();
         return () => {
             if (flashTimer.current) clearTimeout(flashTimer.current);
         };

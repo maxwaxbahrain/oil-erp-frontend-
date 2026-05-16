@@ -184,108 +184,100 @@ export async function deleteNexus(id: string): Promise<{ ok: boolean; error?: st
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// Session 1D — External provider config (TaxJar / Avalara).
+// Session 1D-B — External provider config (TaxJar / Avalara).
 //
-// Persisted client-side (localStorage) for now — the backend endpoints
-// /api/tax-engine/providers will land in 1D-B. The async signatures here
-// match what the eventual fetch-based impl will return, so callers don't
-// change when we flip the storage backend.
+// Backend-persisted via /api/tax-engine/providers. The earlier 1D shipped
+// localStorage-only; 1E-B moves to the database so config follows the
+// business across devices / browsers / users instead of being trapped
+// in one browser. The old localStorage key 'taxEngine.providerConfigs.v1'
+// is migrated up by migrateLocalStorageToBackend() on first load.
 // ──────────────────────────────────────────────────────────────────────────
 
 const PROVIDER_STORAGE_KEY = 'taxEngine.providerConfigs.v1';
 
-function readProviderStore(): TaxProviderConfig[] {
+export async function listProviderConfigs(): Promise<TaxProviderConfig[]> {
     try {
-        const raw = localStorage.getItem(PROVIDER_STORAGE_KEY);
-        if (!raw) return [];
-        const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed : [];
-    } catch {
-        return [];
-    }
-}
-
-function writeProviderStore(list: TaxProviderConfig[]) {
-    try {
-        localStorage.setItem(PROVIDER_STORAGE_KEY, JSON.stringify(list));
+        const r = await fetch(`${TAX_ENGINE_API}/providers`);
+        if (!r.ok) return [];
+        const rows = await r.json();
+        return Array.isArray(rows) ? rows : [];
     } catch (e) {
         // eslint-disable-next-line no-console
-        console.error('[taxEngineApi] writeProviderStore failed:', e);
+        console.error('[taxEngineApi] listProviderConfigs network error:', e);
+        return [];
     }
-}
-
-export async function listProviderConfigs(): Promise<TaxProviderConfig[]> {
-    return readProviderStore();
 }
 
 export async function saveProviderConfig(
     config: TaxProviderConfig,
 ): Promise<{ config: TaxProviderConfig | null; error?: string }> {
     if (!config.id) return { config: null, error: 'Provider id is required' };
-    const list = readProviderStore();
-    const next: TaxProviderConfig = { ...config, updatedAt: new Date().toISOString() };
-    const idx = list.findIndex(p => p.id === config.id);
-    if (idx >= 0) list[idx] = next; else list.push(next);
-    writeProviderStore(list);
-    return { config: next };
+    try {
+        const r = await fetch(`${TAX_ENGINE_API}/providers/${encodeURIComponent(config.id)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                apiKey: config.apiKey,
+                environment: config.environment,
+                isActive: config.isActive ?? false,
+                lastSyncedAt: config.lastSyncedAt,
+            }),
+        });
+        if (!r.ok) return { config: null, error: await readError(r) };
+        return { config: (await r.json()) as TaxProviderConfig };
+    } catch (e: any) {
+        return { config: null, error: e?.message || 'Network error' };
+    }
 }
 
-/** Toggle exactly one provider active (the other configured providers are
- *  flipped off in the same write so the calculator has an unambiguous
- *  source). Pass providerId='internal' to disable all external providers. */
+/** Toggle exactly one provider active (the others are flipped off in the
+ *  same transaction on the backend so the calculator has an unambiguous
+ *  source). Pass providerId='internal' to disable all external providers
+ *  — the backend treats that as "deactivate all" even though no row
+ *  named 'internal' exists. */
 export async function setActiveProvider(
     providerId: ProviderId,
-): Promise<{ ok: boolean; active: ProviderId }> {
-    const list = readProviderStore();
-    const next = list.map(p => ({ ...p, isActive: p.id === providerId, updatedAt: new Date().toISOString() }));
-    writeProviderStore(next);
-    return { ok: true, active: providerId };
+): Promise<{ ok: boolean; active: ProviderId; error?: string }> {
+    try {
+        const r = await fetch(`${TAX_ENGINE_API}/providers/${encodeURIComponent(providerId)}/activate`, {
+            method: 'POST',
+        });
+        if (!r.ok) return { ok: false, active: providerId, error: await readError(r) };
+        const data = await r.json();
+        return { ok: !!data?.ok, active: (data?.active as ProviderId) || providerId };
+    } catch (e: any) {
+        return { ok: false, active: providerId, error: e?.message || 'Network error' };
+    }
 }
 
-export async function deleteProviderConfig(providerId: ProviderId): Promise<{ ok: boolean }> {
-    const list = readProviderStore().filter(p => p.id !== providerId);
-    writeProviderStore(list);
-    return { ok: true };
+export async function deleteProviderConfig(providerId: ProviderId): Promise<{ ok: boolean; error?: string }> {
+    try {
+        const r = await fetch(`${TAX_ENGINE_API}/providers/${encodeURIComponent(providerId)}`, { method: 'DELETE' });
+        if (!r.ok && r.status !== 204) return { ok: false, error: await readError(r) };
+        return { ok: true };
+    } catch (e: any) {
+        return { ok: false, error: e?.message || 'Network error' };
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// Session 1E — Exemption certificates.
-//
-// localStorage-backed, same pattern as provider configs. Backend endpoints
-// /api/tax-engine/exemptions will land in 1E-B. Async signatures match the
-// eventual fetch impl so callers don't change.
+// Session 1E-B — Exemption certificates.
+// Backend-persisted via /api/tax-engine/exemptions. Same migration story.
 // ──────────────────────────────────────────────────────────────────────────
 
 const EXEMPTION_STORAGE_KEY = 'taxEngine.exemptions.v1';
 
-function readExemptionStore(): TaxExemption[] {
+export async function listExemptions(): Promise<TaxExemption[]> {
     try {
-        const raw = localStorage.getItem(EXEMPTION_STORAGE_KEY);
-        if (!raw) return [];
-        const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed : [];
-    } catch {
-        return [];
-    }
-}
-
-function writeExemptionStore(list: TaxExemption[]) {
-    try {
-        localStorage.setItem(EXEMPTION_STORAGE_KEY, JSON.stringify(list));
+        const r = await fetch(`${TAX_ENGINE_API}/exemptions`);
+        if (!r.ok) return [];
+        const rows = await r.json();
+        return Array.isArray(rows) ? rows : [];
     } catch (e) {
         // eslint-disable-next-line no-console
-        console.error('[taxEngineApi] writeExemptionStore failed:', e);
+        console.error('[taxEngineApi] listExemptions network error:', e);
+        return [];
     }
-}
-
-function genId(): string {
-    // Same id shape the backend would emit ('exm_' + 12 hex chars). Stable
-    // enough for local storage without dragging in a uuid dep.
-    return 'exm_' + Math.random().toString(16).slice(2, 14).padEnd(12, '0');
-}
-
-export async function listExemptions(): Promise<TaxExemption[]> {
-    return readExemptionStore();
 }
 
 export async function createExemption(
@@ -294,51 +286,169 @@ export async function createExemption(
     if (!payload.customerId?.trim()) return { exemption: null, error: 'Customer is required' };
     if (!payload.jurisdiction?.trim()) return { exemption: null, error: 'Jurisdiction is required' };
     if (!payload.certificateNumber?.trim()) return { exemption: null, error: 'Certificate number is required' };
-    const now = new Date().toISOString();
-    const exemption: TaxExemption = {
-        id: genId(),
-        customerId: payload.customerId.trim(),
-        customerName: payload.customerName?.trim() || payload.customerId.trim(),
-        jurisdiction: payload.jurisdiction.trim().toUpperCase(),
-        exemptionType: payload.exemptionType || 'resale',
-        certificateNumber: payload.certificateNumber.trim(),
-        issuedDate: payload.issuedDate || undefined,
-        expiryDate: payload.expiryDate || undefined,
-        notes: payload.notes?.trim() || undefined,
-        isActive: payload.isActive ?? true,
-        createdAt: now,
-        updatedAt: now,
-    };
-    const list = readExemptionStore();
-    list.unshift(exemption);
-    writeExemptionStore(list);
-    return { exemption };
+    try {
+        const r = await fetch(`${TAX_ENGINE_API}/exemptions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                customerId: payload.customerId,
+                customerName: payload.customerName,
+                jurisdiction: payload.jurisdiction,
+                exemptionType: payload.exemptionType || 'resale',
+                certificateNumber: payload.certificateNumber,
+                issuedDate: payload.issuedDate,
+                expiryDate: payload.expiryDate,
+                notes: payload.notes,
+                isActive: payload.isActive ?? true,
+            }),
+        });
+        if (!r.ok) return { exemption: null, error: await readError(r) };
+        return { exemption: (await r.json()) as TaxExemption };
+    } catch (e: any) {
+        return { exemption: null, error: e?.message || 'Network error' };
+    }
 }
 
 export async function updateExemption(
     id: string,
     payload: Partial<TaxExemption>,
 ): Promise<{ exemption: TaxExemption | null; error?: string }> {
-    const list = readExemptionStore();
-    const idx = list.findIndex(x => x.id === id);
-    if (idx < 0) return { exemption: null, error: 'Exemption not found' };
-    const merged: TaxExemption = {
-        ...list[idx],
-        ...payload,
-        // Normalize a few fields when present.
-        jurisdiction: (payload.jurisdiction ?? list[idx].jurisdiction).trim().toUpperCase(),
-        customerId: (payload.customerId ?? list[idx].customerId).trim(),
-        customerName: payload.customerName?.trim() ?? list[idx].customerName,
-        certificateNumber: (payload.certificateNumber ?? list[idx].certificateNumber).trim(),
-        updatedAt: new Date().toISOString(),
-    };
-    list[idx] = merged;
-    writeExemptionStore(list);
-    return { exemption: merged };
+    try {
+        const r = await fetch(`${TAX_ENGINE_API}/exemptions/${encodeURIComponent(id)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                customerId: payload.customerId,
+                customerName: payload.customerName,
+                jurisdiction: payload.jurisdiction,
+                exemptionType: payload.exemptionType,
+                certificateNumber: payload.certificateNumber,
+                issuedDate: payload.issuedDate,
+                expiryDate: payload.expiryDate,
+                notes: payload.notes,
+                isActive: payload.isActive,
+            }),
+        });
+        if (!r.ok) return { exemption: null, error: await readError(r) };
+        return { exemption: (await r.json()) as TaxExemption };
+    } catch (e: any) {
+        return { exemption: null, error: e?.message || 'Network error' };
+    }
 }
 
-export async function deleteExemption(id: string): Promise<{ ok: boolean }> {
-    const list = readExemptionStore().filter(x => x.id !== id);
-    writeExemptionStore(list);
-    return { ok: true };
+export async function deleteExemption(id: string): Promise<{ ok: boolean; error?: string }> {
+    try {
+        const r = await fetch(`${TAX_ENGINE_API}/exemptions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        if (!r.ok && r.status !== 204) return { ok: false, error: await readError(r) };
+        return { ok: true };
+    } catch (e: any) {
+        return { ok: false, error: e?.message || 'Network error' };
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// One-time localStorage → backend migration (1D-B / 1E-B cutover).
+//
+// Anyone who used Sessions 1D / 1E during the localStorage-only window
+// has provider configs and / or exemptions stored under
+// 'taxEngine.providerConfigs.v1' / 'taxEngine.exemptions.v1'. After the
+// backend ships those keys would be silently abandoned — the UI would
+// read from the backend and the user would think their data was lost.
+//
+// migrateLocalStorageToBackend() reads the old keys ONCE per page load,
+// uploads anything it finds (only when the backend currently has zero
+// rows of that kind — so we don't create duplicates if a sibling browser
+// already migrated), then removes the keys. On any error we leave the
+// keys in place so the next page load can retry.
+//
+// Idempotent + safe-by-default: backend-has-data → skip → log so a
+// curious developer can find the abandoned key and clean it up by hand.
+// ──────────────────────────────────────────────────────────────────────────
+
+let migrationAttempted = false;
+
+export interface MigrationResult {
+    providersUploaded: number;
+    exemptionsUploaded: number;
+    providersSkipped: number;
+    exemptionsSkipped: number;
+    errors: string[];
+}
+
+export async function migrateLocalStorageToBackend(): Promise<MigrationResult> {
+    const result: MigrationResult = {
+        providersUploaded: 0, exemptionsUploaded: 0,
+        providersSkipped: 0, exemptionsSkipped: 0,
+        errors: [],
+    };
+    if (migrationAttempted) return result;
+    migrationAttempted = true;
+
+    // Providers
+    try {
+        const raw = localStorage.getItem(PROVIDER_STORAGE_KEY);
+        if (raw) {
+            const local = JSON.parse(raw) as TaxProviderConfig[];
+            if (Array.isArray(local) && local.length > 0) {
+                const remote = await listProviderConfigs();
+                if (remote.length > 0) {
+                    // eslint-disable-next-line no-console
+                    console.warn(
+                        `[taxEngine migration] backend already has ${remote.length} provider config(s); ` +
+                        `leaving ${local.length} localStorage entr${local.length === 1 ? 'y' : 'ies'} in place under "${PROVIDER_STORAGE_KEY}" — clear manually if you no longer need them.`,
+                    );
+                    result.providersSkipped = local.length;
+                } else {
+                    for (const cfg of local) {
+                        const { error } = await saveProviderConfig(cfg);
+                        if (error) result.errors.push(`provider ${cfg.id}: ${error}`);
+                        else result.providersUploaded += 1;
+                    }
+                    // Only remove the key if all uploads succeeded; otherwise
+                    // a partial migration could lose data.
+                    if (result.providersUploaded === local.length) {
+                        localStorage.removeItem(PROVIDER_STORAGE_KEY);
+                    }
+                }
+            }
+        }
+    } catch (e: any) {
+        result.errors.push(`provider migration: ${e?.message || e}`);
+    }
+
+    // Exemptions
+    try {
+        const raw = localStorage.getItem(EXEMPTION_STORAGE_KEY);
+        if (raw) {
+            const local = JSON.parse(raw) as TaxExemption[];
+            if (Array.isArray(local) && local.length > 0) {
+                const remote = await listExemptions();
+                if (remote.length > 0) {
+                    // eslint-disable-next-line no-console
+                    console.warn(
+                        `[taxEngine migration] backend already has ${remote.length} exemption(s); ` +
+                        `leaving ${local.length} localStorage entr${local.length === 1 ? 'y' : 'ies'} in place under "${EXEMPTION_STORAGE_KEY}" — clear manually if you no longer need them.`,
+                    );
+                    result.exemptionsSkipped = local.length;
+                } else {
+                    for (const x of local) {
+                        const { error } = await createExemption(x);
+                        if (error) result.errors.push(`exemption ${x.customerId} ${x.jurisdiction}: ${error}`);
+                        else result.exemptionsUploaded += 1;
+                    }
+                    if (result.exemptionsUploaded === local.length) {
+                        localStorage.removeItem(EXEMPTION_STORAGE_KEY);
+                    }
+                }
+            }
+        }
+    } catch (e: any) {
+        result.errors.push(`exemption migration: ${e?.message || e}`);
+    }
+
+    if (result.providersUploaded || result.exemptionsUploaded || result.errors.length) {
+        // eslint-disable-next-line no-console
+        console.info('[taxEngine migration] result:', result);
+    }
+    return result;
 }
