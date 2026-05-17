@@ -17,6 +17,7 @@ import {
     Zap,
     FileText,
     BookOpen,
+    MessageSquare,
 } from 'lucide-react';
 
 interface TaxEntryCard {
@@ -74,6 +75,14 @@ const ENTRIES: TaxEntryCard[] = [
         blurb: 'Browse all 96 IRS forms and tax filing requirements.  Search by name, filter by category (income / payroll / customs / etc.), and auto-file the 4 supported returns.',
         accent: 'indigo',
     },
+    {
+        // Session 3B — 7th card: AI tax advisor chat with SSE streaming.
+        path: '/tax/advisor',
+        icon: MessageSquare,
+        title: 'Tax Advisor',
+        blurb: 'Ask our AI tax advisor anything about forms, deductions, deadlines, and tax strategy.  Powered by Claude, grounded in your filings — educational use only.',
+        accent: 'violet',
+    },
 ];
 
 const ACCENT_CLASSES: Record<string, { bg: string; icon: string }> = {
@@ -82,6 +91,7 @@ const ACCENT_CLASSES: Record<string, { bg: string; icon: string }> = {
     purple:  { bg: 'bg-purple-50',  icon: 'text-purple-600' },
     emerald: { bg: 'bg-emerald-50', icon: 'text-emerald-600' },
     indigo:  { bg: 'bg-indigo-50',  icon: 'text-indigo-600' },
+    violet:  { bg: 'bg-violet-50',  icon: 'text-violet-600' },
 };
 
 export default function TaxSettings() {
