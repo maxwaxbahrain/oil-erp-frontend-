@@ -395,3 +395,50 @@ export function submitFiling(
 export function pdfDownloadUrl(filingId: number): string {
     return `${FILING_API}/session/${filingId}/pdf`;
 }
+
+
+// ─── Session 3A — Forms catalog ─────────────────────────────────────
+
+
+export type FormCategory =
+    | 'INCOME' | 'ENTITY' | 'PAYROLL' | 'IMPORT' | 'EXCISE'
+    | 'CREDIT' | 'DEDUCT' | 'INFO' | 'INTL' | 'EXT';
+
+export type FormTag =
+    | 'blue' | 'teal' | 'purple' | 'coral' | 'amber'
+    | 'green' | 'gray' | 'red';
+
+export interface CatalogForm {
+    form_id: string;
+    name: string;
+    full_name: string;
+    category: FormCategory;
+    section: string;
+    purpose: string;
+    who_needs_it: string;
+    tag: FormTag;
+    penalty: string;
+    deadline: string;
+    can_auto_file: boolean;
+    irs_url: string;
+    sort_order: number;
+}
+
+export interface CatalogResponse {
+    total: number;
+    filtered: number;
+    categories: FormCategory[];
+    forms: CatalogForm[];
+}
+
+/** GET /api/v2/filing/catalog — browse the 96-form catalog. */
+export function getFormCatalog(
+    opts: { cat?: string; search?: string; canAutoFile?: boolean } = {},
+): Promise<ApiResult<CatalogResponse>> {
+    const params = new URLSearchParams();
+    if (opts.cat) params.set('cat', opts.cat);
+    if (opts.search) params.set('search', opts.search);
+    if (opts.canAutoFile !== undefined) params.set('can_auto_file', String(opts.canAutoFile));
+    const qs = params.toString();
+    return request<CatalogResponse>(`${FILING_API}/catalog${qs ? '?' + qs : ''}`);
+}

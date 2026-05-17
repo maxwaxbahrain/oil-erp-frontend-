@@ -3,7 +3,7 @@
 // /tax/filing/wizard/:newFilingId so FilingWizard takes over.
 
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, FileText, Sparkles, Loader2, AlertCircle } from 'lucide-react';
 import { startFiling } from '../services/filingApi';
 
@@ -21,8 +21,22 @@ const YEAR_OPTIONS = [CURRENT_YEAR - 2, CURRENT_YEAR - 1, CURRENT_YEAR];
 
 export default function FilingWizardStart() {
     const navigate = useNavigate();
-    const [formType, setFormType] = useState('1120');
-    const [taxYear, setTaxYear] = useState(CURRENT_YEAR - 1);  // most-recent completed year
+    // Session 3A — query-param deep links from /tax/forms (Auto-File button).
+    //   /tax/filing/new?form_type=1120&tax_year=2024 pre-selects those.
+    //   Falls back to defaults when params are absent or invalid.
+    const [searchParams] = useSearchParams();
+    const initialFormType = (() => {
+        const fromUrl = searchParams.get('form_type');
+        const valid = FORM_OPTIONS.map(o => o.value);
+        return fromUrl && valid.includes(fromUrl) ? fromUrl : '1120';
+    })();
+    const initialTaxYear = (() => {
+        const fromUrl = parseInt(searchParams.get('tax_year') || '', 10);
+        return YEAR_OPTIONS.includes(fromUrl) ? fromUrl : CURRENT_YEAR - 1;
+    })();
+
+    const [formType, setFormType] = useState(initialFormType);
+    const [taxYear, setTaxYear] = useState(initialTaxYear);  // most-recent completed year
     const [entityEin, setEntityEin] = useState('');
     const [entityName, setEntityName] = useState('');
     const [busy, setBusy] = useState(false);

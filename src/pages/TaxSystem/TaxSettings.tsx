@@ -16,6 +16,7 @@ import {
     MapPin,
     Zap,
     FileText,
+    BookOpen,
 } from 'lucide-react';
 
 interface TaxEntryCard {
@@ -65,6 +66,14 @@ const ENTRIES: TaxEntryCard[] = [
         blurb: 'File and manage your federal tax returns.  AI-driven wizard pulls from your ERP and walks you through Form 1120, 1040, Schedule C, and 941.',
         accent: 'emerald',
     },
+    {
+        // Session 3A — 6th card: 96-form IRS catalog (browse + auto-file 4).
+        path: '/tax/forms',
+        icon: BookOpen,
+        title: 'Forms Library',
+        blurb: 'Browse all 96 IRS forms and tax filing requirements.  Search by name, filter by category (income / payroll / customs / etc.), and auto-file the 4 supported returns.',
+        accent: 'indigo',
+    },
 ];
 
 const ACCENT_CLASSES: Record<string, { bg: string; icon: string }> = {
@@ -72,6 +81,7 @@ const ACCENT_CLASSES: Record<string, { bg: string; icon: string }> = {
     blue:    { bg: 'bg-blue-50',    icon: 'text-blue-600' },
     purple:  { bg: 'bg-purple-50',  icon: 'text-purple-600' },
     emerald: { bg: 'bg-emerald-50', icon: 'text-emerald-600' },
+    indigo:  { bg: 'bg-indigo-50',  icon: 'text-indigo-600' },
 };
 
 export default function TaxSettings() {
