@@ -142,7 +142,7 @@ export default function TaxAdvisor() {
         let assistantReply = '';
 
         try {
-            const res = await fetch(`${API}/ai/tax-advisor/stream`, {
+            const res = await fetch(`${API}/api/ai/tax-advisor/stream`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ messages: newHistory }),
