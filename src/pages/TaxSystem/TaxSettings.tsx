@@ -18,6 +18,7 @@ import {
     FileText,
     BookOpen,
     MessageSquare,
+    LayoutDashboard,
 } from 'lucide-react';
 
 interface TaxEntryCard {
@@ -83,6 +84,14 @@ const ENTRIES: TaxEntryCard[] = [
         blurb: 'Ask our AI tax advisor anything about forms, deductions, deadlines, and tax strategy.  Powered by Claude, grounded in your filings — educational use only.',
         accent: 'violet',
     },
+    {
+        // Session 3C — 8th card: live Tax Dashboard.
+        path: '/tax/dashboard',
+        icon: LayoutDashboard,
+        title: 'Dashboard',
+        blurb: 'Tax overview and insights — forms due this month, year-to-date liability, recent filings, and upcoming catalog deadlines, all in one view.',
+        accent: 'slate',
+    },
 ];
 
 const ACCENT_CLASSES: Record<string, { bg: string; icon: string }> = {
@@ -92,6 +101,7 @@ const ACCENT_CLASSES: Record<string, { bg: string; icon: string }> = {
     emerald: { bg: 'bg-emerald-50', icon: 'text-emerald-600' },
     indigo:  { bg: 'bg-indigo-50',  icon: 'text-indigo-600' },
     violet:  { bg: 'bg-violet-50',  icon: 'text-violet-600' },
+    slate:   { bg: 'bg-slate-50',   icon: 'text-slate-600' },
 };
 
 export default function TaxSettings() {

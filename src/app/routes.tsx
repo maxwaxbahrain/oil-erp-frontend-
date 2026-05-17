@@ -87,6 +87,8 @@ import FilingPreview from '../pages/TaxSystem/Filing/FilingPreview';
 import TaxFormsLibrary from '../pages/TaxSystem/TaxFormsLibrary';
 // Session 3B — AI Tax Advisor (SSE-streaming chat).
 import TaxAdvisor from '../pages/TaxSystem/TaxAdvisor';
+// Session 3C — live Tax Dashboard.
+import TaxDashboard from '../pages/TaxSystem/TaxDashboard';
 import AmazonIntegration from '../pages/Amazon/AmazonIntegration';
 import Pulse from '../pages/Pulse/Pulse';
 import DataMigration from '../pages/Migration/DataMigration'; // CRM exports as 'CRM'
@@ -230,6 +232,8 @@ export const AppRoutes = () => {
             <Route path="/tax/forms" element={<TaxFormsLibrary />} />
             {/* Session 3B — AI Tax Advisor (SSE-streaming chat) */}
             <Route path="/tax/advisor" element={<TaxAdvisor />} />
+            {/* Session 3C — live Tax Dashboard */}
+            <Route path="/tax/dashboard" element={<TaxDashboard />} />
             <Route path="/amazon" element={<AmazonIntegration />} />
             <Route path="/pulse" element={<Pulse />} />
             <Route path="/migrate" element={<DataMigration />} />

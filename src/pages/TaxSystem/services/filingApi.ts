@@ -271,6 +271,76 @@ export function getFilingList(): Promise<ApiResult<FilingListItem[]>> {
 }
 
 
+// ─── Session 3C — Dashboard summary endpoints ───────────────────────
+
+
+export interface DashboardSummaryFormDue {
+    name: string;
+    form_id: string;
+    deadline: string;
+    days_remaining: number;
+    overdue: boolean;
+    can_auto_file: boolean;
+}
+
+export interface DashboardSummaryLiabilityRow {
+    form_type: string;
+    tax_year: number;
+    amount: number;
+}
+
+export interface DashboardCreditOpportunity {
+    name?: string;
+    amount?: number;
+    [k: string]: unknown;
+}
+
+export interface DashboardSummary {
+    tax_year: number;
+    as_of: string;
+    forms_due_this_month: {
+        count:    number;
+        overdue:  number;
+        forms:    DashboardSummaryFormDue[];
+    };
+    tax_liability: {
+        total:    number;
+        by_form:  DashboardSummaryLiabilityRow[];
+    };
+    forms_filed_this_year: {
+        count:    number;
+        statuses: Record<string, number>;
+    };
+    credits_available: {
+        total_estimated: number;
+        opportunities:   DashboardCreditOpportunity[];
+    };
+}
+
+export interface UpcomingDeadline {
+    form_id:        string;
+    name:           string;
+    full_name:      string;
+    category:       string;
+    deadline:       string;
+    deadline_iso:   string;
+    days_remaining: number;
+    can_auto_file:  boolean;
+}
+
+
+/** GET /api/v2/filing/dashboard/summary — single-call dashboard payload. */
+export function getDashboardSummary(): Promise<ApiResult<DashboardSummary>> {
+    return request<DashboardSummary>(`${FILING_API}/dashboard/summary`);
+}
+
+
+/** GET /api/v2/filing/dashboard/upcoming — top-N upcoming deadlines. */
+export function getUpcomingDeadlines(limit = 8): Promise<ApiResult<UpcomingDeadline[]>> {
+    return request<UpcomingDeadline[]>(`${FILING_API}/dashboard/upcoming?limit=${limit}`);
+}
+
+
 /** POST /api/v2/filing/start — create a new filing session.  Entity
  *  name is stored under user_answers.entity_info.entity_name. */
 export async function startFiling(
