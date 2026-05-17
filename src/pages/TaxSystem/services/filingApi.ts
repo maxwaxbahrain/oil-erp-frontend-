@@ -341,8 +341,10 @@ export function getUpcomingDeadlines(limit = 8): Promise<ApiResult<UpcomingDeadl
 }
 
 
-/** POST /api/v2/filing/start — create a new filing session.  Entity
- *  name is stored under user_answers.entity_info.entity_name. */
+/** POST /api/v2/filing/start — create a new filing session.  When
+ *  `entityName` is provided, the backend stores it under
+ *  user_answers.entity_info.{name, entity_name} so the PDF generator
+ *  can fill the form's "Name" field. */
 export async function startFiling(
     formType: string,
     taxYear: number,
@@ -354,10 +356,11 @@ export async function startFiling(
         tax_year: taxYear,
         entity_ein: entityEin,
     };
-    // Entity name is sent via user_answers in a follow-up answer call;
-    // the start endpoint doesn't yet accept entity_name directly.  We
-    // forward it as a post-start side effect.
-    const result = await request<SessionStartResponse>(
+    const trimmed = entityName?.trim();
+    if (trimmed) {
+        body.entity_name = trimmed;
+    }
+    return request<SessionStartResponse>(
         `${FILING_API}/start`,
         {
             method: 'POST',
@@ -365,17 +368,6 @@ export async function startFiling(
             body: JSON.stringify(body),
         },
     );
-    if (result.data && entityName?.trim()) {
-        // Store entity_name in user_answers via a synthetic answer.
-        // We treat _entity_info as a reserved field-id namespace; the
-        // backend's preview/PDF generator looks it up from
-        // user_answers.entity_info.entity_name.
-        // For now we POST it as an answer with a sentinel field-id —
-        // the backend's validate_answer rejects unknown fields, so
-        // we silently swallow.  A proper "entity_info" endpoint can
-        // come later.
-    }
-    return result;
 }
 
 
