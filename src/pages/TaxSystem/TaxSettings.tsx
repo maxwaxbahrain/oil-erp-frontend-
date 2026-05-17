@@ -15,6 +15,7 @@ import {
     Sparkles,
     MapPin,
     Zap,
+    FileText,
 } from 'lucide-react';
 
 interface TaxEntryCard {
@@ -56,12 +57,21 @@ const ENTRIES: TaxEntryCard[] = [
         blurb: 'Read-only table of all 50 states + DC.  Combined state + average local rates, with no-tax states highlighted.',
         accent: 'purple',
     },
+    {
+        // Session 2F — 5th card: federal income tax filings (Form 1120 / 1040 / Schedule C / 941).
+        path: '/tax/filing',
+        icon: FileText,
+        title: 'Tax Filings',
+        blurb: 'File and manage your federal tax returns.  AI-driven wizard pulls from your ERP and walks you through Form 1120, 1040, Schedule C, and 941.',
+        accent: 'emerald',
+    },
 ];
 
 const ACCENT_CLASSES: Record<string, { bg: string; icon: string }> = {
-    orange: { bg: 'bg-orange-50', icon: 'text-orange-600' },
-    blue:   { bg: 'bg-blue-50',   icon: 'text-blue-600' },
-    purple: { bg: 'bg-purple-50', icon: 'text-purple-600' },
+    orange:  { bg: 'bg-orange-50',  icon: 'text-orange-600' },
+    blue:    { bg: 'bg-blue-50',    icon: 'text-blue-600' },
+    purple:  { bg: 'bg-purple-50',  icon: 'text-purple-600' },
+    emerald: { bg: 'bg-emerald-50', icon: 'text-emerald-600' },
 };
 
 export default function TaxSettings() {

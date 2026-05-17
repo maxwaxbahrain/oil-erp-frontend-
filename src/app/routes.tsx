@@ -78,6 +78,11 @@ import TaxEngine from '../pages/TaxSystem/TaxEngine';
 import TaxCalculatorPage from '../pages/TaxSystem/Calculator';
 import TaxTransactions from '../pages/TaxSystem/Transactions';
 import TaxRates from '../pages/TaxSystem/Rates';
+// Session 2F — Tax Filing wizard (Form 1120 / 1040 / Schedule C / 941).
+import TaxFilingList from '../pages/TaxSystem/Filing/TaxFilingList';
+import FilingWizardStart from '../pages/TaxSystem/Filing/FilingWizardStart';
+import FilingWizard from '../pages/TaxSystem/Filing/FilingWizard';
+import FilingPreview from '../pages/TaxSystem/Filing/FilingPreview';
 import AmazonIntegration from '../pages/Amazon/AmazonIntegration';
 import Pulse from '../pages/Pulse/Pulse';
 import DataMigration from '../pages/Migration/DataMigration'; // CRM exports as 'CRM'
@@ -212,6 +217,11 @@ export const AppRoutes = () => {
             <Route path="/tax/calculator" element={<TaxCalculatorPage />} />
             <Route path="/tax/transactions" element={<TaxTransactions />} />
             <Route path="/tax/rates" element={<TaxRates />} />
+            {/* Session 2F — Tax Filing wizard routes */}
+            <Route path="/tax/filing" element={<TaxFilingList />} />
+            <Route path="/tax/filing/new" element={<FilingWizardStart />} />
+            <Route path="/tax/filing/wizard/:filingId" element={<FilingWizard />} />
+            <Route path="/tax/filing/preview/:filingId" element={<FilingPreview />} />
             <Route path="/amazon" element={<AmazonIntegration />} />
             <Route path="/pulse" element={<Pulse />} />
             <Route path="/migrate" element={<DataMigration />} />
