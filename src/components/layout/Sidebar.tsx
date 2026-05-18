@@ -239,6 +239,8 @@ export default function Sidebar() {
                 <NavItem to="/finance/chart-of-accounts" icon={BookOpen} label="Chart of Accounts" />
                 {/* ITEM 11 — Central All-Accounts Ledger. */}
                 <NavItem to="/finance/all-ledger" icon={BookOpen} label="All-Accounts Ledger" />
+                {/* TC-69 — Financial Statement (P&L, Balance Sheet, Cash Flow). */}
+                <NavItem to="/finance/financial-statement" icon={FileText} label="Financial Statement" />
                 <NavItem to="/finance/journal-voucher" icon={FileText} label="Journal Voucher (JV)" />
                 <NavItem to="/finance/bad-debts" icon={AlertTriangle} label="Bad Debts Write-Off" />
                 {/* ITEM 13 — Edit Payments sidebar link removed. Edits are

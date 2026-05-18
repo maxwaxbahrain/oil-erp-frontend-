@@ -66,6 +66,39 @@ const QUICK_SEARCHES = [
     'Import duty changes 2025',
 ];
 
+// TC-77 — Sample fallback articles. Shown when the live news endpoint is
+// unavailable so the page is never blank. Each card is clearly labeled
+// "Sample" in the UI so users don't mistake them for live news.
+const SAMPLE_FALLBACK_ARTICLES: NewsArticle[] = [
+    {
+        title: 'OPEC+ holds production cuts through Q2 — base oil prices firm',
+        summary: 'Oil ministers extended the current voluntary production cuts, supporting base oil price floors. Distributors should expect $2–4/barrel firmness on Group I and II stocks over the next 60 days.',
+        source: 'Sample — Reuters Energy',
+        url: 'https://www.reuters.com/business/energy/',
+        relevance: 'Base oil cost & margin planning',
+        impact: 'high',
+        category: 'oil_price',
+    },
+    {
+        title: 'NYC DOT begins phased fuel surcharge audit for commercial fleets',
+        summary: 'New York City has started auditing fuel-surcharge invoicing for delivery fleets operating in the five boroughs. Lubricant distributors with their own vans should ensure documented surcharge calculations are on file.',
+        source: 'Sample — NYC Business Journal',
+        url: 'https://www.nyc.gov/',
+        relevance: 'Local delivery operations compliance',
+        impact: 'medium',
+        category: 'regulation',
+    },
+    {
+        title: 'Port of Newark container dwell-times back to pre-2024 levels',
+        summary: 'Average container dwell time at Newark has dropped to 4.1 days, the lowest in 14 months. Importers of finished lubricants and additives can plan tighter inventory cycles.',
+        source: 'Sample — JOC Maritime',
+        url: 'https://www.joc.com/',
+        relevance: 'Inventory and reorder timing',
+        impact: 'low',
+        category: 'supply_chain',
+    },
+];
+
 function getCache(): NewsData | null {
     try {
         const raw = localStorage.getItem(NEWS_CACHE_KEY);
@@ -98,6 +131,8 @@ export default function NewsIntelligence() {
     const navigate = useNavigate();
     const [news, setNews] = useState<NewsData | null>(null);
     const [loading, setLoading] = useState(false);
+    // TC-77 — show fetch errors to the user instead of swallowing them.
+    const [error, setError] = useState<string | null>(null);
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState('');
     const [chatLoading, setChatLoading] = useState(false);
@@ -126,6 +161,7 @@ export default function NewsIntelligence() {
 
     const fetchNews = async (ctx?: string) => {
         setLoading(true);
+        setError(null);
         try {
             const context = ctx || businessCtx;
             const res = await fetch(`${API}/ai/news`, {
@@ -133,13 +169,19 @@ export default function NewsIntelligence() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ business_context: context, max_articles: 8 })
             });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            if (!res.ok) {
+                // Try to surface the backend's detail message when present.
+                let detail = '';
+                try { detail = (await res.json())?.detail || ''; } catch { /* not JSON */ }
+                throw new Error(detail || `HTTP ${res.status}`);
+            }
             const data: NewsData = await res.json();
             data.business_context = context;
             setNews(data);
             setCache(data);
         } catch (e: any) {
             console.error('News fetch failed:', e);
+            setError(e instanceof Error ? e.message : 'Could not load news.');
         } finally {
             setLoading(false);
         }
@@ -267,7 +309,57 @@ Your role: Answer questions about business news, tariffs, oil prices, market con
                         </div>
                     )}
 
-                    {!loading && !news && (
+                    {/* TC-77 — visible error banner.  Surfaces missing
+                        ANTHROPIC_API_KEY, network failures, and HTTP
+                        errors instead of leaving the page looking
+                        like nothing happened. */}
+                    {!loading && error && (
+                        <>
+                            {/* TC-77 — User-friendly error banner with retry. The raw error
+                                message is kept underneath in a smaller line for debugging. */}
+                            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 flex items-start gap-3 shadow-sm">
+                                <div className="flex-1">
+                                    <p className="text-amber-800 font-black uppercase tracking-widest text-xs mb-1">News feed unavailable</p>
+                                    <p className="text-amber-800 text-sm">
+                                        News feed unavailable — live news requires backend setup. Showing sample articles below so you can see what the feed looks like.
+                                    </p>
+                                    <p className="text-amber-700/70 text-[11px] font-mono mt-1">Backend said: {error}</p>
+                                </div>
+                                <button
+                                    onClick={() => fetchNews()}
+                                    className="px-4 py-2 bg-amber-600 text-white text-xs font-black uppercase tracking-widest rounded-lg hover:bg-amber-700 transition-all shadow"
+                                >
+                                    Retry
+                                </button>
+                            </div>
+                            {/* TC-77 — Sample article cards so the page is never empty. */}
+                            <div className="space-y-3">
+                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest pt-2">Sample articles · for layout preview only</p>
+                                {SAMPLE_FALLBACK_ARTICLES.map((article, i) => (
+                                    <div key={`fallback-${i}`} className={`bg-white rounded-2xl border-2 p-5 shadow-sm transition-all hover:shadow-md ${article.impact === 'high' ? 'border-l-4 border-l-red-400' : article.impact === 'medium' ? 'border-l-4 border-l-amber-400' : 'border-l-4 border-l-blue-300'} border-gray-100 opacity-90`}>
+                                        <div className="flex items-start justify-between gap-4">
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                                    <span className="text-lg">{CAT_ICON[article.category] || '📰'}</span>
+                                                    <span className={`px-2 py-0.5 text-[10px] font-black rounded-full border ${IMPACT_STYLE[article.impact]}`}>{article.impact.toUpperCase()}</span>
+                                                    <span className="px-2 py-0.5 text-[10px] font-black rounded-full bg-gray-100 text-gray-600 uppercase tracking-widest">Sample</span>
+                                                </div>
+                                                <h4 className="font-black text-gray-900 mb-2 leading-tight">{article.title}</h4>
+                                                <p className="text-sm text-gray-600 leading-relaxed">{article.summary}</p>
+                                                <div className="flex items-center gap-3 mt-3 text-[11px] text-gray-400 font-bold">
+                                                    <span>{article.source}</span>
+                                                    <span>·</span>
+                                                    <span className="italic">{article.relevance}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </>
+                    )}
+
+                    {!loading && !error && !news && (
                         <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center shadow-sm">
                             <Globe size={48} className="mx-auto text-gray-200 mb-4" />
                             <p className="text-gray-500 font-black">Click "Refresh News" to load today's business news</p>

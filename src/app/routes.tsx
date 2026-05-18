@@ -72,6 +72,8 @@ import ChartOfAccounts from '../pages/Accounts/ChartOfAccounts';
 import JournalVoucher from '../pages/Accounts/JournalVoucher';
 // ITEM 11 — Central ledger page.
 import AllAccountsLedger from '../pages/Accounts/AllAccountsLedger';
+// TC-69 — Financial Statement page (P&L, Balance Sheet, Cash Flow).
+import FinancialStatement from '../pages/Reports/FinancialStatement';
 import PaymentEdit from '../pages/Accounts/PaymentEdit';
 import BadDebtsJV from '../pages/Accounts/BadDebtsJV';
 import AIHub from '../pages/AI/AIHub';
@@ -223,6 +225,8 @@ export const AppRoutes = () => {
             <Route path="/finance/journal-voucher" element={<JournalVoucher />} />
             {/* ITEM 11 — Central All-Accounts Ledger. */}
             <Route path="/finance/all-ledger" element={<AllAccountsLedger />} />
+            {/* TC-69 — Financial Statement (P&L, Balance Sheet, Cash Flow). */}
+            <Route path="/finance/financial-statement" element={<FinancialStatement />} />
             <Route path="/finance/payment-edit" element={<PaymentEdit />} />
             <Route path="/finance/bad-debts" element={<BadDebtsJV />} />
             <Route path="/ai" element={<AIHub />} />
