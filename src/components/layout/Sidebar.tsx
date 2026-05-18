@@ -20,7 +20,7 @@ import {
     TrendingUp,
     User,
     MapPin
-, Tag , BookOpen , AlertTriangle , Edit2 , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database } from 'lucide-react';
+, Tag , BookOpen , AlertTriangle , Edit2 , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 } from 'lucide-react';
 import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
 
@@ -35,6 +35,7 @@ export default function Sidebar() {
         purchase: true,
         products: true,
         finance: false,
+        expenses: true,
         reports: false,
         ai: true,
         marketing: true,
@@ -208,18 +209,42 @@ export default function Sidebar() {
                     />
                     {sections.finance && (
                         <div className="space-y-0.5 pl-2 border-l-2 border-white/5 ml-2">
-                            <NavItem to="/finance/expenses" icon={Wallet} label="Expenses" />
                             <NavItem to="/finance/payroll" icon={Users} label="Payroll" />
                             <NavItem to="/finance/accounting" icon={Briefcase} label="Accounting" />
                         </div>
                     )}
                 </div>
 
+                {/* TASK 1 — Expenses module as its own collapsible with all sub-pages
+                    visible. Matches the Sales Orders / Purchase Orders pattern. */}
+                <div>
+                    <SectionHeader
+                        label="Expenses"
+                        isOpen={sections.expenses}
+                        onClick={() => toggleSection('expenses')}
+                    />
+                    {sections.expenses && (
+                        <div className="space-y-0.5 pl-2 border-l-2 border-white/5 ml-2">
+                            <NavItem to="/finance/expenses" icon={Receipt} label="Expenses" />
+                            <NavItem to="/finance/expenses/approvals" icon={CheckCircle2} label="Approvals" />
+                            <NavItem to="/finance/expenses/bulk-upload" icon={Upload} label="Bulk Upload" />
+                            <NavItem to="/finance/expenses/mileage" icon={MapPin} label="Mileage" />
+                            <NavItem to="/finance/expenses/reports" icon={BarChart2} label="Reports" />
+                            <NavItem to="/finance/expenses/settings" icon={Settings} label="Settings" />
+                        </div>
+                    )}
+                </div>
+
                 <NavItem to="/finance/banking" icon={Globe} label="Banking" />
                 <NavItem to="/finance/chart-of-accounts" icon={BookOpen} label="Chart of Accounts" />
+                {/* ITEM 11 — Central All-Accounts Ledger. */}
+                <NavItem to="/finance/all-ledger" icon={BookOpen} label="All-Accounts Ledger" />
                 <NavItem to="/finance/journal-voucher" icon={FileText} label="Journal Voucher (JV)" />
                 <NavItem to="/finance/bad-debts" icon={AlertTriangle} label="Bad Debts Write-Off" />
-                <NavItem to="/finance/payment-edit" icon={Edit2} label="Edit Payments" />
+                {/* ITEM 13 — Edit Payments sidebar link removed. Edits are
+                    now initiated from per-row Edit buttons in the Customer
+                    Payments tab; the PaymentEdit route remains as a
+                    deep-link target (/finance/payment-edit?id=<paymentId>). */}
                 <NavItem to="/tax" icon={Calculator} label="Tax Management" />
 
                 <div className="h-px bg-white/5 my-3 mx-2" />

@@ -26,6 +26,8 @@ import {
     Send,
     ChevronDown
 } from 'lucide-react';
+// ITEM 16 — Escape closes the Send Payment modal.
+import { useEscape } from '../../hooks/useEscape';
 import * as XLSX from 'xlsx';
 import autoTable from 'jspdf-autotable';
 import { generateStandardPDF } from '../../utils/documentGenerator';
@@ -128,6 +130,13 @@ export default function SupplierDetail() {
     const [showEditModal, setShowEditModal] = useState(false);
     const [showPOModal, setShowPOModal] = useState(false);
     const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
+    // ITEM 16 — Escape closes whichever modal is open (PO preview wins
+    // precedence since it's typically opened on top of the payment one).
+    useEscape(() => {
+        if (showPOModal) setShowPOModal(false);
+        else if (showEditModal) setShowEditModal(false);
+        else if (showPaymentModal) setShowPaymentModal(false);
+    }, showPaymentModal || showEditModal || showPOModal);
     const [converting, setConverting] = useState<string | null>(null);
     const [showShareMenu, setShowShareMenu] = useState(false);
 
@@ -140,6 +149,11 @@ export default function SupplierDetail() {
         notes: '',
         poId: ''
     });
+    // ITEM 6E — Multi-PO checklist state (mirror of customer 5E).
+    const [selectedPOIds, setSelectedPOIds] = useState<string[]>([]);
+    // ITEM 6G — Pay-from-account (COA 1110 subtree).
+    const [bankAccounts, setBankAccounts] = useState<Array<{ id: string; code: string; name: string }>>([]);
+    const [payFromAccountId, setPayFromAccountId] = useState<string>('');
 
     const [selectedCurrency, setSelectedCurrency] = useState(WORLD_CURRENCIES[0]); // Default to USD
 
@@ -151,6 +165,43 @@ export default function SupplierDetail() {
             setActiveTab(tab as any);
         }
     }, [location.search]);
+
+    // ITEM 6G — Load bank/cash COA accounts (1110 subtree). Same recursive
+    // parent-chain walk used on the customer side (5H).
+    useEffect(() => {
+        (async () => {
+            try {
+                const { getAccounts } = await import('../Accounts/ChartOfAccounts');
+                const all = getAccounts();
+                const isUnderCashBank = (a: typeof all[number]): boolean => {
+                    if (a.id === '1110') return true;
+                    let pid = a.parentId;
+                    while (pid) {
+                        if (pid === '1110') return true;
+                        const parent = all.find(x => x.id === pid);
+                        pid = parent ? parent.parentId : null;
+                    }
+                    return false;
+                };
+                const bank = all.filter(isUnderCashBank).map(a => ({ id: a.id, code: a.code, name: a.name }));
+                setBankAccounts(bank);
+                const firstChild = bank.find(a => all.find(x => x.id === a.id)?.parentId === '1110');
+                setPayFromAccountId(firstChild?.id || bank.find(a => a.id === '1110')?.id || '');
+            } catch (e) {
+                console.warn('Could not load COA accounts:', e);
+            }
+        })();
+    }, []);
+
+    // FIX W2-3 — Auto-open the edit modal when the user clicked the
+    // per-row Edit button on SupplierList. We clear the history state
+    // after consuming it so a refresh doesn't re-open the modal.
+    useEffect(() => {
+        if ((location.state as any)?.openEdit && supplier) {
+            setShowEditModal(true);
+            window.history.replaceState({}, document.title);
+        }
+    }, [location.state, supplier]);
 
     // Fetch supplier data — direct API to dodge stale service bundles.
     useEffect(() => {
@@ -253,22 +304,78 @@ export default function SupplierDetail() {
 
         try {
             setLoadingDetails(true);
-            const selectedPO = purchases.find(p => p.id === paymentForm.poId);
-            const paymentReference = paymentForm.reference || (selectedPO ? `PAY-RE-${selectedPO.poNumber}` : `PAY-${Date.now().toString().slice(-4)}`);
+            // ITEM 6E — Multi-PO fan-out. Each selected PO gets its full
+            // remaining balance applied in a separate createSupplierPayment.
+            // If no PO is selected, fall back to a single direct payment
+            // for the user-entered amount.
+            const succeeded: string[] = [];
+            const failures: Array<{ poNumber?: string; reason: string }> = [];
 
-            await createSupplierPayment({
-                supplierId: id,
-                amount: paymentForm.amount,
-                date: paymentForm.date,
-                paymentMethod: paymentForm.paymentMethod,
-                reference: paymentReference,
-                notes: paymentForm.notes
-            });
+            if (selectedPOIds.length === 0) {
+                // Direct/general payment, no PO link.
+                const paymentReference = paymentForm.reference || `PAY-${Date.now().toString().slice(-4)}`;
+                try {
+                    await createSupplierPayment({
+                        supplierId: id,
+                        amount: paymentForm.amount,
+                        date: paymentForm.date,
+                        paymentMethod: paymentForm.paymentMethod,
+                        reference: paymentReference,
+                        notes: paymentForm.notes,
+                        // ITEM 6G — Pay-from-account metadata (backend-forward).
+                        pay_from_account_id: payFromAccountId || undefined,
+                    } as any);
+                    succeeded.push('(direct)');
+                } catch (err) {
+                    failures.push({ reason: err instanceof Error ? err.message : String(err) });
+                }
+            } else {
+                // Multi-PO: one POST per PO with its full remaining balance.
+                for (const poId of selectedPOIds) {
+                    const po = purchases.find(p => String(p.id) === poId);
+                    if (!po) continue;
+                    const poBal = Number(po.remaining_balance ?? po.grandTotal) || 0;
+                    if (poBal <= 0.005) continue;
+                    const ref = paymentForm.reference || `PAY-RE-${po.poNumber}`;
+                    try {
+                        await createSupplierPayment({
+                            supplierId: id,
+                            amount: poBal,
+                            date: paymentForm.date,
+                            paymentMethod: paymentForm.paymentMethod,
+                            reference: ref,
+                            notes: paymentForm.notes,
+                            // ITEM 6G — Same pay-from account for the whole batch.
+                            pay_from_account_id: payFromAccountId || undefined,
+                            // Forward the linked PO id as metadata so the backend
+                            // can apply it to the right purchase order once the
+                            // schema supports it.
+                            purchase_order_id: po.id,
+                        } as any);
+                        succeeded.push(po.poNumber || `#${po.id}`);
+                    } catch (err) {
+                        failures.push({
+                            poNumber: po.poNumber,
+                            reason: err instanceof Error ? err.message : String(err),
+                        });
+                    }
+                }
+            }
 
-            // If a PO was selected, we might want to update its payment status, 
-            // but for now, the ledger calculation will handle the balance.
+            if (failures.length > 0) {
+                const failList = failures.map(f => `• ${f.poNumber || '?'}: ${f.reason}`).join('\n');
+                alert(
+                    `Recorded ${succeeded.length} of ${succeeded.length + failures.length} payments.\n\n` +
+                    `Failed:\n${failList}`
+                );
+                if (succeeded.length === 0) {
+                    setLoadingDetails(false);
+                    return;
+                }
+            }
 
             setShowPaymentModal(false);
+            setSelectedPOIds([]);
             setPaymentForm({
                 amount: 0,
                 date: new Date().toISOString().split('T')[0],
@@ -279,7 +386,10 @@ export default function SupplierDetail() {
             });
 
             await loadAllData();
-            alert('✅ Payment executed successfully! Ledger and balance have been updated.');
+            const msg = succeeded.length === 1
+                ? '✅ Payment executed successfully! Ledger and balance have been updated.'
+                : `✅ ${succeeded.length} payments recorded. Ledger and balance have been updated.`;
+            alert(msg);
         } catch (error) {
             console.error('Failed to record payment:', error);
             alert('❌ Execution failed. Please verify network connectivity.');
@@ -921,6 +1031,24 @@ export default function SupplierDetail() {
                                             ))
                                         )}
                                     </tbody>
+                                    {/* ITEM 6D — Ledger totals from filteredLedger (respects date range). */}
+                                    {filteredLedger.length > 0 && (() => {
+                                        const totalDebit = filteredLedger.reduce((s, e: any) => s + (Number(e.debit) || 0), 0);
+                                        const totalCredit = filteredLedger.reduce((s, e: any) => s + (Number(e.credit) || 0), 0);
+                                        // Supplier ledger: credit (purchases) - debit (payments) = outstanding (owe more).
+                                        const net = totalCredit - totalDebit;
+                                        return (
+                                            <tfoot className="bg-gray-50 border-t-2 border-gray-300">
+                                                <tr className="font-black">
+                                                    <td colSpan={4} className="px-6 py-3 text-right text-[10px] text-gray-700 uppercase tracking-widest">Totals</td>
+                                                    <td className="px-6 py-3 text-right font-mono text-blue-700">{totalDebit.toFixed(2)}</td>
+                                                    <td className="px-6 py-3 text-right font-mono text-emerald-700">{totalCredit.toFixed(2)}</td>
+                                                    <td className={`px-6 py-3 text-right font-mono ${net >= 0 ? 'text-gray-900' : 'text-rose-600'}`}>{net.toFixed(2)}</td>
+                                                    <td></td>
+                                                </tr>
+                                            </tfoot>
+                                        );
+                                    })()}
                                 </table>
                             </div>
                         </div>
@@ -978,11 +1106,28 @@ export default function SupplierDetail() {
                                                             )}
                                                         </td>
                                                         <td className="px-6 py-4 text-center">
-                                                            <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter ${po.payment_status === 'Paid' ? 'bg-blue-600 text-white' :
-                                                                po.payment_status === 'Advance Paid' ? 'bg-amber-600 text-white' : 'bg-rose-500 text-white'
-                                                                }`}>
-                                                                {po.payment_status === 'Paid' ? '🔵 Paid' : po.payment_status === 'Advance Paid' ? '🟡 Partial' : '🔴 Unpaid'}
-                                                            </span>
+                                                            {(() => {
+                                                                // ITEM 6C — Derive from remaining_balance (authoritative),
+                                                                // not the stale payment_status string. Mirrors 5C.
+                                                                const grand = Number((po as any).grandTotal) || 0;
+                                                                const rb = Number((po as any).remaining_balance ?? grand);
+                                                                const isPaid = rb <= 0.005;
+                                                                const isPartial = !isPaid && rb < grand;
+                                                                const cls = isPaid ? 'bg-blue-600 text-white'
+                                                                    : isPartial ? 'bg-amber-500 text-white'
+                                                                    : 'bg-rose-500 text-white';
+                                                                const label = isPaid ? '🔵 Paid'
+                                                                    : isPartial ? '🟠 Partial'
+                                                                    : '🔴 Unpaid';
+                                                                return (
+                                                                    <span
+                                                                        className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter ${cls}`}
+                                                                        title={isPartial ? `${rb.toFixed(2)} of ${grand.toFixed(2)} outstanding` : undefined}
+                                                                    >
+                                                                        {label}
+                                                                    </span>
+                                                                );
+                                                            })()}
                                                         </td>
                                                         <td className="px-6 py-4 text-sm font-black text-gray-900 text-right font-mono">
                                                             {po.grandTotal.toLocaleString()}
@@ -1015,6 +1160,31 @@ export default function SupplierDetail() {
                                                 ))
                                         )}
                                     </tbody>
+                                    {/* ITEM 6D — Purchases totals. POs only, no orders/drafts. */}
+                                    {purchases.length > 0 && (() => {
+                                        const totalPurchases = purchases.reduce((s, p) => s + (Number((p as any).grandTotal) || 0), 0);
+                                        const totalOutstanding = purchases.reduce((s, p) => {
+                                            const grand = Number((p as any).grandTotal) || 0;
+                                            const rb = Number((p as any).remaining_balance ?? grand);
+                                            return s + Math.max(0, rb);
+                                        }, 0);
+                                        return (
+                                            <tfoot className="bg-gray-50 border-t-2 border-gray-300">
+                                                <tr className="font-black">
+                                                    <td colSpan={4} className="px-6 py-3"></td>
+                                                    <td className="px-6 py-3 text-right text-[10px] text-gray-700 uppercase tracking-widest">
+                                                        <span className="block">Total Purchases</span>
+                                                        <span className="block text-amber-700 mt-1">Total Outstanding</span>
+                                                    </td>
+                                                    <td className="px-6 py-3 text-right font-mono">
+                                                        <span className="block text-gray-900">{totalPurchases.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                                        <span className="block text-amber-700 mt-1">{totalOutstanding.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                                    </td>
+                                                    <td></td>
+                                                </tr>
+                                            </tfoot>
+                                        );
+                                    })()}
                                 </table>
                             </div>
                         </div>
@@ -1069,6 +1239,19 @@ export default function SupplierDetail() {
                                             ))
                                         )}
                                     </tbody>
+                                    {/* ITEM 6D — Total Paid summary. */}
+                                    {payments.length > 0 && (() => {
+                                        const totalPaid = payments.reduce((s, p: any) => s + (Number(p.amount) || 0), 0);
+                                        return (
+                                            <tfoot className="bg-gray-50 border-t-2 border-gray-300">
+                                                <tr className="font-black">
+                                                    <td colSpan={3} className="px-6 py-3 text-right text-[10px] text-gray-700 uppercase tracking-widest">Total Paid</td>
+                                                    <td className="px-6 py-3 text-right font-mono text-rose-700">{totalPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                                                    <td></td>
+                                                </tr>
+                                            </tfoot>
+                                        );
+                                    })()}
                                 </table>
                             </div>
                         </div>
@@ -1097,39 +1280,127 @@ export default function SupplierDetail() {
                         </div>
 
                         <div className="p-8 space-y-6">
+                            {/* ITEM 6E + 6F — Multi-PO checklist. Filters out POs
+                                with remaining_balance ≤ 0 (so fully-paid POs no
+                                longer appear). Auto-sums selected PO balances
+                                into the disbursement amount. */}
                             <div>
-                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Invoice / PO Reference</label>
-                                {/* SearchableSelect lets the user type to filter when a supplier has dozens of POs. */}
-                                <SearchableSelect
-                                    options={[
-                                        { id: '', name: '-- Direct Payment (General) --', code: '' },
-                                        ...purchases
-                                            .filter(p => p.status !== 'Draft')
-                                            .map(po => {
-                                                const bal = Number(po.remaining_balance ?? po.grandTotal) || 0;
-                                                return {
-                                                    id: String(po.id),
-                                                    // `name` is what SearchableSelect displays + searches over.
-                                                    name: `${po.poNumber}  ·  Balance ${formatCurrency(bal)}`,
-                                                    // `code` is a secondary searchable field — typing the PO
-                                                    // number alone (e.g. "PUR-01") matches.
-                                                    code: po.poNumber || '',
-                                                };
-                                            }),
-                                    ]}
-                                    value={paymentForm.poId}
-                                    onChange={(poId) => {
-                                        const po = purchases.find(p => String(p.id) === String(poId));
-                                        setPaymentForm({
-                                            ...paymentForm,
-                                            poId,
-                                            amount: po
-                                                ? Number(po.remaining_balance ?? po.grandTotal) || 0
-                                                : paymentForm.amount,
+                                <div className="flex items-center justify-between mb-2">
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                        Apply To Purchase Order(s)
+                                    </label>
+                                    {(() => {
+                                        const open = purchases.filter(p => {
+                                            if (p.status === 'Draft') return false;
+                                            const bal = Number(p.remaining_balance ?? p.grandTotal) || 0;
+                                            return bal > 0.005;
                                         });
-                                    }}
-                                    placeholder="Search invoice / PO number..."
-                                />
+                                        return open.length > 0 && (
+                                            <div className="flex items-center gap-2 text-[9px] font-black text-gray-400 uppercase tracking-widest">
+                                                <button type="button" onClick={() => {
+                                                    const ids = open.map(p => String(p.id));
+                                                    setSelectedPOIds(ids);
+                                                    const total = open.reduce((s, p) => s + (Number(p.remaining_balance ?? p.grandTotal) || 0), 0);
+                                                    setPaymentForm(pf => ({ ...pf, amount: Number(total.toFixed(2)) }));
+                                                }} className="hover:text-redwood-brand">Select all</button>
+                                                <span className="text-gray-300">|</span>
+                                                <button type="button" onClick={() => {
+                                                    setSelectedPOIds([]);
+                                                    setPaymentForm(pf => ({ ...pf, amount: 0 }));
+                                                }} className="hover:text-rose-600">Clear</button>
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
+                                {(() => {
+                                    const openPOs = purchases.filter(p => {
+                                        if (p.status === 'Draft') return false;
+                                        const bal = Number(p.remaining_balance ?? p.grandTotal) || 0;
+                                        return bal > 0.005;
+                                    });
+                                    if (openPOs.length === 0) {
+                                        return (
+                                            <div className="bg-amber-50 border-2 border-dashed border-amber-200 rounded-lg p-4 text-xs text-amber-700">
+                                                No open POs with outstanding balance. Submit as a direct payment (leave selection empty).
+                                            </div>
+                                        );
+                                    }
+                                    return (
+                                        <div className="border-2 border-gray-200 rounded-lg max-h-56 overflow-y-auto divide-y divide-gray-100">
+                                            {openPOs.map(po => {
+                                                const idStr = String(po.id);
+                                                const isChecked = selectedPOIds.includes(idStr);
+                                                const bal = Number(po.remaining_balance ?? po.grandTotal) || 0;
+                                                return (
+                                                    <label
+                                                        key={idStr}
+                                                        className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors ${isChecked ? 'bg-emerald-50' : 'hover:bg-gray-50'}`}
+                                                    >
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={isChecked}
+                                                            onChange={(ev) => {
+                                                                let next: string[];
+                                                                if (ev.target.checked) next = [...selectedPOIds, idStr];
+                                                                else next = selectedPOIds.filter(x => x !== idStr);
+                                                                setSelectedPOIds(next);
+                                                                // Auto-sum new selection
+                                                                const total = openPOs
+                                                                    .filter(p => next.includes(String(p.id)))
+                                                                    .reduce((s, p) => s + (Number(p.remaining_balance ?? p.grandTotal) || 0), 0);
+                                                                setPaymentForm(pf => ({ ...pf, amount: Number(total.toFixed(2)) }));
+                                                            }}
+                                                            className="w-4 h-4 rounded border-gray-300 text-redwood-brand focus:ring-redwood-brand"
+                                                        />
+                                                        <div className="flex-1">
+                                                            <div className="text-sm font-bold text-gray-900">{po.poNumber}</div>
+                                                            <div className="text-[9px] text-gray-400 uppercase font-bold tracking-widest mt-0.5">
+                                                                Status: {po.status}
+                                                            </div>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <div className="text-xs font-mono font-black text-rose-600">{formatCurrency(bal)}</div>
+                                                            <div className="text-[8px] text-gray-400 uppercase font-bold tracking-widest">Outstanding</div>
+                                                        </div>
+                                                    </label>
+                                                );
+                                            })}
+                                        </div>
+                                    );
+                                })()}
+                                {selectedPOIds.length > 0 && (
+                                    <div className="mt-2 bg-emerald-50 border-2 border-emerald-200 rounded-lg px-3 py-2 flex items-center justify-between">
+                                        <span className="text-[10px] font-black text-emerald-800 uppercase tracking-widest">
+                                            {selectedPOIds.length} PO{selectedPOIds.length === 1 ? '' : 's'} selected
+                                        </span>
+                                        <span className="font-mono font-black text-emerald-900 text-sm">
+                                            Total: {formatCurrency(paymentForm.amount)}
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* ITEM 6G — Pay-From Account dropdown sourced from
+                                COA 1110 subtree. Same metadata pattern as 5H. */}
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">
+                                    Pay From Account <span className="text-red-500">*</span>
+                                </label>
+                                {bankAccounts.length === 0 ? (
+                                    <div className="px-4 py-3 bg-amber-50 border-2 border-amber-200 rounded-lg text-xs text-amber-800">
+                                        No bank or cash accounts configured. Set up sub-accounts under <strong>Chart of Accounts → Cash &amp; Bank (1110)</strong>.
+                                    </div>
+                                ) : (
+                                    <select
+                                        value={payFromAccountId}
+                                        onChange={(e) => setPayFromAccountId(e.target.value)}
+                                        className="w-full border-2 border-gray-100 bg-gray-50 rounded-xl px-4 py-4 text-sm font-black focus:border-redwood-brand focus:bg-white outline-none transition-all uppercase"
+                                    >
+                                        {bankAccounts.map(a => (
+                                            <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+                                        ))}
+                                    </select>
+                                )}
                             </div>
                             <div>
                                 <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Operation Date</label>

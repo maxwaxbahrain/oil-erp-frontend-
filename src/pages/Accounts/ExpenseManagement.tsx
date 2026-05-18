@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getSystemSettings } from '../../services/settingsService';
 import {
     DollarSign, Upload, Plus, FileText,
     Edit2, Trash2, RefreshCw,
-    Sparkles, Brain, TrendingUp
+    Sparkles, Brain, TrendingUp, Download, Send
 } from 'lucide-react';
 import clsx from 'clsx';
 import {
@@ -12,14 +13,53 @@ import {
     saveExpense,
     saveExpenseCategory,
     deleteExpense,
+    exportExpensesAsCSV,
     extractExpenseFromReceipt,
     generateExpenseHeadWithAI,
+    suggestExpenseCategory,
+    checkExpenseDuplicate,
+    checkExpensePolicy,
     type Expense,
     type ExpenseCategory,
-    type AIExtractedData
+    type AIExtractedData,
+    type CategorySuggestion,
+    type DuplicateResult,
+    type PolicyFlag
 } from '../../services/expenseService';
+// STEP 11B — load customers for Bill-to dropdown.
+import { getCustomers as loadCustomerList } from '../../services/customerService';
+// ITEM 16 — Escape closes the manual entry modal and the category dropdown.
+import { useEscape } from '../../hooks/useEscape';
+
+
+// STEP 2 — Per-field confidence indicator for AI-extracted receipt fields.
+// Green ≥ 90 (high), Amber 60-89 (please verify), Red < 60 (manual entry).
+// Returns null when confidence is missing — keeps backward-compat with
+// older AIExtractedData blobs that don't have perFieldConfidence.
+function ConfidenceBadge({ value }: { value?: number }) {
+    if (value == null || !Number.isFinite(value)) return null;
+    const n = Math.round(value);
+    const tone =
+        n >= 90 ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
+        n >= 60 ? 'bg-amber-100 text-amber-700 border-amber-200' :
+                  'bg-rose-100 text-rose-700 border-rose-200';
+    const icon =
+        n >= 90 ? '✓' :
+        n >= 60 ? '⚠' :
+                  '✗';
+    const label =
+        n >= 90 ? `${n}% confident` :
+        n >= 60 ? `${n}% — verify` :
+                  `${n}% — enter manually`;
+    return (
+        <span className={`inline-flex items-center gap-1 mt-2 px-2 py-0.5 rounded-full text-[10px] font-black border ${tone}`}>
+            {icon} {label}
+        </span>
+    );
+}
 
 export default function ExpenseManagement() {
+    const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState<'manual' | 'ai'>('manual');
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [categories, setCategories] = useState<ExpenseCategory[]>([]);
@@ -31,6 +71,13 @@ export default function ExpenseManagement() {
     // Manual entry state
     const [showManualForm, setShowManualForm] = useState(false);
     const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+    // ITEM 16 — Escape closes the manual entry modal. The category
+    // dropdown (declared below) has its own outside-click handler; Escape
+    // closes both at once which is the expected behavior.
+    useEscape(() => {
+        setShowManualForm(false);
+        setEditingExpense(null);
+    }, showManualForm);
 
     // AI upload state
     const [, setUploadedFile] = useState<File | null>(null);
@@ -47,8 +94,67 @@ export default function ExpenseManagement() {
     const [generatingCategory, setGeneratingCategory] = useState(false);
 
     // Form refs for manual entry
-    const categoryRef = useRef<HTMLSelectElement>(null);
+    // ITEM 10 — Category is now controlled state (backed by a custom
+    // searchable input). The legacy ref is kept around for nothing — all
+    // read/write sites have been migrated to selectedCategory below.
+    const [selectedCategory, setSelectedCategory] = useState<string>('');
+    const [categorySearch, setCategorySearch] = useState<string>('');
+    const [categoryOpen, setCategoryOpen] = useState(false);
+    const categoryWrapRef = useRef<HTMLDivElement>(null);
+
+    // Sync the selected category whenever the user opens the form for
+    // editing — keeps the new searchable input in lock-step with the
+    // editingExpense record. Resets on close.
+    useEffect(() => {
+        if (showManualForm) {
+            setSelectedCategory(editingExpense?.category || '');
+            setCategorySearch('');
+        } else {
+            setSelectedCategory('');
+            setCategorySearch('');
+            setCategoryOpen(false);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [editingExpense?.id, /* re-fire when modal opens fresh */ /* showManualForm intentionally omitted */]);
+    useEffect(() => {
+        if (showManualForm) {
+            setSelectedCategory(editingExpense?.category || '');
+        }
+    }, [showManualForm, editingExpense?.category]);
+
+    // Close the category dropdown on outside click.
+    useEffect(() => {
+        const onDoc = (e: MouseEvent) => {
+            if (!categoryWrapRef.current) return;
+            if (!categoryWrapRef.current.contains(e.target as Node)) setCategoryOpen(false);
+        };
+        document.addEventListener('mousedown', onDoc);
+        return () => document.removeEventListener('mousedown', onDoc);
+    }, []);
+    // ITEM 16 — Escape closes the category dropdown (separately from the
+    // modal — that way Esc on the dropdown alone doesn't kill the modal).
+    useEscape(() => setCategoryOpen(false), categoryOpen);
+
     const amountRef = useRef<HTMLInputElement>(null);
+    // STEP 3 — Smart Categorization state
+    const [suggestion, setSuggestion] = useState<CategorySuggestion | null>(null);
+    const [suggestionLoading, setSuggestionLoading] = useState(false);
+    const [suggestionError, setSuggestionError] = useState<string | null>(null);
+    // STEP 4 — Duplicate Detection
+    const [duplicateWarning, setDuplicateWarning] = useState<DuplicateResult | null>(null);
+    // STEP 5 — Policy Checker violations (yellow banner above duplicate banner).
+    const [policyViolations, setPolicyViolations] = useState<PolicyFlag[]>([]);
+    // TASK 8 — Hard-block acknowledgement state for high-confidence duplicates
+    // (≥90% confidence) and severity=error policy violations. User must
+    // explicitly tick each acknowledgement before Save unlocks. Both reset
+    // whenever the underlying warning list changes (so a fix that clears
+    // the warning also clears stale acks).
+    const [dupAcknowledged, setDupAcknowledged] = useState(false);
+    const [policyErrorAcks, setPolicyErrorAcks] = useState<Record<number, boolean>>({});
+    useEffect(() => { setDupAcknowledged(false); }, [duplicateWarning]);
+    useEffect(() => { setPolicyErrorAcks({}); }, [policyViolations]);
+    // STEP 11B — customers loaded once for the Bill-to dropdown.
+    const [customers, setCustomers] = useState<Array<{ id: string | number; name: string }>>([]);
     const dateRef = useRef<HTMLInputElement>(null);
     const vendorRef = useRef<HTMLInputElement>(null);
     const descriptionRef = useRef<HTMLTextAreaElement>(null);
@@ -56,6 +162,10 @@ export default function ExpenseManagement() {
     const currencyRef = useRef<HTMLSelectElement>(null);
     const taxAmountRef = useRef<HTMLInputElement>(null);
     const recurringRef = useRef<HTMLInputElement>(null);
+    // STEPs 11B + 11C — billable + reimbursable refs
+    const isBillableRef = useRef<HTMLInputElement>(null);
+    const clientIdRef = useRef<HTMLSelectElement>(null);
+    const isReimbursableRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         loadData();
@@ -70,6 +180,10 @@ export default function ExpenseManagement() {
             ]);
             setExpenses(expensesData);
             setCategories(categoriesData);
+            try {
+                const list = await loadCustomerList();
+                setCustomers((list as any[]).map(c => ({ id: c.id, name: c.name })));
+            } catch { /* customer list is optional for the form */ }
         } catch (error) {
             console.error('Failed to load data:', error);
         } finally {
@@ -78,7 +192,8 @@ export default function ExpenseManagement() {
     };
 
     const handleManualSave = async () => {
-        const category = categoryRef.current?.value;
+        // ITEM 10 — Category comes from controlled state (searchable input).
+        const category = selectedCategory;
         const amount = parseFloat(amountRef.current?.value || '0');
         const date = dateRef.current?.value;
         const vendor = vendorRef.current?.value;
@@ -87,6 +202,10 @@ export default function ExpenseManagement() {
         const currency = currencyRef.current?.value || 'USD';
         const taxAmount = parseFloat(taxAmountRef.current?.value || '0');
         const isRecurring = recurringRef.current?.checked || false;
+        // STEPs 11B/11C — read billable + reimbursable from refs
+        const isBillable = isBillableRef.current?.checked || false;
+        const clientIdValue = clientIdRef.current?.value || '';
+        const isReimbursable = isReimbursableRef.current?.checked || false;
 
         if (!category || !amount || !date || !vendor) {
             alert('Please fill in all required fields');
@@ -95,6 +214,9 @@ export default function ExpenseManagement() {
 
         setSaving(true);
         try {
+            // STEP 4/5 — re-check at save time + persist both flags.
+            const dupCheck = checkExpenseDuplicate({ vendor, amount, date, category, excludeId: editingExpense?.id });
+            const policy = checkExpensePolicy({ category, amount, date, hasReceipt: false });
             await saveExpense({
                 id: editingExpense?.id,
                 category,
@@ -106,7 +228,14 @@ export default function ExpenseManagement() {
                 paymentMethod,
                 taxAmount,
                 isRecurring,
-                status: 'Draft'
+                status: 'Draft',
+                is_duplicate_flag: dupCheck.isDuplicate,
+                duplicate_of_id: dupCheck.matches[0]?.expenseId || null,
+                policy_flags: policy.length > 0 ? policy : undefined,
+                // STEPs 11B/11C — billable + reimbursable persistence
+                is_billable: isBillable,
+                client_id: isBillable && clientIdValue ? clientIdValue : null,
+                is_reimbursable: isReimbursable,
             });
             await loadData();
             setShowManualForm(false);
@@ -128,12 +257,78 @@ export default function ExpenseManagement() {
 
         try {
             const extracted = await extractExpenseFromReceipt(file);
+            // STEP 3 — replace the hardcoded 'Other' default with a
+            // real categorization call.  Errors here are non-fatal —
+            // we still show the OCR result so the user can pick.
+            try {
+                const sug = await suggestExpenseCategory(
+                    extracted.vendor,
+                    extracted.items.join(', '),
+                    extracted.amount,
+                );
+                extracted.suggestedCategory = sug.mappedCategory;
+            } catch {
+                /* keep 'Other' fallback set by extractExpenseFromReceipt */
+            }
             setAiExtractedData(extracted);
         } catch (error) {
             console.error('AI extraction failed:', error);
             alert('Failed to process receipt');
         } finally {
             setAiProcessing(false);
+        }
+    };
+
+    // STEP 4 — On-blur duplicate check: runs against last 90 days of
+    // expenses from localStorage.  Pure-local, no API call.  Sets the
+    // yellow banner state below the submit button.  Re-evaluated every
+    // time the amount field loses focus (most reliable trigger since
+    // the form is uncontrolled / ref-based).
+    const handleCheckDuplicates = () => {
+        const vendor = vendorRef.current?.value?.trim() || '';
+        const amount = parseFloat(amountRef.current?.value || '0') || 0;
+        const date = dateRef.current?.value || '';
+        const category = selectedCategory;
+        if (!vendor || !amount || !date) {
+            setDuplicateWarning(null);
+            return;
+        }
+        const result = checkExpenseDuplicate({
+            vendor, amount, date, category,
+            excludeId: editingExpense?.id,
+        });
+        setDuplicateWarning(result.isDuplicate ? result : null);
+        // STEP 5 — Policy check uses the same trigger.  Receipts aren't
+        // attached on the manual entry form, so hasReceipt is false here.
+        const violations = checkExpensePolicy({
+            category, amount, date,
+            hasReceipt: false,
+        });
+        setPolicyViolations(violations);
+    };
+
+    // STEP 3 — Smart Categorization: explicit "AI Suggest" button next
+    // to the Category field.  Reads current vendor/description/amount
+    // refs (form is uncontrolled) and calls the service.  Sets
+    // `suggestion` which renders the inline badge with a "Use" button.
+    const handleSuggestCategory = async () => {
+        const vendor = vendorRef.current?.value?.trim() || '';
+        const description = descriptionRef.current?.value?.trim() || '';
+        const amount = parseFloat(amountRef.current?.value || '0') || 0;
+        if (!vendor) {
+            setSuggestionError('Enter a vendor first.');
+            return;
+        }
+        setSuggestion(null);
+        setSuggestionError(null);
+        setSuggestionLoading(true);
+        try {
+            const s = await suggestExpenseCategory(vendor, description, amount);
+            setSuggestion(s);
+        } catch (e) {
+            setSuggestionError(e instanceof Error ? e.message : 'Could not categorize.');
+        } finally {
+            setSuggestionLoading(false);
         }
     };
 
@@ -208,15 +403,67 @@ export default function ExpenseManagement() {
         }
     };
 
+    // ITEM 10 — Draft actions: flip a Draft expense to Submitted in one click.
+    // The expense then enters the approval queue (ExpenseApprovals page).
+    const handleSubmitDraft = async (expense: Expense) => {
+        if (expense.status !== 'Draft') return;
+        if (!confirm(`Submit "${expense.vendor || expense.id}" for approval? You won't be able to edit it after submission.`)) return;
+        try {
+            await saveExpense({ ...expense, status: 'Submitted' });
+            await loadData();
+        } catch (e) {
+            console.error('Failed to submit draft:', e);
+            alert('Failed to submit draft: ' + (e instanceof Error ? e.message : String(e)));
+        }
+    };
+
     const handleDelete = async (id: string) => {
-        if (!confirm('Are you sure you want to delete this expense?')) return;
+        const exp = expenses.find(e => e.id === id);
+        if (!exp) return;
+
+        if (!confirm(`Are you sure you want to delete expense ${exp.vendor || exp.id}?`)) return;
+
+        // FIX W7-2 — If the expense was pushed to Accounting, surface a
+        // second, scarier confirm before forcing the delete. Deleting
+        // leaves the JV on the backend with no expense linkage.
+        let force = false;
+        if (exp.journal_voucher_number) {
+            const really = confirm(
+                `⚠️ Warning — this expense has a linked journal entry (JV ${exp.journal_voucher_number}).\n\n` +
+                `Deleting will leave the JV on the books with NO matching expense record. ` +
+                `The accounting entry will become orphaned.\n\n` +
+                `Are you really sure you want to delete this expense?`
+            );
+            if (!really) return;
+            force = true;
+        }
 
         try {
-            await deleteExpense(id);
+            await deleteExpense(id, force ? { force: true } : undefined);
             await loadData();
         } catch (error) {
             console.error('Failed to delete expense:', error);
-            alert('Failed to delete expense');
+            alert('Failed to delete expense: ' + (error instanceof Error ? error.message : String(error)));
+        }
+    };
+
+    // FIX W7-3 — One-shot CSV download. Uses Blob + ObjectURL so no
+    // server roundtrip and no extra dependency. Filename includes today's
+    // date for easy versioning of successive backups.
+    const handleExportCSV = () => {
+        try {
+            const csv = exportExpensesAsCSV();
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `expenses-${new Date().toISOString().slice(0, 10)}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            alert('CSV export failed: ' + (e instanceof Error ? e.message : String(e)));
         }
     };
 
@@ -239,6 +486,52 @@ export default function ExpenseManagement() {
 
     return (
         <>
+        {/* TASK 2 — W7-3 amber localStorage warning removed: expenses now
+            live on the backend (POST /api/expenses/), so the "clearing
+            browser data wipes history" risk no longer applies. Export CSV
+            stays available in the sub-nav below as a reporting helper. */}
+
+        {/* STEP 6+7 — Sub-navigation: Approvals + AI Bulk Upload + Export */}
+        <div className="flex justify-end gap-2 mb-3">
+            {/* TASK 2 — CSV export moved here from the removed W7-3 banner. */}
+            <button
+                onClick={handleExportCSV}
+                className="px-4 py-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 text-xs font-black uppercase tracking-widest rounded-xl flex items-center gap-2 shadow-sm"
+                title="Export all expenses as CSV"
+            >
+                <Download size={14} /> Export CSV
+            </button>
+            <button
+                onClick={() => navigate('/finance/expenses/settings')}
+                className="px-4 py-2 bg-gray-900 hover:bg-black text-white text-xs font-black uppercase tracking-widest rounded-xl flex items-center gap-2 shadow-sm"
+            >
+                ⚙ Settings
+            </button>
+            <button
+                onClick={() => navigate('/finance/expenses/reports')}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black uppercase tracking-widest rounded-xl flex items-center gap-2 shadow-sm"
+            >
+                📊 Reports
+            </button>
+            <button
+                onClick={() => navigate('/finance/expenses/mileage')}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-widest rounded-xl flex items-center gap-2 shadow-sm"
+            >
+                🚗 Mileage
+            </button>
+            <button
+                onClick={() => navigate('/finance/expenses/approvals')}
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-black uppercase tracking-widest rounded-xl flex items-center gap-2 shadow-sm"
+            >
+                ✓ Approvals
+            </button>
+            <button
+                onClick={() => navigate('/finance/expenses/bulk-upload')}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-black uppercase tracking-widest rounded-xl flex items-center gap-2 shadow-sm"
+            >
+                ✨ AI Bulk Upload
+            </button>
+        </div>
         <div className="flex items-center gap-3 mb-4 flex-wrap">
                     <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2">
                         <span className="text-xs text-gray-500 font-bold">From:</span>
@@ -364,17 +657,84 @@ export default function ExpenseManagement() {
                                 <div className="p-12 space-y-6">
                                     <div className="grid grid-cols-2 gap-6">
                                         <div>
-                                            <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest block mb-3">Expense Category *</label>
-                                            <select
-                                                ref={categoryRef}
-                                                defaultValue={editingExpense?.category}
-                                                className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-2xl px-6 py-4 text-sm font-bold outline-none"
+                                            <div className="flex items-center justify-between mb-3">
+                                                <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest">Expense Category *</label>
+                                                {/* ITEM 10 — Inline "+ New" opens the existing category creator. */}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowCategoryCreator(true)}
+                                                    className="text-[10px] font-black text-purple-600 hover:text-purple-800 uppercase tracking-widest flex items-center gap-1"
+                                                >
+                                                    <Plus size={12} /> New Category
+                                                </button>
+                                            </div>
+                                            {/* ITEM 10 — Searchable category combobox. Filters categories
+                                                by name and lets the user pick with mouse or keyboard. */}
+                                            <div ref={categoryWrapRef} className="relative">
+                                                <input
+                                                    type="text"
+                                                    value={categoryOpen ? categorySearch : selectedCategory}
+                                                    onChange={(e) => { setCategorySearch(e.target.value); setCategoryOpen(true); }}
+                                                    onFocus={() => { setCategorySearch(''); setCategoryOpen(true); }}
+                                                    placeholder="Search category…"
+                                                    className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-2xl px-6 py-4 text-sm font-bold outline-none"
+                                                />
+                                                {categoryOpen && (
+                                                    <div className="absolute z-50 left-0 right-0 mt-1 max-h-64 overflow-y-auto bg-white border border-gray-200 rounded-2xl shadow-2xl">
+                                                        {categories
+                                                            .filter(c => !categorySearch || c.name.toLowerCase().includes(categorySearch.toLowerCase()))
+                                                            .map(cat => (
+                                                                <button
+                                                                    key={cat.id}
+                                                                    type="button"
+                                                                    onClick={() => { setSelectedCategory(cat.name); setCategorySearch(''); setCategoryOpen(false); }}
+                                                                    className={clsx(
+                                                                        'w-full text-left px-5 py-3 text-sm font-bold hover:bg-gray-50',
+                                                                        cat.name === selectedCategory ? 'bg-gray-50 text-gray-900' : 'text-gray-700'
+                                                                    )}
+                                                                >
+                                                                    {cat.name}
+                                                                </button>
+                                                            ))}
+                                                        {categories.filter(c => !categorySearch || c.name.toLowerCase().includes(categorySearch.toLowerCase())).length === 0 && (
+                                                            <div className="px-5 py-6 text-center text-xs text-gray-400 font-bold">
+                                                                No matching category. Use <strong>+ New Category</strong> to create one.
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            {/* STEP 3 — AI suggest button + suggestion badge */}
+                                            <button
+                                                type="button"
+                                                onClick={handleSuggestCategory}
+                                                disabled={suggestionLoading}
+                                                className="mt-2 text-[10px] font-black uppercase tracking-widest text-purple-700 hover:text-purple-900 disabled:opacity-50 flex items-center gap-1"
                                             >
-                                                <option value="">Select Category</option>
-                                                {categories.map(cat => (
-                                                    <option key={cat.id} value={cat.name}>{cat.name}</option>
-                                                ))}
-                                            </select>
+                                                {suggestionLoading ? '⏳ Asking AI…' : '✨ AI Suggest from Vendor'}
+                                            </button>
+                                            {suggestionError && (
+                                                <p className="mt-2 text-[10px] font-bold text-rose-600">{suggestionError}</p>
+                                            )}
+                                            {suggestion && (
+                                                <div className="mt-2 p-3 bg-purple-50 border border-purple-200 rounded-xl flex items-start gap-3">
+                                                    <div className="flex-1">
+                                                        <p className="text-[10px] font-black text-purple-700 uppercase tracking-widest">
+                                                            AI suggests: {suggestion.category} → <span className="text-purple-900">{suggestion.mappedCategory}</span>
+                                                        </p>
+                                                        <p className="text-[10px] text-purple-700 mt-0.5">{suggestion.confidence}% confident — {suggestion.reason}</p>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            // ITEM 10 — Write directly to the controlled category state.
+                                                            setSelectedCategory(suggestion.mappedCategory);
+                                                            setSuggestion(null);
+                                                        }}
+                                                        className="text-[10px] font-black uppercase tracking-widest px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg"
+                                                    >Use</button>
+                                                </div>
+                                            )}
                                         </div>
                                         <div>
                                             <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest block mb-3">Amount *</label>
@@ -395,6 +755,7 @@ export default function ExpenseManagement() {
                                                     step="0.01"
                                                     defaultValue={editingExpense?.amount}
                                                     placeholder="0.00"
+                                                    onBlur={handleCheckDuplicates}
                                                     className="flex-1 bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-2xl px-6 py-4 text-sm font-bold outline-none"
                                                 />
                                             </div>
@@ -470,8 +831,110 @@ export default function ExpenseManagement() {
                                         />
                                         <label className="text-sm font-bold text-gray-700">Recurring Expense</label>
                                     </div>
+
+                                    {/* STEP 11B — Billable to client */}
+                                    <div className="p-4 bg-blue-50 rounded-2xl space-y-3">
+                                        <div className="flex items-center gap-3">
+                                            <input
+                                                ref={isBillableRef}
+                                                type="checkbox"
+                                                defaultChecked={editingExpense?.is_billable}
+                                                className="w-5 h-5"
+                                            />
+                                            <label className="text-sm font-bold text-gray-700">Billable to client</label>
+                                        </div>
+                                        <select
+                                            ref={clientIdRef}
+                                            defaultValue={editingExpense?.client_id || ''}
+                                            className="w-full bg-white border border-blue-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-blue-500"
+                                        >
+                                            <option value="">Select customer…</option>
+                                            {customers.map(c => (
+                                                <option key={c.id} value={String(c.id)}>{c.name}</option>
+                                            ))}
+                                        </select>
+                                        <p className="text-[10px] text-blue-700">When billable, this expense appears on the customer's Unbilled Expenses tab.</p>
+                                    </div>
+
+                                    {/* STEP 11C — Reimbursable to employee */}
+                                    <div className="flex items-center gap-3 p-4 bg-amber-50 rounded-2xl">
+                                        <input
+                                            ref={isReimbursableRef}
+                                            type="checkbox"
+                                            defaultChecked={editingExpense?.is_reimbursable}
+                                            className="w-5 h-5"
+                                        />
+                                        <label className="text-sm font-bold text-gray-700">Reimbursable to employee (out-of-pocket)</label>
+                                    </div>
                                 </div>
 
+                                {/* TASK 8 — Policy violations: split errors (red, blocking)
+                                    from warnings (amber, advisory). */}
+                                {policyViolations.filter(v => v.severity === 'error').length > 0 && (
+                                    <div className="mx-10 mt-2 mb-2 p-4 bg-red-50 border-2 border-red-400 rounded-2xl">
+                                        <p className="text-sm font-black text-red-800 uppercase tracking-widest mb-2">🚫 Policy errors — acknowledge each to enable Save</p>
+                                        <ul className="text-xs text-red-700 space-y-2">
+                                            {policyViolations
+                                                .map((v, i) => ({ v, i }))
+                                                .filter(({ v }) => v.severity === 'error')
+                                                .map(({ v, i }) => (
+                                                    <li key={i} className="flex items-start gap-2">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={!!policyErrorAcks[i]}
+                                                            onChange={(e) => setPolicyErrorAcks(prev => ({ ...prev, [i]: e.target.checked }))}
+                                                            className="mt-0.5 shrink-0"
+                                                        />
+                                                        <span><strong>{v.rule}:</strong> {v.message}</span>
+                                                    </li>
+                                                ))}
+                                        </ul>
+                                    </div>
+                                )}
+                                {policyViolations.filter(v => v.severity !== 'error').length > 0 && (
+                                    <div className="mx-10 mt-2 mb-2 p-4 bg-amber-50 border border-amber-300 rounded-2xl">
+                                        <p className="text-sm font-black text-amber-800 uppercase tracking-widest mb-1">⚠️ Policy warnings</p>
+                                        <ul className="text-xs text-amber-700 space-y-1">
+                                            {policyViolations.filter(v => v.severity !== 'error').map((v, i) => (
+                                                <li key={i}>· {v.message}</li>
+                                            ))}
+                                        </ul>
+                                        <p className="text-[10px] text-amber-600 font-bold mt-2 uppercase tracking-widest">You can still save — these are just warnings.</p>
+                                    </div>
+                                )}
+                                {/* TASK 8 — Duplicate banner: red + hard-block when confidence ≥ 90%,
+                                    amber + advisory below 90%. The high-confidence case requires a
+                                    single confirmation checkbox before Save unlocks. */}
+                                {duplicateWarning && duplicateWarning.maxConfidence >= 90 && (
+                                    <div className="mx-10 mt-2 mb-4 p-4 bg-red-50 border-2 border-red-400 rounded-2xl">
+                                        <p className="text-sm font-black text-red-800 uppercase tracking-widest mb-1">🚫 Possible duplicate — please review before saving</p>
+                                        <ul className="text-xs text-red-700 space-y-1 mb-3">
+                                            {duplicateWarning.matches.map((m, i) => (
+                                                <li key={i}>· {m.vendor} — {m.amount.toFixed(2)} on {m.date} <span className="opacity-75">({m.reason}, {m.confidence}% conf.)</span></li>
+                                            ))}
+                                        </ul>
+                                        <label className="flex items-start gap-2 text-xs font-bold text-red-800 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={dupAcknowledged}
+                                                onChange={(e) => setDupAcknowledged(e.target.checked)}
+                                                className="mt-0.5 shrink-0"
+                                            />
+                                            <span>I confirm this is not a duplicate</span>
+                                        </label>
+                                    </div>
+                                )}
+                                {duplicateWarning && duplicateWarning.maxConfidence < 90 && (
+                                    <div className="mx-10 mt-2 mb-4 p-4 bg-amber-50 border border-amber-300 rounded-2xl">
+                                        <p className="text-sm font-black text-amber-800 uppercase tracking-widest mb-1">⚠️ Possible duplicate</p>
+                                        <ul className="text-xs text-amber-700 space-y-1">
+                                            {duplicateWarning.matches.map((m, i) => (
+                                                <li key={i}>· {m.vendor} — {m.amount.toFixed(2)} on {m.date} <span className="opacity-75">({m.reason})</span></li>
+                                            ))}
+                                        </ul>
+                                        <p className="text-[10px] text-amber-600 font-bold mt-2 uppercase tracking-widest">You can still save — this is just a warning.</p>
+                                    </div>
+                                )}
                                 <div className="p-10 bg-gray-50 border-t border-gray-100 flex gap-4 sticky bottom-0">
                                     <button
                                         onClick={() => {
@@ -483,13 +946,36 @@ export default function ExpenseManagement() {
                                     >
                                         Cancel
                                     </button>
-                                    <button
-                                        onClick={handleManualSave}
-                                        disabled={saving}
-                                        className="flex-[2] py-5 bg-gray-900 text-white text-[11px] font-black uppercase tracking-widest rounded-2xl hover:bg-black transition-all shadow-xl disabled:opacity-50"
-                                    >
-                                        {saving ? '⏳ Saving...' : '✅ Save Expense'}
-                                    </button>
+                                    {/* TASK 8 — Save unlocks only when (a) no high-confidence
+                                        duplicate is unacknowledged AND (b) every error-severity
+                                        policy violation has been individually acknowledged. */}
+                                    {(() => {
+                                        const hasHighDup = !!duplicateWarning && duplicateWarning.maxConfidence >= 90;
+                                        const errorPolicyIdxs = policyViolations
+                                            .map((v, i) => v.severity === 'error' ? i : -1)
+                                            .filter(i => i >= 0);
+                                        const unackedErrors = errorPolicyIdxs.filter(i => !policyErrorAcks[i]);
+                                        const blockedByDup = hasHighDup && !dupAcknowledged;
+                                        const blockedByPolicy = unackedErrors.length > 0;
+                                        const isBlocked = saving || blockedByDup || blockedByPolicy;
+                                        const label = blockedByDup
+                                            ? '🚫 Confirm duplicate check above'
+                                            : blockedByPolicy
+                                                ? `🚫 Acknowledge ${unackedErrors.length} policy error${unackedErrors.length === 1 ? '' : 's'}`
+                                                : saving
+                                                    ? '⏳ Saving...'
+                                                    : '✅ Save Expense';
+                                        return (
+                                            <button
+                                                onClick={handleManualSave}
+                                                disabled={isBlocked}
+                                                className="flex-[2] py-5 bg-gray-900 text-white text-[11px] font-black uppercase tracking-widest rounded-2xl hover:bg-black transition-all shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+                                                title={blockedByDup ? 'Tick the confirmation checkbox in the red duplicate banner' : blockedByPolicy ? 'Tick each policy error checkbox above' : undefined}
+                                            >
+                                                {label}
+                                            </button>
+                                        );
+                                    })()}
                                 </div>
                             </div>
                         </div>
@@ -555,6 +1041,17 @@ export default function ExpenseManagement() {
                                                 )}
                                             </div>
                                             <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                {/* ITEM 10 — Submit-draft action. Only shown for Draft
+                                                    expenses; one click flips status → Submitted. */}
+                                                {expense.status === 'Draft' && (
+                                                    <button
+                                                        onClick={() => handleSubmitDraft(expense)}
+                                                        className="p-3 bg-emerald-50 text-emerald-700 rounded-xl hover:bg-emerald-600 hover:text-white transition-all"
+                                                        title="Submit this draft for approval"
+                                                    >
+                                                        <Send size={16} />
+                                                    </button>
+                                                )}
                                                 <button
                                                     onClick={() => {
                                                         setEditingExpense(expense);
@@ -636,14 +1133,17 @@ export default function ExpenseManagement() {
                                 <div className="p-6 bg-gray-50 rounded-2xl">
                                     <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Vendor</p>
                                     <p className="text-lg font-black text-gray-900">{aiExtractedData.vendor}</p>
+                                    <ConfidenceBadge value={aiExtractedData.perFieldConfidence?.vendor ?? aiExtractedData.confidence} />
                                 </div>
                                 <div className="p-6 bg-gray-50 rounded-2xl">
                                     <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Amount</p>
                                     <p className="text-lg font-black text-gray-900">{aiExtractedData.currency} ${aiExtractedData.amount}</p>
+                                    <ConfidenceBadge value={aiExtractedData.perFieldConfidence?.amount ?? aiExtractedData.confidence} />
                                 </div>
                                 <div className="p-6 bg-gray-50 rounded-2xl">
                                     <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Date</p>
                                     <p className="text-lg font-black text-gray-900">{new Date(aiExtractedData.date).toLocaleDateString()}</p>
+                                    <ConfidenceBadge value={aiExtractedData.perFieldConfidence?.date ?? aiExtractedData.confidence} />
                                 </div>
                                 <div className="p-6 bg-gray-50 rounded-2xl">
                                     <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Tax</p>

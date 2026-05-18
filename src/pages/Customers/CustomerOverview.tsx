@@ -19,11 +19,15 @@ import {
     Smartphone,
     Mail,
     Link2,
+    Edit2,
 } from 'lucide-react';
+// ITEM 16 — Escape closes the payment / invoice preview modals.
+import { useEscape } from '../../hooks/useEscape';
 import {
     getCustomerInvoices,
     getCustomerSalesOrders,
     convertOrderToInvoice,
+    voidPayment,
     type Invoice,
     type SalesOrder
 } from '../../services/api';
@@ -34,7 +38,9 @@ import {
     type Customer,
     type Payment
 } from '../../services/customerService';
-import { getCustomerCreditNotes, type CreditNote } from '../../services/creditNoteService';
+import { getCustomerCreditNotes, updateCreditNote, type CreditNote } from '../../services/creditNoteService';
+// STEP 11B — load customer billable expenses for the Unbilled tab.
+import { getExpenses, saveExpense, type Expense } from '../../services/expenseService';
 import { getCompanySettings , getSystemSettings } from '../../services/settingsService';
 import {
     downloadInvoicePDF,
@@ -156,7 +162,7 @@ export default function CustomerOverview() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const location = useLocation();
-    const [activeTab, setActiveTab] = useState<'overview' | 'ledger' | 'sales' | 'payments' | 'credits'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'ledger' | 'sales' | 'payments' | 'credits' | 'unbilled'>('overview');
     const [customer, setCustomer] = useState<Customer | null>(null);
     const [loading, setLoading] = useState(true);
 
@@ -184,12 +190,22 @@ export default function CustomerOverview() {
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([]);
     const [payments, setPayments] = useState<Payment[]>([]);
+    // FIX W6-1 — track void-in-flight per payment id.
+    const [voidingPaymentId, setVoidingPaymentId] = useState<string | null>(null);
     const [creditNotes, setCreditNotes] = useState<CreditNote[]>([]);
+    // STEP 11B — Billable expenses tagged with this customer's id.
+    const [unbilledExpenses, setUnbilledExpenses] = useState<Expense[]>([]);
 
     // Modal state
     const [showPaymentModal, setShowPaymentModal] = useState(false);
     const [showInvoiceModal, setShowInvoiceModal] = useState(false);
     const [selectedInvoice, setSelectedInvoice] = useState<Invoice | any>(null);
+    // ITEM 16 — Escape closes whichever modal is open. Invoice preview
+    // wins precedence (it's typically opened on top of the payment one).
+    useEscape(() => {
+        if (showInvoiceModal) setShowInvoiceModal(false);
+        else if (showPaymentModal) setShowPaymentModal(false);
+    }, showInvoiceModal || showPaymentModal);
     const [converting, setConverting] = useState<string | null>(null);
     const [shareMenuPos, setShareMenuPos] = useState<{ top: number; left: number } | null>(null);
     const [shareMenuInvoiceId, setShareMenuInvoiceId] = useState<string | null>(null);
@@ -304,9 +320,10 @@ export default function CustomerOverview() {
             // unique entry. Keeping the variable name for downstream compatibility.
             const uniqueTransactions = allTransactions;
 
-            // Compute running balance in chronological order (oldest first), then reverse
-            // the display so the newest entry appears at the top — matching the user's
-            // expectation that fresh invoices land at the top of the ledger.
+            // ITEM 5B — Display ledger chronologically (oldest at top, newest
+            // at bottom) to match how accountants read a ledger book. The
+            // running balance accumulates oldest-to-newest, so removing the
+            // .reverse() also fixes the visual flow (balance grows downward).
             const sortedTransactions = uniqueTransactions.sort((a, b) =>
                 new Date(a.date).getTime() - new Date(b.date).getTime()
             );
@@ -321,7 +338,7 @@ export default function CustomerOverview() {
                     van_number: tx.van_number,
                     salesman_name: tx.salesman_name
                 };
-            }).reverse();
+            });
 
             setLedger(ledgerEntries);
 
@@ -427,6 +444,73 @@ export default function CustomerOverview() {
         loadAllData();
     }, [id, customer]);
 
+    // TASK 5 — Silent refetch on tab return so a payment recorded in
+    // another tab reflects immediately on this profile when the user
+    // comes back. Throttled to one fetch per 5s to avoid hammering the
+    // backend on rapid tab-switching. Resolves ISSUE-T from the W6 trace.
+    const lastSilentLoadAtRef = useRef<number>(Date.now());
+    useEffect(() => {
+        if (!customer || !id) return;
+        function silentRefresh() {
+            const now = Date.now();
+            if (now - lastSilentLoadAtRef.current < 5000) return;
+            lastSilentLoadAtRef.current = now;
+            // loadAllData already swallows errors; no need for our own try/catch.
+            void loadAllData();
+        }
+        function onVisibilityChange() {
+            if (!document.hidden) silentRefresh();
+        }
+        function onFocus() {
+            silentRefresh();
+        }
+        document.addEventListener('visibilitychange', onVisibilityChange);
+        window.addEventListener('focus', onFocus);
+        return () => {
+            document.removeEventListener('visibilitychange', onVisibilityChange);
+            window.removeEventListener('focus', onFocus);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [id, customer]);
+
+    // FIX W6-1 — Void a customer payment via reversing entry (same
+    // mechanism as Banking page). Original record stays for audit;
+    // backend recomputes customer balance + linked invoice balance.
+    const handleVoidPayment = async (pay: Payment) => {
+        if ((pay.amount ?? 0) < 0) {
+            alert('Negative-amount payments are reversal entries — cannot void.');
+            return;
+        }
+        if (pay.reference?.startsWith('VOID/')) {
+            alert('This is already a reversal entry — cannot void a void.');
+            return;
+        }
+        const reason = prompt(
+            `Void payment of $${pay.amount.toFixed(2)}?\n\n` +
+            `A reversing entry will be created. The original record stays for audit. ` +
+            `Customer balance and any linked invoice will adjust.\n\n` +
+            `Enter a reason (optional):`
+        );
+        if (reason === null) return;
+        setVoidingPaymentId(String(pay.id));
+        try {
+            await voidPayment({
+                id: String(pay.id),
+                customer_id: String(pay.customer_id),
+                amount: pay.amount,
+                invoice_id: pay.invoice_id,
+                reason: reason || undefined,
+            });
+            // Refetch via the existing loader so customer balance + ledger update too.
+            await loadAllData();
+            alert('✅ Payment voided. Reversal entry created.');
+        } catch (e) {
+            alert('Could not void payment: ' + (e instanceof Error ? e.message : String(e)));
+        } finally {
+            setVoidingPaymentId(null);
+        }
+    };
+
     const handleConvertOrder = async (orderId: string) => {
         try {
             setConverting(orderId);
@@ -438,6 +522,31 @@ export default function CustomerOverview() {
             alert('❌ Failed to convert order');
         } finally {
             setConverting(null);
+        }
+    };
+
+    // TC-40 — Cancel a credit note from the Credits tab.  Mirrors the
+    // pattern in CreditNotes.tsx so behaviour stays consistent across
+    // the customer view, the credit-notes list, and the detail page.
+    // STEP 11B — mark an expense as 'billed' (stub link to invoice id).
+    const markBilled = async (exp: Expense) => {
+        if (!window.confirm(`Mark ${exp.vendor} expense as billed to this customer?`)) return;
+        try {
+            await saveExpense({ id: exp.id, invoiced_to: 'manual-' + Date.now() });
+            setUnbilledExpenses(prev => prev.filter(e => e.id !== exp.id));
+        } catch (e) {
+            alert(e instanceof Error ? e.message : 'Could not mark billed.');
+        }
+    };
+
+    const cancelNote = async (cn: CreditNote) => {
+        if (!window.confirm(`Cancel ${cn.creditNoteNumber}?`)) return;
+        try {
+            await updateCreditNote(cn.id, { status: 'cancelled' });
+            await loadAllData();
+        } catch (err) {
+            console.error('Failed to cancel credit note:', err);
+            alert('Failed to cancel credit note');
         }
     };
 
@@ -612,7 +721,8 @@ export default function CustomerOverview() {
                         { key: 'ledger', label: 'Ledger' },
                         { key: 'sales', label: 'Sales' },
                         { key: 'payments', label: 'Payments' },
-                        { key: 'credits', label: 'Credits' }
+                        { key: 'credits', label: 'Credits' },
+                        { key: 'unbilled', label: 'Unbilled Expenses' }
                     ].map(tab => (
                         <button
                             key={tab.key}
@@ -681,6 +791,44 @@ export default function CustomerOverview() {
                                 </div>
                             </div>
 
+                            {/* ITEM 5A — Date-range filter. State + filter logic
+                                already existed; this just exposes the inputs so
+                                the user can actually set them. */}
+                            <div className="flex flex-wrap items-end gap-3 mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                                <div className="flex flex-col">
+                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">From</label>
+                                    <input
+                                        type="date"
+                                        value={ledgerDateFrom}
+                                        onChange={(e) => setLedgerDateFrom(e.target.value)}
+                                        className="px-3 py-2 border border-gray-300 rounded text-xs font-mono focus:outline-none focus:border-blue-500"
+                                    />
+                                </div>
+                                <div className="flex flex-col">
+                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">To</label>
+                                    <input
+                                        type="date"
+                                        value={ledgerDateTo}
+                                        onChange={(e) => setLedgerDateTo(e.target.value)}
+                                        className="px-3 py-2 border border-gray-300 rounded text-xs font-mono focus:outline-none focus:border-blue-500"
+                                    />
+                                </div>
+                                {(ledgerDateFrom || ledgerDateTo) && (
+                                    <button
+                                        type="button"
+                                        onClick={() => { setLedgerDateFrom(''); setLedgerDateTo(''); }}
+                                        className="px-3 py-2 text-[10px] font-black text-rose-600 hover:text-rose-800 uppercase tracking-widest"
+                                    >
+                                        ✕ Clear Filter
+                                    </button>
+                                )}
+                                {(ledgerDateFrom || ledgerDateTo) && (
+                                    <span className="ml-auto text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+                                        Showing entries from {ledgerDateFrom || '∞'} to {ledgerDateTo || 'today'}
+                                    </span>
+                                )}
+                            </div>
+
                             <div className="overflow-x-auto overflow-y-visible">
                                 <table className="w-full text-left">
                                     <thead className="bg-gray-50 border-b-2 border-gray-200">
@@ -712,6 +860,8 @@ export default function CustomerOverview() {
                                         ) : (
                                             ledger
                                             .filter(entry => {
+                                                // ITEM 5A — Filter logic; ITEM 5D — same filter
+                                                // feeds the tfoot totals below.
                                                 if (ledgerDateFrom && entry.date.slice(0,10) < ledgerDateFrom) return false;
                                                 if (ledgerDateTo && entry.date.slice(0,10) > ledgerDateTo) return false;
                                                 return true;
@@ -822,6 +972,29 @@ export default function CustomerOverview() {
                                             ))
                                         )}
                                     </tbody>
+                                    {/* ITEM 5D — Totals row. Sums the FILTERED ledger so the
+                                        totals always match what's visible on screen. */}
+                                    {ledger.length > 0 && (() => {
+                                        const visible = ledger.filter(entry => {
+                                            if (ledgerDateFrom && entry.date.slice(0,10) < ledgerDateFrom) return false;
+                                            if (ledgerDateTo && entry.date.slice(0,10) > ledgerDateTo) return false;
+                                            return true;
+                                        });
+                                        const totalDebit = visible.reduce((s, e) => s + (Number(e.debit) || 0), 0);
+                                        const totalCredit = visible.reduce((s, e) => s + (Number(e.credit) || 0), 0);
+                                        const net = totalDebit - totalCredit;
+                                        return (
+                                            <tfoot className="bg-gray-50 border-t-2 border-gray-300">
+                                                <tr className="font-black">
+                                                    <td colSpan={4} className="px-4 py-3 text-right text-[10px] text-gray-700 uppercase tracking-widest">Totals</td>
+                                                    <td className="px-4 py-3 text-right font-mono text-blue-700">{totalDebit.toFixed(2)}</td>
+                                                    <td className="px-4 py-3 text-right font-mono text-emerald-700">{totalCredit.toFixed(2)}</td>
+                                                    <td className={`px-4 py-3 text-right font-mono ${net >= 0 ? 'text-gray-900' : 'text-rose-600'}`}>{net.toFixed(2)}</td>
+                                                    <td></td>
+                                                </tr>
+                                            </tfoot>
+                                        );
+                                    })()}
                                 </table>
                             </div>
                         </div>
@@ -892,13 +1065,30 @@ export default function CustomerOverview() {
                                                             )}
                                                         </td>
                                                         <td className="px-6 py-4 text-center">
-                                                            {doc.docType === 'Invoice' ? (
-                                                                <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter ${doc.status === 'Paid' ? 'bg-blue-600 text-white' :
-                                                                    doc.status === 'Overdue' ? 'bg-red-600 text-white' : 'bg-rose-500 text-white'
-                                                                    }`}>
-                                                                    {doc.status === 'Paid' ? '🔵 Paid' : '🔴 Unpaid'}
-                                                                </span>
-                                                            ) : (
+                                                            {doc.docType === 'Invoice' ? (() => {
+                                                                // ITEM 5C — Derive status from remaining_balance, not from
+                                                                // the stale `status` string. Backend keeps remaining_balance
+                                                                // authoritative; `status` can lag behind after a payment.
+                                                                // Also surface the missing "Partial" state.
+                                                                const grand = Number((doc as any).grandTotal) || 0;
+                                                                const rb = Number((doc as any).remaining_balance ?? grand);
+                                                                const isPaid = rb <= 0.005;
+                                                                const isPartial = !isPaid && rb < grand;
+                                                                const cls = isPaid ? 'bg-blue-600 text-white'
+                                                                    : isPartial ? 'bg-amber-500 text-white'
+                                                                    : 'bg-rose-500 text-white';
+                                                                const label = isPaid ? '🔵 Paid'
+                                                                    : isPartial ? '🟠 Partial'
+                                                                    : '🔴 Unpaid';
+                                                                return (
+                                                                    <span
+                                                                        className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter ${cls}`}
+                                                                        title={isPartial ? `${rb.toFixed(2)} of ${grand.toFixed(2)} outstanding` : undefined}
+                                                                    >
+                                                                        {label}
+                                                                    </span>
+                                                                );
+                                                            })() : (
                                                                 <span className="px-3 py-1 bg-gray-100 text-gray-400 rounded-full text-[9px] font-black uppercase tracking-tighter">
                                                                     -
                                                                 </span>
@@ -948,6 +1138,32 @@ export default function CustomerOverview() {
                                                 ))
                                         )}
                                     </tbody>
+                                    {/* ITEM 5D — Totals row. Invoices only (sales orders are
+                                        pending and excluded from financial totals). */}
+                                    {invoices.length > 0 && (() => {
+                                        const totalInvoiced = invoices.reduce((s, i) => s + (Number((i as any).grandTotal) || 0), 0);
+                                        const totalOutstanding = invoices.reduce((s, i) => {
+                                            const grand = Number((i as any).grandTotal) || 0;
+                                            const rb = Number((i as any).remaining_balance ?? grand);
+                                            return s + Math.max(0, rb);
+                                        }, 0);
+                                        return (
+                                            <tfoot className="bg-gray-50 border-t-2 border-gray-300">
+                                                <tr className="font-black">
+                                                    <td colSpan={4} className="px-6 py-3"></td>
+                                                    <td className="px-6 py-3 text-right text-[10px] text-gray-700 uppercase tracking-widest">
+                                                        <span className="block">Total Invoiced</span>
+                                                        <span className="block text-amber-700 mt-1">Total Outstanding</span>
+                                                    </td>
+                                                    <td className="px-6 py-3 text-right font-mono">
+                                                        <span className="block text-gray-900">{totalInvoiced.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                                        <span className="block text-amber-700 mt-1">{totalOutstanding.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                                    </td>
+                                                    <td></td>
+                                                </tr>
+                                            </tfoot>
+                                        );
+                                    })()}
                                 </table>
                             </div>
                         </div>
@@ -975,27 +1191,79 @@ export default function CustomerOverview() {
                                             <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Method</th>
                                             <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-right">Amount</th>
                                             <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-center w-20">Receipt</th>
+                                            {/* ITEM 13 — per-row Edit column. */}
+                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-center w-20">Edit</th>
+                                            {/* FIX W6-1 — Per-row void column. */}
+                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-center w-24">Status</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100">
                                         {payments.length === 0 ? (
-                                            <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-500">No payments found</td></tr>
+                                            <tr><td colSpan={7} className="px-4 py-6 text-center text-sm text-gray-500">No payments found</td></tr>
                                         ) : (
-                                            payments.map(pay => (
-                                                <tr key={pay.id} className="hover:bg-gray-50">
-                                                    <td className="px-4 py-3 text-sm text-gray-600">{new Date(pay.payment_date).toLocaleDateString()}</td>
-                                                    <td className="px-4 py-3 text-sm font-bold font-mono">{pay.reference || `PAY-${String(pay.id).slice(-4)}`}</td>
-                                                    <td className="px-4 py-3 text-sm text-gray-600">{pay.payment_method}</td>
-                                                    <td className="px-4 py-3 text-sm font-bold text-right font-mono text-green-600">{pay.amount.toLocaleString()}</td>
-                                                    <td className="px-4 py-3 text-center">
-                                                        <button className="text-gray-400 hover:text-green-600">
-                                                            <Receipt size={18} />
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            ))
+                                            payments.map(pay => {
+                                                const isReversal = (pay.amount ?? 0) < 0 || pay.reference?.startsWith('VOID/');
+                                                return (
+                                                    <tr key={pay.id} className={`hover:bg-gray-50 ${isReversal ? 'bg-rose-50/40' : ''}`}>
+                                                        <td className="px-4 py-3 text-sm text-gray-600">{new Date(pay.payment_date).toLocaleDateString()}</td>
+                                                        <td className="px-4 py-3 text-sm font-bold font-mono">{pay.reference || `PAY-${String(pay.id).slice(-4)}`}</td>
+                                                        <td className="px-4 py-3 text-sm text-gray-600">{pay.payment_method}</td>
+                                                        <td className={`px-4 py-3 text-sm font-bold text-right font-mono ${isReversal ? 'text-rose-600' : 'text-green-600'}`}>
+                                                            {isReversal ? '-' : ''}{Math.abs(pay.amount).toLocaleString()}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-center">
+                                                            <button className="text-gray-400 hover:text-green-600">
+                                                                <Receipt size={18} />
+                                                            </button>
+                                                        </td>
+                                                        {/* ITEM 13 — per-row Edit deep-links to PaymentEdit?id=. */}
+                                                        <td className="px-4 py-3 text-center">
+                                                            {isReversal ? (
+                                                                <span className="text-gray-300">—</span>
+                                                            ) : (
+                                                                <button
+                                                                    onClick={() => navigate(`/finance/payment-edit?id=${encodeURIComponent(String(pay.id))}`)}
+                                                                    className="text-gray-400 hover:text-blue-600 transition-colors"
+                                                                    title="Edit this payment"
+                                                                >
+                                                                    <Edit2 size={16} />
+                                                                </button>
+                                                            )}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-center">
+                                                            {isReversal ? (
+                                                                <span className="text-[10px] font-black text-rose-600 uppercase tracking-widest">Reversal</span>
+                                                            ) : (
+                                                                <button
+                                                                    onClick={() => void handleVoidPayment(pay)}
+                                                                    disabled={voidingPaymentId === String(pay.id)}
+                                                                    className="text-[10px] font-black text-rose-600 hover:text-rose-800 uppercase tracking-widest disabled:opacity-50"
+                                                                    title="Void this payment — creates a reversing entry, keeps the original for audit"
+                                                                >
+                                                                    {voidingPaymentId === String(pay.id) ? 'Voiding…' : 'Void'}
+                                                                </button>
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
                                         )}
                                     </tbody>
+                                    {/* ITEM 5D — Total Received = sum of payment amounts (which
+                                        may include negative reversals from W6-1 voids — so the
+                                        net is the actual cash received). */}
+                                    {payments.length > 0 && (() => {
+                                        const totalReceived = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+                                        return (
+                                            <tfoot className="bg-gray-50 border-t-2 border-gray-300">
+                                                <tr className="font-black">
+                                                    <td colSpan={3} className="px-4 py-3 text-right text-[10px] text-gray-700 uppercase tracking-widest">Total Received (net of voids)</td>
+                                                    <td className={`px-4 py-3 text-right font-mono ${totalReceived >= 0 ? 'text-green-700' : 'text-rose-600'}`}>{totalReceived.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                                                    <td colSpan={3}></td>
+                                                </tr>
+                                            </tfoot>
+                                        );
+                                    })()}
                                 </table>
                             </div>
                         </div>
@@ -1022,11 +1290,12 @@ export default function CustomerOverview() {
                                             <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-right">Total</th>
                                             <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-right">Remaining</th>
                                             <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Status</th>
+                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-right">Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100">
                                         {creditNotes.length === 0 ? (
-                                            <tr><td colSpan={6} className="px-4 py-6 text-center text-sm text-gray-500">No credit notes found</td></tr>
+                                            <tr><td colSpan={7} className="px-4 py-6 text-center text-sm text-gray-500">No credit notes found</td></tr>
                                         ) : (
                                             creditNotes.map(cn => (
                                                 <tr key={cn.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => navigate(`/sales/credit-notes/${cn.id}`)}>
@@ -1036,12 +1305,92 @@ export default function CustomerOverview() {
                                                     <td className="px-4 py-3 text-sm font-mono text-right">{cn.totalCreditAmount.toLocaleString()}</td>
                                                     <td className="px-4 py-3 text-sm font-mono text-right font-black">{cn.remainingCredit.toLocaleString()}</td>
                                                     <td className="px-4 py-3 text-xs uppercase font-bold">{cn.status.replace('_', ' ')}</td>
+                                                    <td className="px-4 py-3 text-right">
+                                                        {cn.status !== 'cancelled' && cn.status !== 'fully_used' ? (
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); void cancelNote(cn); }}
+                                                                className="text-xs font-bold text-red-600 hover:text-red-800 hover:underline uppercase"
+                                                                title="Cancel this credit note"
+                                                            >
+                                                                Cancel
+                                                            </button>
+                                                        ) : (
+                                                            <span className="text-xs text-gray-300">—</span>
+                                                        )}
+                                                    </td>
                                                 </tr>
                                             ))
                                         )}
                                     </tbody>
+                                    {/* ITEM 5D — Total Credit Available = sum of remainingCredit
+                                        across non-cancelled credit notes. Cancelled CNs and
+                                        fully-used ones contribute 0 to remainingCredit anyway. */}
+                                    {creditNotes.length > 0 && (() => {
+                                        const totalAvailable = creditNotes
+                                            .filter(cn => cn.status !== 'cancelled')
+                                            .reduce((s, cn) => s + (Number(cn.remainingCredit) || 0), 0);
+                                        const totalIssued = creditNotes
+                                            .filter(cn => cn.status !== 'cancelled')
+                                            .reduce((s, cn) => s + (Number(cn.totalCreditAmount) || 0), 0);
+                                        return (
+                                            <tfoot className="bg-gray-50 border-t-2 border-gray-300">
+                                                <tr className="font-black">
+                                                    <td colSpan={3} className="px-4 py-3 text-right text-[10px] text-gray-700 uppercase tracking-widest">Totals</td>
+                                                    <td className="px-4 py-3 text-right font-mono text-gray-900">{totalIssued.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                                                    <td className="px-4 py-3 text-right font-mono text-emerald-700">{totalAvailable.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                                                    <td colSpan={2}></td>
+                                                </tr>
+                                            </tfoot>
+                                        );
+                                    })()}
                                 </table>
                             </div>
+                    {/* STEP 11B — Unbilled Expenses tab */}
+                    {activeTab === 'unbilled' && (
+                        <div className="space-y-4">
+                            <div className="flex justify-between items-center">
+                                <h3 className="text-sm font-black text-gray-700 uppercase">Unbilled Expenses</h3>
+                                <span className="text-xs font-bold text-gray-500">{unbilledExpenses.length} pending</span>
+                            </div>
+                            {unbilledExpenses.length === 0 ? (
+                                <p className="text-sm text-gray-500 text-center py-12">No billable expenses tagged to this customer.</p>
+                            ) : (
+                                <>
+                                    <div className="border border-gray-200 rounded-sm overflow-x-auto">
+                                        <table className="w-full text-left">
+                                            <thead className="bg-gray-50 border-b border-gray-200">
+                                                <tr>
+                                                    <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Date</th>
+                                                    <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Vendor</th>
+                                                    <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Category</th>
+                                                    <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-right">Amount</th>
+                                                    <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-right">Action</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-100">
+                                                {unbilledExpenses.map(exp => (
+                                                    <tr key={exp.id} className="hover:bg-gray-50">
+                                                        <td className="px-4 py-3 text-sm">{new Date(exp.date).toLocaleDateString()}</td>
+                                                        <td className="px-4 py-3 text-sm font-bold">{exp.vendor}</td>
+                                                        <td className="px-4 py-3 text-sm">{exp.category}</td>
+                                                        <td className="px-4 py-3 text-sm font-mono text-right">{exp.currency} ${exp.amount.toFixed(2)}</td>
+                                                        <td className="px-4 py-3 text-right">
+                                                            <button
+                                                                onClick={() => void markBilled(exp)}
+                                                                className="text-xs font-bold text-blue-600 hover:text-blue-800 hover:underline uppercase"
+                                                                title="Add to next invoice (marker only — real invoice line wiring is a future step)"
+                                                            >
+                                                                Mark Billed
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <p className="text-[10px] text-gray-500 italic">Marking as billed is a placeholder — real invoice line-item creation is a future integration step.</p>
+                                </>
+                            )}
                         </div>
                     )}
                 </div>

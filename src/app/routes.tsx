@@ -30,6 +30,16 @@ import VanSalesHistory from '../pages/VanSales/VanSalesHistory';
 import VanManagement from '../pages/VanSales/VanManagement';
 import AccountsDashboard from '../pages/Accounts/AccountsDashboard';
 import ExpenseManagement from '../pages/Accounts/ExpenseManagement';
+// STEP 6 — AI Bulk Upload for expenses (new route).
+import ExpensesBulkUpload from '../pages/Accounts/ExpensesBulkUpload';
+// STEP 7 — Expense Approval Queue (new route).
+import ExpenseApprovals from '../pages/Accounts/ExpenseApprovals';
+// STEP 8 — Mileage Tracker (new route).
+import ExpenseMileageTracker from '../pages/Accounts/ExpenseMileageTracker';
+// STEP 9 — Expense Reports + NL query (new route).
+import ExpenseReports from '../pages/Accounts/ExpenseReports';
+// STEP 10 — Expense Settings (new route).
+import ExpenseSettingsPage from '../pages/Accounts/ExpenseSettingsPage';
 import PayrollManagement from '../pages/Accounts/PayrollManagement';
 import ReportsDashboard from '../pages/Reports/ReportsDashboard';
 import PurchasesDashboard from '../pages/Purchases/PurchasesDashboard';
@@ -60,6 +70,8 @@ import TrialBalance from '../pages/Reports/TrialBalance';
 import Banking from '../pages/Accounts/Banking';
 import ChartOfAccounts from '../pages/Accounts/ChartOfAccounts';
 import JournalVoucher from '../pages/Accounts/JournalVoucher';
+// ITEM 11 — Central ledger page.
+import AllAccountsLedger from '../pages/Accounts/AllAccountsLedger';
 import PaymentEdit from '../pages/Accounts/PaymentEdit';
 import BadDebtsJV from '../pages/Accounts/BadDebtsJV';
 import AIHub from '../pages/AI/AIHub';
@@ -199,11 +211,18 @@ export const AppRoutes = () => {
 
             {/* Finance & Operations */}
             <Route path="/finance/expenses" element={<ExpenseManagement />} />
+            <Route path="/finance/expenses/bulk-upload" element={<ExpensesBulkUpload />} />
+            <Route path="/finance/expenses/approvals" element={<ExpenseApprovals />} />
+            <Route path="/finance/expenses/mileage" element={<ExpenseMileageTracker />} />
+            <Route path="/finance/expenses/reports" element={<ExpenseReports />} />
+            <Route path="/finance/expenses/settings" element={<ExpenseSettingsPage />} />
             <Route path="/finance/payroll" element={<PayrollManagement />} />
             <Route path="/finance/accounting" element={<AccountsDashboard />} />
             <Route path="/finance/banking" element={<Banking />} />
             <Route path="/finance/chart-of-accounts" element={<ChartOfAccounts />} />
             <Route path="/finance/journal-voucher" element={<JournalVoucher />} />
+            {/* ITEM 11 — Central All-Accounts Ledger. */}
+            <Route path="/finance/all-ledger" element={<AllAccountsLedger />} />
             <Route path="/finance/payment-edit" element={<PaymentEdit />} />
             <Route path="/finance/bad-debts" element={<BadDebtsJV />} />
             <Route path="/ai" element={<AIHub />} />
@@ -281,6 +300,12 @@ export const AppRoutes = () => {
             <Route path="/reports/outstanding-bills" element={<OutstandingBills />} />
             <Route path="/reports/day-book" element={<DayBook />} />
             <Route path="/reports/trial-balance" element={<TrialBalance />} />
+            {/* TC-69 — Sidebar links "Financial Statements" → /reports/financial.
+                Point it at ProfitabilityReports, which already contains a
+                Financial Statements section with working Day Book + Trial
+                Balance navigation.  Must be declared BEFORE the catch-all
+                /reports/* below. */}
+            <Route path="/reports/financial" element={<ProfitabilityReports />} />
             <Route path="/reports" element={<ReportsDashboard />} />
             <Route path="/reports/*" element={<ReportsDashboard />} />
 

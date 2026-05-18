@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Search, Trash2, Loader2, ShoppingCart, Copy, Plus } from 'lucide-react';
+import { ArrowLeft, Search, Trash2, Loader2, ShoppingCart, Copy, Plus, UserPlus, X } from 'lucide-react';
 import { getCustomers, getProducts, getCustomerInvoices, type Customer, type Product, type Invoice } from '../../services/api';
 import { getCustomer, getCustomerPayments, type Payment } from '../../services/customerService';
 import { createSalesOrder, getSalesOrders, type SalesOrderItem, type SalesOrderStatus, type SalesOrder } from '../../services/salesService';
+// ITEM 12 — Salesman dropdown + inline quick-add (mirror of ITEM 7A on
+// the Invoice form). Pulls from localStorage-backed getSalesmen so newly-
+// added entries appear without a page reload.
+import { getSalesmen, addSalesman, type Salesman } from '../../constants/data';
+import SearchableSelect from '../../components/common/SearchableSelect';
+// ITEM 16 — Escape closes the New Salesman inline modal.
+import { useEscape } from '../../hooks/useEscape';
 
 const THEME_PRIMARY = '#800020';
 
@@ -121,6 +128,10 @@ export default function SalesOrderFormPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  // TC-35 — track WHICH status the user clicked so only that button
+  // shows the spinner.  Without this, both buttons spinner-render
+  // simultaneously off the shared `submitting` flag.
+  const [submittingStatus, setSubmittingStatus] = useState<SalesOrderStatus | null>(null);
 
   const [customerQuery, setCustomerQuery] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -131,7 +142,15 @@ export default function SalesOrderFormPage() {
   const [paymentMethod, setPaymentMethod] = useState<'Cash' | 'Credit' | 'Cheque'>('Cash');
   const [paymentDueDays, setPaymentDueDays] = useState<number>(0);
   const [paymentNotes, setPaymentNotes] = useState('');
-  const [salesmanName, setSalesmanName] = useState('');
+  // ITEM 12 — salesman dropdown state + quick-add. Save still goes out
+  // as `salesman_name`, resolved from the selected id at submit time.
+  const [salesmen, setSalesmen] = useState<Salesman[]>(() => getSalesmen());
+  const [salesmanId, setSalesmanId] = useState('');
+  const [showNewSalesman, setShowNewSalesman] = useState(false);
+  const [newSalesmanName, setNewSalesmanName] = useState('');
+  const [newSalesmanPhone, setNewSalesmanPhone] = useState('');
+  // ITEM 16 — Escape closes the New Salesman inline modal.
+  useEscape(() => setShowNewSalesman(false), showNewSalesman);
 
   const [panelLoading, setPanelLoading] = useState(false);
   const [panelCustomer, setPanelCustomer] = useState<Customer | null>(null);
@@ -364,6 +383,7 @@ export default function SalesOrderFormPage() {
     }
 
     setSubmitting(true);
+    setSubmittingStatus(status);
     try {
       const items: SalesOrderItem[] = lines.map(({ key: _k, ...rest }) => rest);
       const dueDays = paymentMethod === 'Cash' ? 0 : paymentDueDays;
@@ -373,7 +393,8 @@ export default function SalesOrderFormPage() {
         items: items as unknown as Array<Record<string, unknown>>,
         notes,
         status,
-        salesman_name: salesmanName.trim() || undefined,
+        // ITEM 12 — resolve the selected salesman id → name for the API payload.
+        salesman_name: salesmen.find(s => s.id === salesmanId)?.name || undefined,
         van_id: null,
         payment_status: 'unpaid',
         subtotal,
@@ -388,6 +409,7 @@ export default function SalesOrderFormPage() {
       alert(e instanceof Error ? e.message : 'Could not save order');
     } finally {
       setSubmitting(false);
+      setSubmittingStatus(null);
     }
   }
 
@@ -554,14 +576,66 @@ export default function SalesOrderFormPage() {
       </div>
 
       <div className={`${sectionCard}`}>
-        <label className="block text-xs font-black text-gray-500 uppercase tracking-wider">Salesman</label>
-        <input
-          type="text"
-          value={salesmanName}
-          onChange={(e) => setSalesmanName(e.target.value)}
-          placeholder="Enter salesman name..."
-          className="w-full min-h-[50px] px-4 rounded-xl border border-gray-200 text-sm font-semibold bg-white shadow-inner focus:ring-2 focus:ring-[#800020]/25 focus:border-[#800020] outline-none transition-shadow"
+        <div className="flex items-center justify-between mb-2">
+          <label className="block text-xs font-black text-gray-500 uppercase tracking-wider">Salesman</label>
+          {/* ITEM 12 — Quick-add salesman, mirrors the Invoice form pattern. */}
+          <button
+            type="button"
+            onClick={() => setShowNewSalesman(true)}
+            className="flex items-center gap-1 text-xs font-black text-orange-600 hover:text-orange-800 transition-all"
+          >
+            <UserPlus size={12} /> New Salesman
+          </button>
+        </div>
+        <SearchableSelect
+          options={salesmen}
+          value={salesmanId}
+          onChange={(val) => setSalesmanId(val)}
+          placeholder="Search and select salesman..."
+          displayKey="name"
         />
+        {showNewSalesman && (
+          <div className="mt-2 p-3 bg-orange-50 border border-orange-200 rounded-xl space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-black text-orange-700 uppercase">New Salesman</p>
+              <button type="button" onClick={() => setShowNewSalesman(false)} className="text-gray-400 hover:text-gray-600"><X size={14}/></button>
+            </div>
+            <input
+              type="text"
+              placeholder="Salesman Name *"
+              value={newSalesmanName}
+              onChange={(e) => setNewSalesmanName(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400"
+            />
+            <input
+              type="text"
+              placeholder="Phone (optional)"
+              value={newSalesmanPhone}
+              onChange={(e) => setNewSalesmanPhone(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                if (!newSalesmanName.trim()) return;
+                try {
+                  const created = addSalesman({ name: newSalesmanName, phone: newSalesmanPhone });
+                  setSalesmen(prev => [...prev, created]);
+                  setSalesmanId(created.id);
+                  setShowNewSalesman(false);
+                  setNewSalesmanName('');
+                  setNewSalesmanPhone('');
+                } catch {
+                  alert('Failed to create salesman.');
+                }
+              }}
+              disabled={!newSalesmanName.trim()}
+              className="w-full py-2 bg-orange-500 text-white text-xs font-black rounded-lg hover:bg-orange-600 disabled:opacity-40 transition-all"
+            >
+              Create &amp; Select Salesman
+            </button>
+          </div>
+        )}
       </div>
 
       <div className={`${sectionCard}`}>
@@ -770,20 +844,22 @@ export default function SalesOrderFormPage() {
         <div className="flex flex-col sm:flex-row gap-3">
           <button
             type="button"
-            disabled={submitting}
+            disabled={submitting && submittingStatus !== 'draft'}
+            aria-busy={submittingStatus === 'draft'}
             onClick={() => submit('draft')}
             className="flex-1 min-h-[50px] rounded-xl border-2 border-gray-900 text-gray-900 font-black text-sm uppercase tracking-wide bg-white hover:bg-gray-50 disabled:opacity-50 transition-colors"
           >
-            {submitting ? <Loader2 className="animate-spin mx-auto" size={22} /> : 'Save as draft'}
+            {submittingStatus === 'draft' ? <Loader2 className="animate-spin mx-auto" size={22} /> : 'Save as draft'}
           </button>
           <button
             type="button"
-            disabled={submitting}
+            disabled={submitting && submittingStatus !== 'confirmed'}
+            aria-busy={submittingStatus === 'confirmed'}
             onClick={() => submit('confirmed')}
             className="flex-1 min-h-[50px] rounded-xl text-white font-black text-sm uppercase tracking-wide hover:brightness-110 disabled:opacity-50 shadow-md transition-all"
             style={{ backgroundColor: THEME_PRIMARY }}
           >
-            {submitting ? <Loader2 className="animate-spin mx-auto text-white" size={22} /> : 'Confirm order'}
+            {submittingStatus === 'confirmed' ? <Loader2 className="animate-spin mx-auto text-white" size={22} /> : 'Confirm order'}
           </button>
         </div>
       </div>

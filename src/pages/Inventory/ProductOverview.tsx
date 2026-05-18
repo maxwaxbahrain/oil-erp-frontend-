@@ -28,13 +28,22 @@ import {
 } from 'lucide-react';
 import { getProductById, getProducts, saveProduct, getAIInsights, type Product } from '../../services/productService';
 import { formatCurrency } from '../../services/settingsService';
+import { getInvoices } from '../../services/api';
+import { getGRNs } from '../../services/grnService';
+import { getSalesReturns } from '../../services/salesReturnService';
 import clsx from 'clsx';
 
-type TabType = 'Performance' | 'Inventory' | 'Velocity' | 'Customers' | 'Pricing' | 'Suppliers' | 'Losses' | 'Forecast' | 'Action' | 'Documents';
+// ITEM 8 — Product History tab. A single chronological feed of every
+// stock-affecting movement for this product: purchase (GRN), sale
+// (invoice), return (sales return), and manual adjustment. Adjustments
+// are read from localStorage where the Inventory Adjustment page writes
+// them; other sources go through the standard service layer.
+type TabType = 'Performance' | 'Inventory' | 'History' | 'Velocity' | 'Customers' | 'Pricing' | 'Suppliers' | 'Losses' | 'Forecast' | 'Action' | 'Documents';
 
 const PROFESSIONAL_TAB_LABELS: Record<TabType, string> = {
     Performance: 'Performance Overview',
     Inventory: 'Inventory Status',
+    History: 'Movement History',
     Velocity: 'Sales Velocity',
     Customers: 'Customer Insights',
     Pricing: 'Pricing Strategy',
@@ -45,6 +54,26 @@ const PROFESSIONAL_TAB_LABELS: Record<TabType, string> = {
     Documents: 'Documents',
 };
 
+// ITEM 8 — Normalized movement row used by the History tab.
+type MovementType = 'Purchase' | 'Sale' | 'Return' | 'Adjustment';
+interface MovementRow {
+    date: string;        // ISO 'YYYY-MM-DD'
+    type: MovementType;
+    qtyIn: number;       // 0 if outbound
+    qtyOut: number;      // 0 if inbound
+    unitCost?: number;
+    reference: string;   // e.g. invoice number, GRN number, return number, 'ADJ'
+    notes?: string;
+}
+
+// localStorage key written by InventoryAdjustment.tsx
+const ADJ_KEY = 'inventory_adjustments';
+interface StoredAdjustment {
+    id: string; productId: string; productName: string;
+    type: 'add' | 'reduce'; quantity: number; reason: string;
+    date: string; before: number; after: number;
+}
+
 export default function ProductOverview() {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -53,6 +82,11 @@ export default function ProductOverview() {
     const [activeTab, setActiveTab] = useState<TabType>('Performance');
     const [aiInsights, setAiInsights] = useState<string[]>([]);
     const [busyAction, setBusyAction] = useState<string | null>(null);
+    // ITEM 8 — Movement-history state. Loaded lazily the first time the
+    // user opens the History tab; cached for subsequent visits.
+    const [movements, setMovements] = useState<MovementRow[] | null>(null);
+    const [historyLoading, setHistoryLoading] = useState(false);
+    const [historyError, setHistoryError] = useState<string | null>(null);
 
     useEffect(() => {
         if (id) {
@@ -81,6 +115,123 @@ export default function ProductOverview() {
         const num = typeof value === 'number' ? value : Number(value);
         return Number.isFinite(num) ? num : fallback;
     };
+
+    // ITEM 8 — Build the movement feed from invoices + GRNs + sales returns
+    // + adjustments. Each source is treated as best-effort: a failure on
+    // one source still surfaces rows from the others.
+    async function loadMovementHistory(productId: string) {
+        setHistoryLoading(true);
+        setHistoryError(null);
+        try {
+            const pid = String(productId);
+            const rows: MovementRow[] = [];
+
+            // ── Sales (Invoices) — outbound ────────────────────────────
+            try {
+                const invs = await getInvoices();
+                for (const inv of invs) {
+                    const items = (inv as any).lineItems || [];
+                    for (const li of items) {
+                        if (String(li.productId ?? li.product_id ?? '') !== pid) continue;
+                        const q = Number(li.quantity) || 0;
+                        if (q <= 0) continue;
+                        rows.push({
+                            date: (inv as any).invoiceDate || (inv as any).date || '',
+                            type: 'Sale',
+                            qtyIn: 0,
+                            qtyOut: q,
+                            unitCost: Number(li.rate) || 0,
+                            reference: (inv as any).invoiceNumber || String((inv as any).id || ''),
+                            notes: (inv as any).customerName || '',
+                        });
+                    }
+                }
+            } catch (e) { console.warn('History: invoices fetch failed', e); }
+
+            // ── Purchases (GRNs — only what was received & posted) ─────
+            try {
+                const grns = await getGRNs();
+                for (const grn of grns) {
+                    if (grn.status === 'Cancelled') continue;
+                    for (const it of grn.items || []) {
+                        if (String(it.productId) !== pid) continue;
+                        const q = Number(it.acceptedQty ?? it.receivedQty) || 0;
+                        if (q <= 0) continue;
+                        rows.push({
+                            date: grn.receivedDate || grn.postedAt?.slice(0, 10) || grn.createdAt?.slice(0, 10) || '',
+                            type: 'Purchase',
+                            qtyIn: q,
+                            qtyOut: 0,
+                            unitCost: Number(it.unitCost) || 0,
+                            reference: grn.grnNumber || grn.poReference || grn.id,
+                            notes: grn.warehouse,
+                        });
+                    }
+                }
+            } catch (e) { console.warn('History: GRNs fetch failed', e); }
+
+            // ── Sales Returns — inbound ────────────────────────────────
+            try {
+                const rets = await getSalesReturns();
+                for (const ret of rets) {
+                    for (const li of ret.lineItems || []) {
+                        if (String(li.productId) !== pid) continue;
+                        const q = Number(li.quantityReturned) || 0;
+                        if (q <= 0) continue;
+                        rows.push({
+                            date: ret.returnDate || ret.createdAt?.slice(0, 10) || '',
+                            type: 'Return',
+                            qtyIn: q,
+                            qtyOut: 0,
+                            unitCost: Number(li.unitPrice) || 0,
+                            reference: ret.returnNumber || ret.id,
+                            notes: ret.customerName,
+                        });
+                    }
+                }
+            } catch (e) { console.warn('History: returns fetch failed', e); }
+
+            // ── Manual Adjustments (localStorage) ──────────────────────
+            try {
+                const raw = localStorage.getItem(ADJ_KEY) || '[]';
+                const list = JSON.parse(raw) as StoredAdjustment[];
+                for (const adj of list) {
+                    if (String(adj.productId) !== pid) continue;
+                    const q = Number(adj.quantity) || 0;
+                    if (q <= 0) continue;
+                    rows.push({
+                        date: adj.date || '',
+                        type: 'Adjustment',
+                        qtyIn: adj.type === 'add' ? q : 0,
+                        qtyOut: adj.type === 'reduce' ? q : 0,
+                        reference: `ADJ-${String(adj.id).slice(-6)}`,
+                        notes: adj.reason,
+                    });
+                }
+            } catch (e) { console.warn('History: adjustments read failed', e); }
+
+            // Sort by date desc; falls back to insertion order when dates tie.
+            rows.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+            setMovements(rows);
+        } catch (e: any) {
+            console.error('Failed to load movement history:', e);
+            setHistoryError(e?.message || 'Could not load movement history.');
+            setMovements([]);
+        } finally {
+            setHistoryLoading(false);
+        }
+    }
+
+    // ITEM 8 — Fetch the history the first time the tab is opened. If the
+    // user switches tabs and comes back, we keep the cached list (cheap
+    // refresh button on the tab itself).
+    useEffect(() => {
+        if (activeTab !== 'History') return;
+        if (!product?.id) return;
+        if (movements !== null) return; // already loaded
+        loadMovementHistory(String(product.id));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeTab, product?.id]);
 
     const onRefresh = async () => {
         if (!id) return;
@@ -292,7 +443,7 @@ export default function ProductOverview() {
             {/* 3. Professional Tab Navigation */}
             <div className="bg-white p-1 rounded-2xl border border-gray-100 shadow-sm overflow-x-auto no-scrollbar">
                 <div className="flex items-center min-w-max gap-1">
-                    {(['Performance', 'Inventory', 'Velocity', 'Customers', 'Pricing', 'Suppliers', 'Losses', 'Forecast', 'Action', 'Documents'] as TabType[]).map((tab) => (
+                    {(['Performance', 'Inventory', 'History', 'Velocity', 'Customers', 'Pricing', 'Suppliers', 'Losses', 'Forecast', 'Action', 'Documents'] as TabType[]).map((tab) => (
                         <button
                             key={tab}
                             onClick={() => setActiveTab(tab)}
@@ -978,6 +1129,95 @@ export default function ProductOverview() {
                                 <button onClick={onLoadAiInsights} disabled={busyAction === 'ai'} className="w-full mt-10 py-5 bg-white text-gray-950 rounded-2xl text-[11px] font-black uppercase tracking-[0.2em] shadow-xl hover:bg-gray-100 transition-all disabled:opacity-50">{busyAction === 'ai' ? 'Loading AI Insights...' : 'Simulate All Strategic Outcomes'}</button>
                             </div>
                         </div>
+                    </div>
+                )}
+
+                {activeTab === 'History' && (
+                    <div className="bg-white p-8 rounded-3xl border border-gray-100 shadow-sm animate-in fade-in duration-500">
+                        <div className="flex items-center justify-between mb-6">
+                            <div>
+                                <h3 className="text-sm font-black text-gray-900 uppercase tracking-[0.2em]">Movement History</h3>
+                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">
+                                    Purchases · Sales · Returns · Adjustments — chronological feed
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => { if (product?.id) loadMovementHistory(String(product.id)); }}
+                                disabled={historyLoading}
+                                className="flex items-center gap-2 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-gray-600 hover:text-redwood-brand bg-gray-50 hover:bg-white border border-gray-200 rounded-lg transition-all disabled:opacity-40"
+                            >
+                                <RefreshCw size={14} className={historyLoading ? 'animate-spin' : ''} /> Refresh
+                            </button>
+                        </div>
+
+                        {historyLoading && (
+                            <div className="flex items-center justify-center py-16">
+                                <div className="w-10 h-10 border-4 border-redwood-brand border-t-transparent rounded-full animate-spin" />
+                            </div>
+                        )}
+
+                        {!historyLoading && historyError && (
+                            <div className="p-6 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-700 font-bold">
+                                {historyError}
+                            </div>
+                        )}
+
+                        {!historyLoading && !historyError && movements && movements.length === 0 && (
+                            <div className="flex flex-col items-center justify-center py-20 text-center">
+                                <History size={48} className="text-gray-200 mb-4" />
+                                <p className="text-sm font-black text-gray-900 uppercase tracking-widest">No movements yet</p>
+                                <p className="text-xs text-gray-400 mt-2 max-w-sm">
+                                    Sales, purchases, returns, or adjustments for this product will appear here as they are recorded.
+                                </p>
+                            </div>
+                        )}
+
+                        {!historyLoading && !historyError && movements && movements.length > 0 && (
+                            <div className="overflow-x-auto border border-gray-100 rounded-2xl">
+                                <table className="w-full text-sm">
+                                    <thead className="bg-gray-50">
+                                        <tr>
+                                            <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Date</th>
+                                            <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Type</th>
+                                            <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Reference</th>
+                                            <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase tracking-widest">Qty In</th>
+                                            <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase tracking-widest">Qty Out</th>
+                                            <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase tracking-widest">Unit Price</th>
+                                            <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Notes</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {movements.map((m, idx) => {
+                                            const typeStyle = m.type === 'Purchase' ? 'bg-emerald-100 text-emerald-700'
+                                                : m.type === 'Sale' ? 'bg-rose-100 text-rose-700'
+                                                : m.type === 'Return' ? 'bg-blue-100 text-blue-700'
+                                                : 'bg-amber-100 text-amber-700';
+                                            return (
+                                                <tr key={`${m.reference}-${idx}`} className="hover:bg-gray-50/60">
+                                                    <td className="px-4 py-3 font-mono text-xs text-gray-700">{m.date ? new Date(m.date).toLocaleDateString() : '—'}</td>
+                                                    <td className="px-4 py-3">
+                                                        <span className={clsx('inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest', typeStyle)}>{m.type}</span>
+                                                    </td>
+                                                    <td className="px-4 py-3 font-mono text-xs font-bold text-gray-900">{m.reference}</td>
+                                                    <td className="px-4 py-3 text-right font-mono font-black text-emerald-700">{m.qtyIn > 0 ? `+${m.qtyIn}` : ''}</td>
+                                                    <td className="px-4 py-3 text-right font-mono font-black text-rose-700">{m.qtyOut > 0 ? `-${m.qtyOut}` : ''}</td>
+                                                    <td className="px-4 py-3 text-right font-mono text-xs text-gray-600">{m.unitCost && m.unitCost > 0 ? formatCurrency(m.unitCost) : '—'}</td>
+                                                    <td className="px-4 py-3 text-xs text-gray-500">{m.notes || ''}</td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                    <tfoot className="bg-gray-50">
+                                        <tr>
+                                            <td colSpan={3} className="px-4 py-3 text-[10px] font-black text-gray-500 uppercase tracking-widest">{movements.length} movement{movements.length === 1 ? '' : 's'}</td>
+                                            <td className="px-4 py-3 text-right font-mono font-black text-emerald-700">+{movements.reduce((s, r) => s + r.qtyIn, 0)}</td>
+                                            <td className="px-4 py-3 text-right font-mono font-black text-rose-700">-{movements.reduce((s, r) => s + r.qtyOut, 0)}</td>
+                                            <td colSpan={2}></td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+                        )}
                     </div>
                 )}
 

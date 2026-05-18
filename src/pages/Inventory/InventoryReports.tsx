@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { formatCurrency as globalFormatCurrency } from '../../services/settingsService';
+import { formatCurrency as globalFormatCurrency, getSystemSettings } from '../../services/settingsService';
 import {
     BarChart3,
     Download,
@@ -267,9 +267,28 @@ export default function InventoryReports() {
                         Inventory Intelligence Hub
                     </h1>
                     <p className="text-[11px] font-black text-gray-400 uppercase tracking-[0.2em] mt-1">Enterprise Material Audit & Reporting</p>
+                    {/* ITEM 2 — Current valuation method badge. Pulls from
+                        SystemSettings.valuationMethod (default 'Average Cost').
+                        Change via Settings → Currency tab. */}
+                    {(() => {
+                        const method = getSystemSettings().valuationMethod || 'Average Cost';
+                        const badgeColor = method === 'FIFO' ? 'bg-blue-50 text-blue-700 border-blue-200'
+                            : method === 'LIFO' ? 'bg-purple-50 text-purple-700 border-purple-200'
+                            : 'bg-orange-50 text-orange-700 border-orange-200';
+                        return (
+                            <div className={`inline-flex items-center gap-2 mt-3 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border ${badgeColor}`}>
+                                <DollarSign size={11} />
+                                Current Valuation Method: {method}
+                            </div>
+                        );
+                    })()}
                 </div>
                 <div className="flex items-center gap-3">
-                    <button className="px-5 py-3 bg-gray-50 border border-gray-100 text-gray-600 text-[11px] font-black uppercase tracking-widest rounded-xl flex items-center gap-2 hover:bg-gray-100 transition-all">
+                    <button
+                        onClick={loadMetrics}
+                        aria-label="Refresh metrics for current period"
+                        className="px-5 py-3 bg-gray-50 border border-gray-100 text-gray-600 text-[11px] font-black uppercase tracking-widest rounded-xl flex items-center gap-2 hover:bg-gray-100 transition-all"
+                    >
                         <Calendar size={18} /> Jan 2024 <ChevronDown size={14} />
                     </button>
                     <button
@@ -374,7 +393,10 @@ export default function InventoryReports() {
                             </select>
                         </div>
                         <div className="flex items-end">
-                            <button className="w-full py-4 bg-redwood-brand text-white text-[11px] font-black uppercase tracking-widest rounded-xl hover:brightness-110 shadow-lg shadow-redwood-brand/20 transition-all">Execute Query</button>
+                            <button
+                                onClick={() => runReport('valuation')}
+                                className="w-full py-4 bg-redwood-brand text-white text-[11px] font-black uppercase tracking-widest rounded-xl hover:brightness-110 shadow-lg shadow-redwood-brand/20 transition-all"
+                            >Execute Query</button>
                         </div>
                     </div>
                 </div>
@@ -455,7 +477,10 @@ function ReportModal({ type, data, onClose, loading }: { type: ReportType; data:
                     <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
                         SOLTOL ONE • Inventory Intelligence
                     </p>
-                    <button className="px-6 py-3 bg-redwood-brand text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:brightness-110 transition-all flex items-center gap-2">
+                    <button
+                        onClick={() => window.print()}
+                        className="px-6 py-3 bg-redwood-brand text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:brightness-110 transition-all flex items-center gap-2"
+                    >
                         <Download size={16} /> Export PDF
                     </button>
                 </div>
@@ -542,50 +567,112 @@ function ValuationReport({ data }: { data: InventoryValuation }) {
 }
 
 function MovementReport({ data }: { data: StockMovement[] }) {
+    // ITEM 9 — Inventory Summary aggregate: rolls the per-product opening/
+    // closing values up to a header so the user gets a one-glance picture
+    // of capital tied up at the start vs end of the period.
+    const totals = data.reduce((acc, r) => ({
+        openingStock: acc.openingStock + (r.openingStock || 0),
+        closingStock: acc.closingStock + (r.closingStock || 0),
+        purchases: acc.purchases + (r.purchases || 0),
+        sales: acc.sales + (r.sales || 0),
+        openingValue: acc.openingValue + (r.openingValue || 0),
+        closingValue: acc.closingValue + (r.closingValue || 0),
+    }), { openingStock: 0, closingStock: 0, purchases: 0, sales: 0, openingValue: 0, closingValue: 0 });
+    const valueDelta = totals.closingValue - totals.openingValue;
+    const deltaPct = totals.openingValue > 0 ? (valueDelta / totals.openingValue) * 100 : 0;
+
     return (
-        <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
-            <table className="w-full">
-                <thead className="bg-gray-50">
-                    <tr>
-                        <th className="text-left p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Product</th>
-                        <th className="text-left p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">SKU</th>
-                        <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Opening</th>
-                                        <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Inward</th>
-                                        <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Outward</th>
-                        <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Purchases</th>
-                        <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Sales</th>
-                        <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Closing</th>
-                        <th className="text-center p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Velocity</th>
-                        <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Turnover</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {data.map((item, i) => (
-                        <tr key={i} className="border-t border-gray-100 hover:bg-gray-50">
-                            <td className="p-4 font-bold text-gray-900">{item.productName}</td>
-                            <td className="p-4 font-mono text-sm text-gray-600">{item.sku}</td>
-                            <td className="p-4 text-right font-bold text-gray-600">{item.openingStock}</td>
-                                            <td className="p-4 text-right font-bold text-emerald-600">{(item as any).inwardQty || (item as any).received || 0}</td>
-                                            <td className="p-4 text-right font-bold text-red-500">{(item as any).outwardQty || (item as any).sold || 0}</td>
-                            <td className="p-4 text-right font-bold text-emerald-600">+{item.purchases}</td>
-                            <td className="p-4 text-right font-bold text-red-600">-{item.sales}</td>
-                            <td className="p-4 text-right font-bold text-gray-900">{item.closingStock}</td>
-                            <td className="p-4 text-center">
-                                <span className={clsx(
-                                    "px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest",
-                                    item.velocity === 'Fast' && "bg-emerald-100 text-emerald-700",
-                                    item.velocity === 'Medium' && "bg-blue-100 text-blue-700",
-                                    item.velocity === 'Slow' && "bg-amber-100 text-amber-700",
-                                    item.velocity === 'Dead' && "bg-red-100 text-red-700"
-                                )}>
-                                    {item.velocity}
-                                </span>
-                            </td>
-                            <td className="p-4 text-right font-bold text-gray-900">{item.turnoverRate.toFixed(1)}x</td>
+        <div className="space-y-6">
+            {/* ITEM 9 — Opening vs Closing value summary cards. */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5">
+                    <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-1">Opening Value</p>
+                    <p className="text-2xl font-black text-blue-900 font-mono">{globalFormatCurrency(totals.openingValue)}</p>
+                    <p className="text-[10px] font-bold text-blue-500 mt-1">{totals.openingStock.toLocaleString()} units in stock at period start</p>
+                </div>
+                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5">
+                    <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-1">Closing Value</p>
+                    <p className="text-2xl font-black text-emerald-900 font-mono">{globalFormatCurrency(totals.closingValue)}</p>
+                    <p className="text-[10px] font-bold text-emerald-500 mt-1">{totals.closingStock.toLocaleString()} units in stock now</p>
+                </div>
+                <div className={clsx(
+                    'border rounded-2xl p-5',
+                    valueDelta >= 0 ? 'bg-amber-50 border-amber-200' : 'bg-rose-50 border-rose-200'
+                )}>
+                    <p className={clsx('text-[10px] font-black uppercase tracking-widest mb-1', valueDelta >= 0 ? 'text-amber-500' : 'text-rose-500')}>Net Movement</p>
+                    <p className={clsx('text-2xl font-black font-mono', valueDelta >= 0 ? 'text-amber-900' : 'text-rose-900')}>
+                        {valueDelta >= 0 ? '+' : ''}{globalFormatCurrency(valueDelta)}
+                    </p>
+                    <p className={clsx('text-[10px] font-bold mt-1', valueDelta >= 0 ? 'text-amber-500' : 'text-rose-500')}>
+                        {deltaPct >= 0 ? '+' : ''}{deltaPct.toFixed(1)}% vs opening
+                    </p>
+                </div>
+            </div>
+
+            <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
+                <table className="w-full">
+                    <thead className="bg-gray-50">
+                        <tr>
+                            <th className="text-left p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Product</th>
+                            <th className="text-left p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">SKU</th>
+                            <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Opening</th>
+                            <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Opening Value</th>
+                            <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Purchases</th>
+                            <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Sales</th>
+                            <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Closing</th>
+                            <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Closing Value</th>
+                            <th className="text-center p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Velocity</th>
+                            <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Turnover</th>
                         </tr>
-                    ))}
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        {data.length === 0 ? (
+                            <tr>
+                                <td colSpan={10} className="p-12 text-center text-sm text-gray-400 font-bold">No products in inventory yet.</td>
+                            </tr>
+                        ) : (
+                            data.map((item, i) => (
+                                <tr key={i} className="border-t border-gray-100 hover:bg-gray-50">
+                                    <td className="p-4 font-bold text-gray-900">{item.productName}</td>
+                                    <td className="p-4 font-mono text-sm text-gray-600">{item.sku}</td>
+                                    <td className="p-4 text-right font-bold text-gray-600">{item.openingStock}</td>
+                                    <td className="p-4 text-right font-bold text-blue-700 font-mono text-xs">{globalFormatCurrency(item.openingValue)}</td>
+                                    <td className="p-4 text-right font-bold text-emerald-600">+{item.purchases}</td>
+                                    <td className="p-4 text-right font-bold text-red-600">-{item.sales}</td>
+                                    <td className="p-4 text-right font-bold text-gray-900">{item.closingStock}</td>
+                                    <td className="p-4 text-right font-bold text-emerald-700 font-mono text-xs">{globalFormatCurrency(item.closingValue)}</td>
+                                    <td className="p-4 text-center">
+                                        <span className={clsx(
+                                            "px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest",
+                                            item.velocity === 'Fast' && "bg-emerald-100 text-emerald-700",
+                                            item.velocity === 'Medium' && "bg-blue-100 text-blue-700",
+                                            item.velocity === 'Slow' && "bg-amber-100 text-amber-700",
+                                            item.velocity === 'Dead' && "bg-red-100 text-red-700"
+                                        )}>
+                                            {item.velocity}
+                                        </span>
+                                    </td>
+                                    <td className="p-4 text-right font-bold text-gray-900">{item.turnoverRate.toFixed(1)}x</td>
+                                </tr>
+                            ))
+                        )}
+                    </tbody>
+                    {data.length > 0 && (
+                        <tfoot className="bg-gray-900 text-white">
+                            <tr>
+                                <td colSpan={2} className="p-4 text-[10px] font-black uppercase tracking-widest">Totals ({data.length} products)</td>
+                                <td className="p-4 text-right font-mono font-black">{totals.openingStock.toLocaleString()}</td>
+                                <td className="p-4 text-right font-mono font-black text-blue-300">{globalFormatCurrency(totals.openingValue)}</td>
+                                <td className="p-4 text-right font-mono font-black text-emerald-300">+{totals.purchases.toLocaleString()}</td>
+                                <td className="p-4 text-right font-mono font-black text-rose-300">-{totals.sales.toLocaleString()}</td>
+                                <td className="p-4 text-right font-mono font-black">{totals.closingStock.toLocaleString()}</td>
+                                <td className="p-4 text-right font-mono font-black text-emerald-300">{globalFormatCurrency(totals.closingValue)}</td>
+                                <td colSpan={2}></td>
+                            </tr>
+                        </tfoot>
+                    )}
+                </table>
+            </div>
         </div>
     );
 }

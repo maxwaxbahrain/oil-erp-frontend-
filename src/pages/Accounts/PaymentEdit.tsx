@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Edit2, Save, X, RefreshCw, Check } from 'lucide-react';
 import { getPayments, getCustomers, type Payment, type Customer } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
@@ -8,6 +8,11 @@ const PAYMENT_METHODS = ['Cash', 'Bank Transfer', 'Cheque', 'Credit Card', 'Onli
 
 export default function PaymentEdit() {
     const navigate = useNavigate();
+    // ITEM 13 — ?id=<paymentId> deep-link from per-row Edit buttons opens
+    // the matching row in edit mode automatically. Keeps the page useful
+    // even after we drop the standalone sidebar link.
+    const [searchParams] = useSearchParams();
+    const deepLinkId = searchParams.get('id');
     const [payments, setPayments] = useState<Payment[]>([]);
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [loading, setLoading] = useState(true);
@@ -22,8 +27,17 @@ export default function PaymentEdit() {
             setPayments(p);
             setCustomers(c);
             setLoading(false);
+            // ITEM 13 — open the deep-linked payment in edit mode.
+            if (deepLinkId) {
+                const target = p.find(x => String(x.id) === String(deepLinkId));
+                if (target) {
+                    setEditId(target.id);
+                    setEditForm({ ...target });
+                }
+            }
         });
-    }, []);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [deepLinkId]);
 
     const custMap: Record<string, string> = {};
     customers.forEach(c => { custMap[String(c.id)] = c.name; });

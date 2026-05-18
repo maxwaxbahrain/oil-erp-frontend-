@@ -151,7 +151,14 @@ function JVForm({ accounts, editJV, onSave, onCancel }: JVFormProps) {
             accountCode: account.code, accountName: account.name
         }));
         setShowAcDrop(null);
-        setAcSearch(prev => ({ ...prev, [lineId]: '' }));
+        // ITEM 4A — DELETE the search key (don't set it to '') so the
+        // input value formula falls through to "CODE — NAME" display.
+        // Setting '' would be treated as "user is searching" and the
+        // input would appear empty after selection — bad UX.
+        setAcSearch(prev => {
+            const { [lineId]: _omit, ...rest } = prev;
+            return rest;
+        });
     };
 
     const removeLine = (id: string) => {
@@ -223,6 +230,9 @@ function JVForm({ accounts, editJV, onSave, onCancel }: JVFormProps) {
             </div>
 
             {/* Lines Table */}
+            <p className="text-[11px] text-gray-500 italic mb-2 px-1">
+                A line can be <strong>debit</strong> OR <strong>credit</strong> — clear one side to enter the other.
+            </p>
             <div className="overflow-x-auto rounded-2xl border border-gray-200">
                 <table className="w-full text-left">
                     <thead className="bg-gray-900 text-white">
@@ -240,8 +250,19 @@ function JVForm({ accounts, editJV, onSave, onCancel }: JVFormProps) {
                                 {/* Account selector */}
                                 <td className="px-3 py-2 relative ac-dropdown-container">
                                     <div className="relative">
+                                        {/* ITEM 4A — Show "CODE — NAME" after selection so the
+                                            user sees both at a glance (was: just the name with
+                                            a small code line below, which made the code easy
+                                            to miss). When the user is mid-search, acSearch
+                                            takes over so typing isn't fighting the formatter. */}
                                         <input
-                                            value={acSearch[line.id] !== undefined ? acSearch[line.id] : line.accountName}
+                                            value={
+                                                acSearch[line.id] !== undefined
+                                                    ? acSearch[line.id]
+                                                    : (line.accountCode && line.accountName
+                                                        ? `${line.accountCode} — ${line.accountName}`
+                                                        : (line.accountName || line.accountCode || ''))
+                                            }
                                             onChange={e => {
                                                 setAcSearch(prev => ({ ...prev, [line.id]: e.target.value }));
                                                 setShowAcDrop(line.id);
@@ -266,16 +287,24 @@ function JVForm({ accounts, editJV, onSave, onCancel }: JVFormProps) {
                                                 {getFilteredAccounts(acSearch[line.id] || '').length === 0 && (
                                                     <div className="px-4 py-3 text-xs text-gray-400">No accounts found</div>
                                                 )}
-                                                <button type="button" onClick={() => { setShowAcDrop(null); setAcSearch(prev => ({ ...prev, [line.id]: line.accountName })); }}
+                                                <button type="button" onClick={() => {
+                                                        setShowAcDrop(null);
+                                                        // ITEM 4A — Clear the search override so the
+                                                        // input value formula above re-applies and the
+                                                        // user sees "CODE — NAME" again after closing.
+                                                        setAcSearch(prev => {
+                                                            const { [line.id]: _omit, ...rest } = prev;
+                                                            return rest;
+                                                        });
+                                                    }}
                                                     className="w-full text-center px-4 py-2 text-xs text-gray-400 hover:bg-gray-50 border-t border-gray-100">
                                                     Close
                                                 </button>
                                             </div>
                                         )}
                                     </div>
-                                    {line.accountCode && (
-                                        <p className="text-[10px] text-gray-400 mt-0.5 pl-1 font-mono">{line.accountCode}</p>
-                                    )}
+                                    {/* ITEM 4A — Removed the redundant subdued code line;
+                                        the code now lives inline in the input value above. */}
                                 </td>
                                 {/* Description */}
                                 <td className="px-3 py-2">
@@ -288,16 +317,20 @@ function JVForm({ accounts, editJV, onSave, onCancel }: JVFormProps) {
                                     <input type="number" min={0} step="0.01"
                                         value={line.debit || ''}
                                         onChange={e => updateLine(line.id, 'debit', parseFloat(e.target.value) || 0)}
+                                        disabled={line.credit > 0}
+                                        title={line.credit > 0 ? 'Disabled — this line has a credit. Clear credit to enter a debit.' : 'Enter the debit amount'}
                                         placeholder="0.00"
-                                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs text-right font-mono font-black focus:outline-none focus:border-blue-400 focus:bg-blue-50" />
+                                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs text-right font-mono font-black focus:outline-none focus:border-blue-400 focus:bg-blue-50 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed" />
                                 </td>
                                 {/* Credit */}
                                 <td className="px-3 py-2">
                                     <input type="number" min={0} step="0.01"
                                         value={line.credit || ''}
                                         onChange={e => updateLine(line.id, 'credit', parseFloat(e.target.value) || 0)}
+                                        disabled={line.debit > 0}
+                                        title={line.debit > 0 ? 'Disabled — this line has a debit. Clear debit to enter a credit.' : 'Enter the credit amount'}
                                         placeholder="0.00"
-                                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs text-right font-mono font-black focus:outline-none focus:border-emerald-400 focus:bg-emerald-50" />
+                                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs text-right font-mono font-black focus:outline-none focus:border-emerald-400 focus:bg-emerald-50 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed" />
                                 </td>
                                 {/* Delete */}
                                 <td className="px-2 py-2">
@@ -492,7 +525,9 @@ export default function JournalVoucher() {
     const handleDelete = async (id: string) => {
         const jv = vouchers.find(j => j.id === id);
         if (jv?.status === 'Posted') { alert('Cannot delete a posted journal entry. Create a reversing entry instead.'); return; }
-        if (!confirm('Delete this draft journal voucher?')) return;
+        // ITEM 4 polish — Named confirm so the user sees which JV they're deleting.
+        const label = jv?.jvNumber || `voucher ${id}`;
+        if (!confirm(`Delete journal voucher ${label}? This cannot be undone.`)) return;
         try {
             await deleteJVApi(id);
             const fresh = await getJournalVouchers();

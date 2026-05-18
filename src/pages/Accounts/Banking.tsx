@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Landmark, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownLeft, RefreshCw, Download, DollarSign, CreditCard, Building2, Edit2, Trash2 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { getPayments, getInvoices, getCustomers, type Payment, type Invoice } from '../../services/api';
+import { getPayments, getInvoices, getCustomers, voidPayment, type Payment, type Invoice } from '../../services/api';
 import { getSuppliers } from '../../services/purchasesService';
 import { getCompanyProfile } from '../../services/settingsService';
 import { formatCurrency } from '../../services/settingsService';
@@ -160,6 +160,21 @@ interface Transaction {
     balance: number;
     reference: string;
     category: string;
+    // ITEM 14 — Cash vs Bank channel. 'Cash' = physical cash (Cash, Petty
+    // Cash). 'Bank' = everything that actually moves through a bank
+    // account (Bank Transfer, Cheque, Card, Wire, Zelle, etc.). Lets
+    // users see what's sitting in the safe vs in the account.
+    channel: 'Cash' | 'Bank';
+}
+
+// ITEM 14 — Classify a payment by its method (and category for manual
+// bank-tx entries). Whitelist 'Cash' / 'Petty Cash'; default everything
+// else to Bank so we never under-count the bank balance.
+function classifyChannel(paymentMethod?: string | null, category?: string | null): 'Cash' | 'Bank' {
+    const m = (paymentMethod || '').toLowerCase().trim();
+    const c = (category || '').toLowerCase().trim();
+    if (m === 'cash' || m === 'petty cash' || c === 'cash' || c.includes('cash in hand') || c.includes('petty cash')) return 'Cash';
+    return 'Bank';
 }
 
 // Supplier payment shape on /api/suppliers/{id}/payments.
@@ -185,6 +200,8 @@ export default function Banking() {
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
     const [filter, setFilter] = useState<'all' | 'Credit' | 'Debit'>('all');
+    // ITEM 14 — Channel filter so users can drill into Cash-only or Bank-only.
+    const [channelFilter, setChannelFilter] = useState<'all' | 'Cash' | 'Bank'>('all');
     const [dateFrom, setDateFrom] = useState('');
     const [activeTab, setActiveTab] = useState<'ledger' | 'pdc'>('ledger');
     const [showAddTx, setShowAddTx] = useState(false);
@@ -200,6 +217,53 @@ export default function Banking() {
     const [showPDCForm, setShowPDCForm] = useState(false);
     const [pdcForm, setPdcForm] = useState({ date: '', chequeNo: '', bankName: '', payee: '', amount: '', type: 'Received' as PDCheque['type'], description: '' });
     const [dateTo, setDateTo] = useState('');
+    // FIX W6-1 — track which payment row is being voided (disables button).
+    const [voidingId, setVoidingId] = useState<string | null>(null);
+
+    // FIX W6-1 — Void a customer payment by posting a reversing contra-
+    // entry through the same /ledger/payment endpoint. Original stays
+    // for audit; backend recomputes customer/invoice balances. Guards
+    // against double-void (reversal rows + negative amounts).
+    const handleVoidPayment = async (paymentId: string) => {
+        const original = payments.find(p => String(p.id) === String(paymentId));
+        if (!original) {
+            alert('Original payment not found — cannot void.');
+            return;
+        }
+        if ((original.amount ?? 0) < 0) {
+            alert('Negative-amount payments are reversal entries — cannot void.');
+            return;
+        }
+        if (original.reference?.startsWith('VOID/')) {
+            alert('This is already a reversal entry — cannot void a void.');
+            return;
+        }
+        const reason = prompt(
+            `Void payment of $${original.amount.toFixed(2)}?\n\n` +
+            `A reversing entry will be created. The original record stays for audit. ` +
+            `Customer balance and any linked invoice will adjust.\n\n` +
+            `Enter a reason (optional):`
+        );
+        if (reason === null) return; // user cancelled the prompt
+        setVoidingId(paymentId);
+        try {
+            await voidPayment({
+                id: String(original.id),
+                customer_id: original.customer_id,
+                amount: original.amount,
+                invoice_id: original.invoice_id,
+                reason: reason || undefined,
+            });
+            // Refetch payments so the new reversal row shows up.
+            const fresh = await getPayments().catch(() => payments);
+            setPayments(fresh);
+            alert('✅ Payment voided. Reversal entry created.');
+        } catch (e) {
+            alert('Could not void payment: ' + (e instanceof Error ? e.message : String(e)));
+        } finally {
+            setVoidingId(null);
+        }
+    };
 
     useEffect(() => {
         (async () => {
@@ -260,6 +324,8 @@ export default function Banking() {
             balance: 0,
             reference: `PAY-${String(p.id || idx).slice(0, 6).toUpperCase()}`,
             category: 'Customer Payment',
+            // ITEM 14 — derive Cash vs Bank from the payment_method.
+            channel: classifyChannel(p.payment_method),
         })),
         // Cash OUT to suppliers
         ...supplierPayments.map(({ row, supplierName }, idx) => ({
@@ -271,12 +337,39 @@ export default function Banking() {
             balance: 0,
             reference: row.reference || `SPAY-${String(row.id || idx).slice(0, 6).toUpperCase()}`,
             category: 'Supplier Payment',
+            // ITEM 14 — derive channel from supplier paymentMethod.
+            channel: classifyChannel(row.paymentMethod),
         })),
+        // ITEM 15 — Post-Dated Cheques only hit the bank ledger AFTER
+        // they're cleared. Pending / Bounced / Cancelled / future-dated
+        // cheques stay in the PDC register and don't affect cash balances.
+        // Type='Received' = money IN (Credit); type='Issued' = money OUT
+        // (Debit). Channel is always 'Bank' because cheques settle through
+        // the bank account, regardless of the original payment context.
+        ...pdcList
+            .filter(p => p.status === 'Cleared')
+            .map((p, idx) => ({
+                id: `PDC-${p.id || idx}`,
+                date: p.date || new Date().toISOString().split('T')[0],
+                description: `Cheque ${p.chequeNo}${p.payee ? ' — ' + p.payee : ''}${p.bankName ? ' (' + p.bankName + ')' : ''}`,
+                type: (p.type === 'Received' ? 'Credit' : 'Debit') as 'Credit' | 'Debit',
+                amount: p.amount || 0,
+                balance: 0,
+                reference: p.chequeNo ? `CHQ-${p.chequeNo}` : `PDC-${String(p.id || idx).slice(0, 6).toUpperCase()}`,
+                category: p.type === 'Received' ? 'Cheque Received' : 'Cheque Issued',
+                channel: 'Bank' as const,
+            })),
     ];
+
+    // ITEM 14 — Tag manual entries with a channel (category-based).
+    const manualTxsTagged: Transaction[] = (manualTxs as Transaction[]).map(t => ({
+        ...t,
+        channel: t.channel || classifyChannel(undefined, t.category),
+    }));
 
     // Merge system + manual BEFORE sorting so the user's just-added entry
     // (likely dated today) ends up at the top of the ledger.
-    const allTransactions: Transaction[] = [...systemTx, ...manualTxs as Transaction[]]
+    const allTransactions: Transaction[] = [...systemTx, ...manualTxsTagged]
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     // Running balance: working backwards from the newest entry. Each row's
@@ -288,11 +381,19 @@ export default function Banking() {
         return { ...tx, balance: balanceAfterRow };
     });
 
-    const totalCredits = systemTx.filter(t => t.type === 'Credit').reduce((s, t) => s + t.amount, 0)
-        + (manualTxs as Transaction[]).filter(t => t.type === 'Credit').reduce((s, t) => s + t.amount, 0);
-    const totalDebits = systemTx.filter(t => t.type === 'Debit').reduce((s, t) => s + t.amount, 0)
-        + (manualTxs as Transaction[]).filter(t => t.type === 'Debit').reduce((s, t) => s + t.amount, 0);
+    const totalCredits = allTransactions.filter(t => t.type === 'Credit').reduce((s, t) => s + t.amount, 0);
+    const totalDebits = allTransactions.filter(t => t.type === 'Debit').reduce((s, t) => s + t.amount, 0);
     const netBalance = totalCredits - totalDebits;
+
+    // ITEM 14 — Per-channel balances. Cash = currency on hand (Cash /
+    // Petty Cash methods); Bank = balance in the bank account (everything
+    // else). These sum to netBalance.
+    const cashCredits = allTransactions.filter(t => t.channel === 'Cash' && t.type === 'Credit').reduce((s, t) => s + t.amount, 0);
+    const cashDebits = allTransactions.filter(t => t.channel === 'Cash' && t.type === 'Debit').reduce((s, t) => s + t.amount, 0);
+    const cashBalance = cashCredits - cashDebits;
+    const bankCredits = allTransactions.filter(t => t.channel === 'Bank' && t.type === 'Credit').reduce((s, t) => s + t.amount, 0);
+    const bankDebits = allTransactions.filter(t => t.channel === 'Bank' && t.type === 'Debit').reduce((s, t) => s + t.amount, 0);
+    const bankBalance = bankCredits - bankDebits;
 
     // Outstanding AR — sourced from CUSTOMER BALANCES, not raw invoice
     // grand totals. The imported invoices all have status='unpaid' and
@@ -309,6 +410,8 @@ export default function Banking() {
     const filtered = ledgerWithBalance.filter(t => {
         if (dateFrom && t.date < dateFrom) return false;
         if (dateTo && t.date > dateTo) return false;
+        // ITEM 14 — Apply channel filter alongside the existing type filter.
+        if (channelFilter !== 'all' && t.channel !== channelFilter) return false;
         const matchFilter = filter === 'all' || t.type === filter;
         const matchSearch = !search || (t.description || '').toLowerCase().includes(search.toLowerCase()) || (t.reference || '').toLowerCase().includes(search.toLowerCase());
         return matchFilter && matchSearch;
@@ -505,6 +608,39 @@ export default function Banking() {
                 ))}
             </div>
 
+            {/* ITEM 14 — Cash vs Bank split summary cards. Sit alongside
+                the existing KPIs so users see the breakdown at a glance. */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 border border-emerald-200 rounded-2xl p-5 shadow-sm">
+                    <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-black text-emerald-700 uppercase tracking-widest">Cash on Hand</span>
+                        <div className="w-9 h-9 bg-emerald-200 rounded-xl flex items-center justify-center">
+                            <DollarSign size={18} className="text-emerald-700" />
+                        </div>
+                    </div>
+                    <div className="text-3xl font-black font-mono text-emerald-900">
+                        {loading ? '...' : formatCurrency(cashBalance)}
+                    </div>
+                    <p className="text-[10px] font-bold text-emerald-600 mt-1 uppercase tracking-widest">
+                        In {formatCurrency(cashCredits)} · Out {formatCurrency(cashDebits)}
+                    </p>
+                </div>
+                <div className="bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 rounded-2xl p-5 shadow-sm">
+                    <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-black text-blue-700 uppercase tracking-widest">Bank Balance</span>
+                        <div className="w-9 h-9 bg-blue-200 rounded-xl flex items-center justify-center">
+                            <Building2 size={18} className="text-blue-700" />
+                        </div>
+                    </div>
+                    <div className="text-3xl font-black font-mono text-blue-900">
+                        {loading ? '...' : formatCurrency(bankBalance)}
+                    </div>
+                    <p className="text-[10px] font-bold text-blue-600 mt-1 uppercase tracking-widest">
+                        In {formatCurrency(bankCredits)} · Out {formatCurrency(bankDebits)}
+                    </p>
+                </div>
+            </div>
+
             {/* KPI Cards */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 {[
@@ -646,6 +782,19 @@ export default function Banking() {
                                 {f === 'all' ? 'All' : f}
                             </button>
                         ))}
+                        {/* ITEM 14 — Channel filter: All / Cash / Bank. */}
+                        <span className="mx-2 text-xs text-gray-300 font-black">·</span>
+                        {(['all', 'Cash', 'Bank'] as const).map(f => (
+                            <button
+                                key={`ch-${f}`}
+                                onClick={() => setChannelFilter(f)}
+                                className={`px-4 py-2 text-xs font-black uppercase rounded-xl transition-all ${channelFilter === f
+                                    ? (f === 'Cash' ? 'bg-emerald-600 text-white' : f === 'Bank' ? 'bg-blue-600 text-white' : 'bg-gray-900 text-white')
+                                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                            >
+                                {f === 'all' ? 'All Channels' : f}
+                            </button>
+                        ))}
                     </div>
                 </div>
 
@@ -661,7 +810,8 @@ export default function Banking() {
                         <table className="w-full text-left">
                             <thead className="bg-gray-50 border-b border-gray-100">
                                 <tr>
-                                    {['Date', 'Description', 'Reference', 'Category', 'Type', 'Amount', 'Balance', 'Actions'].map(h => (
+                                    {/* ITEM 14 — added Channel column. */}
+                                    {['Date', 'Description', 'Reference', 'Category', 'Channel', 'Type', 'Amount', 'Balance', 'Actions'].map(h => (
                                         <th key={h} className={`px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest ${h === 'Actions' ? 'text-right' : ''}`}>{h}</th>
                                     ))}
                                 </tr>
@@ -674,6 +824,12 @@ export default function Banking() {
                                         <td className="px-6 py-4 text-xs font-mono text-orange-600 font-bold">{tx.reference}</td>
                                         <td className="px-6 py-4">
                                             <span className="px-2 py-1 bg-gray-100 text-gray-600 text-[10px] font-black rounded-lg uppercase">{tx.category}</span>
+                                        </td>
+                                        {/* ITEM 14 — Channel pill (Cash vs Bank). */}
+                                        <td className="px-6 py-4">
+                                            <span className={`px-2 py-1 text-[10px] font-black rounded-lg uppercase ${tx.channel === 'Cash' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
+                                                {tx.channel}
+                                            </span>
                                         </td>
                                         <td className="px-6 py-4">
                                             <span className={`flex items-center gap-1 text-xs font-black ${tx.type === 'Credit' ? 'text-emerald-600' : 'text-rose-600'}`}>
@@ -707,7 +863,31 @@ export default function Banking() {
                                                         <Trash2 size={13} />
                                                     </button>
                                                 </div>
-                                            ) : (
+                                            ) : tx.id.startsWith('PAY-') ? (() => {
+                                                // FIX W6-1 — Per-row Void on customer payments. Reversal
+                                                // rows + already-negative-amount rows are filtered out
+                                                // by the handler so the button doesn't double-void.
+                                                const paymentId = tx.id.replace(/^PAY-/, '');
+                                                const original = payments.find(p => String(p.id) === paymentId);
+                                                const isReversal = original?.reference?.startsWith('VOID/') || (original?.amount ?? 0) < 0;
+                                                if (isReversal) {
+                                                    return (
+                                                        <span className="text-[10px] text-rose-500 font-black uppercase tracking-widest" title="This row is a reversal entry">
+                                                            Reversal
+                                                        </span>
+                                                    );
+                                                }
+                                                return (
+                                                    <button
+                                                        onClick={() => handleVoidPayment(paymentId)}
+                                                        disabled={voidingId === paymentId}
+                                                        className="text-[10px] font-black text-rose-600 hover:text-rose-800 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-all disabled:opacity-50"
+                                                        title="Void this payment — creates a reversing entry, keeps the original for audit"
+                                                    >
+                                                        {voidingId === paymentId ? 'Voiding…' : 'Void'}
+                                                    </button>
+                                                );
+                                            })() : (
                                                 <span className="text-[10px] text-gray-300 italic" title="System-generated. Edit on the customer or supplier page.">auto</span>
                                             )}
                                         </td>
@@ -738,6 +918,17 @@ export default function Banking() {
                             </div>
                         </div>
                     )}
+
+                    {/* ITEM 15 — Make it explicit that pending cheques are not
+                        booked yet, only cleared cheques show up in the bank ledger. */}
+                    <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-xs text-blue-800">
+                        <p className="font-black uppercase tracking-widest mb-1">📌 PDC Ledger Rule</p>
+                        <p className="font-medium">
+                            Post-dated cheques only affect the bank balance once their status is <strong>Cleared</strong>.
+                            Pending, future-dated, bounced, and cancelled cheques stay here and do not change the
+                            Cash on Hand or Bank Balance totals.
+                        </p>
+                    </div>
 
                     {/* Add PDC Button */}
                     <div className="flex justify-between items-center">

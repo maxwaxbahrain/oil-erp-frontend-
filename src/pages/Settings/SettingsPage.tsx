@@ -526,6 +526,33 @@ export default function SettingsPage() {
                                             </div>
                                         </div>
 
+                                        {/* ITEM 2 — Inventory Valuation Method selector. Lives in
+                                            the Currency tab because both are global accounting
+                                            policies that touch financial reports. The 3 engines
+                                            (FIFO/LIFO/AvgCost) already exist in inventoryService. */}
+                                        <div className="space-y-4">
+                                            <label className="text-[10px] font-black text-redwood-text-muted uppercase tracking-widest">Inventory Valuation Method</label>
+                                            <div className="space-y-2">
+                                                {([
+                                                    { id: 'Average Cost', label: 'AVERAGE COST — WEIGHTED AVERAGE OF ALL PURCHASES (DEFAULT, SIMPLEST)' },
+                                                    { id: 'FIFO',         label: 'FIFO — FIRST IN, FIRST OUT (HIGHER PROFITS UNDER INFLATION)' },
+                                                    { id: 'LIFO',         label: 'LIFO — LAST IN, FIRST OUT (LOWER PROFITS UNDER INFLATION, TAX BENEFIT)' },
+                                                ] as Array<{ id: 'Average Cost' | 'FIFO' | 'LIFO'; label: string }>).map((m) => (
+                                                    <label key={m.id} className="flex items-center gap-4 p-4 hover:bg-gray-50 rounded-sm cursor-pointer transition-colors group">
+                                                        <input
+                                                            type="radio"
+                                                            name="valuationMethod"
+                                                            checked={currencySettings.valuationMethod === m.id}
+                                                            onChange={() => setCurrencySettings({ ...currencySettings, valuationMethod: m.id })}
+                                                            className="w-5 h-5 border-redwood-border text-redwood-brand focus:ring-redwood-brand"
+                                                        />
+                                                        <span className="text-[11px] font-black text-gray-600 uppercase tracking-widest group-hover:text-redwood-text-main transition-colors">{m.label}</span>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                            <p className="text-[10px] text-gray-500 font-bold italic">Shown as a badge on the Inventory Reports page. Individual FIFO / LIFO / Average reports remain available for cross-comparison.</p>
+                                        </div>
+
                                         <div className="p-6 bg-amber-50 rounded-sm border border-amber-200 space-y-4">
                                             <div className="flex items-center gap-3">
                                                 <AlertTriangle size={16} className="text-amber-600" />

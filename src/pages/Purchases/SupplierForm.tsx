@@ -32,7 +32,11 @@ export default function SupplierForm() {
         taxId: '',
         paymentTerms: 'Net 30',
         currency: 'USD',
-        status: 'Active'
+        status: 'Active',
+        // ITEM 6A — Opening Balance default. Backend already round-trips
+        // this field (purchasesService maps to opening_balance); the only
+        // thing missing was the input on this form.
+        openingBalance: 0,
     });
 
     // Mock Performance Data (Read-only)
@@ -80,7 +84,9 @@ export default function SupplierForm() {
             status: status,
             paymentTerms: formData.paymentTerms!,
             currency: formData.currency!,
-            rating: 'A' // Default rating
+            rating: 'A', // Default rating
+            // ITEM 6A — Persist the user-entered opening balance.
+            openingBalance: Number(formData.openingBalance) || 0,
         };
 
         // Save supplier
@@ -251,6 +257,24 @@ export default function SupplierForm() {
                                     <option>EUR (€)</option>
                                     <option>GBP (£)</option>
                                 </select>
+                            </div>
+                        </div>
+                        {/* ITEM 6A — Opening Balance input. Mirrors the customer
+                            side and round-trips via purchasesService → backend
+                            opening_balance column (already wired). */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                            <div>
+                                <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1.5">Opening Balance</label>
+                                <input
+                                    type="number"
+                                    name="openingBalance"
+                                    value={formData.openingBalance ?? 0}
+                                    onChange={handleChange}
+                                    step="0.01"
+                                    placeholder="0.00"
+                                    className="w-full bg-white border border-gray-200 rounded-sm px-3 py-2 text-[13px] font-mono font-medium focus:border-redwood-brand outline-none"
+                                />
+                                <p className="text-[10px] text-gray-400 mt-1">Outstanding amount owed to this supplier when adding them (defaults to 0).</p>
                             </div>
                         </div>
                     </div>

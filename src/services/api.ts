@@ -405,6 +405,8 @@ export const getCustomer = (id: string): Promise<Customer> => apiRequest<Custome
 export const createCustomer = (data: Partial<Customer>): Promise<Customer> => apiRequest<Customer>('/customers', { method: 'POST', body: JSON.stringify(data) });
 export const updateCustomer = (id: string, data: Partial<Customer>): Promise<Customer> => apiRequest<Customer>(`/customers/${id}`, { method: 'PUT', body: JSON.stringify(data) });
 export const deleteCustomer = (id: string): Promise<void> => apiRequest<void>(`/customers/${id}`, { method: 'DELETE' });
+// FIX W2-1 — Invoice delete (paid-invoice guard lives at the call site).
+export const deleteInvoice = (id: string): Promise<void> => apiRequest<void>(`/invoices/${id}`, { method: 'DELETE' });
 export const getCustomerLedger = (id: string): Promise<LedgerEntry[]> => apiRequest<LedgerEntry[]>(`/customers/${id}/ledger`);
 export const getOverdueCustomers = (): Promise<Customer[]> => apiRequest<Customer[]>('/customers/overdue');
 
@@ -433,6 +435,40 @@ export const createPayment = (data: any): Promise<any> => {
     body: JSON.stringify(body),
   });
 };
+
+// FIX W6-1 — Void a payment by posting a reversing (negative-amount)
+// contra-payment via the same /ledger/payment endpoint. The original
+// record stays in place for audit; both rows remain visible in Banking,
+// joined by reference: VOID/<originalId>. Customer + invoice balance
+// recompute on the backend ledger side.
+//
+// Standard accounting practice — never delete a posted payment, always
+// post a contra-entry. Refuses to void rows that are themselves
+// reversals (prevents double-void).
+export async function voidPayment(p: {
+  id: string;
+  customer_id: string;
+  amount: number;
+  invoice_id?: string | null;
+  reason?: string;
+}): Promise<any> {
+  if (p.amount === 0) {
+    throw new Error('Cannot void a zero-amount payment.');
+  }
+  if (p.amount < 0) {
+    throw new Error('This is already a reversal entry — cannot void a void.');
+  }
+  return createPayment({
+    customer_id: p.customer_id,
+    amount: -Math.abs(p.amount),
+    payment_method: 'Void',
+    reference: `VOID/${p.id}`,
+    payment_date: new Date().toISOString().slice(0, 10),
+    invoice_id: p.invoice_id || undefined,
+    notes: `Reversal of payment ${p.id}` + (p.reason ? ` — ${p.reason}` : ''),
+    is_advance: !p.invoice_id,
+  });
+}
 
 // Van APIs
 export const getVans = (): Promise<Van[]> => apiRequest<Van[]>('/vans');
@@ -817,11 +853,19 @@ export async function getCustomerPayments(customerId: string): Promise<Payment[]
 export async function getUnpaidInvoices(customerId: string): Promise<Invoice[]> {
   try {
     const allInvoices = await getInvoices();
-    return allInvoices.filter(inv =>
-      inv.customerId === customerId &&
-      (inv.status === 'Unpaid' || inv.status === 'Partial') &&
-      (inv.remaining_balance || inv.grandTotal) > 0
-    );
+    return allInvoices.filter(inv => {
+      if (inv.customerId !== customerId) return false;
+      // ITEM 5F — Was: `(inv.remaining_balance || inv.grandTotal) > 0`.
+      // The `||` short-circuit: when remaining_balance === 0 (genuinely
+      // paid), it fell through to grandTotal (always > 0), defeating
+      // the filter. Use `??` so 0 is preserved, with a half-cent
+      // tolerance against floating-point dust.
+      const rb = Number(inv.remaining_balance ?? inv.grandTotal ?? 0);
+      if (rb <= 0.005) return false;
+      // Status check is now defensive — rb > 0 is the real signal
+      // (backend's status string may lag after a payment posts).
+      return inv.status === 'Unpaid' || inv.status === 'Partial' || rb > 0.005;
+    });
   } catch (error) {
     console.error('Failed to get unpaid invoices:', error);
     return [];

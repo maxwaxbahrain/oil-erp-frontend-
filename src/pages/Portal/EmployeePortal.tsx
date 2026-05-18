@@ -2,10 +2,12 @@ import { useState, useEffect, useCallback } from 'react';
 import {
     Calendar, DollarSign, FileText, Clock,
     ChevronRight, Download, Plus, CheckCircle,
-    AlertCircle, Bell, X, Users, Timer
+    AlertCircle, Bell, X, Users, Timer, Trash2
 } from 'lucide-react';
 import clsx from 'clsx';
-import { getEmployees, type Employee } from '../../services/payrollService';
+// ITEM 3 — reuse the W2-5 service for Add + Delete so we stay
+// consistent with the Payroll → Employees tab.
+import { getEmployees, saveEmployee, deleteEmployee, type Employee } from '../../services/payrollService';
 import {
     getEmployeeLeaveBalance, submitLeaveRequest, getLeaveRequests,
     getUpcomingHolidays, type LeaveType, type LeaveRequest
@@ -51,6 +53,17 @@ export default function EmployeePortal() {
     const [documents, setDocuments] = useState<PortalDocument[]>([]);
     const [newDocName, setNewDocName] = useState('');
     const [newDocCategory, setNewDocCategory] = useState('General');
+
+    // ITEM 3 — Quick-add Employee modal state. Mirrors the W2-5 form shape
+    // so the same EMPLOYEES_KEY localStorage row is created either way.
+    const [showAddEmployee, setShowAddEmployee] = useState(false);
+    const [newEmpForm, setNewEmpForm] = useState({
+        name: '', email: '', jobTitle: '', department: 'Sales',
+        salaryType: 'Monthly' as 'Hourly' | 'Monthly' | 'Annual',
+        salaryAmount: 0,
+    });
+    const [savingNewEmp, setSavingNewEmp] = useState(false);
+    const [deletingEmpId, setDeletingEmpId] = useState<string | null>(null);
 
     const [showLeaveModal, setShowLeaveModal] = useState(false);
     const [leaveType, setLeaveType] = useState<LeaveType>('Paid Time Off');
@@ -111,7 +124,14 @@ export default function EmployeePortal() {
     };
 
     const handleApplyLeave = async () => {
-        if (!currentUser || !startDate || !endDate) return;
+        if (!currentUser) return;
+        // TC-20 — previously silent-returned when dates were missing,
+        // making the Apply button look broken.  Surface the validation
+        // so the user knows what to fix.
+        if (!startDate || !endDate) {
+            alert('Pick a start date AND an end date before applying for leave.');
+            return;
+        }
 
         try {
             await submitLeaveRequest({
@@ -139,6 +159,63 @@ export default function EmployeePortal() {
         addPortalDocument(currentUser.id, newDocName, newDocCategory);
         setNewDocName('');
         setDocuments(getDocuments(currentUser.id));
+    };
+
+    // ITEM 3A — Quick-add Employee handler. Defaults sensibly so a user
+    // can land an active employee in 4 fields. The full edit (insurance,
+    // retirement, withholding) lives on the Payroll → Employees tab.
+    const handleSaveNewEmployee = async () => {
+        if (!newEmpForm.name.trim() || !newEmpForm.email.trim()) {
+            alert('Name and email are required.');
+            return;
+        }
+        setSavingNewEmp(true);
+        try {
+            await saveEmployee({
+                name: newEmpForm.name.trim(),
+                email: newEmpForm.email.trim(),
+                jobTitle: newEmpForm.jobTitle.trim() || 'Staff',
+                department: newEmpForm.department,
+                salaryType: newEmpForm.salaryType,
+                salaryAmount: Number(newEmpForm.salaryAmount) || 0,
+                currency: 'USD',
+                filingStatus: 'Single',
+                allowances: 1,
+                additionalWithholding: 0,
+                healthInsurance: true,
+                retirement401k: true,
+                retirement401kPercent: 5,
+                lifeInsurance: true,
+                dentalInsurance: false,
+            });
+            await loadUserData();
+            setShowAddEmployee(false);
+            setNewEmpForm({ name: '', email: '', jobTitle: '', department: 'Sales', salaryType: 'Monthly', salaryAmount: 0 });
+        } catch (e) {
+            alert('Could not save: ' + (e instanceof Error ? e.message : String(e)));
+        } finally {
+            setSavingNewEmp(false);
+        }
+    };
+
+    // ITEM 3B — Per-row Delete. Refuses to delete the currently-selected
+    // user (would orphan the Portal session). Friendly named confirm.
+    const handleDeleteEmployee = async (emp: Employee, e: React.MouseEvent) => {
+        e.stopPropagation(); // row click selects; don't trigger that
+        if (currentUser && emp.id === currentUser.id) {
+            alert('You are currently viewing this employee\'s portal. Switch to a different employee before deleting.');
+            return;
+        }
+        if (!window.confirm(`Delete employee ${emp.name}? This cannot be undone.`)) return;
+        setDeletingEmpId(emp.id);
+        try {
+            await deleteEmployee(emp.id);
+            await loadUserData();
+        } catch (err) {
+            alert('Could not delete: ' + (err instanceof Error ? err.message : String(err)));
+        } finally {
+            setDeletingEmpId(null);
+        }
     };
 
     if (!currentUser) return <div className="p-20 text-center">Loading Portal...</div>;
@@ -253,8 +330,8 @@ export default function EmployeePortal() {
                 {activeTab === 'overview' && (
                     <div className="space-y-8 animate-in fade-in duration-500">
                         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
-                            <div className="bg-gradient-to-br from-indigo-600 to-indigo-700 text-white p-6 rounded-3xl relative overflow-hidden group hover:scale-[1.02] transition-transform duration-300">
-                                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><DollarSign size={80} /></div>
+                            <div className="bg-gradient-to-br from-indigo-600 to-indigo-700 text-white p-4 sm:p-6 rounded-3xl relative overflow-hidden group hover:scale-[1.02] transition-transform duration-300">
+                                <div className="hidden sm:block absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><DollarSign size={80} /></div>
                                 <p className="text-[10px] font-bold text-indigo-200 uppercase tracking-widest mb-1">Estimated Net Pay</p>
                                 <h3 className="text-3xl font-black tracking-tight mb-4">${estimatedNetPay(currentUser).toLocaleString()}</h3>
                                 <div className="flex items-center gap-2 text-xs font-medium bg-white/10 w-fit px-3 py-1.5 rounded-full backdrop-blur-sm">
@@ -262,8 +339,8 @@ export default function EmployeePortal() {
                                 </div>
                             </div>
 
-                            <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm relative overflow-hidden group hover:border-gray-300 transition-colors">
-                                <div className="absolute top-0 right-0 p-4 text-gray-50 opacity-50"><Clock size={80} /></div>
+                            <div className="bg-white p-4 sm:p-6 rounded-3xl border border-gray-100 shadow-sm relative overflow-hidden group hover:border-gray-300 transition-colors">
+                                <div className="hidden sm:block absolute top-0 right-0 p-4 text-gray-50 opacity-50"><Clock size={80} /></div>
                                 <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Leave balance (PTO)</p>
                                 <h3 className="text-3xl font-black text-gray-900 mb-4">
                                     {ptoDays} <span className="text-lg text-gray-400 font-bold">days</span>
@@ -277,8 +354,8 @@ export default function EmployeePortal() {
                                 </button>
                             </div>
 
-                            <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm relative overflow-hidden group hover:border-gray-300 transition-colors">
-                                <div className="absolute top-0 right-0 p-4 text-gray-50 opacity-50"><Timer size={80} /></div>
+                            <div className="bg-white p-4 sm:p-6 rounded-3xl border border-gray-100 shadow-sm relative overflow-hidden group hover:border-gray-300 transition-colors">
+                                <div className="hidden sm:block absolute top-0 right-0 p-4 text-gray-50 opacity-50"><Timer size={80} /></div>
                                 <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Hours this month</p>
                                 <p className="text-[10px] font-bold text-gray-400 mb-2">{period}</p>
                                 <div className="grid grid-cols-2 gap-2 mb-3">
@@ -312,8 +389,8 @@ export default function EmployeePortal() {
                                 </button>
                             </div>
 
-                            <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm relative overflow-hidden group hover:border-gray-300 transition-colors">
-                                <div className="absolute top-0 right-0 p-4 text-gray-50 opacity-50"><FileText size={80} /></div>
+                            <div className="bg-white p-4 sm:p-6 rounded-3xl border border-gray-100 shadow-sm relative overflow-hidden group hover:border-gray-300 transition-colors">
+                                <div className="hidden sm:block absolute top-0 right-0 p-4 text-gray-50 opacity-50"><FileText size={80} /></div>
                                 <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Latest slip</p>
                                 <h3 className="text-3xl font-black text-gray-900 mb-4">Nov 2024</h3>
                                 <button
@@ -329,10 +406,28 @@ export default function EmployeePortal() {
                         {/* Team snapshot */}
                         <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
                             <div className="p-6 border-b border-gray-50 flex items-center justify-between">
-                                <h3 className="text-sm font-black text-gray-900 uppercase tracking-wider">Team snapshot</h3>
-                                <span className="text-[10px] font-bold text-gray-400">Salaries · hours · leave</span>
+                                <div>
+                                    <h3 className="text-sm font-black text-gray-900 uppercase tracking-wider">Team snapshot</h3>
+                                    <span className="text-[10px] font-bold text-gray-400">Salaries · hours · leave</span>
+                                </div>
+                                {/* ITEM 3A — prominent New Employee button at the top of the list. */}
+                                <button
+                                    type="button"
+                                    onClick={() => setShowAddEmployee(true)}
+                                    className="flex items-center gap-2 px-4 py-2 bg-gray-900 hover:bg-black text-white text-xs font-black uppercase tracking-widest rounded-xl shadow-sm transition-all"
+                                >
+                                    <Plus size={14} /> New Employee
+                                </button>
                             </div>
                             <div className="overflow-x-auto">
+                                {/* ITEM 3 — Empty state for when no employees exist. */}
+                                {team.length === 0 ? (
+                                    <div className="px-6 py-16 text-center">
+                                        <Users size={32} className="mx-auto text-gray-300 mb-3" />
+                                        <p className="text-sm font-black text-gray-500 uppercase tracking-widest">No employees yet</p>
+                                        <p className="text-xs text-gray-400 mt-2">Click "New Employee" above to add your first one.</p>
+                                    </div>
+                                ) : (
                                 <table className="w-full text-sm">
                                     <thead className="bg-gray-50 border-b border-gray-100">
                                         <tr>
@@ -341,6 +436,8 @@ export default function EmployeePortal() {
                                             <th className="px-4 py-3 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Est. net</th>
                                             <th className="px-4 py-3 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Hours ({period})</th>
                                             <th className="px-4 py-3 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">PTO days</th>
+                                            {/* ITEM 3B — Actions column for per-row Delete */}
+                                            <th className="px-4 py-3 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-50">
@@ -351,7 +448,7 @@ export default function EmployeePortal() {
                                             return (
                                                 <tr
                                                     key={e.id}
-                                                    className={clsx('hover:bg-gray-50 cursor-pointer', isSel && 'bg-indigo-50/60')}
+                                                    className={clsx('hover:bg-gray-50 cursor-pointer group', isSel && 'bg-indigo-50/60')}
                                                     onClick={() => selectEmployee(e.id)}
                                                 >
                                                     <td className="px-4 py-3 font-bold text-gray-900">{e.name}</td>
@@ -367,11 +464,31 @@ export default function EmployeePortal() {
                                                     <td className="px-4 py-3 text-right font-bold text-gray-900">
                                                         {hb['Paid Time Off']?.available ?? 0}
                                                     </td>
+                                                    <td className="px-4 py-3 text-right">
+                                                        {/* ITEM 3B — Per-row Delete (Trash2). Refuses to delete
+                                                            the currently-selected user; tooltip explains why. */}
+                                                        <button
+                                                            type="button"
+                                                            onClick={(ev) => handleDeleteEmployee(e, ev)}
+                                                            disabled={deletingEmpId === e.id}
+                                                            title={isSel ? 'Switch to another employee before deleting this one' : 'Delete employee'}
+                                                            className={clsx(
+                                                                'p-1.5 rounded-lg transition-all opacity-0 group-hover:opacity-100',
+                                                                isSel
+                                                                    ? 'text-gray-300 cursor-not-allowed'
+                                                                    : 'text-rose-400 hover:text-rose-700 hover:bg-rose-50',
+                                                                deletingEmpId === e.id && 'opacity-100 animate-pulse'
+                                                            )}
+                                                        >
+                                                            <Trash2 size={14} />
+                                                        </button>
+                                                    </td>
                                                 </tr>
                                             );
                                         })}
                                     </tbody>
                                 </table>
+                                )}
                             </div>
                         </div>
 
@@ -382,7 +499,14 @@ export default function EmployeePortal() {
                                     <span className="bg-red-100 text-red-600 px-2 py-1 rounded text-[10px] font-black uppercase">1 New</span>
                                 </div>
                                 <div className="divide-y divide-gray-50">
-                                    <div className="p-6 hover:bg-gray-50 transition-colors cursor-pointer">
+                                    <div
+                                        onClick={() => alert(
+                                            'Open enrollment for benefits\n\n' +
+                                            'Review health and dental options and submit choices before the deadline.\n\n' +
+                                            'Posted: 2 hours ago'
+                                        )}
+                                        className="p-6 hover:bg-gray-50 transition-colors cursor-pointer"
+                                    >
                                         <div className="flex items-start gap-4">
                                             <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center shrink-0">
                                                 <AlertCircle size={20} />
@@ -396,7 +520,14 @@ export default function EmployeePortal() {
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="p-6 hover:bg-gray-50 transition-colors cursor-pointer">
+                                    <div
+                                        onClick={() => alert(
+                                            'Quarterly town hall\n\n' +
+                                            'Join the all-hands meeting this Friday afternoon.\n\n' +
+                                            'Posted: Yesterday'
+                                        )}
+                                        className="p-6 hover:bg-gray-50 transition-colors cursor-pointer"
+                                    >
                                         <div className="flex items-start gap-4">
                                             <div className="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center shrink-0">
                                                 <CheckCircle size={20} />
@@ -699,6 +830,121 @@ export default function EmployeePortal() {
                                 className="flex-[2] py-4 bg-gray-900 text-white font-bold rounded-xl text-xs uppercase tracking-wider hover:bg-black shadow-lg"
                             >
                                 Submit request
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ITEM 3A — Quick-add Employee modal. Minimal field set
+                (name, email, job title, department, pay type, salary).
+                Full edit (insurance/retirement/withholding) lives on the
+                Payroll → Employees tab via W2-5's bigger modal. */}
+            {showAddEmployee && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+                    <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden">
+                        <div className="p-6 border-b border-gray-100 bg-gray-900 text-white flex items-center justify-between">
+                            <h3 className="text-lg font-black uppercase tracking-tight">Add New Employee</h3>
+                            <button
+                                type="button"
+                                onClick={() => setShowAddEmployee(false)}
+                                disabled={savingNewEmp}
+                                className="p-2 hover:bg-white/10 rounded-lg disabled:opacity-40"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1">Full Name *</label>
+                                    <input
+                                        type="text"
+                                        value={newEmpForm.name}
+                                        onChange={(ev) => setNewEmpForm(p => ({ ...p, name: ev.target.value }))}
+                                        placeholder="Jane Doe"
+                                        className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1">Email *</label>
+                                    <input
+                                        type="email"
+                                        value={newEmpForm.email}
+                                        onChange={(ev) => setNewEmpForm(p => ({ ...p, email: ev.target.value }))}
+                                        placeholder="jane@company.com"
+                                        className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1">Job Title</label>
+                                    <input
+                                        type="text"
+                                        value={newEmpForm.jobTitle}
+                                        onChange={(ev) => setNewEmpForm(p => ({ ...p, jobTitle: ev.target.value }))}
+                                        placeholder="Sales Associate"
+                                        className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1">Department</label>
+                                    <select
+                                        value={newEmpForm.department}
+                                        onChange={(ev) => setNewEmpForm(p => ({ ...p, department: ev.target.value }))}
+                                        className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"
+                                    >
+                                        <option value="Sales">Sales</option>
+                                        <option value="Marketing">Marketing</option>
+                                        <option value="IT">IT</option>
+                                        <option value="HR">HR</option>
+                                        <option value="Finance">Finance</option>
+                                        <option value="Operations">Operations</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1">Pay Type</label>
+                                    <select
+                                        value={newEmpForm.salaryType}
+                                        onChange={(ev) => setNewEmpForm(p => ({ ...p, salaryType: ev.target.value as 'Hourly' | 'Monthly' | 'Annual' }))}
+                                        className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"
+                                    >
+                                        <option value="Monthly">Monthly</option>
+                                        <option value="Hourly">Hourly</option>
+                                        <option value="Annual">Annual</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1">Salary Amount</label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        value={newEmpForm.salaryAmount}
+                                        onChange={(ev) => setNewEmpForm(p => ({ ...p, salaryAmount: parseFloat(ev.target.value) || 0 }))}
+                                        placeholder="5000"
+                                        className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-xl px-3 py-2.5 text-sm font-mono font-bold outline-none"
+                                    />
+                                </div>
+                            </div>
+                            <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                                ℹ️ Insurance, retirement, and withholding default to standard values. Edit them later via Payroll → Employees.
+                            </p>
+                        </div>
+                        <div className="p-6 border-t border-gray-100 bg-gray-50 flex gap-3">
+                            <button
+                                type="button"
+                                onClick={() => setShowAddEmployee(false)}
+                                disabled={savingNewEmp}
+                                className="flex-1 py-3 bg-white border border-gray-200 text-gray-600 text-xs font-black uppercase tracking-widest rounded-xl hover:bg-gray-100 disabled:opacity-40"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleSaveNewEmployee}
+                                disabled={savingNewEmp}
+                                className="flex-[2] py-3 bg-gray-900 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:bg-black shadow-lg disabled:opacity-40"
+                            >
+                                {savingNewEmp ? 'Saving…' : 'Add Employee'}
                             </button>
                         </div>
                     </div>

@@ -31,6 +31,12 @@ export interface StockMovement {
     closingStock: number;
     velocity: 'Fast' | 'Medium' | 'Slow' | 'Dead';
     turnoverRate: number;
+    // ITEM 9 — Value-based view: opening/closing **value** alongside the
+    // unit counts. Uses landedCost (falls back to sellingPrice when there's
+    // no cost) so the Inventory Summary report can show capital tied up.
+    unitCost: number;
+    openingValue: number;
+    closingValue: number;
 }
 
 export interface DeadStock {
@@ -187,18 +193,30 @@ export async function calculateStockMovement(): Promise<StockMovement[]> {
         // Calculate turnover rate
         const turnoverRate = totalStock > 0 ? (sales / totalStock) * 12 : 0; // Annualized
 
+        // ITEM 9 — Compute opening/closing **values** using landed cost.
+        // Fall back to selling price only when no cost is recorded so we
+        // never report zero capital for stock that obviously has value.
+        const openingStock = totalStock + sales - purchases;
+        const closingStock = totalStock;
+        const unitCost = Number(product.pricing?.landedCost ?? product.pricing?.purchasePriceExWorks ?? product.pricing?.sellingPrice ?? 0) || 0;
+        const openingValue = Math.round(openingStock * unitCost * 100) / 100;
+        const closingValue = Math.round(closingStock * unitCost * 100) / 100;
+
         return {
             productId: product.id,
             productName: product.name,
             sku: product.sku,
             category: product.category || 'Uncategorized',
-            openingStock: totalStock + sales - purchases,
+            openingStock,
             purchases,
             sales,
             adjustments: 0, // Can be enhanced with adjustment tracking
-            closingStock: totalStock,
+            closingStock,
             velocity: product.velocityStatus || 'Medium',
-            turnoverRate
+            turnoverRate,
+            unitCost,
+            openingValue,
+            closingValue,
         };
     });
 }

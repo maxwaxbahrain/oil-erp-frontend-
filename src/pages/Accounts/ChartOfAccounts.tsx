@@ -5,6 +5,8 @@ import { getCustomers, getInvoices, getPayments } from '../../services/api';
 import { getSuppliers, getSupplierBalance, getSupplierPurchases } from '../../services/purchasesService';
 import { getJournalVouchers } from './JournalVoucher';
 import { formatCurrency } from '../../services/settingsService';
+// ITEM 16 — Escape closes the Add/Edit Account modal.
+import { useEscape } from '../../hooks/useEscape';
 
 export type AccountType = 'Asset' | 'Liability' | 'Equity' | 'Income' | 'Expense';
 export type AccountNature = 'Debit' | 'Credit';
@@ -19,6 +21,12 @@ export interface Account {
     description: string;
     isSystem: boolean;
     balance: number;
+    // ITEM 1A — Opening Balance metadata. Persisted on the account
+    // record + displayed in the row. NOTE: not yet wired into
+    // computeAccountBalances() — that's a separate future task because
+    // the live calculation overwrites map[id] for AR/AP/Sales/Purchases,
+    // and additive integration risks double-counting on those rows.
+    openingBalance?: number;
     children?: Account[];
 }
 
@@ -132,10 +140,20 @@ function AccountRow({ account, level, expanded, balances, onToggle, onEdit, onDe
                             className={`w-5 h-5 flex items-center justify-center mr-2 flex-shrink-0 ${hasChildren ? 'text-gray-400 hover:text-gray-700' : 'text-transparent'}`}>
                             {hasChildren ? (isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : null}
                         </button>
-                        <span className={`text-sm ${level === 0 ? 'font-black text-gray-900' : level === 1 ? 'font-bold text-gray-800' : 'font-medium text-gray-700'}`}>
-                            {account.name}
-                        </span>
-                        {account.isSystem && <span className="ml-2 text-[9px] font-black text-gray-300 uppercase">System</span>}
+                        <div className="flex flex-col">
+                            <div className="flex items-center">
+                                <span className={`text-sm ${level === 0 ? 'font-black text-gray-900' : level === 1 ? 'font-bold text-gray-800' : 'font-medium text-gray-700'}`}>
+                                    {account.name}
+                                </span>
+                                {account.isSystem && <span className="ml-2 text-[9px] font-black text-gray-300 uppercase">System</span>}
+                            </div>
+                            {/* ITEM 1A — Opening Balance display under the account name. */}
+                            {Number(account.openingBalance) > 0 && (
+                                <span className="text-[10px] font-bold text-gray-400 mt-0.5">
+                                    Opening Balance: {formatCurrency(Number(account.openingBalance))}
+                                </span>
+                            )}
+                        </div>
                     </div>
                 </td>
                 <td className="px-4 py-3 text-xs font-mono text-gray-500">{account.code}</td>
@@ -359,11 +377,15 @@ export default function ChartOfAccounts() {
     const [form, setForm] = useState({
         code: '', name: '', type: 'Asset' as AccountType,
         nature: 'Debit' as AccountNature, parentId: '' as string | null,
-        description: ''
+        description: '',
+        // ITEM 1A — Opening Balance, defaults to 0.
+        openingBalance: 0,
     });
 
     const [balances, setBalances] = useState<Record<string, number>>({});
     const [computingBalances, setComputingBalances] = useState(false);
+    // ITEM 16 — Escape closes the Add/Edit Account modal.
+    useEscape(() => setShowForm(false), showForm);
 
     const refreshBalances = async (accs: Account[]) => {
         setComputingBalances(true);
@@ -430,7 +452,8 @@ export default function ChartOfAccounts() {
             type: type || parent?.type || 'Asset',
             nature: type === 'Income' || type === 'Liability' || type === 'Equity' ? 'Credit' : 'Debit',
             parentId: parentId || null,
-            description: ''
+            description: '',
+            openingBalance: 0,
         });
         setShowForm(true);
     };
@@ -443,7 +466,8 @@ export default function ChartOfAccounts() {
             type: account.type,
             nature: account.nature,
             parentId: account.parentId,
-            description: account.description
+            description: account.description,
+            openingBalance: Number(account.openingBalance) || 0,
         });
         setShowForm(true);
     };
@@ -453,13 +477,20 @@ export default function ChartOfAccounts() {
         const existing = accounts.find(a => a.code === form.code && a.id !== editAccount?.id);
         if (existing) { alert(`Code ${form.code} already exists: ${existing.name}`); return; }
 
+        // ITEM 1A — Normalise openingBalance to a finite number; spread `form`
+        // already covers it but we coerce defensively against NaN.
+        const cleanOpening = Number.isFinite(form.openingBalance) ? Number(form.openingBalance) : 0;
+
         let updated: Account[];
         if (editAccount) {
-            updated = accounts.map(a => a.id === editAccount.id ? { ...a, ...form } : a);
+            updated = accounts.map(a => a.id === editAccount.id
+                ? { ...a, ...form, openingBalance: cleanOpening }
+                : a);
         } else {
             const newAccount: Account = {
                 id: form.code,
                 ...form,
+                openingBalance: cleanOpening,
                 isSystem: false,
                 balance: 0
             };
@@ -470,10 +501,37 @@ export default function ChartOfAccounts() {
         setShowForm(false);
     };
 
-    const handleDelete = (id: string) => {
+    // ITEM 1B — Delete with transaction guard.
+    // Blocks delete when (a) sub-accounts exist or (b) the account appears
+    // on any Journal Voucher line. Friendly named-account confirmation
+    // replaces the bare "Delete this account?" prompt. Becomes async to
+    // fetch JV history.
+    const handleDelete = async (id: string) => {
+        const target = accounts.find(a => a.id === id);
+        if (!target) return;
         const hasChildren = accounts.some(a => a.parentId === id);
-        if (hasChildren) { alert('Cannot delete an account that has sub-accounts. Delete sub-accounts first.'); return; }
-        if (!confirm('Delete this account?')) return;
+        if (hasChildren) {
+            alert('Cannot delete an account that has sub-accounts. Delete sub-accounts first.');
+            return;
+        }
+        // Transaction guard: any JV line referencing this account blocks delete.
+        // Per the bug-report spec, surface the deactivate-instead alternative.
+        try {
+            const jvs = await getJournalVouchers();
+            const txnCount = jvs.reduce((n, jv) => n + (jv.lines || []).filter(l => l.accountId === id).length, 0);
+            if (txnCount > 0) {
+                alert(
+                    `Cannot delete — this account has ${txnCount} existing transaction${txnCount === 1 ? '' : 's'}. ` +
+                    `You can deactivate it instead.`
+                );
+                return;
+            }
+        } catch {
+            // If the JV fetch fails we err on the safe side and refuse delete.
+            alert('Could not verify transaction history. Please try again.');
+            return;
+        }
+        if (!confirm(`Delete account ${target.code} — ${target.name}? This cannot be undone.`)) return;
         const updated = accounts.filter(a => a.id !== id);
         saveAccounts(updated);
         setAccounts(updated);
@@ -591,6 +649,16 @@ export default function ChartOfAccounts() {
                                     <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
                                 ))}
                             </select>
+                        </div>
+                        {/* ITEM 1A — Opening Balance input. Defaults to 0. Persisted on
+                            the account record and shown on the row. Live-balance
+                            computation isn't yet aware of this field (future fix). */}
+                        <div>
+                            <label className="block text-xs font-black text-gray-500 uppercase mb-1">Opening Balance</label>
+                            <input type="number" step="0.01" value={form.openingBalance}
+                                onChange={e => setForm(p => ({ ...p, openingBalance: parseFloat(e.target.value) || 0 }))}
+                                placeholder="0.00"
+                                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-mono focus:outline-none focus:border-orange-400" />
                         </div>
                         <div className="md:col-span-3">
                             <label className="block text-xs font-black text-gray-500 uppercase mb-1">Description</label>

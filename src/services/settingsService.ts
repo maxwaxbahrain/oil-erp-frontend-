@@ -1,9 +1,17 @@
 
+// ITEM 2 — Inventory valuation method. Engines already exist in
+// inventoryService (calculateFIFOValuation / LIFO / AvgCost); this
+// setting marks the company's *default* method so the Inventory
+// Reports page can surface it and (future) dependent calculations
+// can pick the right engine without re-asking.
+export type ValuationMethod = 'FIFO' | 'LIFO' | 'Average Cost';
+
 export interface SystemSettings {
     defaultCurrencyCode: string;
     defaultCurrencySymbol: string;
     currencyFormat: 'comma_dot' | 'dot_comma' | 'space_dot';
     currencyPosition: 'before' | 'after';
+    valuationMethod: ValuationMethod;
 }
 
 export interface CompanyProfile {
@@ -62,6 +70,10 @@ const DEFAULT_SETTINGS: SystemSettings = {
     defaultCurrencySymbol: 'PKR',
     currencyFormat: 'comma_dot',
     currencyPosition: 'after',
+    // ITEM 2 — Sensible default. Weighted-average is simplest and matches
+    // the existing "Inventory Valuation (Avg)" report that's the page's
+    // primary valuation report today.
+    valuationMethod: 'Average Cost',
 };
 
 const DEFAULT_PROFILE: CompanyProfile = {
@@ -95,7 +107,16 @@ const COMPANY_SETTINGS_KEY = 'company_settings';
 
 export const getSystemSettings = (): SystemSettings => {
     const data = localStorage.getItem(SETTINGS_KEY);
-    return data ? JSON.parse(data) : DEFAULT_SETTINGS;
+    if (!data) return DEFAULT_SETTINGS;
+    try {
+        // ITEM 2 — Merge stored over defaults so newly-added fields
+        // (e.g. valuationMethod added in this session) fall through to
+        // sensible defaults for users who saved their settings before
+        // those fields existed.
+        return { ...DEFAULT_SETTINGS, ...JSON.parse(data) };
+    } catch {
+        return DEFAULT_SETTINGS;
+    }
 };
 
 export const updateSystemSettings = (settings: Partial<SystemSettings>): SystemSettings => {
