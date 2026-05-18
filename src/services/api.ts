@@ -294,7 +294,22 @@ async function mockHandler<T>(endpoint: string, options: RequestInit = {}): Prom
 
   // --- Vans ---
   if (endpoint.startsWith('/vans')) {
-    const vans = getStorage<Van>('vans');
+    // FIX: seed sample vans on first request so the POD driver app
+    // (and any other van-dependent screen) isn't blank on a fresh
+    // install / cold mock. Mirrors what initializeSampleData() does
+    // for customers — the original mock branch had no seed at all.
+    let vans = getStorage<Van>('vans');
+    if (vans.length === 0 && method === 'GET') {
+      const seeded: Van[] = [
+        { id: 'van-01', van_number: 'VAN-01', driver_name: 'Ahmed Hassan', driver_phone: '+973-3000-1001', vehicle_number: 'BH-1001', capacity_liters: 5000, status: 'active', created_at: new Date().toISOString() },
+        { id: 'van-02', van_number: 'VAN-02', driver_name: 'Mohammed Ali',  driver_phone: '+973-3000-1002', vehicle_number: 'BH-1002', capacity_liters: 5000, status: 'active', created_at: new Date().toISOString() },
+        { id: 'van-03', van_number: 'VAN-03', driver_name: 'Yusuf Khan',   driver_phone: '+973-3000-1003', vehicle_number: 'BH-1003', capacity_liters: 7500, status: 'active', created_at: new Date().toISOString() },
+        { id: 'van-04', van_number: 'VAN-04', driver_name: 'Omar Salem',   driver_phone: '+973-3000-1004', vehicle_number: 'BH-1004', capacity_liters: 5000, status: 'active', created_at: new Date().toISOString() },
+        { id: 'van-05', van_number: 'VAN-05', driver_name: 'Fahad Rashid', driver_phone: '+973-3000-1005', vehicle_number: 'BH-1005', capacity_liters: 7500, status: 'maintenance', created_at: new Date().toISOString() },
+      ];
+      setStorage('vans', seeded);
+      vans = seeded;
+    }
     if (method === 'POST') {
       const newVan = { ...body, id: crypto.randomUUID(), created_at: new Date().toISOString() };
       setStorage('vans', [newVan, ...vans]);

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, CheckCircle2, ChevronRight, MapPin, Truck } from 'lucide-react';
+import { ArrowRight, CheckCircle2, ChevronRight, MapPin, Truck, RefreshCw, AlertTriangle } from 'lucide-react';
 import { createInvoice, createPayment, getCustomers, getVans, type Van } from '../../services/api';
 import { getRoutes, getRouteStops, type RouteStop } from '../../services/routeService';
 import { getSalesOrders } from '../../services/api';
@@ -33,7 +33,12 @@ export default function DriverApp() {
   const [selectedVan, setSelectedVan] = useState<Van | null>(null);
   const [stops, setStops] = useState<DeliveryStop[]>([]);
   const [selectedStop, setSelectedStop] = useState<DeliveryStop | null>(null);
-  const [loading, setLoading] = useState(false);
+  // FIX: start with loading=true so the very first render (BEFORE the
+  // effect fires) already shows a spinner instead of a blank panel.
+  // Combined with a vansError state below, the page is never visually
+  // dead — user always sees either spinner, error+retry, list, or empty.
+  const [loading, setLoading] = useState(true);
+  const [vansError, setVansError] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMode>('CASH');
   const [amountReceived, setAmountReceived] = useState<number>(0);
   const [notes, setNotes] = useState('');
@@ -68,11 +73,15 @@ export default function DriverApp() {
 
   async function loadVans() {
     setLoading(true);
+    setVansError(null);
     try {
       const list = await getVans();
-      setVans(list);
-    } catch (e) {
+      setVans(Array.isArray(list) ? list : []);
+    } catch (e: any) {
       console.error(e);
+      // FIX: surface the failure to the user instead of silently
+      // swallowing it into an empty array. Retry button below uses this.
+      setVansError(e?.message || 'Could not load vans. Tap retry to try again.');
       setVans([]);
     } finally {
       setLoading(false);
@@ -287,28 +296,71 @@ export default function DriverApp() {
         <div className="max-w-md mx-auto">
           <h1 className="text-2xl font-black text-[#800020] mb-2">Select Van</h1>
           <p className="text-base text-gray-600 mb-5">Choose your delivery van</p>
-          <div className="space-y-3">
-            {vans.map((van) => (
+
+          {/* FIX: explicit loading state. Without this, the page rendered
+              only the title + an empty <div> while the fetch was in flight
+              — which looked broken ("page not loading") to drivers. */}
+          {loading && (
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+              <div className="w-10 h-10 border-4 border-[#800020] border-t-transparent rounded-full animate-spin" />
+              <p className="text-sm font-bold text-gray-500 uppercase tracking-widest">Loading vans…</p>
+            </div>
+          )}
+
+          {/* FIX: error state with retry. Replaces the old behaviour where
+              a failed fetch silently set vans=[] and pretended everything
+              was fine. */}
+          {!loading && vansError && (
+            <div className="bg-rose-50 border border-rose-200 rounded-xl p-5 text-center space-y-3">
+              <AlertTriangle size={28} className="mx-auto text-rose-600" />
+              <p className="text-sm font-black text-rose-700 uppercase tracking-widest">Could not load vans</p>
+              <p className="text-sm text-rose-700">{vansError}</p>
               <button
-                key={van.id}
-                onClick={() => selectVan(van)}
-                className="w-full min-h-12 bg-white border border-gray-200 rounded-xl shadow-sm p-4 text-left flex items-center justify-between"
+                onClick={() => void loadVans()}
+                className="inline-flex items-center gap-2 px-5 py-3 bg-rose-600 text-white text-sm font-black rounded-lg hover:bg-rose-700"
               >
-                <div className="flex items-center gap-3">
-                  <Truck size={22} className="text-[#800020]" />
-                  <div>
-                    <div className="text-lg font-black text-gray-900">{van.van_number}</div>
-                    <div className="text-base text-gray-600">{van.driver_name || 'Driver'}</div>
-                    <div className="text-xs font-bold text-gray-500 uppercase">
-                      {String(van.status).toLowerCase() === 'active' ? 'AVAILABLE' : 'IN USE'}
+                <RefreshCw size={16} /> Retry
+              </button>
+            </div>
+          )}
+
+          {!loading && !vansError && (
+            <div className="space-y-3">
+              {vans.map((van) => (
+                <button
+                  key={van.id}
+                  onClick={() => selectVan(van)}
+                  className="w-full min-h-12 bg-white border border-gray-200 rounded-xl shadow-sm p-4 text-left flex items-center justify-between hover:border-[#800020] transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <Truck size={22} className="text-[#800020]" />
+                    <div>
+                      <div className="text-lg font-black text-gray-900">{van.van_number}</div>
+                      <div className="text-base text-gray-600">{van.driver_name || 'Driver'}</div>
+                      <div className="text-xs font-bold text-gray-500 uppercase">
+                        {String(van.status).toLowerCase() === 'active' ? 'AVAILABLE' : 'IN USE'}
+                      </div>
                     </div>
                   </div>
+                  <ChevronRight size={20} className="text-gray-400" />
+                </button>
+              ))}
+              {/* FIX: better empty state with retry, instead of a flat one-liner. */}
+              {vans.length === 0 && (
+                <div className="text-center py-12 space-y-3">
+                  <Truck size={36} className="mx-auto text-gray-300" />
+                  <p className="text-base text-gray-700 font-bold">No vans assigned</p>
+                  <p className="text-sm text-gray-500">Ask your dispatcher to assign a van, then tap Retry.</p>
+                  <button
+                    onClick={() => void loadVans()}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-sm font-black text-gray-700 rounded-lg"
+                  >
+                    <RefreshCw size={14} /> Retry
+                  </button>
                 </div>
-                <ChevronRight size={20} className="text-gray-400" />
-              </button>
-            ))}
-            {!loading && vans.length === 0 && <div className="text-base text-gray-500">No vans found.</div>}
-          </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     );
