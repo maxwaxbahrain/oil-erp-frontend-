@@ -128,11 +128,22 @@ export default function AIHub() {
                     const Icon = feature.icon;
                     const colorClass = COLOR_MAP[feature.color];
                     const badgeClass = BADGE_MAP[feature.color];
+                    // TC-83 — Cards without their own route open the floating
+                    // AI Advisor via a custom window event the AIAssistant
+                    // component listens for. Previously these tiles did
+                    // nothing on click, so the tester reported them as broken.
+                    const handleClick = () => {
+                        if (feature.path) {
+                            navigate(feature.path);
+                        } else {
+                            window.dispatchEvent(new CustomEvent('soltol:open-ai-advisor'));
+                        }
+                    };
                     return (
                         <div
                             key={feature.title}
-                            onClick={() => feature.path && navigate(feature.path)}
-                            className={`bg-white border-2 rounded-2xl p-5 shadow-sm transition-all ${colorClass} ${feature.path ? 'cursor-pointer hover:shadow-md hover:-translate-y-0.5' : 'cursor-default opacity-90'}`}
+                            onClick={handleClick}
+                            className={`bg-white border-2 rounded-2xl p-5 shadow-sm transition-all cursor-pointer hover:shadow-md hover:-translate-y-0.5 ${colorClass}`}
                         >
                             <div className="flex items-start justify-between mb-3">
                                 <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-white/60">
@@ -147,11 +158,9 @@ export default function AIHub() {
                             {feature.note && (
                                 <p className="text-[10px] text-gray-400 mt-2 italic">{feature.note}</p>
                             )}
-                            {feature.path && (
-                                <div className="flex items-center gap-1 mt-3 text-xs font-black text-gray-400">
-                                    Open <ArrowRight size={12} />
-                                </div>
-                            )}
+                            <div className="flex items-center gap-1 mt-3 text-xs font-black text-gray-400">
+                                {feature.path ? 'Open' : 'Open Advisor'} <ArrowRight size={12} />
+                            </div>
                         </div>
                     );
                 })}

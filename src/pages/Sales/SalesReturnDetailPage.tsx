@@ -8,6 +8,7 @@ import {
   Loader2,
   Printer,
   RotateCcw,
+  XCircle,
 } from 'lucide-react';
 import clsx from 'clsx';
 import {
@@ -70,16 +71,70 @@ export default function SalesReturnDetailPage() {
       const u = await patchSalesReturn(id, { status: 'approved' });
       setData(u);
       if (window.confirm('Create Credit Note for this approved return?')) {
+        // FIX W8-1 — Carry the return's line items and totals through so
+        // the CN arrives matching the return exactly. No re-typing,
+        // no easy way to enter a mismatched total. User can still edit
+        // before saving.
         navigate('/sales/credit-notes/new', {
           state: {
             customerId: u.customerId,
             invoiceId: u.invoiceId,
             reason: 'return',
+            prefillItems: (u.lineItems || []).map(line => ({
+              description: line.productName || '',
+              quantity: line.quantityReturned ?? 0,
+              unitPrice: line.unitPrice ?? 0,
+              amount: line.totalAmount ?? (line.quantityReturned * line.unitPrice) ?? 0,
+            })),
+            prefillSubtotal: u.subtotal,
+            prefillTax: u.tax,
+            prefillTotal: u.refundAmount,
+            prefillReturnNumber: u.returnNumber,
+            // TASK 7 — Persist the SR id so the CN keeps a backlink.
+            prefillReturnId: u.id,
           },
         });
       }
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Approve failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // FIX W8-2 — Escape hatch for accidentally-approved returns.
+  // Rolls status back to "rejected" with a required reason. NOTE: ledger
+  // credits posted by the approve step are NOT auto-reversed — user
+  // must void those payments manually via W6-1's Void button. We warn
+  // explicitly in the prompt.
+  async function reject() {
+    if (!id || !data) return;
+    if (data.status !== 'approved') {
+      alert('Only approved returns can be rejected. Completed returns are terminal.');
+      return;
+    }
+    const reason = prompt(
+      'Reject this approved return?\n\n' +
+      'This rolls the status back to "rejected". Note: ledger credits already ' +
+      'posted by the approve step are NOT auto-reversed — you may need to void ' +
+      'the related payment(s) manually from the Banking page.\n\n' +
+      'Enter a reason (required):'
+    );
+    if (reason === null) return; // user cancelled
+    if (!reason.trim()) {
+      alert('Reject reason is required.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const newNotes = data.notes
+        ? `${data.notes}\n\n[Rejected after approval: ${reason.trim()}]`
+        : `[Rejected after approval: ${reason.trim()}]`;
+      const u = await patchSalesReturn(id, { status: 'rejected', notes: newNotes });
+      setData(u);
+      alert('✅ Return rejected. Status rolled back.');
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Reject failed');
     } finally {
       setBusy(false);
     }
@@ -142,7 +197,9 @@ export default function SalesReturnDetailPage() {
           </h1>
         </div>
 
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 md:p-8 space-y-6 print:shadow-none print:border-gray-300">
+        {/* TC-38 — Scoped print target. body.printing-section + this attribute
+            mean window.print() only outputs THIS panel, never the whole app. */}
+        <div data-print-section="sales-return" className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 md:p-8 space-y-6 print:shadow-none print:border-gray-300">
           <div className="flex flex-col sm:flex-row sm:justify-between gap-4 border-b border-gray-100 pb-6">
             <div>
               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Customer</p>
@@ -233,7 +290,21 @@ export default function SalesReturnDetailPage() {
           <div className="flex flex-wrap gap-3 print:hidden">
             <button
               type="button"
-              onClick={() => window.print()}
+              onClick={() => {
+                // TC-38 — Scoped print (mirrors Payroll / CreditNote pattern).
+                const target = document.querySelector('[data-print-section="sales-return"]');
+                if (!target) { window.print(); return; }
+                target.setAttribute('data-print-target', '');
+                document.body.classList.add('printing-section');
+                const cleanup = () => {
+                  target.removeAttribute('data-print-target');
+                  document.body.classList.remove('printing-section');
+                  window.removeEventListener('afterprint', cleanup);
+                };
+                window.addEventListener('afterprint', cleanup);
+                setTimeout(cleanup, 2000); // Safari fallback
+                window.print();
+              }}
               className="px-4 py-2.5 rounded-xl border-2 border-gray-200 font-black text-xs uppercase flex items-center gap-2 hover:bg-gray-50"
             >
               <Printer size={18} />
@@ -265,9 +336,28 @@ export default function SalesReturnDetailPage() {
               <>
                 <button
                   type="button"
+                  // FIX W8-1 — Same pre-fill as the post-approve prompt so
+                  // the standalone "Create Credit Note" button (used on
+                  // already-approved returns) also seeds items.
                   onClick={() =>
                     navigate('/sales/credit-notes/new', {
-                      state: { customerId: data.customerId, invoiceId: data.invoiceId, reason: 'return' },
+                      state: {
+                        customerId: data.customerId,
+                        invoiceId: data.invoiceId,
+                        reason: 'return',
+                        prefillItems: (data.lineItems || []).map(line => ({
+                          description: line.productName || '',
+                          quantity: line.quantityReturned ?? 0,
+                          unitPrice: line.unitPrice ?? 0,
+                          amount: line.totalAmount ?? (line.quantityReturned * line.unitPrice) ?? 0,
+                        })),
+                        prefillSubtotal: data.subtotal,
+                        prefillTax: data.tax,
+                        prefillTotal: data.refundAmount,
+                        prefillReturnNumber: data.returnNumber,
+                        // TASK 7 — Persist the SR id so the CN keeps a backlink.
+                        prefillReturnId: data.id,
+                      },
                     })
                   }
                   className="px-4 py-2.5 rounded-xl text-white font-black text-xs uppercase"
@@ -283,6 +373,18 @@ export default function SalesReturnDetailPage() {
                 >
                   {busy ? <Loader2 className="animate-spin" size={18} /> : <FileText size={18} />}
                   Mark completed
+                </button>
+                {/* FIX W8-2 — Reject escape hatch on approved returns.
+                    Outlined rose style differentiates from primary/positive
+                    actions; clearly destructive but recoverable. */}
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => reject()}
+                  className="px-4 py-2.5 rounded-xl border-2 border-rose-300 text-rose-700 hover:bg-rose-50 font-black text-xs uppercase flex items-center gap-2 disabled:opacity-50"
+                  title="Roll status back to rejected — does not auto-reverse ledger credits"
+                >
+                  <XCircle size={18} /> Reject
                 </button>
               </>
             )}

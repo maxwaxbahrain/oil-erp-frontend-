@@ -63,6 +63,17 @@ export default function AIAssistant({ context }: AIAssistantProps) {
         }
     }, [messages]);
 
+    // TC-83 — Listen for `soltol:open-ai-advisor` window events so other
+    // pages (specifically AIHub) can pop the advisor open programmatically.
+    // Allows the "AI Business Advisor" and "Natural Language Queries"
+    // cards on the AI Hub to actually do something when clicked instead
+    // of being dead tiles with a hint.
+    useEffect(() => {
+        const onOpen = () => { setOpen(true); setMinimized(false); };
+        window.addEventListener('soltol:open-ai-advisor', onOpen);
+        return () => window.removeEventListener('soltol:open-ai-advisor', onOpen);
+    }, []);
+
     const buildSystemPrompt = () => {
         const today = new Date().toISOString().slice(0, 10);
 
@@ -390,7 +401,7 @@ ${text.split('\n').map(line => {
             {!open && (
                 <button
                     onClick={() => setOpen(true)}
-                    className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-5 py-4 bg-gray-900 text-white rounded-2xl shadow-2xl hover:bg-gray-800 transition-all hover:scale-105 border border-orange-500/30"
+                    className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-5 py-4 bg-gray-900 text-white rounded-2xl shadow-2xl hover:bg-gray-800 transition-all hover:scale-105 border border-orange-500/30 print:hidden"
                 >
                     <BrainCircuit size={20} className="text-orange-400" />
                     <span className="text-base font-black tracking-tight">AI Business Advisor</span>
@@ -402,7 +413,7 @@ ${text.split('\n').map(line => {
 
             {/* Chat Panel */}
             {open && (
-                <div className={`fixed bottom-6 right-6 z-50 bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col transition-all ${minimized ? 'w-80 h-14' : 'w-[400px] h-[600px]'}`} style={{maxWidth: 'calc(100vw - 48px)', maxHeight: 'calc(100vh - 48px)'}}>
+                <div className={`fixed bottom-6 right-6 z-50 bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col transition-all print:hidden ${minimized ? 'w-80 h-14' : 'w-[400px] h-[600px]'}`} style={{maxWidth: 'calc(100vw - 48px)', maxHeight: 'calc(100vh - 48px)'}}>
 
                     {/* Header */}
                     <div className="flex items-center justify-between px-4 py-3 bg-gray-900 rounded-t-2xl flex-shrink-0">

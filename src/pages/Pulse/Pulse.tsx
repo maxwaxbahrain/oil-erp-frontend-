@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
     Send, Plus, Check, Clock, AlertCircle,
-    Zap, Search, X
+    Zap, Search, X, Edit2, Trash2
 } from 'lucide-react';
 import { getUsers, getCurrentUser, type User } from '../../store/authStore';
 
@@ -187,6 +187,11 @@ export default function Pulse() {
                     messages: [{ role: 'user', content: userMsg }]
                 })
             });
+            if (!res.ok) {
+                let detail = '';
+                try { detail = (await res.json())?.detail || ''; } catch { /* not JSON */ }
+                throw new Error(detail || `HTTP ${res.status}`);
+            }
             const d = await res.json();
             const aiMsg: Message = {
                 id: (Date.now()+1).toString(), roomId: activeRoom,
@@ -256,6 +261,29 @@ export default function Pulse() {
         setActiveRoom(room.id); setShowNewRoom(false); setNewRoomName('');
     };
 
+    // TC-16 — Rename / delete is now allowed on ALL rooms (the tester
+    // reported the action was missing on seeded ones). System rooms get
+    // an extra confirmation so users understand they're modifying a
+    // shared default; the seed list reappears for any user who clears
+    // their localStorage.
+    const renameRoom = (room: Room) => {
+        const next = window.prompt(`Rename "${room.name}" to:`, room.name);
+        if (!next || !next.trim() || next.trim() === room.name) return;
+        const updated = rooms.map(r => r.id === room.id ? { ...r, name: next.trim() } : r);
+        saveRooms(updated); setRooms(updated);
+    };
+
+    const deleteRoom = (room: Room) => {
+        const systemWarn = room.createdBy === 'system'
+            ? `\n\nNote: "${room.name}" is a default room. Deleting only affects YOUR view — other users still see it.`
+            : '';
+        if (!window.confirm(`Delete "${room.name}"?  This cannot be undone.${systemWarn}`)) return;
+        const updated = rooms.filter(r => r.id !== room.id);
+        saveRooms(updated); setRooms(updated);
+        // If the deleted room was active, fall back to General (or first remaining).
+        if (activeRoom === room.id) setActiveRoom(updated[0]?.id || 'general');
+    };
+
     const filteredMsgs = search ? messages.filter(m => m.content.toLowerCase().includes(search.toLowerCase())) : messages;
     const myTasks = tasks.filter(t => t.assigneeId === me.id && t.status !== 'done');
 
@@ -304,12 +332,36 @@ export default function Pulse() {
                         <button onClick={() => setShowNewRoom(true)} className="w-4 h-4 text-gray-500 hover:text-white transition-all"><Plus size={12} /></button>
                     </div>
                     {rooms.filter(r => r.type === 'room').map(room => (
-                        <button key={room.id} onClick={() => { setActiveRoom(room.id); setView('chat'); }}
-                            className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-all mb-0.5 ${activeRoom === room.id ? 'bg-white/10 text-white' : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'}`}>
-                            <span className="text-sm flex-shrink-0">{room.emoji}</span>
-                            <span className="text-xs font-bold truncate">{room.name}</span>
-                            {room.unread > 0 && <span className="ml-auto w-4 h-4 bg-orange-500 rounded-full text-[9px] font-black text-white flex items-center justify-center flex-shrink-0">{room.unread}</span>}
-                        </button>
+                        <div key={room.id} className="group/room relative flex items-center">
+                            <button onClick={() => { setActiveRoom(room.id); setView('chat'); }}
+                                className={`flex-1 flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-all mb-0.5 ${activeRoom === room.id ? 'bg-white/10 text-white' : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'}`}>
+                                <span className="text-sm flex-shrink-0">{room.emoji}</span>
+                                <span className="text-xs font-bold truncate">{room.name}</span>
+                                {room.unread > 0 && <span className="ml-auto w-4 h-4 bg-orange-500 rounded-full text-[9px] font-black text-white flex items-center justify-center flex-shrink-0">{room.unread}</span>}
+                            </button>
+                            {/* TC-16 — Edit / delete shown for ALL rooms (was previously
+                                gated on createdBy !== 'system'). Hover-fade keeps the
+                                sidebar uncluttered. Seeded rooms get a stronger confirm
+                                inside deleteRoom(). */}
+                            <div className="opacity-0 group-hover/room:opacity-100 transition-opacity flex items-center gap-0.5 ml-1">
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); renameRoom(room); }}
+                                    aria-label={`Rename ${room.name}`}
+                                    title="Rename room"
+                                    className="p-1 text-gray-500 hover:text-white"
+                                >
+                                    <Edit2 size={10} />
+                                </button>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); deleteRoom(room); }}
+                                    aria-label={`Delete ${room.name}`}
+                                    title="Delete room"
+                                    className="p-1 text-gray-500 hover:text-rose-400"
+                                >
+                                    <Trash2 size={10} />
+                                </button>
+                            </div>
+                        </div>
                     ))}
 
                     <div className="flex items-center justify-between px-2 mb-1 mt-3">
