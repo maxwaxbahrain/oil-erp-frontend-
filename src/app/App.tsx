@@ -203,8 +203,16 @@ function App() {
                   </div>
                 </div>
                 <div
-                  onClick={() => navigate('/portal')}
+                  // TC-07 — Stop the click from bubbling up to the outer
+                  // wrapper (which navigates to /settings). Without this,
+                  // clicking the AQ avatar fires BOTH handlers and the
+                  // user lands on /settings instead of /portal — the
+                  // exact symptom QA flagged ("AQ button does nothing").
+                  onClick={(e) => { e.stopPropagation(); navigate('/portal'); }}
                   className="relative cursor-pointer"
+                  role="button"
+                  aria-label="Open employee portal"
+                  tabIndex={0}
                 >
                   <div className="w-10 h-10 rounded-sm bg-redwood-slate flex items-center justify-center text-white text-xs font-black shadow-md group-hover:bg-redwood-brand transition-all overflow-hidden border-2 border-white">
                     AQ

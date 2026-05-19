@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+// TC-80 — Read segment context from query params in CampaignManager.
+import { useSearchParams } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Plus, Send, Zap, RefreshCw } from 'lucide-react';
 import { getCustomers, getInvoices, type Customer } from '../../services/api';
@@ -149,7 +151,16 @@ export function CustomerSegments() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                 {segments.map(seg => (
-                    <div key={seg.id} onClick={() => navigate(`/marketing/campaigns/new?segment=${seg.id}&count=${seg.customers.length}`)}
+                    // TC-80 — Was navigating to `/marketing/campaigns/new`,
+                    // a route that does NOT exist in routes.tsx. The
+                    // catch-all `path="*"` then redirected to `/` (the
+                    // dashboard) — the exact symptom QA reported. Send
+                    // users to the existing CampaignManager route with
+                    // segment context as query params; CampaignManager
+                    // reads those and surfaces a banner so the user
+                    // knows which segment they came from.
+                    <div key={seg.id}
+                        onClick={() => navigate(`/marketing/campaigns?segment=${encodeURIComponent(seg.id)}&segmentName=${encodeURIComponent(seg.name)}&count=${seg.customers.length}`)}
                         className={`bg-white rounded-2xl border-2 p-4 cursor-pointer hover:shadow-md transition-all ${seg.color}`}>
                         <p className="text-base font-black mb-1">{seg.name}</p>
                         <p className="text-xs mb-3">{seg.desc}</p>
@@ -169,6 +180,10 @@ export function CustomerSegments() {
 export function CampaignManager() {
     const navigate = useNavigate();
     const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+    // TC-80 — Surface the segment context when arriving via a segment card.
+    const [params] = useSearchParams();
+    const segmentName = params.get('segmentName');
+    const segmentCount = params.get('count');
 
     useEffect(() => { setCampaigns(getCampaigns()); }, []);
 
@@ -187,12 +202,35 @@ export function CampaignManager() {
                         <h1 className="text-xl font-black uppercase">Campaign Manager</h1>
                         <p className="text-gray-400 text-xs mt-0.5">{campaigns.length} campaigns · Create, schedule, and track</p>
                     </div>
-                    <button onClick={() => navigate('/marketing/studio')}
+                    <button onClick={() => navigate(segmentName
+                        ? `/marketing/studio?segment=${encodeURIComponent(segmentName)}&count=${segmentCount || ''}`
+                        : '/marketing/studio')}
                         className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-pink-500 to-purple-600 rounded-xl text-sm font-black transition-all shadow-lg">
                         <Plus size={16} /> New Campaign
                     </button>
                 </div>
             </div>
+
+            {/* TC-80 — Segment context banner. Shown when the user arrived
+                from /marketing/segments by clicking a segment card. */}
+            {segmentName && (
+                <div className="bg-purple-50 border-2 border-purple-200 rounded-2xl p-5 flex items-start gap-4">
+                    <div className="w-10 h-10 rounded-xl bg-purple-600 text-white flex items-center justify-center text-lg font-black">
+                        🎯
+                    </div>
+                    <div className="flex-1">
+                        <p className="text-xs font-black text-purple-700 uppercase tracking-widest">Segment selected</p>
+                        <p className="text-base font-black text-purple-900 mt-0.5">{segmentName}</p>
+                        <p className="text-xs text-purple-700 mt-1">
+                            {segmentCount ? `${segmentCount} customers` : 'Customer count unknown'} · Click "New Campaign" to create one targeted at this segment.
+                        </p>
+                    </div>
+                    <button onClick={() => navigate('/marketing/segments')}
+                        className="text-xs font-black text-purple-700 hover:text-purple-900 uppercase tracking-widest">
+                        ← Back to segments
+                    </button>
+                </div>
+            )}
 
             {campaigns.length === 0 ? (
                 <div className="bg-white rounded-2xl border border-gray-100 p-16 text-center shadow-sm">

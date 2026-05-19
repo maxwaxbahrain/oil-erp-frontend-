@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Edit2, Save, X, RefreshCw, Check } from 'lucide-react';
+import { ArrowLeft, Edit2, Save, X, RefreshCw, Check, AlertTriangle } from 'lucide-react';
 import { getPayments, getCustomers, type Payment, type Customer } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
 
@@ -21,12 +21,27 @@ export default function PaymentEdit() {
     const [saving, setSaving] = useState(false);
     const [success, setSuccess] = useState('');
     const [search, setSearch] = useState('');
+    // TC-66 — Surface fetch failures + cap hung requests at 15s so the
+    // spinner can't run forever. Without this, a single hung
+    // /payments call left the page stuck on "Loading payments…" with
+    // no way out.
+    const [loadError, setLoadError] = useState<string | null>(null);
 
-    useEffect(() => {
-        Promise.all([getPayments(), getCustomers()]).then(([p, c]) => {
+    // Race a promise against a timeout — whichever resolves/rejects first wins.
+    const withTimeout = <T,>(p: Promise<T>, ms = 15000): Promise<T> =>
+        Promise.race([
+            p,
+            new Promise<T>((_, rej) => setTimeout(() => rej(new Error('Request timed out — backend did not respond in 15s')), ms)),
+        ]);
+
+    const loadData = () => {
+        let cancelled = false;
+        setLoading(true);
+        setLoadError(null);
+        Promise.all([withTimeout(getPayments()), withTimeout(getCustomers())]).then(([p, c]) => {
+            if (cancelled) return;
             setPayments(p);
             setCustomers(c);
-            setLoading(false);
             // ITEM 13 — open the deep-linked payment in edit mode.
             if (deepLinkId) {
                 const target = p.find(x => String(x.id) === String(deepLinkId));
@@ -35,7 +50,19 @@ export default function PaymentEdit() {
                     setEditForm({ ...target });
                 }
             }
+        }).catch((e: any) => {
+            if (cancelled) return;
+            console.error('[PaymentEdit] load failed:', e);
+            setLoadError(e?.message || 'Could not load payments.');
+        }).finally(() => {
+            if (!cancelled) setLoading(false);
         });
+        return () => { cancelled = true; };
+    };
+
+    useEffect(() => {
+        const cleanup = loadData();
+        return cleanup;
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [deepLinkId]);
 
@@ -128,7 +155,23 @@ export default function PaymentEdit() {
             {/* Table */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                 {loading ? (
-                    <div className="p-12 text-center text-gray-400 font-bold">Loading payments...</div>
+                    <div className="p-12 text-center space-y-3">
+                        <RefreshCw size={28} className="mx-auto text-blue-500 animate-spin" />
+                        <p className="text-gray-500 font-bold">Loading payments…</p>
+                    </div>
+                ) : loadError ? (
+                    /* TC-66 — Visible failure state with retry. */
+                    <div className="p-12 text-center space-y-3">
+                        <AlertTriangle size={36} className="mx-auto text-rose-500" />
+                        <p className="text-rose-700 font-black uppercase tracking-widest text-sm">Could not load payments</p>
+                        <p className="text-rose-700 text-sm max-w-md mx-auto">{loadError}</p>
+                        <button
+                            onClick={loadData}
+                            className="inline-flex items-center gap-2 px-5 py-3 bg-rose-600 hover:bg-rose-700 text-white text-sm font-black uppercase tracking-widest rounded-lg"
+                        >
+                            <RefreshCw size={16} /> Retry
+                        </button>
+                    </div>
                 ) : filtered.length === 0 ? (
                     <div className="p-12 text-center text-gray-400 font-bold">No payments found</div>
                 ) : (

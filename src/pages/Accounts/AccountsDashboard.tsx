@@ -6,7 +6,9 @@ import {
     ChevronRight,
     Download,
     Link2,
-    Activity
+    Activity,
+    AlertTriangle,
+    RefreshCw,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -21,9 +23,24 @@ const AccountsDashboard = () => {
     const [cashReceived, setCashReceived] = useState(0);
     const [overdueCount, setOverdueCount] = useState(0);
     const [loading, setLoading] = useState(true);
+    // TC-61 — Surface fetch failures so the page never silently shows
+    // stale zeros. Without this, a rejected Promise.all left loading=true
+    // forever and the user saw a broken-looking dashboard with no
+    // explanation.
+    const [loadError, setLoadError] = useState<string | null>(null);
 
-    useEffect(() => {
-        Promise.all([getInvoices(), getPayments(), getCustomers()]).then(([invoices, payments, customers]) => {
+    const loadDashboard = () => {
+        let cancelled = false;
+        setLoading(true);
+        setLoadError(null);
+        // Each call has its own .catch so one failing endpoint doesn't take
+        // out the entire dashboard — partial data is better than no data.
+        Promise.all([
+            getInvoices().catch(() => [] as any),
+            getPayments().catch(() => [] as any),
+            getCustomers().catch(() => [] as any),
+        ]).then(([invoices, payments, customers]) => {
+            if (cancelled) return;
             // Accounts Receivable is sum of positive customer balances — the
             // same source the COA Asset tile, Aged Receivable report, and
             // Banking Outstanding AR all use. Previously this summed
@@ -37,15 +54,44 @@ const AccountsDashboard = () => {
             );
             setTotalReceivable(ar);
             // Total Revenue stays accrual-based: gross sales invoiced.
-            setTotalRevenue(invoices.reduce((s, i) => s + (i.grandTotal || i.subtotal || 0), 0));
-            setCashReceived(payments.reduce((s, p) => s + (p.amount || 0), 0));
-            setOverdueCount(invoices.filter(i => i.status === 'Overdue').length);
-            setLoading(false);
+            setTotalRevenue(invoices.reduce((s: number, i: any) => s + (i.grandTotal || i.subtotal || 0), 0));
+            setCashReceived(payments.reduce((s: number, p: any) => s + (p.amount || 0), 0));
+            setOverdueCount(invoices.filter((i: any) => i.status === 'Overdue').length);
+        }).catch((e: any) => {
+            if (!cancelled) setLoadError(e?.message || 'Could not load accounting data.');
+        }).finally(() => {
+            if (!cancelled) setLoading(false);
         });
+        return () => { cancelled = true; };
+    };
+
+    useEffect(() => {
+        const cleanup = loadDashboard();
+        return cleanup;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     return (
         <div className="space-y-8 animate-in fade-in duration-700 max-w-[1600px] mx-auto pb-10">
+            {/* TC-61 — Visible error banner with retry so a failing
+                backend doesn't make the page look "broken". */}
+            {loadError && (
+                <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 flex items-start gap-3 shadow-sm">
+                    <AlertTriangle size={20} className="text-rose-600 mt-0.5 shrink-0" />
+                    <div className="flex-1">
+                        <p className="text-sm font-black text-rose-700 uppercase tracking-widest">Accounting data unavailable</p>
+                        <p className="text-sm text-rose-700 mt-1">{loadError}</p>
+                    </div>
+                    <button
+                        onClick={loadDashboard}
+                        disabled={loading}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-black uppercase tracking-widest rounded-lg disabled:opacity-50"
+                    >
+                        <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Retry
+                    </button>
+                </div>
+            )}
+
             {/* Financial Orchestration Header */}
             <div className="bg-white p-6 border border-redwood-border rounded-sm shadow-sm flex flex-wrap gap-6 justify-between items-center">
                 <div className="flex items-center gap-6">
