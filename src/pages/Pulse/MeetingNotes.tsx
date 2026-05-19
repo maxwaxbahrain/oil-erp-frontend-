@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   FileText, Mic, Square, Loader2, CheckCircle2, Clock, 
-  Trash2, ChevronDown, ChevronUp, AlertCircle, FileAudio, Users, Target
+  Trash2, ChevronDown, ChevronUp, AlertCircle, FileAudio, Users, Target, Download, X, Video, Share2, Mail, MessageSquare, Smartphone
 } from 'lucide-react';
-import { useMeetingRecorder, getSavedNotes, deleteNote } from '../../hooks/useMeetingRecorder';
-import type { MeetingNote } from '../../hooks/useMeetingRecorder';
+import { useMeetingRecorder, getSavedNotes, deleteNote, type MeetingNote } from '../../hooks/useMeetingRecorder';
+import jsPDF from 'jspdf';
+import { getEmployees, type Employee } from '../../services/payrollService';
+import { getCurrentUser } from '../../store/authStore';
 
 function formatDuration(seconds: number) {
   const m = Math.floor(seconds / 60);
@@ -19,14 +21,52 @@ function formatDate(isoStr: string) {
 }
 
 export default function MeetingNotes() {
-  const { status, isSupported, liveTranscript, duration, startRecording, stopRecording, lastNote, error } = useMeetingRecorder();
+  const { status, isSupported, liveTranscript, duration, startRecording, stopRecording, analyzeTranscript, lastNote, error } = useMeetingRecorder();
+  
   const [title, setTitle] = useState('');
   const [savedNotes, setSavedNotes] = useState<MeetingNote[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  // BUG FIX 1: Add Members via Employee Portal Search
+  const [memberInput, setMemberInput] = useState('');
+  const [members, setMembers] = useState<string[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [filteredEmployees, setFilteredEmployees] = useState<Employee[]>([]);
+  const [showEmployeeDropdown, setShowEmployeeDropdown] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Feature 2: Zoom Paste Transcript
+  const [pasteMode, setPasteMode] = useState(false);
+  const [pastedTranscript, setPastedTranscript] = useState('');
+
+  // Feature 1: Google Meet Modal
+  const [showMeetNotice, setShowMeetNotice] = useState(false);
+
+  // Feature 3: Share menu
+  const [shareOpenId, setShareOpenId] = useState<string | null>(null);
+  const shareMenuRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     setSavedNotes(getSavedNotes());
-  }, [status]); // Reload notes when status changes (e.g., when a new note is saved)
+  }, [status]); 
+
+  useEffect(() => {
+    getEmployees().then(setEmployees);
+  }, []);
+
+  // Close dropdowns on click outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowEmployeeDropdown(false);
+      }
+      if (shareMenuRef.current && !shareMenuRef.current.contains(event.target as Node)) {
+        setShareOpenId(null);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handleDelete = (id: string) => {
     deleteNote(id);
@@ -38,16 +78,158 @@ export default function MeetingNotes() {
     setExpandedId(prev => prev === id ? null : id);
   };
 
-  if (!isSupported) {
-    return (
-      <div className="p-6 max-w-4xl mx-auto">
-        <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl flex items-center gap-3">
-          <AlertCircle size={24} />
-          <p className="font-bold">Web Speech API is not supported in this browser. Please use Google Chrome.</p>
-        </div>
-      </div>
-    );
-  }
+  const handleMemberInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setMemberInput(val);
+    if (val.trim() === '') {
+      setShowEmployeeDropdown(false);
+    } else {
+      const lower = val.toLowerCase();
+      setFilteredEmployees(employees.filter(emp => 
+        emp.name.toLowerCase().includes(lower) || emp.jobTitle.toLowerCase().includes(lower)
+      ));
+      setShowEmployeeDropdown(true);
+    }
+  };
+
+  const handleSelectEmployee = (emp: Employee) => {
+    if (!members.includes(emp.name)) {
+      setMembers([...members, emp.name]);
+    }
+    setMemberInput('');
+    setShowEmployeeDropdown(false);
+  };
+
+  const removeMember = (m: string) => {
+    setMembers(members.filter(member => member !== m));
+  };
+
+  // Feature 2: PDF Download
+  const handleDownloadPDF = (note: MeetingNote) => {
+    const doc = new jsPDF();
+    let y = 20;
+    
+    const checkY = (addSpace: number) => {
+      if (y + addSpace > 280) {
+        doc.addPage();
+        y = 20;
+      }
+    };
+
+    doc.setFontSize(22);
+    doc.setTextColor(128, 0, 32); 
+    doc.text(`Meeting Notes: ${note.title}`, 20, y);
+    y += 10;
+    
+    doc.setFontSize(11);
+    doc.setTextColor(100, 100, 100);
+    doc.text(`Date: ${formatDate(note.date)}`, 20, y);
+    y += 6;
+    doc.text(`Duration: ${formatDuration(note.duration)}`, 20, y);
+    y += 6;
+    if (note.members && note.members.length > 0) {
+      doc.text(`Attendees: ${note.members.join(', ')}`, 20, y);
+    }
+    y += 12;
+
+    doc.setFontSize(16);
+    doc.setTextColor(0, 0, 0);
+    doc.text('Summary', 20, y);
+    y += 8;
+    doc.setFontSize(11);
+    const summaryLines = doc.splitTextToSize(note.summary, 170);
+    doc.text(summaryLines, 20, y);
+    y += (summaryLines.length * 5) + 10;
+    checkY(20);
+
+    if (note.decisions && note.decisions.length > 0) {
+      doc.setFontSize(16);
+      doc.setTextColor(0, 0, 0);
+      doc.text('Decisions', 20, y);
+      y += 8;
+      doc.setFontSize(11);
+      note.decisions.forEach(d => {
+        checkY(15);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`• ${d.decision}`, 20, y);
+        y += 5;
+        if (d.context) {
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(100, 100, 100);
+          const ctxLines = doc.splitTextToSize(`  Context: ${d.context}`, 170);
+          doc.text(ctxLines, 20, y);
+          y += (ctxLines.length * 5) + 3;
+          doc.setTextColor(0, 0, 0);
+        }
+      });
+      y += 5;
+    }
+    checkY(20);
+
+    if (note.action_items && note.action_items.length > 0) {
+      doc.setFontSize(16);
+      doc.setTextColor(0, 0, 0);
+      doc.text('Action Items', 20, y);
+      y += 8;
+      doc.setFontSize(11);
+      note.action_items.forEach(a => {
+        checkY(10);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`• [${a.owner}] ${a.task} (Due: ${a.deadline})`, 20, y);
+        y += 6;
+      });
+    }
+
+    doc.save(`Meeting-Notes-${note.date.split('T')[0]}.pdf`);
+  };
+
+  const handleZoomAnalyse = () => {
+    if (!pastedTranscript.trim()) return;
+    analyzeTranscript(pastedTranscript, title, members);
+  };
+
+  // FEATURE 3: Share Options
+  const shareToPulse = (note: MeetingNote) => {
+    const me = getCurrentUser();
+    const summary = `📄 Meeting Notes: ${note.title}\n📅 Date: ${formatDate(note.date)}\n👥 Attendees: ${note.members?.join(', ') || 'None'}\n\n📝 Summary:\n${note.summary}\n\n✅ Decisions:\n${note.decisions?.map(d => '• ' + d.decision).join('\n') || 'None'}\n\n🎯 Action Items:\n${note.action_items?.map(a => '• [' + a.owner + '] ' + a.task).join('\n') || 'None'}`;
+    
+    const msg = {
+      id: Date.now().toString(),
+      roomId: 'general',
+      senderId: me.id,
+      senderName: me.name,
+      senderRole: me.role,
+      content: summary,
+      timestamp: new Date().toISOString(),
+      reactions: {},
+      isAnnouncement: true
+    };
+    
+    try {
+      const allMsgs = JSON.parse(localStorage.getItem('pulse_messages') || '{}');
+      if (!allMsgs['general']) allMsgs['general'] = [];
+      allMsgs['general'].push(msg);
+      localStorage.setItem('pulse_messages', JSON.stringify(allMsgs));
+      alert('Shared to Pulse Team Chat (General) successfully!');
+    } catch (err) {
+      alert('Failed to share to Pulse.');
+    }
+    setShareOpenId(null);
+  };
+
+  const shareViaEmail = (note: MeetingNote) => {
+    const summary = `Meeting Notes: ${note.title}\nDate: ${formatDate(note.date)}\nAttendees: ${note.members?.join(', ') || 'None'}\n\nSummary:\n${note.summary}\n\nDecisions:\n${note.decisions?.map(d => '• ' + d.decision).join('\n') || 'None'}\n\nAction Items:\n${note.action_items?.map(a => '• [' + a.owner + '] ' + a.task).join('\n') || 'None'}`;
+    window.open(`mailto:?subject=Meeting Notes — ${formatDate(note.date)}&body=${encodeURIComponent(summary)}`);
+    setShareOpenId(null);
+  };
+
+  const shareViaSMS = (note: MeetingNote) => {
+    const summary = `Meeting: ${note.title}\nDecisions:\n${note.decisions?.map(d => '• ' + d.decision).join('\n') || 'None'}\nAction Items:\n${note.action_items?.map(a => '• [' + a.owner + '] ' + a.task).join('\n') || 'None'}`;
+    window.open(`sms:?body=${encodeURIComponent(summary)}`);
+    setShareOpenId(null);
+  };
+
+  // Removed early return for !isSupported so the rest of the page still renders
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
@@ -70,28 +252,83 @@ export default function MeetingNotes() {
 
       {/* Recording Control Panel */}
       <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-        {status === 'idle' || status === 'done' || status === 'error' ? (
-          <div className="flex flex-col md:flex-row items-center gap-4">
-            <input 
-              type="text" 
-              placeholder="Meeting Title (e.g., Weekly Sync)" 
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 outline-none focus:border-purple-500 font-medium"
-            />
-            <button 
-              onClick={() => startRecording(title)}
-              className="w-full md:w-auto bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors"
-            >
-              <Mic size={20} /> Start Recording
-            </button>
+        {!isSupported ? (
+          <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl flex items-center gap-3">
+            <AlertCircle size={20} />
+            <p className="font-bold">Live Audio Recording is not supported in this browser. Please use Google Chrome, or use the Zoom/Meet options below.</p>
+          </div>
+        ) : status === 'idle' || status === 'done' || status === 'error' ? (
+          <div className="space-y-4">
+            <div className="flex flex-col md:flex-row items-start gap-4">
+              <div className="flex-1 w-full space-y-3">
+                <input 
+                  type="text" 
+                  placeholder="Meeting Title (e.g., Weekly Sync)" 
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 outline-none focus:border-purple-500 font-medium"
+                />
+                
+                {/* BUG FIX 1: Add Members Search Dropdown */}
+                <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 flex flex-wrap items-center gap-2 relative" ref={dropdownRef}>
+                  {members.map(m => (
+                    <span key={m} className="bg-purple-100 text-purple-800 px-3 py-1 rounded-full text-sm font-bold flex items-center gap-1">
+                      {m}
+                      <X size={14} className="cursor-pointer hover:text-purple-900" onClick={() => removeMember(m)} />
+                    </span>
+                  ))}
+                  <div className="flex-1 relative min-w-[200px]">
+                    <input 
+                      type="text"
+                      placeholder="Search employee to add..."
+                      value={memberInput}
+                      onChange={handleMemberInputChange}
+                      onFocus={() => { if (memberInput.trim()) setShowEmployeeDropdown(true); }}
+                      className="w-full bg-transparent py-1 outline-none text-sm font-medium text-gray-700"
+                    />
+                    {showEmployeeDropdown && (
+                      <div className="absolute top-full left-0 mt-2 w-full max-w-sm bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden max-h-60 overflow-y-auto">
+                        {filteredEmployees.length === 0 ? (
+                          <div className="p-3 text-sm text-gray-500 text-center">No employees found.</div>
+                        ) : (
+                          filteredEmployees.map(emp => (
+                            <div 
+                              key={emp.id}
+                              onClick={() => handleSelectEmployee(emp)}
+                              className="px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-0"
+                            >
+                              <div className="font-bold text-gray-900 text-sm">{emp.name}</div>
+                              <div className="text-xs text-gray-500">{emp.jobTitle} • {emp.department}</div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <button 
+                onClick={() => startRecording(title, members)}
+                className="w-full md:w-auto min-h-[104px] bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 rounded-xl font-bold flex flex-col items-center justify-center gap-2 transition-colors"
+              >
+                <Mic size={24} /> Start Recording
+              </button>
+            </div>
           </div>
         ) : status === 'recording' ? (
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div className="w-4 h-4 bg-red-500 rounded-full animate-pulse" />
-              <div className="text-lg font-black text-gray-900">{title || 'Team Meeting'}</div>
-              <div className="text-gray-500 font-mono bg-gray-100 px-3 py-1 rounded-lg">{formatDuration(duration)}</div>
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-4">
+                <div className="w-4 h-4 bg-red-500 rounded-full animate-pulse" />
+                <div className="text-lg font-black text-gray-900">{title || 'Team Meeting'}</div>
+                <div className="text-gray-500 font-mono bg-gray-100 px-3 py-1 rounded-lg">{formatDuration(duration)}</div>
+              </div>
+              {members.length > 0 && (
+                <div className="text-sm text-gray-500 font-medium">
+                  Attendees: {members.join(', ')}
+                </div>
+              )}
             </div>
             <button 
               onClick={stopRecording}
@@ -101,9 +338,9 @@ export default function MeetingNotes() {
             </button>
           </div>
         ) : (
-          <div className="flex items-center justify-center gap-3 py-4 text-purple-600 font-bold">
-            <Loader2 size={24} className="animate-spin" />
-            <p>Processing transcript with AI...</p>
+          <div className="flex flex-col items-center justify-center gap-3 py-8 text-purple-600 font-bold">
+            <Loader2 size={32} className="animate-spin" />
+            <p className="text-lg">Analyzing transcript with AI...</p>
           </div>
         )}
 
@@ -114,23 +351,122 @@ export default function MeetingNotes() {
         )}
       </div>
 
+      {/* Feature 3: Google Meet & Zoom Integration */}
+      {(status === 'idle' || status === 'done' || status === 'error') && (
+        <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
+          <h2 className="text-lg font-black text-gray-900 mb-4 flex items-center gap-2">
+            <Video size={20} className="text-blue-600" />
+            Join from Meeting Platform
+          </h2>
+          <div className="flex flex-col sm:flex-row gap-4 mb-4">
+            <button 
+              className="flex-1 bg-white border-2 border-blue-100 hover:border-blue-300 text-blue-700 px-4 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all"
+              onClick={() => { setShowMeetNotice(true); setPasteMode(false); }}
+            >
+              <Video size={18} /> Google Meet (via Extension)
+            </button>
+            <button 
+              className={`flex-1 px-4 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all ${
+                pasteMode ? 'bg-blue-600 text-white' : 'bg-white border-2 border-blue-100 hover:border-blue-300 text-blue-700'
+              }`}
+              onClick={() => { setPasteMode(true); setShowMeetNotice(false); }}
+            >
+              <FileText size={18} /> Zoom (Paste Transcript)
+            </button>
+          </div>
+
+          {/* FEATURE 2: Zoom Transcript Instructions */}
+          {pasteMode && (
+            <div className="space-y-4 animate-in slide-in-from-top-2">
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-5 text-blue-900">
+                <h3 className="font-black mb-3">How to use Zoom Transcript:</h3>
+                <ol className="list-decimal list-inside space-y-2 text-sm font-medium">
+                  <li>In your Zoom meeting click <strong>CC (Closed Captions)</strong> to enable captions.</li>
+                  <li>After the meeting, go to <strong>zoom.us/recording</strong> and download the transcript.</li>
+                  <li>Copy the transcript text and paste it in the text area below.</li>
+                </ol>
+              </div>
+              <textarea
+                className="w-full h-40 bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm font-medium outline-none focus:border-blue-500"
+                placeholder="Paste your Zoom transcript text here..."
+                value={pastedTranscript}
+                onChange={(e) => setPastedTranscript(e.target.value)}
+              />
+              <button
+                onClick={handleZoomAnalyse}
+                disabled={!pastedTranscript.trim()}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold disabled:opacity-50"
+              >
+                Analyse Transcript
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Result Card for Just Finished Meeting */}
       {status === 'done' && lastNote && (
         <div className="bg-gradient-to-br from-purple-50 to-white border border-purple-200 rounded-2xl p-6 shadow-sm">
-          <div className="flex items-center gap-2 text-purple-700 mb-4">
-            <CheckCircle2 size={24} />
-            <h2 className="text-xl font-black">Analysis Complete</h2>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+            <div className="flex items-center gap-2 text-purple-700">
+              <CheckCircle2 size={24} />
+              <h2 className="text-xl font-black">Analysis Complete</h2>
+            </div>
+            
+            <div className="flex items-center gap-2 relative">
+              <button 
+                onClick={() => handleDownloadPDF(lastNote)}
+                className="bg-white border border-gray-200 hover:border-gray-300 text-gray-700 px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors shadow-sm"
+              >
+                <Download size={16} /> Download PDF
+              </button>
+              
+              {/* FEATURE 3: Share Dropdown */}
+              <div ref={shareMenuRef}>
+                <button 
+                  onClick={() => setShareOpenId(shareOpenId === 'recent' ? null : 'recent')}
+                  className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors shadow-sm"
+                >
+                  <Share2 size={16} /> Share
+                </button>
+                {shareOpenId === 'recent' && (
+                  <div className="absolute right-0 top-full mt-2 w-64 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden">
+                    <button onClick={() => shareToPulse(lastNote)} className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 border-b border-gray-100 transition-colors">
+                      <MessageSquare size={16} className="text-gray-500" />
+                      <div>
+                        <div className="text-sm font-bold text-gray-900">Pulse Team Chat</div>
+                        <div className="text-xs text-gray-500">Post to General channel</div>
+                      </div>
+                    </button>
+                    <button onClick={() => shareViaEmail(lastNote)} className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 border-b border-gray-100 transition-colors">
+                      <Mail size={16} className="text-gray-500" />
+                      <div>
+                        <div className="text-sm font-bold text-gray-900">Email</div>
+                        <div className="text-xs text-gray-500">Send via email client</div>
+                      </div>
+                    </button>
+                    <button onClick={() => shareViaSMS(lastNote)} className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 transition-colors">
+                      <Smartphone size={16} className="text-gray-500" />
+                      <div>
+                        <div className="text-sm font-bold text-gray-900">SMS / Message</div>
+                        <div className="text-xs text-gray-500">Send summary text</div>
+                      </div>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
           
           <div className="space-y-6">
             <div>
-              <h3 className="text-sm font-black text-gray-500 uppercase tracking-wider mb-2">Summary</h3>
-              <p className="text-gray-800 text-lg leading-relaxed">{lastNote.summary}</p>
+              <h3 className="text-lg font-black text-gray-900 border-b-2 border-purple-100 pb-2 mb-3">Meeting Summary</h3>
+              <p className="text-gray-800 text-base leading-relaxed">{lastNote.summary}</p>
             </div>
 
             {lastNote.key_topics && lastNote.key_topics.length > 0 && (
               <div>
-                <h3 className="text-sm font-black text-gray-500 uppercase tracking-wider mb-2">Key Topics</h3>
+                <h3 className="text-lg font-black text-gray-900 border-b-2 border-purple-100 pb-2 mb-3">Key Topics</h3>
                 <div className="flex flex-wrap gap-2">
                   {lastNote.key_topics.map((t, i) => (
                     <span key={i} className="bg-purple-100 text-purple-800 px-3 py-1 rounded-full text-sm font-bold">
@@ -141,37 +477,37 @@ export default function MeetingNotes() {
               </div>
             )}
 
-            <div className="grid md:grid-cols-2 gap-6">
+            <div className="grid md:grid-cols-2 gap-6 pt-4 border-t border-purple-100">
               <div>
-                <h3 className="text-sm font-black text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
-                  <Target size={16} /> Decisions
+                <h3 className="text-lg font-black text-gray-900 border-b-2 border-blue-100 pb-2 mb-3 flex items-center gap-2">
+                  <Target size={18} className="text-blue-600" /> Decisions Made
                 </h3>
                 <div className="space-y-3">
                   {lastNote.decisions.map((d, i) => (
                     <div key={i} className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-                      <p className="font-bold text-blue-900">{d.decision}</p>
-                      {d.context && <p className="text-sm text-blue-700 mt-1">{d.context}</p>}
+                      <p className="font-bold text-blue-900 text-base">{d.decision}</p>
+                      {d.context && <p className="text-sm text-blue-700 mt-2 border-t border-blue-200/50 pt-2">{d.context}</p>}
                     </div>
                   ))}
-                  {lastNote.decisions.length === 0 && <p className="text-gray-500 text-sm">No decisions recorded.</p>}
+                  {lastNote.decisions.length === 0 && <p className="text-gray-500 text-sm italic">No decisions recorded.</p>}
                 </div>
               </div>
 
               <div>
-                <h3 className="text-sm font-black text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
-                  <Users size={16} /> Action Items
+                <h3 className="text-lg font-black text-gray-900 border-b-2 border-green-100 pb-2 mb-3 flex items-center gap-2">
+                  <Users size={18} className="text-green-600" /> Action Items
                 </h3>
                 <div className="space-y-3">
                   {lastNote.action_items.map((a, i) => (
-                    <div key={i} className="bg-green-50 border border-green-200 rounded-xl p-4 flex flex-col gap-2">
-                      <p className="font-bold text-green-900">{a.task}</p>
-                      <div className="flex items-center gap-4 text-sm font-medium text-green-700">
+                    <div key={i} className="bg-green-50 border border-green-200 rounded-xl p-4 flex flex-col gap-3">
+                      <p className="font-bold text-green-900 text-base">{a.task}</p>
+                      <div className="flex items-center gap-4 text-sm font-bold text-green-700 bg-green-100/50 p-2 rounded-lg">
                         <span className="flex items-center gap-1"><Users size={14}/> {a.owner}</span>
                         <span className="flex items-center gap-1"><Clock size={14}/> {a.deadline}</span>
                       </div>
                     </div>
                   ))}
-                  {lastNote.action_items.length === 0 && <p className="text-gray-500 text-sm">No action items recorded.</p>}
+                  {lastNote.action_items.length === 0 && <p className="text-gray-500 text-sm italic">No action items recorded.</p>}
                 </div>
               </div>
             </div>
@@ -180,8 +516,8 @@ export default function MeetingNotes() {
       )}
 
       {/* Past Meetings List */}
-      <div>
-        <h2 className="text-xl font-black text-gray-900 mb-4">Past Meetings</h2>
+      <div className="pt-4">
+        <h2 className="text-xl font-black text-gray-900 mb-4">Past Meetings History</h2>
         
         {savedNotes.length === 0 ? (
           <div className="text-center py-12 bg-white border border-gray-200 rounded-2xl">
@@ -198,15 +534,29 @@ export default function MeetingNotes() {
                 >
                   <div className="flex-1">
                     <h3 className="font-black text-gray-900 text-lg">{note.title}</h3>
-                    <div className="flex items-center gap-4 mt-1 text-sm text-gray-500 font-medium">
+                    <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-gray-500 font-medium">
                       <span>{formatDate(note.date)}</span>
-                      <span className="flex items-center gap-1"><Clock size={14} /> {formatDuration(note.duration)}</span>
+                      {note.duration > 0 && (
+                        <span className="flex items-center gap-1"><Clock size={14} /> {formatDuration(note.duration)}</span>
+                      )}
+                      {note.members && note.members.length > 0 && (
+                        <span className="flex items-center gap-1 text-purple-600 bg-purple-50 px-2 py-0.5 rounded">
+                          <Users size={14} /> {note.members.length} Members
+                        </span>
+                      )}
                       <span className="bg-green-100 text-green-800 px-2 py-0.5 rounded text-xs font-bold">
                         {note.action_items?.length || 0} Actions
                       </span>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); handleDownloadPDF(note); }}
+                      className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                      title="Download PDF"
+                    >
+                      <Download size={18} />
+                    </button>
                     <button 
                       onClick={(e) => { e.stopPropagation(); handleDelete(note.id); }}
                       className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
@@ -219,17 +569,58 @@ export default function MeetingNotes() {
 
                 {expandedId === note.id && (
                   <div className="p-6 bg-gray-50 border-t border-gray-100 space-y-6">
+                    <div className="flex items-center justify-between">
+                      {note.members && note.members.length > 0 && (
+                        <div className="flex-1">
+                          <h4 className="text-sm font-black text-gray-900 border-b border-gray-200 pb-2 mb-2">Attendees</h4>
+                          <div className="flex flex-wrap gap-2">
+                            {note.members.map(m => (
+                              <span key={m} className="bg-white border border-gray-200 text-gray-700 px-3 py-1 rounded-full text-xs font-bold">
+                                {m}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Past Meeting Share Button */}
+                      <div className="relative">
+                        <button 
+                          onClick={() => setShareOpenId(shareOpenId === note.id ? null : note.id)}
+                          className="bg-white border border-gray-200 hover:border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg font-bold flex items-center gap-2 transition-colors shadow-sm text-xs"
+                        >
+                          <Share2 size={14} /> Share
+                        </button>
+                        {shareOpenId === note.id && (
+                          <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden">
+                            <button onClick={() => shareToPulse(note)} className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 border-b border-gray-100 transition-colors">
+                              <MessageSquare size={14} className="text-gray-500" />
+                              <span className="text-sm font-bold text-gray-900">Pulse Chat</span>
+                            </button>
+                            <button onClick={() => shareViaEmail(note)} className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 border-b border-gray-100 transition-colors">
+                              <Mail size={14} className="text-gray-500" />
+                              <span className="text-sm font-bold text-gray-900">Email</span>
+                            </button>
+                            <button onClick={() => shareViaSMS(note)} className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 transition-colors">
+                              <Smartphone size={14} className="text-gray-500" />
+                              <span className="text-sm font-bold text-gray-900">SMS</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
                     <div>
-                      <h4 className="text-xs font-black text-gray-500 uppercase tracking-wider mb-2">Summary</h4>
-                      <p className="text-gray-800">{note.summary}</p>
+                      <h4 className="text-sm font-black text-gray-900 border-b border-gray-200 pb-2 mb-2">Summary</h4>
+                      <p className="text-gray-800 text-base">{note.summary}</p>
                     </div>
 
                     {note.key_topics && note.key_topics.length > 0 && (
                       <div>
-                        <h4 className="text-xs font-black text-gray-500 uppercase tracking-wider mb-2">Key Topics</h4>
+                        <h4 className="text-sm font-black text-gray-900 border-b border-gray-200 pb-2 mb-2">Key Topics</h4>
                         <div className="flex flex-wrap gap-2">
                           {note.key_topics.map((t, i) => (
-                            <span key={i} className="bg-white border border-gray-200 text-gray-700 px-3 py-1 rounded-full text-xs font-bold">
+                            <span key={i} className="bg-purple-100 text-purple-800 px-3 py-1 rounded-full text-xs font-bold">
                               {t}
                             </span>
                           ))}
@@ -237,36 +628,36 @@ export default function MeetingNotes() {
                       </div>
                     )}
 
-                    <div className="grid md:grid-cols-2 gap-4">
+                    <div className="grid md:grid-cols-2 gap-4 pt-2">
                       <div className="bg-white border border-blue-100 rounded-xl p-4">
-                        <h4 className="text-xs font-black text-blue-600 uppercase tracking-wider mb-3">Decisions</h4>
-                        <div className="space-y-3">
+                        <h4 className="text-sm font-black text-blue-900 border-b border-blue-100 pb-2 mb-3">Decisions Made</h4>
+                        <div className="space-y-4">
                           {note.decisions?.map((d, i) => (
                             <div key={i}>
                               <p className="font-bold text-gray-900 text-sm">{d.decision}</p>
                               {d.context && <p className="text-xs text-gray-500 mt-1">{d.context}</p>}
                             </div>
                           ))}
-                          {(!note.decisions || note.decisions.length === 0) && <p className="text-xs text-gray-400">None</p>}
+                          {(!note.decisions || note.decisions.length === 0) && <p className="text-xs text-gray-400 italic">None</p>}
                         </div>
                       </div>
 
                       <div className="bg-white border border-green-100 rounded-xl p-4">
-                        <h4 className="text-xs font-black text-green-600 uppercase tracking-wider mb-3">Action Items</h4>
-                        <div className="space-y-3">
+                        <h4 className="text-sm font-black text-green-900 border-b border-green-100 pb-2 mb-3">Action Items</h4>
+                        <div className="space-y-4">
                           {note.action_items?.map((a, i) => (
-                            <div key={i} className="text-sm">
+                            <div key={i} className="text-sm border-l-2 border-green-400 pl-3">
                               <p className="font-bold text-gray-900">{a.task}</p>
-                              <p className="text-xs text-gray-500 mt-1 font-medium">{a.owner} • {a.deadline}</p>
+                              <p className="text-xs text-green-700 mt-1 font-bold">{a.owner} • {a.deadline}</p>
                             </div>
                           ))}
-                          {(!note.action_items || note.action_items.length === 0) && <p className="text-xs text-gray-400">None</p>}
+                          {(!note.action_items || note.action_items.length === 0) && <p className="text-xs text-gray-400 italic">None</p>}
                         </div>
                       </div>
                     </div>
 
                     <div>
-                      <h4 className="text-xs font-black text-gray-500 uppercase tracking-wider mb-2">Raw Transcript</h4>
+                      <h4 className="text-sm font-black text-gray-900 border-b border-gray-200 pb-2 mb-2 mt-4">Raw Transcript</h4>
                       <div className="bg-white border border-gray-200 rounded-xl p-4 h-32 overflow-y-auto text-sm text-gray-600">
                         {note.transcript}
                       </div>
@@ -278,6 +669,78 @@ export default function MeetingNotes() {
           </div>
         )}
       </div>
+
+      {/* FEATURE 1: Google Meet Extension Modal */}
+      {showMeetNotice && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+            <div className="bg-blue-600 p-6 flex items-center justify-between text-white">
+              <div className="flex items-center gap-3">
+                <Video size={28} />
+                <h2 className="text-xl font-black">Google Meet Setup</h2>
+              </div>
+              <button onClick={() => setShowMeetNotice(false)} className="text-blue-100 hover:text-white transition-colors">
+                <X size={24} />
+              </button>
+            </div>
+            
+            <div className="p-6">
+              <p className="text-gray-600 mb-6 font-medium">To capture live audio from Google Meet, you need to install the Soltol Chrome Extension once.</p>
+              
+              <ol className="space-y-4 mb-8">
+                <li className="flex gap-3 text-sm">
+                  <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 font-black flex items-center justify-center flex-shrink-0">1</div>
+                  <div className="font-medium text-gray-800">Install the Soltol Chrome Extension from the <strong>meet-extension</strong> folder</div>
+                </li>
+                <li className="flex gap-3 text-sm">
+                  <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 font-black flex items-center justify-center flex-shrink-0">2</div>
+                  <div className="font-medium text-gray-800">Open Google Chrome and go to <strong className="bg-gray-100 px-2 py-0.5 rounded font-mono text-xs">chrome://extensions/</strong></div>
+                </li>
+                <li className="flex gap-3 text-sm">
+                  <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 font-black flex items-center justify-center flex-shrink-0">3</div>
+                  <div className="font-medium text-gray-800">Turn on <strong>Developer Mode</strong> in the top right corner</div>
+                </li>
+                <li className="flex gap-3 text-sm">
+                  <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 font-black flex items-center justify-center flex-shrink-0">4</div>
+                  <div className="font-medium text-gray-800">Click <strong>Load Unpacked</strong> and select the meet-extension folder</div>
+                </li>
+                <li className="flex gap-3 text-sm">
+                  <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 font-black flex items-center justify-center flex-shrink-0">5</div>
+                  <div className="font-medium text-gray-800">Join your Google Meet call and turn on <strong>Captions</strong></div>
+                </li>
+                <li className="flex gap-3 text-sm">
+                  <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 font-black flex items-center justify-center flex-shrink-0">6</div>
+                  <div className="font-medium text-gray-800">Click the Soltol icon in the Chrome toolbar and press <strong>Start Capturing</strong></div>
+                </li>
+              </ol>
+
+              <div className="flex items-center gap-3">
+                <button 
+                  onClick={() => setShowMeetNotice(false)} 
+                  className="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold transition-colors"
+                >
+                  Close
+                </button>
+                <button 
+                  onClick={() => {
+                    // Browser security prevents window.open for chrome:// URLs but we'll try/fallback or just tell user.
+                    // This creates a popup or copy to clipboard
+                    try {
+                      navigator.clipboard.writeText('chrome://extensions/');
+                      alert('Copied chrome://extensions/ to clipboard! Please paste it in a new tab.');
+                    } catch(e) {
+                      window.open('chrome://extensions/', '_blank');
+                    }
+                  }} 
+                  className="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition-colors"
+                >
+                  Open chrome://extensions/
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

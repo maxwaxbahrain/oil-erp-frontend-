@@ -21,6 +21,7 @@ export interface MeetingNote {
   decisions: Decision[];
   action_items: ActionItem[];
   key_topics: string[];
+  members: string[];
 }
 
 export type RecorderStatus = 'idle' | 'recording' | 'processing' | 'done' | 'error';
@@ -53,6 +54,7 @@ export function useMeetingRecorder() {
   const startTimeRef = useRef<number>(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentTitleRef = useRef('');
+  const currentMembersRef = useRef<string[]>([]);
 
   const winAny = window as any;
   const isSupported = typeof window !== 'undefined' && !!(winAny.SpeechRecognition || winAny.webkitSpeechRecognition);
@@ -66,20 +68,20 @@ export function useMeetingRecorder() {
     recognition.interimResults = true;
     
     recognition.onresult = (event: any) => {
-      let finalStr = '';
       let interimStr = '';
+      let newlyFinal = '';
       for (let i = event.resultIndex; i < event.results.length; ++i) {
         if (event.results[i].isFinal) {
-          finalStr += event.results[i][0].transcript + ' ';
+          newlyFinal += event.results[i][0].transcript + ' ';
         } else {
           interimStr += event.results[i][0].transcript;
         }
       }
-      
-      if (finalStr) {
-        transcriptRef.current += finalStr;
+      if (newlyFinal) {
+        transcriptRef.current += newlyFinal;
       }
       
+      // Force immediate state update with full transcript so far
       setLiveTranscript(transcriptRef.current + interimStr);
     };
 
@@ -117,7 +119,7 @@ export function useMeetingRecorder() {
     };
   }, [isSupported]);
 
-  const startRecording = useCallback((title: string) => {
+  const startRecording = useCallback((title: string, selectedMembers: string[] = []) => {
     if (!isSupported || !recognitionRef.current) {
       setError('Speech Recognition is not supported in this browser.');
       return;
@@ -130,6 +132,7 @@ export function useMeetingRecorder() {
       setError(null);
       setLastNote(null);
       currentTitleRef.current = title || 'Team Meeting';
+      currentMembersRef.current = selectedMembers;
       startTimeRef.current = Date.now();
       
       timerRef.current = setInterval(() => {
@@ -194,6 +197,7 @@ export function useMeetingRecorder() {
         decisions: data.decisions || [],
         action_items: data.action_items || [],
         key_topics: data.key_topics || [],
+        members: currentMembersRef.current || [],
       };
 
       const existingNotes = getSavedNotes();
@@ -207,6 +211,49 @@ export function useMeetingRecorder() {
     }
   }, [status, duration, liveTranscript]);
 
+  const analyzeTranscript = useCallback(async (transcriptText: string, title: string, members: string[] = []) => {
+    setStatus('processing');
+    setError(null);
+    try {
+      const response = await fetch('https://bettano-erp-backend.onrender.com/api/ai/meeting/process', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transcript: transcriptText,
+          meeting_title: title || 'Team Meeting'
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to process meeting notes.');
+      }
+
+      const data = await response.json();
+      
+      const note: MeetingNote = {
+        id: crypto.randomUUID(),
+        title: title || 'Team Meeting',
+        date: new Date().toISOString(),
+        duration: 0,
+        transcript: transcriptText,
+        summary: data.summary || '',
+        decisions: data.decisions || [],
+        action_items: data.action_items || [],
+        key_topics: data.key_topics || [],
+        members: members,
+      };
+
+      const existingNotes = getSavedNotes();
+      localStorage.setItem('soltol_meeting_notes', JSON.stringify([note, ...existingNotes]));
+      
+      setLastNote(note);
+      setStatus('done');
+    } catch (err: any) {
+      setError(err?.message || 'Error processing meeting notes.');
+      setStatus('error');
+    }
+  }, []);
+
   return {
     status,
     isSupported,
@@ -214,6 +261,7 @@ export function useMeetingRecorder() {
     duration,
     startRecording,
     stopRecording,
+    analyzeTranscript,
     lastNote,
     error
   };

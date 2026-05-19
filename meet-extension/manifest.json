@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Soltol Meet Extension",
+  "version": "1.0",
+  "description": "Capture Google Meet transcripts for Soltol ERP",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "host_permissions": [
+    "https://meet.google.com/*",
+    "https://bettano-erp-backend.onrender.com/*",
+    "http://localhost:5174/*"
+  ]
+}
