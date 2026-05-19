@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Send, Brain, User, RefreshCw } from 'lucide-react';
+import { useMicInput } from '../../hooks/useMicInput';
+import { MicButton } from '../../components/MicButton';
 import { getCustomers, getInvoices, getPayments } from '../../services/api';
 import { getProducts } from '../../services/productService';
 import { getPurchaseOrders } from '../../services/purchasesService';
@@ -121,6 +123,12 @@ export default function BusinessAdvisorAgent() {
         timestamp: new Date(),
     }]);
     const [input, setInput] = useState('');
+    const {
+        isListening,
+        isSupported,
+        toggleListening,
+        interimTranscript,
+    } = useMicInput(setInput);
     const [loading, setLoading] = useState(false);
     const [contextLoaded, setContextLoaded] = useState(false);
     const [erpContext, setErpContext] = useState('');
@@ -287,9 +295,19 @@ RULES:
 
             {/* Input */}
             <div className="bg-white border border-gray-200 rounded-2xl p-3 flex gap-3 items-end flex-shrink-0 shadow-sm">
-                <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKeyDown}
-                    placeholder="Ask Marcus about revenue, customers, inventory, strategy..."
-                    rows={1} className="flex-1 resize-none text-sm focus:outline-none text-gray-800 placeholder-gray-400 max-h-28" />
+                <textarea
+                    value={isListening && interimTranscript ? interimTranscript : input}
+                    onChange={e => setInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder={isListening ? 'Listening… speak now' : 'Ask Marcus about revenue, customers, inventory, strategy...'}
+                    rows={1}
+                    className="flex-1 resize-none text-sm focus:outline-none text-gray-800 placeholder-gray-400 max-h-28"
+                />
+                <MicButton
+                    isListening={isListening}
+                    isSupported={isSupported}
+                    onToggle={toggleListening}
+                />
                 <button onClick={() => sendMessage()} disabled={!input.trim() || loading}
                     className="w-9 h-9 bg-gray-900 hover:bg-gray-700 disabled:opacity-40 text-white rounded-xl flex items-center justify-center transition-all flex-shrink-0">
                     {loading ? <RefreshCw size={14} className="animate-spin" /> : <Send size={14} />}

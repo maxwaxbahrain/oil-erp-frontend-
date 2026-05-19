@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { BrainCircuit, Send, X, Minimize2, Maximize2, Loader, Copy, Check, FileText, FileSpreadsheet } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { useMicInput } from '../hooks/useMicInput';
+import { MicButton } from './MicButton';
 
 interface Message {
     role: 'user' | 'assistant';
@@ -37,6 +39,12 @@ export default function AIAssistant({ context }: AIAssistantProps) {
     const [minimized, setMinimized] = useState(false);
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
+    const {
+        isListening,
+        isSupported,
+        toggleListening,
+        interimTranscript,
+    } = useMicInput(setInput);
     const [loading, setLoading] = useState(false);
     const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
     const DAILY_LIMIT = 20;
@@ -531,12 +539,17 @@ ${text.split('\n').map(line => {
                                 <div className="flex gap-2">
                                     <input
                                         type="text"
-                                        value={input}
+                                        value={isListening && interimTranscript ? interimTranscript : input}
                                         onChange={e => setInput(e.target.value)}
                                         onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-                                        placeholder="Ask Marcus anything about your business..."
+                                        placeholder={isListening ? 'Listening… speak now' : 'Ask Marcus anything about your business...'}
                                         disabled={loading}
                                         className="flex-1 text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:border-orange-400 disabled:opacity-50"
+                                    />
+                                    <MicButton
+                                        isListening={isListening}
+                                        isSupported={isSupported}
+                                        onToggle={toggleListening}
                                     />
                                     <button
                                         onClick={() => sendMessage()}
