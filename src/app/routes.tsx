@@ -105,11 +105,13 @@ import TaxAdvisor from '../pages/TaxSystem/TaxAdvisor';
 import TaxDashboard from '../pages/TaxSystem/TaxDashboard';
 import AmazonIntegration from '../pages/Amazon/AmazonIntegration';
 import Pulse from '../pages/Pulse/Pulse';
+import MeetingNotes from '../pages/Pulse/MeetingNotes';
 import DataMigration from '../pages/Migration/DataMigration'; // CRM exports as 'CRM'
 import AIContentStudio from '../pages/Marketing/AIContentStudio';
 import { CustomerSegments, CampaignManager, MarketingAnalytics } from '../pages/Marketing/MarketingPages';
 import CustomerServiceAgent from '../pages/Agents/CustomerServiceAgent';
 import BusinessAdvisorAgent from '../pages/Agents/BusinessAdvisorAgent';
+import EmailReplyAgent from '../pages/Agents/EmailReplyAgent';
 import DemandForecasting from '../pages/Reports/DemandForecasting';
 import InventoryAdjustment from '../pages/Inventory/InventoryAdjustment';
 import DriverApp from '../pages/POD/DriverApp';
@@ -237,6 +239,7 @@ export const AppRoutes = () => {
             <Route path="/agents" element={<AgentHub />} />
             <Route path="/agents/customer-service" element={<CustomerServiceAgent />} />
             <Route path="/agents/business-advisor" element={<BusinessAdvisorAgent />} />
+            <Route path="/agents/email-reply" element={<EmailReplyAgent />} />
             <Route path="/access-management" element={<UserAccessManagement />} />
             <Route path="/news" element={<NewsIntelligence />} />
             <Route path="/credit" element={<CreditIntelligence />} />
@@ -259,6 +262,7 @@ export const AppRoutes = () => {
             <Route path="/tax/dashboard" element={<TaxDashboard />} />
             <Route path="/amazon" element={<AmazonIntegration />} />
             <Route path="/pulse" element={<Pulse />} />
+            <Route path="/pulse/notes" element={<MeetingNotes />} />
             <Route path="/migrate" element={<DataMigration />} />
             <Route path="/marketing" element={<MarketingHub />} />
             <Route path="/marketing/studio" element={<AIContentStudio />} />

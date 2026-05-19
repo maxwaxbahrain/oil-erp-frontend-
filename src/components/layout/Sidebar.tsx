@@ -19,7 +19,7 @@ import {
     TrendingUp,
     User,
     MapPin
-, Tag , BookOpen , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 } from 'lucide-react';
+, Tag , BookOpen , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 , Mail } from 'lucide-react';
 import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
 
@@ -106,6 +106,7 @@ export default function Sidebar() {
                 </div>
                 <NavItem to="/" icon={LayoutDashboard} label="Dashboard" />
                 <NavItem to="/pulse" icon={Send} label="PULSE — Team Chat" />
+                <NavItem to="/pulse/notes" icon={FileText} label="Meeting Notes" />
                 <NavItem to="/migrate" icon={Database} label="📥 Data Migration" />
                 <NavItem to="/portal" icon={User} label="Employee Portal" />
 
@@ -285,6 +286,7 @@ export default function Sidebar() {
                             <NavItem to="/agents" icon={Bot} label="Agent Hub" />
                             <NavItem to="/agents/customer-service" icon={Headphones} label="ARIA — Customer Service" />
                             <NavItem to="/agents/business-advisor" icon={Brain} label="Marcus — Advisor" />
+                            <NavItem to="/agents/email-reply" icon={Mail} label="Email Auto-Reply" />
                         </div>
                     )}
                 </div>
