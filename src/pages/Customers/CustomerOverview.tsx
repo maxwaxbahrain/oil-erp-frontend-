@@ -40,7 +40,7 @@ import {
 } from '../../services/customerService';
 import { getCustomerCreditNotes, updateCreditNote, type CreditNote } from '../../services/creditNoteService';
 // STEP 11B — load customer billable expenses for the Unbilled tab.
-import { getExpenses, saveExpense, type Expense } from '../../services/expenseService';
+import { saveExpense, type Expense } from '../../services/expenseService';
 import { getCompanySettings , getSystemSettings } from '../../services/settingsService';
 import {
     downloadInvoicePDF,
@@ -168,9 +168,7 @@ export default function CustomerOverview() {
 
     // Ledger state
     const [ledger, setLedger] = useState<LedgerEntry[]>([]);
-    // @ts-expect-error - setters used in JSX
     const [ledgerDateFrom, setLedgerDateFrom] = useState('');
-    // @ts-expect-error - setters used in JSX
     const [ledgerDateTo, setLedgerDateTo] = useState('');
     const [loadingLedger, setLoadingLedger] = useState(false);
 
@@ -498,7 +496,9 @@ export default function CustomerOverview() {
                 id: String(pay.id),
                 customer_id: String(pay.customer_id),
                 amount: pay.amount,
-                invoice_id: pay.invoice_id,
+                // customerService.Payment doesn't include invoice_id, but the
+                // backend row often does; cast through any to surface it.
+                invoice_id: (pay as any).invoice_id,
                 reason: reason || undefined,
             });
             // Refetch via the existing loader so customer balance + ledger update too.
@@ -1345,6 +1345,9 @@ export default function CustomerOverview() {
                                     })()}
                                 </table>
                             </div>
+                        </div>
+                    )}
+
                     {/* STEP 11B — Unbilled Expenses tab */}
                     {activeTab === 'unbilled' && (
                         <div className="space-y-4">

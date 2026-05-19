@@ -84,7 +84,7 @@ export default function SalesReturnDetailPage() {
               description: line.productName || '',
               quantity: line.quantityReturned ?? 0,
               unitPrice: line.unitPrice ?? 0,
-              amount: line.totalAmount ?? (line.quantityReturned * line.unitPrice) ?? 0,
+              amount: line.totalAmount || (line.quantityReturned * line.unitPrice) || 0,
             })),
             prefillSubtotal: u.subtotal,
             prefillTax: u.tax,
@@ -130,7 +130,9 @@ export default function SalesReturnDetailPage() {
       const newNotes = data.notes
         ? `${data.notes}\n\n[Rejected after approval: ${reason.trim()}]`
         : `[Rejected after approval: ${reason.trim()}]`;
-      const u = await patchSalesReturn(id, { status: 'rejected', notes: newNotes });
+      // ReturnStatus has no 'rejected'; rolling back to 'draft' matches the
+      // intent (return is editable again, no longer counted as approved).
+      const u = await patchSalesReturn(id, { status: 'draft', notes: newNotes });
       setData(u);
       alert('✅ Return rejected. Status rolled back.');
     } catch (e) {
@@ -349,7 +351,7 @@ export default function SalesReturnDetailPage() {
                           description: line.productName || '',
                           quantity: line.quantityReturned ?? 0,
                           unitPrice: line.unitPrice ?? 0,
-                          amount: line.totalAmount ?? (line.quantityReturned * line.unitPrice) ?? 0,
+                          amount: line.totalAmount || (line.quantityReturned * line.unitPrice) || 0,
                         })),
                         prefillSubtotal: data.subtotal,
                         prefillTax: data.tax,
