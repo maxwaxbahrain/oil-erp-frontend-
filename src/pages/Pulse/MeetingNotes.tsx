@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   FileText, Mic, Square, Loader2, CheckCircle2, Clock, 
   Trash2, ChevronDown, ChevronUp, AlertCircle, FileAudio, Users, Target
 } from 'lucide-react';
-import { useMeetingRecorder, getSavedNotes, deleteNote, MeetingNote } from '../../hooks/useMeetingRecorder';
+import { useMeetingRecorder, getSavedNotes, deleteNote } from '../../hooks/useMeetingRecorder';
+import type { MeetingNote } from '../../hooks/useMeetingRecorder';
 
 function formatDuration(seconds: number) {
   const m = Math.floor(seconds / 60);

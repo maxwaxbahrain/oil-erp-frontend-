@@ -4,14 +4,6 @@
 
 import { useState, useRef, useCallback, useEffect, type Dispatch, type SetStateAction } from 'react';
 
-// Extend the Window type for cross-browser SpeechRecognition
-declare global {
-  interface Window {
-    SpeechRecognition: typeof SpeechRecognition;
-    webkitSpeechRecognition: typeof SpeechRecognition;
-  }
-}
-
 export interface UseMicInputReturn {
   isListening: boolean;
   isSupported: boolean;
