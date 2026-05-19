@@ -9,11 +9,13 @@ import {
     Activity
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import GeneralLedger from '../../modules/accounts/GeneralLedger';
 import { getInvoices, getPayments, getCustomers } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
 
 const AccountsDashboard = () => {
+    const navigate = useNavigate();
     const [totalReceivable, setTotalReceivable] = useState(0);
     const [totalRevenue, setTotalRevenue] = useState(0);
     const [cashReceived, setCashReceived] = useState(0);
@@ -60,14 +62,23 @@ const AccountsDashboard = () => {
                     </div>
                 </div>
                 <div className="flex gap-3">
-                    <button className="px-5 py-2.5 bg-white border border-redwood-border rounded-sm text-[11px] font-black text-redwood-text-muted hover:bg-redwood-bg-light transition-all shadow-sm flex items-center gap-2 uppercase tracking-[0.15em]">
+                    <button
+                        onClick={() => window.print()}
+                        className="px-5 py-2.5 bg-white border border-redwood-border rounded-sm text-[11px] font-black text-redwood-text-muted hover:bg-redwood-bg-light transition-all shadow-sm flex items-center gap-2 uppercase tracking-[0.15em]"
+                    >
                         <Download size={14} /> Global Export
                     </button>
                     <div className="flex rounded-sm overflow-hidden shadow-lg">
-                        <button className="px-6 py-2.5 bg-redwood-brand text-white text-[11px] font-black hover:brightness-95 transition-all flex items-center gap-2 border-r border-white/10 uppercase tracking-[0.2em]">
+                        <button
+                            onClick={() => navigate('/finance/journal-voucher')}
+                            className="px-6 py-2.5 bg-redwood-brand text-white text-[11px] font-black hover:brightness-95 transition-all flex items-center gap-2 border-r border-white/10 uppercase tracking-[0.2em]"
+                        >
                             <ArrowUpCircle size={14} /> Post Entry
                         </button>
-                        <button className="px-6 py-2.5 bg-redwood-midnight text-white text-[11px] font-black hover:bg-black transition-all flex items-center gap-2 uppercase tracking-[0.2em]">
+                        <button
+                            onClick={() => navigate('/finance/banking')}
+                            className="px-6 py-2.5 bg-redwood-midnight text-white text-[11px] font-black hover:bg-black transition-all flex items-center gap-2 uppercase tracking-[0.2em]"
+                        >
                             <Link2 size={14} /> Reconcile
                         </button>
                     </div>
@@ -120,9 +131,19 @@ const AccountsDashboard = () => {
                             <FileText size={18} className="text-redwood-brand" /> Governance Documents
                         </h3>
                         <div className="space-y-2">
-                            {['Consolidated Balance Sheet', 'Core Profit & Loss Index', 'Tax Liability Matrix', 'Cash Flow Projection', 'Audit Log (DXB-CENTRAL)'].map((report, i) => (
-                                <button key={i} className="w-full flex items-center justify-between p-4 rounded-sm hover:bg-redwood-bg-light border border-transparent hover:border-redwood-border transition-all text-left group">
-                                    <span className="text-[12px] font-bold text-redwood-text-main group-hover:text-redwood-brand uppercase tracking-tight">{report}</span>
+                            {[
+                                { label: 'Consolidated Balance Sheet', path: '/reports/trial-balance' },
+                                { label: 'Core Profit & Loss Index',   path: '/reports/sales' },
+                                { label: 'Tax Liability Matrix',       path: '/tax/dashboard' },
+                                { label: 'Cash Flow Projection',       path: '/reports/day-book' },
+                                { label: 'Audit Log (DXB-CENTRAL)',    path: '/reports' },
+                            ].map((report, i) => (
+                                <button
+                                    key={i}
+                                    onClick={() => navigate(report.path)}
+                                    className="w-full flex items-center justify-between p-4 rounded-sm hover:bg-redwood-bg-light border border-transparent hover:border-redwood-border transition-all text-left group"
+                                >
+                                    <span className="text-[12px] font-bold text-redwood-text-main group-hover:text-redwood-brand uppercase tracking-tight">{report.label}</span>
                                     <ChevronRight size={14} className="text-redwood-border group-hover:translate-x-1 group-hover:text-redwood-brand transition-all" />
                                 </button>
                             ))}
@@ -135,7 +156,10 @@ const AccountsDashboard = () => {
                         </div>
                         <h4 className="text-[14px] font-black text-redwood-text-main uppercase tracking-widest mb-3">Compliance Sentinel</h4>
                         <p className="text-[10px] text-redwood-text-muted font-bold leading-relaxed mb-8 px-4 uppercase italic">Execute precision reconciliation protocols before terminal period closure.</p>
-                        <button className="w-full py-4 bg-redwood-slate text-white text-[10px] font-black uppercase tracking-[0.3em] rounded-sm hover:bg-black transition-all shadow-xl">
+                        <button
+                            onClick={() => navigate('/reports/aged-receivable')}
+                            className="w-full py-4 bg-redwood-slate text-white text-[10px] font-black uppercase tracking-[0.3em] rounded-sm hover:bg-black transition-all shadow-xl"
+                        >
                             INITIATE AUDIT CHECK
                         </button>
                     </div>

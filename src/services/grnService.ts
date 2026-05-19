@@ -1,5 +1,13 @@
 import { getPurchaseOrders, updatePurchaseOrder, type PurchaseOrder } from './purchasesService';
-import { getProducts, saveProduct as updateProduct } from './productService';
+
+// FIX W3-1 — Path B (this module) now writes stock to the SAME backend
+// endpoint that Path A uses (PurchasesDashboard's Confirm GRN button).
+// Previously Path B mutated product.locations in localStorage only, which
+// meant Inventory Dashboard never saw the stock and the two paths produced
+// divergent state. This constant mirrors the one in purchasesService.ts.
+const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
+    .trim()
+    .replace(/\/+$/, '');
 
 export interface GRNItem {
     productId: string;
@@ -138,8 +146,26 @@ export const saveGRN = async (grn: Partial<GRN> & { id: string }): Promise<GRN> 
     return updatedGRN;
 };
 
+// FIX W3-2 — Aggregate result for postGRN, mirroring GRNResult in
+// purchasesService. Lets GoodsReceivedForm show a precise success /
+// partial / failure banner instead of an unconditional success alert.
+export interface PostGRNResult {
+    grn: GRN;
+    attempted: number;
+    succeeded: number;
+    failures: Array<{
+        productId: string;
+        productName?: string;
+        reason: string;
+    }>;
+    skipped: Array<{
+        productName?: string;
+        reason: 'no-productId' | 'zero-accepted';
+    }>;
+}
+
 // Post GRN (Update Inventory and PO Status)
-export const postGRN = async (grnId: string): Promise<GRN> => {
+export const postGRN = async (grnId: string): Promise<PostGRNResult> => {
     const grns = await getGRNs();
     const grnIndex = grns.findIndex(g => g.id === grnId);
 
@@ -159,51 +185,77 @@ export const postGRN = async (grnId: string): Promise<GRN> => {
         throw new Error('Cannot post GRN with zero accepted quantity');
     }
 
-    // Update inventory for each accepted item
-    const products = await getProducts();
+    // FIX W3-4 — Idempotency guard on the underlying PO. Path B has
+    // historically supported posting against both Pending and Approved
+    // POs (its workflow is "draft GRN → post" which can precede formal
+    // approval). We only block when the PO has already moved past the
+    // receive window — already-GRN'd, Paid, Rejected, or Completed.
+    const purchaseOrders = await getPurchaseOrders();
+    const linkedPO = purchaseOrders.find(p => p.id === grn.poId);
+    if (linkedPO && linkedPO.status !== 'Approved' && linkedPO.status !== 'Pending' && linkedPO.status !== 'Draft') {
+        throw new Error(
+            `Cannot post GRN — the underlying PO ${linkedPO.poNumber} is in status "${linkedPO.status}". ` +
+            `Only Draft, Pending, or Approved POs can be received. ` +
+            `Refresh the receiving list to see the current state.`
+        );
+    }
+
+    // FIX W3-1 — Per-item stock add via the backend `add-stock` endpoint.
+    // FIX W3-2 — Track per-item attempt/success/failure for UI surfacing.
+    let attempted = 0;
+    let succeeded = 0;
+    const failures: PostGRNResult['failures'] = [];
+    const skipped: PostGRNResult['skipped'] = [];
 
     for (const item of grn.items) {
-        if (item.acceptedQty > 0) {
-            const product = products.find(p => p.id === item.productId || p.name === item.productName);
-
-            if (product) {
-                // Find the warehouse location or create it
-                let locations = product.locations || [];
-                const locationIndex = locations.findIndex(loc => loc.name === grn.warehouse);
-
-                if (locationIndex >= 0) {
-                    const loc = locations[locationIndex];
-                    if (loc) {
-                        loc.currentStock = (loc.currentStock ?? 0) + item.acceptedQty;
-                    }
-                } else {
-                    // Add new location
-                    locations.push({
-                        id: `LOC-GRN-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-                        name: grn.warehouse,
-                        type: 'Warehouse',
-                        currentStock: item.acceptedQty,
-                        reorderPoint: 10,
-                        maxStock: 1000
-                    });
-                }
-
-                // Update product with new stock levels
-                await updateProduct({
-                    ...product,
-                    locations,
-                    // Update landed cost if available
-                    pricing: {
-                        ...product.pricing,
-                        landedCost: item.unitCost
-                    }
+        if (item.acceptedQty <= 0) {
+            // Skipped rejected lines don't count as failure — they're just
+            // not in scope for stock movement. We still record them so the
+            // UI can explain "X of Y items processed".
+            skipped.push({ productName: item.productName, reason: 'zero-accepted' });
+            continue;
+        }
+        if (!item.productId) {
+            skipped.push({ productName: item.productName, reason: 'no-productId' });
+            continue;
+        }
+        attempted++;
+        try {
+            const res = await fetch(`${API_HOST}/products/${item.productId}/add-stock`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    quantity: item.acceptedQty,
+                    // Reference threads BOTH the GRN number AND warehouse so
+                    // Path B's audit trail (which Path A doesn't have) survives
+                    // into the backend's stock movement log.
+                    reference: `${grn.grnNumber} @ ${grn.warehouse}`,
+                }),
+            });
+            if (res.ok) {
+                succeeded++;
+            } else {
+                const text = await res.text().catch(() => '');
+                failures.push({
+                    productId: String(item.productId),
+                    productName: item.productName,
+                    reason: `HTTP ${res.status} ${text}`.trim(),
                 });
             }
+        } catch (e) {
+            failures.push({
+                productId: String(item.productId),
+                productName: item.productName,
+                reason: e instanceof Error ? e.message : String(e),
+            });
         }
     }
 
-    // Update Purchase Order status to Received
-    await updatePurchaseOrder(grn.poId, { status: 'Received' });
+    // FIX W3-1 — Unify with Path A: status goes to 'GRN' (not 'Received').
+    await updatePurchaseOrder(grn.poId, {
+        status: 'GRN',
+        grn_date: new Date().toISOString(),
+    } as any);
 
     // Update GRN status to Posted
     grn.status = 'Posted';
@@ -211,7 +263,7 @@ export const postGRN = async (grnId: string): Promise<GRN> => {
     grns[grnIndex] = grn;
     setStorage('grns', grns);
 
-    return grn;
+    return { grn, attempted, succeeded, failures, skipped };
 };
 
 // Delete GRN (only if Draft)

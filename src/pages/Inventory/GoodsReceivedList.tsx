@@ -239,12 +239,22 @@ export default function GoodsReceivedList() {
                                             }
                                         </p>
                                         {!searchTerm && statusFilter === 'All' && (
-                                            <button
-                                                onClick={() => navigate('/receiving/new')}
-                                                className="mt-4 px-5 py-2 bg-redwood-brand text-white text-[12px] font-bold rounded-sm hover:brightness-95 uppercase tracking-wider transition-all"
-                                            >
-                                                Create First GRN
-                                            </button>
+                                            <div className="mt-4 flex flex-col items-center gap-3">
+                                                <button
+                                                    onClick={() => navigate('/receiving/new')}
+                                                    className="px-5 py-2 bg-redwood-brand text-white text-[12px] font-bold rounded-sm hover:brightness-95 uppercase tracking-wider transition-all"
+                                                >
+                                                    Create First GRN
+                                                </button>
+                                                {pendingPOs.length === 0 && (
+                                                    <button
+                                                        onClick={() => navigate('/purchases/new')}
+                                                        className="text-[11px] text-gray-500 hover:text-redwood-brand underline underline-offset-4"
+                                                    >
+                                                        No purchase orders yet — create one first →
+                                                    </button>
+                                                )}
+                                            </div>
                                         )}
                                     </td>
                                 </tr>

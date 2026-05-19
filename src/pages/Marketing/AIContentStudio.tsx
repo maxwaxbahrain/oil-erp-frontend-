@@ -137,6 +137,14 @@ IMPORTANT:
                 })
             });
 
+            // TC-79 — surface backend errors instead of silently falling
+            // through to placeholder content.  503 = missing
+            // ANTHROPIC_API_KEY; 5xx = upstream Anthropic / network.
+            if (!res.ok) {
+                let detail = '';
+                try { detail = (await res.json())?.detail || ''; } catch { /* not JSON */ }
+                throw new Error(detail || `HTTP ${res.status}`);
+            }
             const data = await res.json();
             const reply = data.reply || '';
 

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Plus, CheckCircle, ChevronRight } from 'lucide-react';
-import { type Supplier } from '../../services/purchasesService';
+import { Plus, CheckCircle, ChevronRight, Trash2, Edit2 } from 'lucide-react';
+import { type Supplier, deleteSupplier } from '../../services/purchasesService';
 
 // SupplierList v3 (direct API): bypasses the localStorage-backed service
 // layer entirely. Even if an old service bundle is cached in the browser,
@@ -88,6 +88,38 @@ export default function SupplierList() {
         }
     }, [location]);
 
+    // FIX W2-3 — Per-row Edit navigates to SupplierDetail with a
+    // location-state hint so the existing edit modal auto-opens.
+    // Single source of truth for the edit form lives in SupplierDetail.
+    const handleEditSupplier = (id: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        navigate(`/suppliers/${id}`, { state: { openEdit: true } });
+    };
+
+    // FIX W2-2 — Per-row delete with friendly FK-constraint message.
+    // Backend FK constraints (PO / GRN / payment) reject the delete; we
+    // catch the error and surface plain-English guidance instead of the
+    // raw HTTP message. Row only filters from state AFTER the server
+    // confirms, so a rejected delete leaves the row in place.
+    const handleDeleteSupplier = async (
+        s: { id: string; name: string; code?: string },
+        e: React.MouseEvent
+    ) => {
+        e.stopPropagation();
+        const label = s.code ? `${s.name} (${s.code})` : s.name;
+        if (!window.confirm(`Delete supplier ${label}? This cannot be undone.`)) return;
+        try {
+            await deleteSupplier(s.id);
+            setSuppliers(prev => prev.filter(x => String(x.id) !== String(s.id)));
+        } catch (err) {
+            const raw = err instanceof Error ? err.message : String(err);
+            const friendly = /foreign key|reference|constraint|in use|linked|associated|409|400/i.test(raw)
+                ? 'Cannot delete — this supplier has existing orders, GRNs, or payments. Remove those first or mark the supplier as Blocked.'
+                : `Could not delete supplier: ${raw}`;
+            alert(friendly);
+        }
+    };
+
     if (loading) {
         return (
             <div className="flex items-center justify-center p-20">
@@ -161,8 +193,27 @@ export default function SupplierList() {
                                             {s.status}
                                         </span>
                                     </td>
-                                    <td className="px-6 py-4 text-right text-gray-300 group-hover:text-redwood-brand transition-colors">
-                                        <ChevronRight size={18} />
+                                    <td className="px-6 py-4 text-right">
+                                        <div className="flex items-center justify-end gap-2">
+                                            <button
+                                                onClick={(e) => handleEditSupplier(s.id, e)}
+                                                title="Edit supplier"
+                                                className="p-1.5 rounded-sm text-gray-400 hover:text-redwood-brand hover:bg-redwood-bg-light transition-colors"
+                                            >
+                                                <Edit2 size={16} />
+                                            </button>
+                                            <button
+                                                onClick={(e) => handleDeleteSupplier(s, e)}
+                                                title="Delete supplier"
+                                                className="p-1.5 rounded-sm text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
+                                            <ChevronRight
+                                                size={18}
+                                                className="text-gray-300 group-hover:text-redwood-brand transition-colors"
+                                            />
+                                        </div>
                                     </td>
                                 </tr>
                             ))

@@ -1,6 +1,8 @@
 import { FileText, BarChart3, PieChart, Calendar, Download, Filter, ChevronRight, Bookmark, Target, TrendingUp, AlertCircle, RefreshCw, Plus } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 export default function ReportsDashboard() {
+    const navigate = useNavigate();
     return (
         <div className="space-y-8 animate-in fade-in duration-700 max-w-[1600px] mx-auto pb-10">
             {/* Analytics Control Matrix */}
@@ -19,10 +21,16 @@ export default function ReportsDashboard() {
                     </div>
                 </div>
                 <div className="flex gap-3">
-                    <button className="px-5 py-2.5 bg-white border border-redwood-border rounded-sm text-[11px] font-black text-redwood-text-muted hover:bg-redwood-bg-light transition-all shadow-sm flex items-center gap-2 uppercase tracking-widest">
+                    <button
+                        onClick={() => navigate('/reports/demand-forecast')}
+                        className="px-5 py-2.5 bg-white border border-redwood-border rounded-sm text-[11px] font-black text-redwood-text-muted hover:bg-redwood-bg-light transition-all shadow-sm flex items-center gap-2 uppercase tracking-widest"
+                    >
                         <Calendar size={14} /> Time Horizon: Period-24
                     </button>
-                    <button className="px-6 py-2.5 bg-redwood-brand border border-transparent rounded-sm text-white text-[11px] font-black hover:brightness-95 transition-all flex items-center gap-2 shadow-lg uppercase tracking-widest">
+                    <button
+                        onClick={() => window.print()}
+                        className="px-6 py-2.5 bg-redwood-brand border border-transparent rounded-sm text-white text-[11px] font-black hover:brightness-95 transition-all flex items-center gap-2 shadow-lg uppercase tracking-widest"
+                    >
                         <Download size={16} /> Global Report Export
                     </button>
                 </div>
@@ -35,14 +43,15 @@ export default function ReportsDashboard() {
                         <h3 className="text-[10px] font-black text-redwood-text-muted uppercase tracking-[0.2em] p-4 pb-2">Business Dimensions</h3>
                         <div className="space-y-1">
                             {[
-                                { title: 'Revenue Performance', icon: BarChart3, active: true },
-                                { title: 'Material Liquidity', icon: PieChart, active: false },
-                                { title: 'Strategic Ledger', icon: FileText, active: false },
-                                { title: 'Customer Risk Profile', icon: Target, active: false },
-                                { title: 'Audit Governance', icon: Filter, active: false },
+                                { title: 'Revenue Performance',    icon: BarChart3, path: '/reports/sales',             active: true  },
+                                { title: 'Material Liquidity',     icon: PieChart,  path: '/reports/outstanding-bills', active: false },
+                                { title: 'Strategic Ledger',       icon: FileText,  path: '/reports/trial-balance',     active: false },
+                                { title: 'Customer Risk Profile',  icon: Target,    path: '/reports/aged-receivable',   active: false },
+                                { title: 'Audit Governance',       icon: Filter,    path: '/reports/day-book',          active: false },
                             ].map((report, i) => (
                                 <button
                                     key={i}
+                                    onClick={() => navigate(report.path)}
                                     className={`w-full flex items-center gap-4 p-4 rounded-sm transition-all group text-left ${report.active ? 'bg-redwood-bg-light border-l-4 border-redwood-brand' : 'hover:bg-redwood-bg-light border-l-4 border-transparent'}`}
                                 >
                                     <div className={`${report.active ? 'text-redwood-brand' : 'text-redwood-text-muted group-hover:text-redwood-brand'} transition-colors`}>
@@ -61,7 +70,10 @@ export default function ReportsDashboard() {
                         <Bookmark size={32} className="text-redwood-brand mb-6" />
                         <h4 className="font-black text-[12px] mb-2 uppercase tracking-[0.3em]">Operational Presets</h4>
                         <p className="text-[11px] text-redwood-secondary font-medium mb-6 leading-relaxed">No strategic visualization markers have been cached for this user profile.</p>
-                        <button className="text-[10px] font-black text-redwood-brand hover:underline uppercase tracking-[0.2em] flex items-center gap-2">
+                        <button
+                            onClick={() => navigate('/reports/sales')}
+                            className="text-[10px] font-black text-redwood-brand hover:underline uppercase tracking-[0.2em] flex items-center gap-2"
+                        >
                             <Plus size={14} /> Design Benchmark View
                         </button>
                         <TrendingUp size={100} className="absolute -right-4 -bottom-4 text-white/5 opacity-0 group-hover:opacity-100 transition-opacity duration-700" strokeWidth={1} />
@@ -121,7 +133,11 @@ export default function ReportsDashboard() {
                         <div className="bg-white p-8 rounded-sm border border-redwood-border shadow-sm flex flex-col justify-between group">
                             <div className="flex justify-between items-start">
                                 <h4 className="text-[11px] font-black text-redwood-text-muted uppercase tracking-[0.3em]">Material Dispersion Index</h4>
-                                <button className="p-2 bg-redwood-bg-light border border-redwood-border rounded-sm text-redwood-text-muted hover:text-redwood-brand transition-all"><Filter size={18} /></button>
+                                <button
+                                    onClick={() => navigate('/reports/outstanding-bills')}
+                                    className="p-2 bg-redwood-bg-light border border-redwood-border rounded-sm text-redwood-text-muted hover:text-redwood-brand transition-all"
+                                    aria-label="Filter material dispersion"
+                                ><Filter size={18} /></button>
                             </div>
 
                             <div className="flex justify-center my-8 relative">

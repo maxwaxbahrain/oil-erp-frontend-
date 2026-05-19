@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileText, Plus, Calendar, User, DollarSign, Package } from 'lucide-react';
+import { FileText, Plus, Calendar, User, DollarSign, Package, Search, Filter } from 'lucide-react';
 import { getSalesOrders, hydrateSalesOrdersWithCustomers, type SalesOrder } from '../../services/salesService';
 
 export default function Quotations() {
     const navigate = useNavigate();
     const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([]);
     const [loading, setLoading] = useState(true);
+    // TC-36 — Filter state.  Page previously had no filtering UI at all.
+    const [searchTerm, setSearchTerm] = useState('');
+    const [statusFilter, setStatusFilter] = useState<'All' | 'draft' | 'confirmed' | 'delivered' | 'invoiced' | 'cancelled'>('All');
 
     useEffect(() => {
         loadSalesOrders();
@@ -35,6 +38,18 @@ export default function Quotations() {
         if (status === 'cancelled') return 'bg-red-100 text-red-700 border-red-300';
         return 'bg-gray-100 text-gray-700 border-gray-300';
     };
+
+    // TC-36 — Apply search + status filter.  Search matches order
+    // number OR customer name (case-insensitive).  An empty search
+    // term + statusFilter === 'All' returns everything.
+    const filteredOrders = salesOrders.filter(o => {
+        const q = searchTerm.trim().toLowerCase();
+        const matchesSearch = !q
+            || (o.so_number || '').toLowerCase().includes(q)
+            || (o.customer_name || o.customer?.name || '').toLowerCase().includes(q);
+        const matchesStatus = statusFilter === 'All' || o.status === statusFilter;
+        return matchesSearch && matchesStatus;
+    });
 
     if (loading) {
         return (
@@ -129,37 +144,70 @@ export default function Quotations() {
                     </div>
                 </div>
 
+                {/* TC-36 — Filter strip */}
+                <div className="bg-white rounded-xl shadow-md p-4 border border-gray-200 flex flex-col md:flex-row gap-3">
+                    <div className="flex-1 relative">
+                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                        <input
+                            type="text"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            placeholder="Search by order number or customer name…"
+                            className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#800020]"
+                        />
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Filter size={16} className="text-gray-400" />
+                        <select
+                            value={statusFilter}
+                            onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+                            className="px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold focus:outline-none focus:border-[#800020]"
+                            aria-label="Filter by status"
+                        >
+                            <option value="All">All statuses</option>
+                            <option value="draft">Draft</option>
+                            <option value="confirmed">Confirmed</option>
+                            <option value="delivered">Delivered</option>
+                            <option value="invoiced">Invoiced</option>
+                            <option value="cancelled">Cancelled</option>
+                        </select>
+                    </div>
+                </div>
+
                 {/* Orders List */}
                 <div className="bg-white rounded-xl shadow-md border-2 border-[#800020] overflow-hidden">
                     <div className="px-8 py-5 bg-gradient-to-r from-[#800020] to-[#a00028]">
                         <h2 className="text-sm font-black text-white uppercase flex items-center gap-3">
                             <FileText size={20} className="text-white/80" />
-                            Sales Orders ({salesOrders.length})
+                            Sales Orders ({filteredOrders.length}{filteredOrders.length !== salesOrders.length ? ` of ${salesOrders.length}` : ''})
                         </h2>
                     </div>
 
-                    {salesOrders.length === 0 ? (
+                    {filteredOrders.length === 0 ? (
                         <div className="p-24 text-center bg-gray-50/50">
                             <div className="w-20 h-20 bg-[#800020]/10 rounded-full flex items-center justify-center mx-auto mb-6">
                                 <FileText size={40} className="text-[#800020]" />
                             </div>
                             <h3 className="text-sm font-black text-gray-400 uppercase mb-2">
-                                No orders found
+                                {salesOrders.length === 0 ? 'No orders found' : 'No orders match your filter'}
                             </h3>
                             <p className="text-xs text-gray-500 font-bold max-w-xs mx-auto mb-6">
-                                Start by creating your first sales order.
+                                {salesOrders.length === 0
+                                    ? 'Start by creating your first sales order.'
+                                    : 'Try a different search term or status.'}
                             </p>
                             <button
-                                onClick={() => navigate('/sales/orders/new')}
+                                onClick={() => salesOrders.length === 0
+                                    ? navigate('/sales/orders/new')
+                                    : (setSearchTerm(''), setStatusFilter('All'))}
                                 className="px-8 py-3 bg-[#800020] text-white text-xs font-black uppercase rounded-lg hover:brightness-110 transition-all inline-flex items-center gap-2"
                             >
-                                <Plus size={16} />
-                                Create First Order
+                                {salesOrders.length === 0 ? <><Plus size={16} /> Create First Order</> : 'Clear filters'}
                             </button>
                         </div>
                     ) : (
                         <div className="divide-y divide-gray-200">
-                            {salesOrders.map((order) => (
+                            {filteredOrders.map((order) => (
                                 <div key={order.id} className="p-6 hover:bg-gray-50 transition-colors">
                                     <div className="flex items-start justify-between">
                                         <div className="flex-1">

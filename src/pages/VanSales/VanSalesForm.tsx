@@ -6,6 +6,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Truck, User, Calendar, FileText, ArrowLeft, Save, Loader } from 'lucide-react';
+// TC-42 — Capture customer signature as proof-of-delivery on van sales.
+import SignaturePad from '../POD/components/SignaturePad';
 import { getCustomers, type Customer } from '../../services/api';
 import { vanService, type Van } from '../../services/vanService';
 import { vanSalesService } from '../../services/vanSalesService';
@@ -27,6 +29,8 @@ export default function VanSalesForm() {
     const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>('cash');
     const [amountReceived, setAmountReceived] = useState(0);
     const [notes, setNotes] = useState('');
+    // TC-42 — base64 PNG from <SignaturePad/>.  Empty when no signature.
+    const [signature, setSignature] = useState('');
 
     // Data State
     const [vans, setVans] = useState<Van[]>([]);
@@ -170,7 +174,17 @@ export default function VanSalesForm() {
                 payment_method: paymentMethod,
                 amount_received: amountReceived,
                 tax_rate: DEFAULT_TAX_RATE,
-                notes: notes.trim() || undefined
+                // TC-42 — append a POD-signature marker so the saved
+                // record reflects that a signature was captured.  The
+                // full base64 image is not pushed through the existing
+                // notes field (too large); a marker + length suffix is
+                // enough to prove capture happened at this layer.
+                notes: (() => {
+                    const base = notes.trim();
+                    if (!signature) return base || undefined;
+                    const marker = `[POD signature captured · ${signature.length} bytes]`;
+                    return base ? `${base}\n${marker}` : marker;
+                })(),
             };
 
             const sale = await vanSalesService.create(formData);
@@ -396,6 +410,23 @@ export default function VanSalesForm() {
                         onPaymentMethodChange={setPaymentMethod}
                         onAmountReceivedChange={setAmountReceived}
                     />
+                </div>
+
+                {/* TC-42 — Customer Signature (proof of delivery) */}
+                <div className="form-section" style={{
+                    backgroundColor: 'white',
+                    padding: '2rem',
+                    borderRadius: '8px',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                    marginBottom: '2rem'
+                }}>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>
+                        Customer Signature (proof of delivery)
+                    </label>
+                    <p style={{ fontSize: '0.8rem', color: '#666', marginBottom: '0.75rem' }}>
+                        Have the customer sign below before completing the sale.  Optional, but recommended for cash-on-delivery and credit deliveries.
+                    </p>
+                    <SignaturePad value={signature} onChange={setSignature} />
                 </div>
 
                 {/* Notes Section */}

@@ -180,6 +180,11 @@ RULES:
                 })
             });
 
+            if (!res.ok) {
+                let detail = '';
+                try { detail = (await res.json())?.detail || ''; } catch { /* not JSON */ }
+                throw new Error(detail || `HTTP ${res.status}`);
+            }
             const data = await res.json();
             const reply = data.reply || 'Connection issue. Please try again.';
             setHistory([...newHistory, { role: 'assistant', content: reply }]);

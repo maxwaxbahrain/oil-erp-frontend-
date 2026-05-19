@@ -17,9 +17,10 @@ import {
   Smartphone,
   X,
   Edit2,
+  Trash2,
   Plus } from 'lucide-react';
 import clsx from 'clsx';
-import { getInvoices, type Invoice } from '../../services/api';
+import { getInvoices, type Invoice, deleteInvoice } from '../../services/api';
 import { getCustomers, type Customer } from '../../services/customerService';
 import { getCompanySettings, type CompanySettings } from '../../services/settingsService';
 import {
@@ -253,6 +254,24 @@ export default function Invoices() {
         channel: res.channel,
         fileName: res.fileName,
       });
+    }
+  };
+
+  // FIX W2-1 — Delete invoice with paid-guard + confirm + optimistic state.
+  const handleDeleteInvoice = async (inv: { id: string | number; invoiceNumber?: string; status?: string }, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if ((inv.status || '').toLowerCase() === 'paid') {
+      alert('Cannot delete a Paid invoice.  Void or refund it first.');
+      return;
+    }
+    const num = inv.invoiceNumber || `#${inv.id}`;
+    if (!window.confirm(`Delete invoice ${num}?  This cannot be undone.`)) return;
+    try {
+      await deleteInvoice(String(inv.id));
+      setInvoices(prev => prev.filter(x => String(x.id) !== String(inv.id)));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Delete failed.';
+      alert(`Could not delete invoice: ${msg}`);
     }
   };
 
@@ -637,6 +656,14 @@ export default function Invoices() {
                               className="p-1.5 sm:p-2 rounded-lg text-orange-600 hover:bg-orange-50 transition-colors"
                             >
                               <Edit2 size={17} className="sm:w-[18px] sm:h-[18px]" />
+                            </button>
+                            <button
+                              title="Delete Invoice"
+                              onClick={(e) => void handleDeleteInvoice(inv, e)}
+                              className="p-2 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
+                              aria-label="Delete invoice"
+                            >
+                              <Trash2 size={17} className="sm:w-[18px] sm:h-[18px]" />
                             </button>
                             <button
                               type="button"

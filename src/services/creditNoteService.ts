@@ -1,4 +1,4 @@
-import { API_BASE_URL } from './api';
+import { API_BASE_URL, createPayment, type Invoice } from './api';
 
 export type CreditReason = 'overcharge' | 'return' | 'price_adjustment' | 'goodwill' | 'other';
 export type CreditStatus = 'draft' | 'issued' | 'partially_used' | 'fully_used' | 'cancelled';
@@ -15,6 +15,10 @@ export interface CreditNote {
   creditNoteNumber: string;
   originalInvoiceId?: string;
   originalInvoiceNumber?: string;
+  // TASK 7 — Backlink to the Sales Return that spawned this CN.
+  // Populated when navigating from SalesReturnDetailPage with prefill state.
+  originalReturnId?: string;
+  originalReturnNumber?: string;
   customerId: string;
   customerName: string;
   issueDate: string;
@@ -33,6 +37,9 @@ export interface CreditNote {
 
 export interface CreditNoteCreateInput {
   originalInvoiceId?: string;
+  // TASK 7 — optional backlink to Sales Return.
+  originalReturnId?: string;
+  originalReturnNumber?: string;
   customerId: string;
   issueDate: string;
   expiryDate?: string;
@@ -59,6 +66,9 @@ function toUi(row: any): CreditNote {
     creditNoteNumber: String(row.credit_note_number),
     originalInvoiceId: row.original_invoice_id != null ? String(row.original_invoice_id) : undefined,
     originalInvoiceNumber: row.original_invoice_number || undefined,
+    // TASK 7 — backlink to the spawning Sales Return.
+    originalReturnId: row.original_return_id != null ? String(row.original_return_id) : undefined,
+    originalReturnNumber: row.original_return_number || undefined,
     customerId: String(row.customer_id),
     customerName: row.customer_name || '',
     issueDate: row.issue_date ? String(row.issue_date).slice(0, 10) : '',
@@ -86,6 +96,9 @@ function toUi(row: any): CreditNote {
 function toApi(input: any) {
   return {
     originalInvoiceId: input.originalInvoiceId ? Number(input.originalInvoiceId) : undefined,
+    // TASK 7 — Forward Sales-Return backlink (numeric id + display number).
+    originalReturnId: input.originalReturnId ? Number(input.originalReturnId) : undefined,
+    originalReturnNumber: input.originalReturnNumber || undefined,
     customerId: input.customerId ? Number(input.customerId) : undefined,
     issueDate: input.issueDate,
     expiryDate: input.expiryDate || null,
@@ -135,6 +148,9 @@ export async function updateCreditNote(
   id: string,
   patch: {
     originalInvoiceId?: string;
+    // TASK 7 — Backlink updatable here too (rarely used; supports repair flows).
+    originalReturnId?: string;
+    originalReturnNumber?: string;
     customerId?: string;
     issueDate?: string;
     expiryDate?: string;
@@ -185,3 +201,65 @@ export async function getCreditNoteStats(): Promise<CreditNoteStats> {
 
   return { totalIssuedThisMonth, totalUsed, pendingUnused, expiringSoon };
 }
+
+// FIX W5-1 — Apply a credit note to a specific invoice.
+// No dedicated backend endpoint exists for credit-note application,
+// so this records the application as a contra-payment via the same
+// /ledger/payment endpoint cash payments use (mode='Credit Note'),
+// which reliably reduces the invoice's remaining_balance. Then we
+// bump the CN's usedAmount + recompute status (partially_used /
+// fully_used) so the dashboard reflects the new state.
+//
+// Trade-off: the application shows up in Banking as a transaction
+// with payment_method='Credit Note'. That's standard accounting
+// practice (CN application IS a contra-payment in the ledger) and
+// the call site can filter by mode if it needs to separate cash
+// receipts from credit applications.
+export async function applyCreditToInvoice(args: {
+  creditNote: CreditNote;
+  invoice: Invoice;
+  amount: number;
+}): Promise<{ updatedCN: CreditNote }> {
+  const { creditNote: cn, invoice: inv, amount } = args;
+  const invBalance = Number(inv.remaining_balance ?? inv.grandTotal ?? 0);
+  const maxAllowed = Math.min(cn.remainingCredit, invBalance);
+
+  if (amount <= 0) {
+    throw new Error('Amount must be greater than zero.');
+  }
+  if (amount > maxAllowed + 0.005) {
+    throw new Error(
+      `Amount $${amount.toFixed(2)} exceeds the smaller of available credit ` +
+      `($${cn.remainingCredit.toFixed(2)}) and invoice balance ` +
+      `($${invBalance.toFixed(2)}).`
+    );
+  }
+
+  // Step 1 — record the contra-payment so backend reduces invoice balance.
+  await createPayment({
+    customer_id: cn.customerId,
+    amount,
+    payment_method: 'Credit Note',
+    reference: `CN/${cn.creditNoteNumber}`,
+    payment_date: new Date().toISOString().slice(0, 10),
+    invoice_id: inv.id,
+    notes: `Applied from credit note ${cn.creditNoteNumber}`,
+    is_advance: false,
+  });
+
+  // Step 2 — bump CN's usedAmount and flip status as appropriate.
+  const newUsed = cn.usedAmount + amount;
+  const newRemaining = cn.totalCreditAmount - newUsed;
+  const newStatus: CreditStatus =
+    newRemaining <= 0.005 ? 'fully_used' :
+    newUsed > 0 ? 'partially_used' :
+    cn.status;
+
+  const updatedCN = await updateCreditNote(cn.id, {
+    usedAmount: newUsed,
+    status: newStatus,
+  });
+
+  return { updatedCN };
+}
+

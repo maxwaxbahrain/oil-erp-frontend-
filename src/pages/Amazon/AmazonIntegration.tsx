@@ -358,8 +358,11 @@ export default function AmazonIntegration() {
                         ].map((a, i) => {
                             const Icon = a.icon;
                             return (
-                                <button key={i} onClick={a.action} disabled={syncing}
-                                    className={`flex items-center gap-3 p-4 ${a.color} text-white rounded-2xl hover:opacity-90 disabled:opacity-50 transition-all text-left shadow-sm`}>
+                                <button key={i} onClick={a.action}
+                                    disabled={syncing && syncingType !== a.type}
+                                    title={syncing && syncingType !== a.type ? 'Another sync is in progress — queued' : a.label}
+                                    aria-busy={syncingType === a.type}
+                                    className={`flex items-center gap-3 p-4 ${a.color} text-white rounded-2xl hover:opacity-90 disabled:opacity-70 disabled:cursor-wait transition-all text-left shadow-sm`}>
                                     {syncingType === a.type ? <RefreshCw size={18} className="animate-spin flex-shrink-0" /> : <Icon size={18} className="flex-shrink-0" />}
                                     <span className="text-xs font-black">{a.label}</span>
                                 </button>
@@ -512,10 +515,13 @@ export default function AmazonIntegration() {
                                             {lastLog.status==='success'?'✅':'❌'} {lastLog.message} · {lastLog.records_synced} records · {new Date(lastLog.timestamp).toLocaleTimeString()}
                                         </div>
                                     )}
-                                    <button onClick={() => runSync(item.type)} disabled={syncing}
-                                        className={`w-full flex items-center justify-center gap-2 py-2.5 ${item.color} text-white rounded-xl text-xs font-black hover:opacity-90 disabled:opacity-50 transition-all`}>
-                                        {syncing ? <RefreshCw size={13} className="animate-spin" /> : <Icon size={13} />}
-                                        Run Now
+                                    <button onClick={() => runSync(item.type)}
+                                        disabled={syncing && syncingType !== item.type}
+                                        title={syncing && syncingType !== item.type ? 'Another sync is in progress — queued' : `Run ${item.title}`}
+                                        aria-busy={syncingType === item.type}
+                                        className={`w-full flex items-center justify-center gap-2 py-2.5 ${item.color} text-white rounded-xl text-xs font-black hover:opacity-90 disabled:opacity-70 disabled:cursor-wait transition-all`}>
+                                        {syncingType === item.type ? <RefreshCw size={13} className="animate-spin" /> : <Icon size={13} />}
+                                        {syncingType === item.type ? 'Running…' : 'Run Now'}
                                     </button>
                                 </div>
                             );

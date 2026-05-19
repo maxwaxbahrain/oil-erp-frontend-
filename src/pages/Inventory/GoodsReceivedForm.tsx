@@ -177,9 +177,21 @@ export default function GoodsReceivedForm() {
             return;
         }
 
-        const confirmed = window.confirm(
-            'Are you sure you want to post this GRN? This will update inventory and cannot be undone.'
-        );
+        // FIX W3-3 — Pre-flight warning when accepted lines have no productId.
+        // Those won't update inventory; surface the count + names BEFORE the
+        // user confirms so they can go back and link products if they meant to.
+        const acceptedItems = items.filter(it => it.acceptedQty > 0);
+        const unlinked = acceptedItems.filter(it => !it.productId);
+        let promptMsg = 'Are you sure you want to post this GRN? This will update inventory and cannot be undone.';
+        if (unlinked.length > 0) {
+            const names = unlinked.map(it => it.productName || '(unnamed line)');
+            const list = names.length <= 5
+                ? names.join('\n  • ')
+                : `${names.slice(0, 5).join('\n  • ')}\n  • +${names.length - 5} more`;
+            const linkedAccepted = acceptedItems.length - unlinked.length;
+            promptMsg = `⚠️ Warning — ${unlinked.length} of ${acceptedItems.length} accepted line(s) have no product linked and will NOT update inventory:\n\n  • ${list}\n\nOnly ${linkedAccepted} item(s) will affect stock.\n\nContinue with post anyway?`;
+        }
+        const confirmed = window.confirm(promptMsg);
 
         if (!confirmed) return;
 
@@ -200,10 +212,28 @@ export default function GoodsReceivedForm() {
                 notes
             });
 
-            // Then post the GRN
-            await postGRN(grn.id);
+            // Then post the GRN.
+            // FIX W3-2 — postGRN now returns per-item attempt/success/failure
+            // so we can surface partial failures instead of an unconditional
+            // success alert. Skipped items (no productId or zero-accepted) are
+            // grouped separately from real failures.
+            const result = await postGRN(grn.id);
+            const failNames = result.failures.map(f => f.productName || f.productId);
+            const skippedNoProduct = result.skipped
+                .filter(s => s.reason === 'no-productId')
+                .map(s => s.productName || '(unnamed line)');
+            const truncate = (xs: string[]) =>
+                xs.length <= 5 ? xs.join(', ') : `${xs.slice(0, 5).join(', ')} +${xs.length - 5} more`;
 
-            alert('GRN posted successfully! Inventory has been updated.');
+            if (result.failures.length === 0 && skippedNoProduct.length === 0) {
+                alert('✅ GRN posted successfully! Inventory has been updated.');
+            } else if (result.failures.length === 0) {
+                alert(`⚠️ GRN posted. ${result.succeeded}/${result.attempted} items updated. ${skippedNoProduct.length} line(s) had no product link and were skipped:\n\n${truncate(skippedNoProduct)}`);
+            } else if (result.succeeded === 0) {
+                alert(`❌ GRN posted but NO stock was updated. ${result.failures.length} item(s) failed:\n\n${truncate(failNames)}`);
+            } else {
+                alert(`⚠️ Stock updated for ${result.succeeded}/${result.attempted} items. Failed:\n\n${truncate(failNames)}`);
+            }
             navigate('/receiving');
         } catch (error: any) {
             console.error('Error posting GRN:', error);
@@ -275,7 +305,13 @@ export default function GoodsReceivedForm() {
                             <div className="text-center py-12">
                                 <Truck size={48} className="mx-auto text-gray-300 mb-3" />
                                 <p className="text-gray-500 text-sm font-medium mb-2">No pending purchase orders</p>
-                                <p className="text-gray-400 text-xs">Create and approve a purchase order first</p>
+                                <p className="text-gray-400 text-xs mb-5">Create and approve a purchase order first</p>
+                                <button
+                                    onClick={() => navigate('/purchases/new')}
+                                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-redwood-brand text-white text-[12px] font-bold uppercase tracking-wider rounded-sm hover:brightness-95 transition-all shadow-md"
+                                >
+                                    <Plus size={16} /> Create Purchase Order
+                                </button>
                             </div>
                         ) : (
                             <div className="space-y-3">

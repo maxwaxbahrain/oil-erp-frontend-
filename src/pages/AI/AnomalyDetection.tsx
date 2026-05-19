@@ -188,6 +188,11 @@ Which 2-3 need my attention TODAY, and what exactly should I do?`
                     }]
                 })
             });
+            if (!res.ok) {
+                let detail = '';
+                try { detail = (await res.json())?.detail || ''; } catch { /* not JSON */ }
+                throw new Error(detail || `HTTP ${res.status}`);
+            }
             const data = await res.json();
             setAiInsight(data.reply || '');
         } catch {

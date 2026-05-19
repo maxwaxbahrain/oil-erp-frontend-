@@ -355,6 +355,20 @@ export const updatePurchaseOrder = async (id: string, data: Partial<PurchaseOrde
     return await res.json();
 };
 
+// FIX W2-4 — Hard-delete a purchase order. Backend is expected to
+// reject when the PO has linked GRN/payment activity; the call site
+// already hard-gates the button to Draft status, but we still surface
+// any backend rejection as a friendly error rather than swallowing it.
+export const deletePurchaseOrder = async (id: string): Promise<void> => {
+    const res = await fetch(`${API_HOST}/api/purchase-orders/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+    });
+    if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Failed to delete PO: ${res.status} ${text}`);
+    }
+};
+
 export const getSupplierPayments = async (supplierId: string): Promise<SupplierPayment[]> => {
     try {
         const r = await fetch(`${SUPPLIERS_API}/${encodeURIComponent(supplierId)}/payments`);
@@ -426,40 +440,90 @@ export const rejectPurchaseOrder = async (id: string, reason?: string): Promise<
     });
 };
 
-export const confirmGRN = async (id: string): Promise<PurchaseOrder> => {
+// FIX W3-2 — Aggregate result so the UI can show a precise success /
+// partial / failure banner instead of an unconditional "GRN Confirmed!".
+// Shared by Path A (`confirmGRN`) and Path B (`postGRN` in grnService).
+export interface GRNResult {
+    po: PurchaseOrder;
+    attempted: number;          // items with a productId we tried to update
+    succeeded: number;          // items where add-stock returned 2xx
+    failures: Array<{
+        productId: string;
+        productName?: string;
+        reason: string;         // HTTP status + body, or thrown error message
+    }>;
+    skipped: Array<{
+        productName?: string;
+        reason: 'no-productId'; // free-text PO lines — FIX W3-3 will warn upfront
+    }>;
+}
+
+export const confirmGRN = async (id: string): Promise<GRNResult> => {
     const orders = await getPurchaseOrders();
     const po = orders.find(o => o.id === id);
     if (!po) throw new Error('PO not found');
 
-    // Increase warehouse stock for each line item via dedicated add-stock endpoint
-    let stockUpdated = 0;
+    // FIX W3-4 — Idempotency guard. Only Approved POs can transition to
+    // GRN; without this a double-click race (or any programmatic re-call)
+    // would double-count stock on the backend. The UI button is also
+    // status-gated, but this is defense-in-depth.
+    if (po.status !== 'Approved') {
+        throw new Error(
+            `Cannot confirm GRN — this PO is in status "${po.status}". ` +
+            `Only Approved POs can be received. ` +
+            `Refresh the page to see the current status.`
+        );
+    }
+
+    // FIX W3-2 — Per-item attempt/success/failure tracking.
+    let attempted = 0;
+    let succeeded = 0;
+    const failures: GRNResult['failures'] = [];
+    const skipped: GRNResult['skipped'] = [];
+
     for (const item of po.items) {
-        if (!item.productId) continue;
+        if (!item.productId) {
+            skipped.push({ productName: item.productName, reason: 'no-productId' });
+            continue;
+        }
+        attempted++;
         try {
             const res = await fetch(`${API_HOST}/products/${item.productId}/add-stock`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
+                body: JSON.stringify({
                     quantity: item.quantity,
-                    reference: po.poNumber
-                })
+                    reference: po.poNumber,
+                }),
             });
-            if (res.ok) stockUpdated++;
-            else {
-                const err = await res.text();
-                console.warn(`Stock update failed for ${item.productId}: ${err}`);
+            if (res.ok) {
+                succeeded++;
+            } else {
+                const text = await res.text().catch(() => '');
+                failures.push({
+                    productId: String(item.productId),
+                    productName: item.productName,
+                    reason: `HTTP ${res.status} ${text}`.trim(),
+                });
             }
         } catch (e) {
-            console.warn(`Stock update error for ${item.productId}`, e);
+            failures.push({
+                productId: String(item.productId),
+                productName: item.productName,
+                reason: e instanceof Error ? e.message : String(e),
+            });
         }
     }
 
-    console.log(`GRN: ${stockUpdated}/${po.items.length} products stock updated`);
+    // CLEANUP — removed dev console.log; W3-2 banner surfaces the same
+    // counts (succeeded/attempted/failed/skipped) to the UI now.
 
-    return updatePurchaseOrder(id, {
+    const updatedPO = await updatePurchaseOrder(id, {
         status: 'GRN',
-        grn_date: new Date().toISOString()
-    });
+        grn_date: new Date().toISOString(),
+    } as any);
+
+    return { po: updatedPO, attempted, succeeded, failures, skipped };
 };
 
 export const markPOPaid = async (id: string, paymentMethod: string): Promise<PurchaseOrder> => {

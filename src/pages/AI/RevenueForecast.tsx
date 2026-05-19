@@ -94,6 +94,11 @@ Give me:
 4. MARKET ALERT: Any global events affecting oil distribution right now` }]
                 })
             });
+            if (!res.ok) {
+                let detail = '';
+                try { detail = (await res.json())?.detail || ''; } catch { /* not JSON */ }
+                throw new Error(detail || `HTTP ${res.status}`);
+            }
             const data = await res.json();
             setAiReport(data.reply || '');
         } catch { setAiReport('Could not reach AI. Please try again.'); }

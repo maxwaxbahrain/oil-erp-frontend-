@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { type Customer, getCustomers } from '../../services/customerService';
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { type Customer, getCustomers, deleteCustomer } from '../../services/customerService';
 import DataTable from '../../components/tables/DataTable';
-import { Plus } from 'lucide-react';
+import { Plus, Edit2, Trash2 } from 'lucide-react';
 
 interface CustomerListProps {
   onEdit?: (customer: Customer) => void;
@@ -13,6 +13,9 @@ interface CustomerListProps {
 
 export default function CustomerList({ refreshTrigger }: CustomerListProps) {
   const navigate = useNavigate();
+  // FIX 2 — re-fetch on every navigation to /customers so balances
+  // stay fresh after an invoice/payment is created elsewhere.
+  const location = useLocation();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -47,7 +50,20 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
     return () => {
       cancelled = true;
     };
-  }, [refreshTrigger]);
+  }, [refreshTrigger, location.key]);
+
+  // FIX 4 — per-row delete with confirm + optimistic state update.
+  async function handleDelete(customer: Customer, e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!window.confirm(`Delete customer "${customer.name}"?  This cannot be undone.`)) return;
+    try {
+      await deleteCustomer(String(customer.id));
+      setCustomers(prev => prev.filter(c => c.id !== customer.id));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Delete failed.';
+      alert(`Could not delete: ${msg}\n\nThe customer may have invoices or payments referencing them.`);
+    }
+  }
 
   async function loadData() {
     try {
@@ -62,6 +78,39 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
       setLoading(false);
     }
   }
+
+  // TASK 5 — Silent refetch when the user returns to this tab. No
+  // loading spinner, no error surface (we already have the previous
+  // snapshot rendered). Throttled to one fetch per 5 seconds so rapid
+  // tab-switching doesn't hammer the backend. Resolves ISSUE-T from
+  // the W6 trace: payment recorded in another tab now reflects on
+  // return without a manual refresh.
+  const lastSilentLoadAtRef = useRef<number>(Date.now());
+  useEffect(() => {
+    async function silentRefresh() {
+      const now = Date.now();
+      if (now - lastSilentLoadAtRef.current < 5000) return;
+      lastSilentLoadAtRef.current = now;
+      try {
+        const data = await getCustomers();
+        setCustomers(data);
+      } catch {
+        // Silent: keep showing the previous snapshot if the refetch fails.
+      }
+    }
+    function onVisibilityChange() {
+      if (!document.hidden) void silentRefresh();
+    }
+    function onFocus() {
+      void silentRefresh();
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, []);
 
   const q = searchTerm.toLowerCase();
   const filteredCustomers = customers.filter((customer) => {
@@ -131,7 +180,33 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
         );
       },
       className: 'text-right'
-    }
+    },
+    // FIX 4 — per-row Edit + Delete actions (do NOT propagate to row click).
+    {
+      header: 'Actions',
+      headerClassName: tableHead,
+      accessor: (c: Customer) => (
+        <div className="flex items-center justify-end gap-1">
+          <button
+            onClick={(e) => { e.stopPropagation(); navigate(`/customers/edit/${c.id}`); }}
+            title="Edit customer"
+            aria-label="Edit customer"
+            className="p-1.5 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+          >
+            <Edit2 size={14} />
+          </button>
+          <button
+            onClick={(e) => void handleDelete(c, e)}
+            title="Delete customer"
+            aria-label="Delete customer"
+            className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+      ),
+      className: 'text-right',
+    },
   ];
 
   if (error) {

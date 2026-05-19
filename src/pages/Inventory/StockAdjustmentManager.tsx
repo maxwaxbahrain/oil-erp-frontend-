@@ -14,7 +14,8 @@ import {
     BarChart3,
     Package,
     Filter,
-    ClipboardList
+    ClipboardList,
+    Trash2
 } from 'lucide-react';
 import { aiStockService, type AIStockAdjustment, type AIInsight } from '../../services/aiStockService';
 import { getProducts, type Product } from '../../services/productService';
@@ -693,11 +694,27 @@ export default function StockAdjustmentManager() {
                                             <p className="text-sm font-bold text-gray-900">{d.productName}</p>
                                             <p className="text-xs text-gray-600">{d.note}</p>
                                         </div>
-                                        <div className="text-right">
-                                            <p className="text-xs font-black uppercase text-gray-700">{d.action}</p>
-                                            <p className="text-xs font-bold text-gray-500">
-                                                {d.quantityChange > 0 ? '+' : ''}{d.quantityChange}
-                                            </p>
+                                        <div className="flex items-start gap-3">
+                                            <div className="text-right">
+                                                <p className="text-xs font-black uppercase text-gray-700">{d.action}</p>
+                                                <p className="text-xs font-bold text-gray-500">
+                                                    {d.quantityChange > 0 ? '+' : ''}{d.quantityChange}
+                                                </p>
+                                            </div>
+                                            <button
+                                                onClick={() => {
+                                                    if (window.confirm('Delete this decision log entry?')) {
+                                                        const next = decisionLog.filter(x => x.id !== d.id);
+                                                        setDecisionLog(next);
+                                                        localStorage.setItem(DECISION_LOG_KEY, JSON.stringify(next));
+                                                    }
+                                                }}
+                                                className="p-1.5 text-gray-300 hover:text-rose-600 hover:bg-rose-50 rounded transition-all"
+                                                title="Delete this decision"
+                                                aria-label="Delete decision"
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
                                         </div>
                                     </div>
                                 ))}

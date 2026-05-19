@@ -113,6 +113,11 @@ export function CustomerSegments() {
                     messages: [{ role: 'user', content: `My customer segments: ${summary}. Give 3 targeted campaign ideas.` }]
                 })
             });
+            if (!res.ok) {
+                let detail = '';
+                try { detail = (await res.json())?.detail || ''; } catch { /* not JSON */ }
+                throw new Error(detail || `HTTP ${res.status}`);
+            }
             const d = await res.json();
             setAiInsight(d.reply || '');
         } catch { setAiInsight('Could not reach AI.'); }
@@ -291,9 +296,19 @@ export function MarketingAnalytics() {
                 <p className="text-sm font-black text-amber-800 mb-2">Connect Your Accounts for Live Analytics</p>
                 <p className="text-xs text-amber-700">To see real data, connect your social media and email accounts. Currently showing sample data.</p>
                 <div className="flex flex-wrap gap-2 mt-3">
-                    {['📧 Mailchimp', '💬 WhatsApp Business', '📘 Meta Business', '📱 Twilio SMS'].map((ch, i) => (
-                        <button key={i} className="text-xs px-3 py-1.5 bg-white border border-amber-300 rounded-lg text-amber-700 font-bold hover:bg-amber-100 transition-all">
-                            Connect {ch}
+                    {[
+                        { label: '📧 Mailchimp',         url: 'https://login.mailchimp.com/signup/' },
+                        { label: '💬 WhatsApp Business', url: 'https://business.whatsapp.com/' },
+                        { label: '📘 Meta Business',     url: 'https://business.facebook.com/' },
+                        { label: '📱 Twilio SMS',        url: 'https://www.twilio.com/try-twilio' },
+                    ].map((ch, i) => (
+                        <button
+                            key={i}
+                            onClick={() => window.open(ch.url, '_blank', 'noopener,noreferrer')}
+                            aria-label={`Connect ${ch.label} (opens in new tab)`}
+                            className="text-xs px-3 py-1.5 bg-white border border-amber-300 rounded-lg text-amber-700 font-bold hover:bg-amber-100 transition-all"
+                        >
+                            Connect {ch.label}
                         </button>
                     ))}
                 </div>

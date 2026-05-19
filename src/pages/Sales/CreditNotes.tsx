@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CalendarClock, FileText, Plus, Printer, X } from 'lucide-react';
-import { getCreditNotes, getCreditNoteStats, updateCreditNote, type CreditNote } from '../../services/creditNoteService';
+import { CalendarClock, FileText, Plus, Printer, X, Edit2 } from 'lucide-react';
+import { getCreditNotes, getCreditNoteStats, updateCreditNote, applyCreditToInvoice, type CreditNote } from '../../services/creditNoteService';
+import { getCustomerInvoices, type Invoice } from '../../services/api';
 
 const THEME = '#800020';
 type FilterTab = 'all' | 'draft' | 'issued' | 'used' | 'expired';
@@ -14,6 +15,11 @@ function badgeClass(status: string): string {
   if (status === 'cancelled') return 'bg-red-100 text-red-700';
   return 'bg-gray-100 text-gray-700';
 }
+
+// CLEANUP-1 — Removed bumpCachedCustomerBalance. Backend is authoritative
+// for customer.balance; cancelling/applying a CN flows through endpoints
+// the backend already reconciles. No localStorage cache merge happens on
+// getCustomers(), so the optimistic write was a dead operation.
 
 function reasonClass(reason: string): string {
   if (reason === 'overcharge') return 'bg-red-100 text-red-700';
@@ -30,6 +36,15 @@ export default function CreditNotes() {
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState<FilterTab>('all');
   const [stats, setStats] = useState<{ totalIssuedThisMonth: number; totalUsed: number; pendingUnused: number; expiringSoon: number } | null>(null);
+
+  // FIX W5-1 — Apply credit-to-invoice modal state.
+  const [applyingCN, setApplyingCN] = useState<CreditNote | null>(null);
+  const [applyInvoices, setApplyInvoices] = useState<Invoice[]>([]);
+  const [applyInvoiceId, setApplyInvoiceId] = useState('');
+  const [applyAmount, setApplyAmount] = useState(0);
+  const [applying, setApplying] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
+  const [applySuccess, setApplySuccess] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -67,12 +82,93 @@ export default function CreditNotes() {
   async function cancelNote(note: CreditNote) {
     if (!window.confirm(`Cancel ${note.creditNoteNumber}?`)) return;
     await updateCreditNote(note.id, { status: 'cancelled' });
+    // CLEANUP-1 — Removed optimistic balance restore. Backend reconciles
+    // customer.balance on CN status change; next list refetch reflects it.
     await load();
+  }
+
+  // FIX W5-1 — When the user opens the Apply modal for a CN, load the
+  // customer's invoices and filter to those with a remaining balance.
+  useEffect(() => {
+    if (!applyingCN) {
+      setApplyInvoices([]);
+      setApplyInvoiceId('');
+      setApplyAmount(0);
+      setApplyError(null);
+      return;
+    }
+    void (async () => {
+      try {
+        const invs = await getCustomerInvoices(applyingCN.customerId);
+        const open = invs.filter(i => (Number(i.remaining_balance ?? i.grandTotal ?? 0)) > 0);
+        setApplyInvoices(open);
+        // Auto-pick the original linked invoice if it's open + has balance.
+        const preferred = open.find(i => String(i.id) === String(applyingCN.originalInvoiceId));
+        if (preferred) {
+          setApplyInvoiceId(String(preferred.id));
+          const max = Math.min(applyingCN.remainingCredit, Number(preferred.remaining_balance ?? preferred.grandTotal ?? 0));
+          setApplyAmount(Number(max.toFixed(2)));
+        }
+      } catch (e) {
+        setApplyError(e instanceof Error ? e.message : 'Could not load customer invoices.');
+      }
+    })();
+  }, [applyingCN]);
+
+  // FIX W5-1 — Pick an invoice in the modal: auto-fill amount with max allowed.
+  function pickApplyInvoice(invId: string) {
+    setApplyInvoiceId(invId);
+    setApplyError(null);
+    if (!applyingCN) return;
+    const inv = applyInvoices.find(i => String(i.id) === String(invId));
+    if (!inv) return;
+    const max = Math.min(
+      applyingCN.remainingCredit,
+      Number(inv.remaining_balance ?? inv.grandTotal ?? 0)
+    );
+    setApplyAmount(Number(max.toFixed(2)));
+  }
+
+  async function confirmApplyCredit() {
+    if (!applyingCN) return;
+    const inv = applyInvoices.find(i => String(i.id) === String(applyInvoiceId));
+    if (!inv) {
+      setApplyError('Please select an invoice.');
+      return;
+    }
+    setApplying(true);
+    setApplyError(null);
+    try {
+      const { updatedCN } = await applyCreditToInvoice({
+        creditNote: applyingCN,
+        invoice: inv,
+        amount: applyAmount,
+      });
+      setApplySuccess(
+        `✅ Applied $${applyAmount.toFixed(2)} from ${applyingCN.creditNoteNumber} to invoice ${inv.invoiceNumber || `#${inv.id}`}. ` +
+        `CN status: ${updatedCN.status.replace('_', ' ')}.`
+      );
+      setApplyingCN(null);
+      await load();
+      setTimeout(() => setApplySuccess(null), 6000);
+    } catch (e) {
+      setApplyError(e instanceof Error ? e.message : 'Apply failed.');
+    } finally {
+      setApplying(false);
+    }
   }
 
   function printCreditNote(note: CreditNote) {
     const w = window.open('', '_blank', 'width=800,height=600');
-    if (!w) return;
+    if (!w) {
+      // TC-39 — Popup was blocked.  Tell the user instead of silently
+      // failing, which was the original bug ("Print not working").
+      alert(
+        'Please allow popups for this site to print credit notes.\n\n' +
+        'Alternative: use your browser\'s File → Print or Save as PDF.'
+      );
+      return;
+    }
     w.document.write(`
       <html><head><title>Credit Note ${note.creditNoteNumber}</title>
       <style>body{font-family:Arial,sans-serif;padding:30px;color:#111}
@@ -101,9 +197,12 @@ export default function CreditNotes() {
         <tr><td><strong>Remaining Credit</strong></td><td style="text-align:right" class="total">$${note.remainingCredit.toLocaleString()}</td></tr>
       </table>
       <br/><hr/><p style="font-size:11px;color:#999;text-align:center">SOLTOL ONE · Business Platform · Generated ${new Date().toLocaleDateString()}</p>
-      <script>setTimeout(()=>window.print(),300)</script>
       </body></html>`);
     w.document.close();
+    // Trigger print directly — avoids the inline-<script> route that
+    // stricter browser CSPs may block in document.write'd popups.
+    w.focus();
+    w.print();
   }
 
   return (
@@ -153,8 +252,16 @@ export default function CreditNotes() {
             </tr>
           </thead>
           <tbody>
-            {loading ? <tr><td colSpan={10} className="p-8 text-center">Loading...</td></tr> : filtered.map((r) => (
-              <tr key={r.id} className="border-t">
+            {loading ? <tr><td colSpan={10} className="p-8 text-center">Loading...</td></tr> : filtered.map((r) => {
+              // TASK 6 — Expired flag: issued CN past its expiry with credit still
+              // unused. We don't auto-cancel (per the brief) — just surface a red
+              // "Expired" badge so the user can take action.
+              const isExpired = r.status === 'issued'
+                && !!r.expiryDate
+                && new Date(r.expiryDate) < new Date()
+                && r.remainingCredit > 0;
+              return (
+              <tr key={r.id} className={`border-t ${isExpired ? 'bg-red-50/40' : ''}`}>
                 <td className="p-3 font-black">{r.creditNoteNumber}</td>
                 <td className="p-3">{r.customerName}</td>
                 <td className="p-3">{r.originalInvoiceNumber || '-'}</td>
@@ -163,21 +270,196 @@ export default function CreditNotes() {
                 <td className="p-3 text-right font-mono">${r.totalCreditAmount.toLocaleString()}</td>
                 <td className="p-3 text-right font-mono">${r.usedAmount.toLocaleString()}</td>
                 <td className={`p-3 text-right font-mono font-black ${r.remainingCredit > 0 ? 'text-orange-600' : ''}`}>${r.remainingCredit.toLocaleString()}</td>
-                <td className="p-3 text-center"><span className={`px-2 py-1 rounded text-xs font-black uppercase ${badgeClass(r.status)}`}>{r.status.replace('_', ' ')}</span></td>
+                <td className="p-3 text-center">
+                  <div className="flex items-center justify-center gap-1 flex-wrap">
+                    <span className={`px-2 py-1 rounded text-xs font-black uppercase ${badgeClass(r.status)}`}>{r.status.replace('_', ' ')}</span>
+                    {/* TASK 6 — Expiry warning badge. Sits next to the status
+                        badge so users see both the official status AND the
+                        passed-expiry signal without losing existing context. */}
+                    {isExpired && (
+                      <span
+                        className="px-2 py-1 rounded text-xs font-black uppercase bg-red-100 text-red-700 border border-red-200"
+                        title={`Expired ${new Date(r.expiryDate!).toLocaleDateString()} with $${r.remainingCredit.toLocaleString()} unused`}
+                      >
+                        Expired
+                      </span>
+                    )}
+                  </div>
+                </td>
                 <td className="p-3">
                   <div className="flex items-center justify-center gap-2 flex-wrap">
                     <button className="text-xs font-bold underline" onClick={() => navigate(`/sales/credit-notes/${r.id}`)}>View</button>
                     <button className="flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800" onClick={() => printCreditNote(r)}><Printer size={11}/>Print</button>
-                    <button className="text-xs font-bold underline" onClick={() => navigate('/sales/invoices')}>Apply</button>
+                    {/* FIX W2-6 — Edit only allowed for Draft + Issued (not used or cancelled). */}
+                    {(r.status === 'draft' || r.status === 'issued') && (
+                      <button
+                        className="flex items-center gap-1 text-xs font-bold text-gray-600 hover:text-gray-900"
+                        onClick={() => navigate(`/sales/credit-notes/edit/${r.id}`)}
+                      >
+                        <Edit2 size={11} /> Edit
+                      </button>
+                    )}
+                    {/* FIX W5-1 — Apply opens the allocation modal. Only shown
+                        when there's credit left and the CN is in a usable state. */}
+                    {r.remainingCredit > 0 && r.status !== 'cancelled' && r.status !== 'draft' && (
+                      <button
+                        className="text-xs font-bold text-emerald-700 hover:text-emerald-900 underline"
+                        onClick={() => setApplyingCN(r)}
+                      >
+                        Apply
+                      </button>
+                    )}
                     {r.status !== 'cancelled' && <button className="flex items-center gap-1 text-xs font-bold text-red-600 hover:text-red-800" onClick={() => void cancelNote(r)}><X size={11}/>Cancel</button>}
                   </div>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
       <div className="text-xs text-gray-400 flex items-center gap-2"><CalendarClock size={14} /> Theme-aligned credit tracking</div>
+
+      {/* FIX W5-1 — Success banner after applying credit. */}
+      {applySuccess && (
+        <div className="fixed top-6 right-6 z-50 bg-emerald-50 border-l-4 border-emerald-500 px-5 py-3 rounded-r-lg shadow-lg max-w-md">
+          <p className="text-sm font-bold text-emerald-900">{applySuccess}</p>
+        </div>
+      )}
+
+      {/* FIX W5-1 — Apply Credit to Invoice modal. */}
+      {applyingCN && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden">
+            <div className="px-6 py-5 border-b border-gray-100 flex items-start justify-between" style={{ background: THEME, color: 'white' }}>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest opacity-80">Apply Credit Note</p>
+                <h3 className="text-xl font-black mt-1">{applyingCN.creditNoteNumber}</h3>
+                <p className="text-xs opacity-90 mt-1">
+                  {applyingCN.customerName} · Available credit: ${applyingCN.remainingCredit.toFixed(2)}
+                </p>
+              </div>
+              <button
+                onClick={() => setApplyingCN(null)}
+                className="p-2 rounded-lg hover:bg-white/10"
+                aria-label="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              <div>
+                <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">
+                  Select Invoice
+                </label>
+                {applyInvoices.length === 0 ? (
+                  <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg p-4">
+                    {applyError ? applyError : 'No open invoices found for this customer.'}
+                  </div>
+                ) : (
+                  <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-64 overflow-y-auto">
+                    {applyInvoices.map(inv => {
+                      const bal = Number(inv.remaining_balance ?? inv.grandTotal ?? 0);
+                      const selected = String(inv.id) === String(applyInvoiceId);
+                      return (
+                        <label
+                          key={inv.id}
+                          className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors ${selected ? 'bg-emerald-50' : 'hover:bg-gray-50'}`}
+                        >
+                          <input
+                            type="radio"
+                            name="apply-invoice"
+                            checked={selected}
+                            onChange={() => pickApplyInvoice(String(inv.id))}
+                          />
+                          <div className="flex-1">
+                            <div className="text-sm font-bold text-gray-900">{inv.invoiceNumber || `#${inv.id}`}</div>
+                            <div className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">
+                              {inv.invoiceDate ? new Date(inv.invoiceDate).toLocaleDateString() : '—'} · Total ${Number(inv.grandTotal ?? 0).toFixed(2)}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-sm font-mono font-black text-red-600">${bal.toFixed(2)}</div>
+                            <div className="text-[9px] text-gray-400 uppercase font-bold tracking-widest">Outstanding</div>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {applyInvoiceId && (
+                <div>
+                  <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">
+                    Amount to Apply
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={applyAmount}
+                      onChange={(e) => { setApplyAmount(parseFloat(e.target.value) || 0); setApplyError(null); }}
+                      className="flex-1 px-4 py-3 border border-gray-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const inv = applyInvoices.find(i => String(i.id) === String(applyInvoiceId));
+                        if (!inv || !applyingCN) return;
+                        const max = Math.min(
+                          applyingCN.remainingCredit,
+                          Number(inv.remaining_balance ?? inv.grandTotal ?? 0)
+                        );
+                        setApplyAmount(Number(max.toFixed(2)));
+                      }}
+                      className="px-4 py-3 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-black uppercase tracking-widest"
+                    >
+                      Apply Max
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-2">
+                    Max allowed: ${Math.min(
+                      applyingCN.remainingCredit,
+                      Number(applyInvoices.find(i => String(i.id) === String(applyInvoiceId))?.remaining_balance ?? applyInvoices.find(i => String(i.id) === String(applyInvoiceId))?.grandTotal ?? 0)
+                    ).toFixed(2)}
+                  </p>
+                </div>
+              )}
+
+              {applyError && (
+                <div className="text-xs font-bold text-red-700 bg-red-50 border border-red-100 rounded-lg p-3">
+                  {applyError}
+                </div>
+              )}
+
+              <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-3">
+                ℹ️ This will record a ledger entry with payment method "Credit Note" linking the CN to the invoice. The invoice's outstanding balance will reduce by the amount applied.
+              </p>
+            </div>
+
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex gap-3">
+              <button
+                onClick={() => setApplyingCN(null)}
+                disabled={applying}
+                className="flex-1 py-3 bg-white border border-gray-200 text-xs font-black uppercase tracking-widest text-gray-600 rounded-lg hover:bg-gray-100 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmApplyCredit}
+                disabled={applying || !applyInvoiceId || applyAmount <= 0}
+                className="flex-[2] py-3 text-white text-xs font-black uppercase tracking-widest rounded-lg shadow-lg hover:opacity-90 disabled:opacity-40"
+                style={{ background: THEME }}
+              >
+                {applying ? 'Applying…' : 'Apply Credit'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

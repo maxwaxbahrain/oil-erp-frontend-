@@ -242,7 +242,11 @@ export default function ProductCatalog() {
                                 <Trash2 size={18} />
                                 {clearing ? `Deleting ${clearProgress}/${products.length}…` : `Delete All (${products.length})`}
                             </button>
-                            <button className="p-5 bg-gray-50 border border-gray-100 text-gray-600 rounded-2xl hover:bg-white hover:border-gray-900 transition-all">
+                            <button
+                                onClick={() => window.print()}
+                                aria-label="Print catalog"
+                                className="p-5 bg-gray-50 border border-gray-100 text-gray-600 rounded-2xl hover:bg-white hover:border-gray-900 transition-all"
+                            >
                                 <Download size={20} />
                             </button>
                         </div>
@@ -272,8 +276,14 @@ export default function ProductCatalog() {
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                    <button className="px-4 py-2 text-[9px] font-black uppercase tracking-widest text-gray-400 hover:text-gray-900 transition-all">Edit Category</button>
-                                    <button className="px-4 py-2 bg-gray-50 text-[9px] font-black uppercase tracking-widest text-gray-600 rounded-lg hover:bg-gray-100 transition-all">+ Add Product to This Category</button>
+                                    <button
+                                        onClick={() => navigate('/products')}
+                                        className="px-4 py-2 text-[9px] font-black uppercase tracking-widest text-gray-400 hover:text-gray-900 transition-all"
+                                    >Edit Category</button>
+                                    <button
+                                        onClick={() => navigate(`/products/new?category=${encodeURIComponent(category)}`)}
+                                        className="px-4 py-2 bg-gray-50 text-[9px] font-black uppercase tracking-widest text-gray-600 rounded-lg hover:bg-gray-100 transition-all"
+                                    >+ Add Product to This Category</button>
                                 </div>
                             </div>
 
@@ -451,8 +461,16 @@ export default function ProductCatalog() {
                                                         </td>
                                                         <td className="px-8 py-4 text-center">
                                                             <div className="flex justify-center gap-1">
-                                                                <button className="p-2 text-gray-400 hover:text-gray-900 transition-all"><Eye size={18} /></button>
-                                                                <button className="p-2 text-gray-400 hover:text-gray-900 transition-all"><Edit2 size={18} /></button>
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); navigate(`/products/${product.id}`); }}
+                                                                    aria-label="View product"
+                                                                    className="p-2 text-gray-400 hover:text-gray-900 transition-all"
+                                                                ><Eye size={18} /></button>
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); navigate(`/products/edit/${product.id}`); }}
+                                                                    aria-label="Edit product"
+                                                                    className="p-2 text-gray-400 hover:text-gray-900 transition-all"
+                                                                ><Edit2 size={18} /></button>
                                                                 <button onClick={(e)=>{e.stopPropagation();handleDelete(product.id,product.name);}} className="p-2 text-gray-400 hover:text-rose-600 transition-all"><Trash2 size={18} /></button>
                                                             </div>
                                                         </td>

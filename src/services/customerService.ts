@@ -271,27 +271,11 @@ export async function getCustomers(): Promise<Customer[]> {
     }
 }
 
-/**
- * The backend's stored customer.balance is out of sync: BETTANO-set the field to
- * the outstanding amount, then payment POSTs decremented it again, leaving most
- * customers showing nonsense negative numbers in the list.
- *
- * The BETTANO importer wrote the correct outstanding into the customer's notes
- * field ("BETTANO | Owes: $X.XX"). We trust that for the customer list display.
- * Returns { [customerId]: outstanding } for customers where notes parse cleanly.
- */
-export function customerBalancesFromNotes(customers: Customer[]): Record<string, number> {
-    const out: Record<string, number> = {};
-    for (const c of customers) {
-        const notes = (c as unknown as { notes?: string }).notes;
-        if (!notes) continue;
-        const m = /Owes:\s*\$?(-?[\d,]+(?:\.\d+)?)/i.exec(notes);
-        if (!m) continue;
-        const num = Number(m[1].replace(/,/g, ''));
-        if (Number.isFinite(num)) out[String(c.id)] = num;
-    }
-    return out;
-}
+// CLEANUP-2 — Removed customerBalancesFromNotes. The BETTANO 'Owes:'
+// notes format is written by DataMigration.tsx during one-shot CSV
+// import but the live runtime never reads it — backend's customer.balance
+// is the trusted source (per CustomerList.tsx:33-36 and the PHASE-3
+// consistency check). Function had no callers in the codebase.
 
 export async function getCustomer(id: string): Promise<Customer> {
     if (USE_MOCK) {

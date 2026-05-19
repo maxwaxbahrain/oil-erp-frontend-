@@ -598,6 +598,17 @@ export async function getEmployees(): Promise<Employee[]> {
     });
 }
 
+// FIX W2-5 — Hard-delete an employee from the localStorage roster.
+// Storage is purely client-side so this is a synchronous removal wrapped
+// in a Promise for API symmetry with the rest of payrollService.
+export async function deleteEmployee(id: string): Promise<void> {
+    return new Promise((resolve) => {
+        const employees = getInitialEmployees().filter(e => e.id !== id);
+        localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
+        setTimeout(() => resolve(), 60);
+    });
+}
+
 export async function saveEmployee(employee: Partial<Employee>): Promise<Employee> {
     return new Promise((resolve) => {
         const employees = getInitialEmployees();
@@ -725,29 +736,9 @@ export async function askPayrollAI(question: string): Promise<string> {
     });
 }
 
-// Send payslip to individual employee (Email + SMS)
-export async function sendPayslipToEmployee(_employeeId: string, employeeName: string, email: string): Promise<void> {
-    return new Promise((resolve) => {
-        setTimeout(() => {
-            console.log(`📧 Payslip sent to ${employeeName} at ${email}`);
-            console.log(`📱 SMS notification sent to ${employeeName}`);
-            resolve();
-        }, 1000);
-    });
-}
-
-// Auto-send payslips to ALL employees (Email + SMS)
-export async function sendAllPayslips(employees: Employee[]): Promise<number> {
-    return new Promise((resolve) => {
-        setTimeout(() => {
-            employees.forEach(emp => {
-                console.log(`📧 Payslip sent to ${emp.name} at ${emp.email}`);
-                console.log(`📱 SMS sent to ${emp.name}`);
-            });
-            resolve(employees.length);
-        }, 2000);
-    });
-}
+// CLEANUP-3 — Removed sendPayslipToEmployee + sendAllPayslips. They were
+// console.log stubs that never actually sent email/SMS. W4-4 orphaned
+// them from the UI (Send buttons removed). No callers remain.
 
 // Generate payslip PDF (simulated)
 export async function generatePayslipPDF(payrollItem: PayrollItem, _employee: Employee): Promise<string> {

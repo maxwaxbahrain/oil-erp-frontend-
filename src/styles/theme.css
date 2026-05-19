@@ -117,3 +117,29 @@ body {
 .oracle-button-secondary:hover {
   background-color: var(--redwood-bg-light);
 }
+
+/* FIX W4-3 — Scoped print. The `printSection(name)` helper marks one
+   element with [data-print-target] and sets body.printing-section so
+   this rule hides everything else (sidebar, nav, other modals, etc.).
+   App chrome already uses Tailwind's `print:hidden`; this is the
+   safety net for everything else and the explicit positioning needed
+   to push the printable region to the top-left of the page. */
+@media print {
+  body.printing-section * { visibility: hidden !important; }
+  body.printing-section [data-print-target],
+  body.printing-section [data-print-target] * {
+    visibility: visible !important;
+  }
+  body.printing-section [data-print-target] {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    margin: 0 !important;
+    padding: 16px !important;
+    background: white !important;
+    box-shadow: none !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+}

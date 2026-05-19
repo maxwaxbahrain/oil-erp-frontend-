@@ -190,6 +190,11 @@ RULES:
                 })
             });
 
+            if (!res.ok) {
+                let detail = '';
+                try { detail = (await res.json())?.detail || ''; } catch { /* not JSON */ }
+                throw new Error(detail || `HTTP ${res.status}`);
+            }
             const data = await res.json();
             const reply = data.reply || 'Sorry, I had trouble processing that. Please try again.';
 

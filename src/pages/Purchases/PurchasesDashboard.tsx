@@ -12,9 +12,11 @@ import {
     CheckCircle,
     X,
     XCircle,
+    Edit2,
+    Trash2,
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { getPurchaseOrders, approvePurchaseOrder, rejectPurchaseOrder, confirmGRN, markPOPaid, type PurchaseOrder } from '../../services/purchasesService';
+import { getPurchaseOrders, approvePurchaseOrder, rejectPurchaseOrder, confirmGRN, markPOPaid, deletePurchaseOrder, updatePurchaseOrder, type PurchaseOrder } from '../../services/purchasesService';
 const PurchasesDashboard = () => {
     const navigate = useNavigate();
     const location = useLocation();
@@ -23,6 +25,11 @@ const PurchasesDashboard = () => {
     const [successMessage, setSuccessMessage] = useState('');
     // PO under review — when set, the approve/reject modal is shown.
     const [reviewPO, setReviewPO] = useState<PurchaseOrder | null>(null);
+    // FIX W2-4 — Quick-Edit modal state (Draft POs only, notes + expected date).
+    const [editPO, setEditPO] = useState<PurchaseOrder | null>(null);
+    const [editNotes, setEditNotes] = useState('');
+    const [editExpectedDate, setEditExpectedDate] = useState('');
+    const [savingEdit, setSavingEdit] = useState(false);
 
     useEffect(() => {
         // Fetch purchase orders
@@ -97,14 +104,50 @@ const PurchasesDashboard = () => {
     };
 
     const handleGRN = async (id: string) => {
-        if (!confirm('Confirm Goods Received (GRN)?\n\nThis will INCREASE warehouse stock for all items in this PO.')) return;
+        // FIX W3-3 — Pre-flight warning when PO lines have no productId.
+        // Those lines will silently skip stock updates (and post-fact W3-2
+        // also reports it), but the user deserves to know BEFORE confirming.
+        const targetPO = purchaseOrders.find(o => String(o.id) === String(id));
+        const allItems = targetPO?.items || [];
+        const unlinked = allItems.filter(it => !it.productId);
+        const linkedCount = allItems.length - unlinked.length;
+        let prompt = 'Confirm Goods Received (GRN)?\n\nThis will INCREASE warehouse stock for all items in this PO.';
+        if (unlinked.length > 0) {
+            const names = unlinked.map(it => it.productName || '(unnamed line)');
+            const list = names.length <= 5
+                ? names.join('\n  • ')
+                : `${names.slice(0, 5).join('\n  • ')}\n  • +${names.length - 5} more`;
+            prompt = `⚠️ Warning — ${unlinked.length} of ${allItems.length} line item(s) have no product linked and will NOT update inventory:\n\n  • ${list}\n\nOnly ${linkedCount} item(s) will affect stock.\n\nContinue with GRN anyway?`;
+        }
+        if (!confirm(prompt)) return;
         try {
-            await confirmGRN(id);
+            // FIX W3-2 — confirmGRN now returns per-item attempt / success /
+            // failure counts so we can show an honest banner instead of
+            // unconditionally claiming success.
+            const result = await confirmGRN(id);
             const updated = await getPurchaseOrders();
             setPurchaseOrders(updated);
-            setSuccessMessage('✅ GRN Confirmed! Warehouse stock has been updated.');
+
+            const failNames = result.failures
+                .map(f => f.productName || f.productId);
+            const skipNames = result.skipped.map(s => s.productName || '(unnamed line)');
+            const truncate = (xs: string[]) =>
+                xs.length <= 5 ? xs.join(', ') : `${xs.slice(0, 5).join(', ')} +${xs.length - 5} more`;
+
+            let msg: string;
+            if (result.failures.length === 0 && result.skipped.length === 0) {
+                msg = '✅ GRN Confirmed! Warehouse stock has been updated.';
+            } else if (result.failures.length === 0 && result.skipped.length > 0) {
+                msg = `⚠️ GRN posted. ${result.succeeded}/${result.attempted} items updated. ${result.skipped.length} line(s) had no product link and were skipped: ${truncate(skipNames)}.`;
+            } else if (result.succeeded === 0) {
+                msg = `❌ GRN posted but NO stock was updated. ${result.failures.length} item(s) failed: ${truncate(failNames)}.`;
+            } else {
+                msg = `⚠️ Stock updated for ${result.succeeded}/${result.attempted} items. Failed: ${truncate(failNames)}.`;
+            }
+            setSuccessMessage(msg);
             setShowSuccess(true);
-            setTimeout(() => setShowSuccess(false), 5000);
+            // Longer hold so users can read multi-line failure lists.
+            setTimeout(() => setShowSuccess(false), result.failures.length || result.skipped.length ? 9000 : 5000);
         } catch (e: any) { alert('Error: ' + e.message); }
     };
 
@@ -119,6 +162,66 @@ const PurchasesDashboard = () => {
             setShowSuccess(true);
             setTimeout(() => setShowSuccess(false), 5000);
         } catch (e: any) { alert('Error: ' + e.message); }
+    };
+
+    // FIX W2-4 + W3-5 — Per-row Delete for pre-approval statuses
+    // (Draft or Pending). Backend may further enforce; if it rejects,
+    // the catch block translates the error to a friendly message.
+    const handleDeletePO = async (po: PurchaseOrder, e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (po.status !== 'Draft' && po.status !== 'Pending') {
+            alert('Only Draft or Pending purchase orders can be deleted. Reject approved POs instead.');
+            return;
+        }
+        if (!window.confirm(`Delete purchase order ${po.poNumber}? This cannot be undone.`)) return;
+        try {
+            await deletePurchaseOrder(po.id);
+            setPurchaseOrders(prev => prev.filter(x => String(x.id) !== String(po.id)));
+        } catch (err) {
+            const raw = err instanceof Error ? err.message : String(err);
+            const friendly = /foreign key|reference|constraint|in use|linked|associated|409|400/i.test(raw)
+                ? 'Cannot delete — this PO already has GRN or payment activity. Reject it instead.'
+                : `Could not delete PO: ${raw}`;
+            alert(friendly);
+        }
+    };
+
+    // FIX W2-4 + W3-5 — Quick-Edit available for pre-approval statuses
+    // (Draft or Pending). Lets users fix notes / expected date BEFORE
+    // approvers act on the PO.
+    const handleEditPO = (po: PurchaseOrder, e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (po.status !== 'Draft' && po.status !== 'Pending') {
+            alert('Only Draft or Pending purchase orders can be edited from this screen.');
+            return;
+        }
+        setEditPO(po);
+        setEditNotes(po.notes || '');
+        setEditExpectedDate(po.expectedDate ? String(po.expectedDate).slice(0, 10) : '');
+    };
+
+    // FIX W2-4 — Save quick-edit. Backend may silently ignore expected_date
+    // if the field isn't in its update schema; notes are reliably persisted.
+    const handleSaveEditPO = async () => {
+        if (!editPO) return;
+        setSavingEdit(true);
+        try {
+            await updatePurchaseOrder(editPO.id, {
+                notes: editNotes,
+                expectedDate: editExpectedDate || undefined,
+            } as any);
+            const updated = await getPurchaseOrders();
+            setPurchaseOrders(updated);
+            setEditPO(null);
+            setSuccessMessage('✅ Purchase order updated.');
+            setShowSuccess(true);
+            setTimeout(() => setShowSuccess(false), 5000);
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            alert(`Could not save changes: ${msg}`);
+        } finally {
+            setSavingEdit(false);
+        }
     };
 
     return (
@@ -276,6 +379,25 @@ const PurchasesDashboard = () => {
                                                         </button>
                                                     </>
                                                 )}
+                                                {/* FIX W2-4 + W3-5 — Edit + Delete on pre-approval statuses (Draft or Pending) */}
+                                                {(order.status === 'Draft' || order.status === 'Pending') && (
+                                                    <>
+                                                        <button
+                                                            onClick={(e) => handleEditPO(order, e)}
+                                                            title="Edit PO (notes + expected date)"
+                                                            className="p-1.5 rounded text-gray-400 hover:text-redwood-brand hover:bg-redwood-bg-light transition-all"
+                                                        >
+                                                            <Edit2 size={14} />
+                                                        </button>
+                                                        <button
+                                                            onClick={(e) => handleDeletePO(order, e)}
+                                                            title="Delete PO"
+                                                            className="p-1.5 rounded text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition-all"
+                                                        >
+                                                            <Trash2 size={14} />
+                                                        </button>
+                                                    </>
+                                                )}
                                                 {order.status === 'Rejected' && (
                                                     <span className="px-3 py-1.5 bg-rose-100 text-rose-700 text-[10px] font-black uppercase tracking-wide rounded border border-rose-200">
                                                         🚫 Rejected
@@ -410,6 +532,78 @@ const PurchasesDashboard = () => {
                                 className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-black hover:bg-blue-700 transition-all"
                             >
                                 <CheckCircle size={16} /> Approve
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* FIX W2-4 — Quick-Edit modal (Draft PO, notes + expected date only).
+                Line-item editing is intentionally out of scope here — it requires
+                a backend item-update endpoint that doesn't exist yet. */}
+            {editPO && (
+                <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg flex flex-col">
+                        <div className="flex items-start justify-between p-6 border-b border-gray-100">
+                            <div>
+                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Quick Edit · Draft PO</p>
+                                <h3 className="text-xl font-black text-gray-900 mt-1">{editPO.poNumber}</h3>
+                                <p className="text-xs text-gray-500 mt-0.5">
+                                    {editPO.supplierName} · ${editPO.grandTotal.toFixed(2)}
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => setEditPO(null)}
+                                className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        <div className="px-6 py-4 space-y-4">
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">
+                                    Expected Delivery Date
+                                </label>
+                                <input
+                                    type="date"
+                                    value={editExpectedDate}
+                                    onChange={(e) => setEditExpectedDate(e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-redwood-brand/30"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">
+                                    Notes
+                                </label>
+                                <textarea
+                                    value={editNotes}
+                                    onChange={(e) => setEditNotes(e.target.value)}
+                                    rows={4}
+                                    placeholder="Internal notes for this PO…"
+                                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-redwood-brand/30 resize-none"
+                                />
+                            </div>
+                            <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-100 rounded p-2">
+                                ⚠️ Line items, quantities, and prices can't be edited here.
+                                To change those, delete this Draft PO and create a new one.
+                            </p>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-gray-100 bg-gray-50">
+                            <button
+                                onClick={() => setEditPO(null)}
+                                disabled={savingEdit}
+                                className="px-5 py-2.5 bg-white border border-gray-200 text-gray-600 rounded-lg text-sm font-black hover:bg-gray-50 transition-all disabled:opacity-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleSaveEditPO}
+                                disabled={savingEdit}
+                                className="flex items-center gap-2 px-5 py-2.5 bg-redwood-brand text-white rounded-lg text-sm font-black hover:opacity-90 transition-all disabled:opacity-50"
+                            >
+                                {savingEdit ? 'Saving…' : 'Save Changes'}
                             </button>
                         </div>
                     </div>

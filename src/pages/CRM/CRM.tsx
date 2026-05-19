@@ -659,6 +659,11 @@ export default function CRM() {
                                                     messages: [{ role: 'user', content: `Analyze this deal: Customer: ${editDeal?.customerName}, Product: ${editDeal?.product || 'Oil products'}, Value: $${editDeal?.value}, Stage: ${editDeal?.stage}, Probability: ${editDeal?.probability}%, Source: ${editDeal?.source}. Notes: ${editDeal?.notes || 'None'}. Give me the top 2 actions to close this deal.` }]
                                                 })
                                             });
+                                            if (!res.ok) {
+                                                let detail = '';
+                                                try { detail = (await res.json())?.detail || ''; } catch { /* not JSON */ }
+                                                throw new Error(detail || `HTTP ${res.status}`);
+                                            }
                                             const d = await res.json();
                                             const el = document.getElementById('ai-deal-result');
                                             if (el) { el.textContent = d.reply || 'No analysis returned.'; el.style.display = 'block'; }

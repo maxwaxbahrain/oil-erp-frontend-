@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Soltol ONE — Mobile View Preview</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root {
+    --redwood-brand:       #800020;
+    --redwood-midnight:    #1a1d2e;
+    --redwood-slate:       #2d3142;
+    --redwood-text-main:   #1a1d2e;
+    --redwood-text-muted:  #6b7280;
+    --redwood-bg-light:    #f5f3ee;
+    --redwood-border:      #e5e1d8;
+    --redwood-secondary:   #8b8678;
+    --redwood-primary:     #800020;
+  }
+  body { font-family: 'Inter', system-ui, sans-serif; background: #f5f5f5; }
+  .text-redwood-brand     { color: var(--redwood-brand); }
+  .text-redwood-text-main { color: var(--redwood-text-main); }
+  .text-redwood-text-muted{ color: var(--redwood-text-muted); }
+  .text-redwood-secondary { color: var(--redwood-secondary); }
+  .text-redwood-primary   { color: var(--redwood-primary); }
+  .bg-redwood-brand       { background-color: var(--redwood-brand); }
+  .bg-redwood-midnight    { background-color: var(--redwood-midnight); }
+  .bg-redwood-slate       { background-color: var(--redwood-slate); }
+  .bg-redwood-bg-light    { background-color: var(--redwood-bg-light); }
+  .border-redwood-border  { border-color: var(--redwood-border); }
+  .border-redwood-brand   { border-color: var(--redwood-brand); }
+  .device-frame {
+    border: 12px solid #1a1a1a; border-radius: 32px;
+    background: #1a1a1a; box-shadow: 0 30px 60px rgba(0,0,0,0.3);
+    overflow: hidden;
+  }
+  .device-frame .screen { background: #f0f2f5; overflow-y: auto; height: 100%; }
+  /* Mock the iPhone notch */
+  .notch {
+    height: 24px; background: #1a1a1a; position: relative;
+  }
+  .notch::after {
+    content: ""; position: absolute; left: 50%; top: 0; transform: translateX(-50%);
+    width: 120px; height: 24px; background: #000; border-radius: 0 0 16px 16px;
+  }
+</style>
+</head>
+<body class="p-4 md:p-10">
+
+<div class="max-w-6xl mx-auto">
+  <h1 class="text-2xl font-black mb-2 text-gray-900">Soltol ONE — Mobile View Preview</h1>
+  <p class="text-sm text-gray-600 mb-8">Three states side-by-side. Each device frame is 375px wide (iPhone portrait). Tap the buttons inside to interact.</p>
+
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+    <!-- ============ STATE 1: Default ============ -->
+    <div>
+      <div class="mb-3">
+        <span class="inline-block text-[10px] font-black uppercase tracking-widest bg-emerald-100 text-emerald-700 px-2 py-1 rounded">State 1 · Default</span>
+        <p class="text-xs text-gray-500 mt-1">Sidebar auto-collapsed on mobile</p>
+      </div>
+      <div class="device-frame" style="width:375px;height:700px;">
+        <div class="notch"></div>
+        <div class="screen flex flex-col h-[676px]">
+          <!-- Header: ☰  🔔  ❓  AQ -->
+          <header class="h-[64px] bg-white border-b border-redwood-border px-3 flex items-center justify-between sticky top-0 z-30 shadow-sm shrink-0">
+            <button class="p-2 text-redwood-text-muted hover:bg-redwood-bg-light rounded-sm border border-transparent" aria-label="Toggle sidebar">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+            </button>
+            <div class="flex items-center gap-2">
+              <button class="p-2.5 text-redwood-text-muted hover:bg-redwood-bg-light rounded-sm relative" aria-label="Notifications">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2a2 2 0 01-.6 1.4L4 17h5m6 0a3 3 0 11-6 0m6 0H9"/></svg>
+                <span class="absolute top-2 right-2 w-2 h-2 bg-redwood-brand rounded-full border-2 border-white"></span>
+              </button>
+              <button class="p-2.5 text-redwood-text-muted hover:bg-redwood-bg-light rounded-sm" aria-label="Help">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.2 9a3 3 0 015.8 1c0 2-3 3-3 3M12 17h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              </button>
+              <div class="relative ml-1">
+                <div class="w-10 h-10 rounded-sm bg-redwood-slate flex items-center justify-center text-white text-xs font-black border-2 border-white shadow">AQ</div>
+                <div class="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 rounded-full border-2 border-white"></div>
+              </div>
+            </div>
+          </header>
+
+          <!-- Page content (Dashboard sample) -->
+          <main class="flex-1 overflow-y-auto p-3 bg-[#F8F9FA]">
+            <h2 class="text-xl font-black text-gray-900 mb-1 uppercase tracking-tight">Dashboard</h2>
+            <p class="text-xs text-gray-500 mb-4">Tap ☰ to open the menu</p>
+            <div class="space-y-3">
+              <div class="bg-white p-4 rounded-lg border border-gray-100 shadow-sm">
+                <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Total Revenue</div>
+                <div class="text-2xl font-black text-gray-900">$124,500</div>
+                <div class="text-[10px] text-emerald-600 mt-1 font-bold">↑ 12.4%</div>
+              </div>
+              <div class="bg-white p-4 rounded-lg border border-gray-100 shadow-sm">
+                <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Active Customers</div>
+                <div class="text-2xl font-black text-gray-900">1,243</div>
+              </div>
+              <div class="bg-white p-4 rounded-lg border border-gray-100 shadow-sm">
+                <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Unpaid Invoices</div>
+                <div class="text-2xl font-black text-rose-600">$48,200</div>
+                <div class="text-[10px] text-rose-600 mt-1 font-bold">3 overdue</div>
+              </div>
+              <div class="bg-white p-4 rounded-lg border border-gray-100 shadow-sm">
+                <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Low Stock</div>
+                <div class="text-2xl font-black text-amber-600">5 products</div>
+              </div>
+            </div>
+          </main>
+
+          <!-- Footer -->
+          <footer class="h-10 bg-white border-t border-redwood-border px-3 flex items-center justify-between text-[10px] font-bold text-redwood-text-muted uppercase tracking-widest shrink-0">
+            <span class="text-redwood-brand">SOLTOL ONE</span>
+            <span class="text-redwood-text-main">© 2025</span>
+          </footer>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ STATE 2: Drawer open ============ -->
+    <div>
+      <div class="mb-3">
+        <span class="inline-block text-[10px] font-black uppercase tracking-widest bg-blue-100 text-blue-700 px-2 py-1 rounded">State 2 · Drawer Open</span>
+        <p class="text-xs text-gray-500 mt-1">User tapped ☰ — sidebar overlays content</p>
+      </div>
+      <div class="device-frame" style="width:375px;height:700px;">
+        <div class="notch"></div>
+        <div class="screen relative h-[676px] overflow-hidden">
+          <!-- Same content underneath -->
+          <div class="absolute inset-0 flex flex-col">
+            <header class="h-[64px] bg-white border-b border-redwood-border px-3 flex items-center justify-between shrink-0">
+              <div class="p-2"><svg class="w-5 h-5 text-redwood-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg></div>
+              <div class="w-10 h-10 rounded-sm bg-redwood-slate"></div>
+            </header>
+            <main class="flex-1 bg-[#F8F9FA] p-3 opacity-60">
+              <div class="h-20 bg-white rounded-lg mb-3 shadow-sm"></div>
+              <div class="h-20 bg-white rounded-lg mb-3 shadow-sm"></div>
+              <div class="h-20 bg-white rounded-lg mb-3 shadow-sm"></div>
+            </main>
+          </div>
+
+          <!-- Backdrop -->
+          <div class="absolute inset-0 bg-black/40 z-30"></div>
+
+          <!-- Sidebar drawer (260px) -->
+          <aside class="absolute inset-y-0 left-0 w-[260px] bg-redwood-midnight text-white z-40 flex flex-col shadow-2xl">
+            <div class="px-5 py-4 border-b border-white/10">
+              <div class="text-[10px] font-black text-redwood-brand uppercase tracking-widest">SOLTOL ONE</div>
+              <div class="text-xs text-white/60 mt-0.5">Soltol One</div>
+            </div>
+            <nav class="flex-1 overflow-y-auto py-3">
+              <div class="px-2 space-y-0.5">
+                <div class="flex items-center gap-3 px-3 py-2.5 rounded text-[12px] text-white bg-white/5 font-bold">
+                  <span>🏠</span> Dashboard
+                </div>
+                <div class="flex items-center gap-3 px-3 py-2.5 rounded text-[12px] text-white/70 hover:bg-white/5">
+                  <span>📦</span> Inventory <span class="ml-auto text-[10px]">▾</span>
+                </div>
+                <div class="flex items-center gap-3 px-3 py-2.5 rounded text-[12px] text-white/70 hover:bg-white/5">
+                  <span>💰</span> Sales <span class="ml-auto text-[10px]">▾</span>
+                </div>
+                <div class="flex items-center gap-3 px-3 py-2.5 rounded text-[12px] text-white/70 hover:bg-white/5">
+                  <span>📊</span> Reports <span class="ml-auto text-[10px]">▾</span>
+                </div>
+                <div class="flex items-center gap-3 px-3 py-2.5 rounded text-[12px] text-white/70 hover:bg-white/5">
+                  <span>👥</span> Customers <span class="ml-auto text-[10px]">▾</span>
+                </div>
+                <div class="flex items-center gap-3 px-3 py-2.5 rounded text-[12px] text-white/70 hover:bg-white/5">
+                  <span>🏦</span> Finance <span class="ml-auto text-[10px]">▾</span>
+                </div>
+                <div class="flex items-center gap-3 px-3 py-2.5 rounded text-[12px] text-white/70 hover:bg-white/5">
+                  <span>🛒</span> Purchases <span class="ml-auto text-[10px]">▾</span>
+                </div>
+                <div class="flex items-center gap-3 px-3 py-2.5 rounded text-[12px] text-white/70 hover:bg-white/5">
+                  <span>⚙️</span> Settings <span class="ml-auto text-[10px]">▾</span>
+                </div>
+              </div>
+            </nav>
+            <div class="px-4 py-3 border-t border-white/10 text-[10px] text-white/50 uppercase tracking-widest">
+              Tap dimmed area to close
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ STATE 3: Notifications open ============ -->
+    <div>
+      <div class="mb-3">
+        <span class="inline-block text-[10px] font-black uppercase tracking-widest bg-violet-100 text-violet-700 px-2 py-1 rounded">State 3 · Notifications</span>
+        <p class="text-xs text-gray-500 mt-1">User tapped 🔔 — dropdown shows real ERP alerts</p>
+      </div>
+      <div class="device-frame" style="width:375px;height:700px;">
+        <div class="notch"></div>
+        <div class="screen flex flex-col h-[676px] relative">
+          <header class="h-[64px] bg-white border-b border-redwood-border px-3 flex items-center justify-between sticky top-0 z-30 shadow-sm shrink-0">
+            <button class="p-2 text-redwood-text-muted hover:bg-redwood-bg-light rounded-sm border border-transparent">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+            </button>
+            <div class="flex items-center gap-2 relative">
+              <button class="p-2.5 text-redwood-brand bg-redwood-bg-light rounded-sm relative ring-2 ring-redwood-brand/20">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2a2 2 0 01-.6 1.4L4 17h5m6 0a3 3 0 11-6 0m6 0H9"/></svg>
+                <span class="absolute top-2 right-2 w-2 h-2 bg-redwood-brand rounded-full border-2 border-white"></span>
+              </button>
+              <button class="p-2.5 text-redwood-text-muted hover:bg-redwood-bg-light rounded-sm">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.2 9a3 3 0 015.8 1c0 2-3 3-3 3M12 17h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              </button>
+              <div class="w-10 h-10 rounded-sm bg-redwood-slate flex items-center justify-center text-white text-xs font-black border-2 border-white shadow">AQ</div>
+
+              <!-- Notifications dropdown -->
+              <div class="absolute right-0 top-full mt-2 w-64 bg-white border border-redwood-border rounded-sm shadow-xl z-40 overflow-hidden">
+                <div class="px-4 py-2 border-b border-redwood-border bg-redwood-bg-light text-[11px] font-black text-redwood-text-muted uppercase tracking-widest">
+                  Notifications
+                </div>
+                <ul class="divide-y divide-redwood-border/30">
+                  <li class="px-4 py-3 flex items-start gap-2 text-[12px]">
+                    <span class="mt-1 w-2 h-2 rounded-full flex-shrink-0 bg-amber-500"></span>
+                    <span class="text-redwood-text-main">3 overdue invoices</span>
+                  </li>
+                  <li class="px-4 py-3 flex items-start gap-2 text-[12px]">
+                    <span class="mt-1 w-2 h-2 rounded-full flex-shrink-0 bg-amber-500"></span>
+                    <span class="text-redwood-text-main">5 products low on stock</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </header>
+
+          <main class="flex-1 overflow-y-auto p-3 bg-[#F8F9FA]">
+            <h2 class="text-xl font-black text-gray-900 mb-1 uppercase tracking-tight">Dashboard</h2>
+            <p class="text-xs text-gray-500 mb-4">Real ERP-driven alerts</p>
+            <div class="space-y-3">
+              <div class="bg-white p-4 rounded-lg border border-gray-100 shadow-sm">
+                <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Total Revenue</div>
+                <div class="text-2xl font-black text-gray-900">$124,500</div>
+              </div>
+              <div class="bg-white p-4 rounded-lg border border-gray-100 shadow-sm">
+                <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Active Customers</div>
+                <div class="text-2xl font-black text-gray-900">1,243</div>
+              </div>
+            </div>
+          </main>
+
+          <footer class="h-10 bg-white border-t border-redwood-border px-3 flex items-center justify-between text-[10px] font-bold text-redwood-text-muted uppercase tracking-widest shrink-0">
+            <span class="text-redwood-brand">SOLTOL ONE</span>
+            <span class="text-redwood-text-main">© 2025</span>
+          </footer>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Annotations -->
+  <div class="mt-12 bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+    <h3 class="text-lg font-black text-gray-900 mb-4 uppercase tracking-tight">What changed (TC-06 fixes)</h3>
+    <ul class="space-y-2 text-sm text-gray-700">
+      <li class="flex gap-2"><span class="text-emerald-600 font-black">✓</span> Sidebar auto-hides on phones (&lt; 768px); the ☰ button toggles it as an overlay drawer with a tap-to-dismiss backdrop.</li>
+      <li class="flex gap-2"><span class="text-emerald-600 font-black">✓</span> Header padding shrunk from <code class="bg-gray-100 px-1.5 py-0.5 rounded text-xs">px-8</code> to <code class="bg-gray-100 px-1.5 py-0.5 rounded text-xs">px-3 sm:px-8</code>; element gap from <code class="bg-gray-100 px-1.5 py-0.5 rounded text-xs">gap-6</code> to <code class="bg-gray-100 px-1.5 py-0.5 rounded text-xs">gap-2 sm:gap-6</code>.</li>
+      <li class="flex gap-2"><span class="text-emerald-600 font-black">✓</span> Breadcrumb pill hidden on phones (would overflow).</li>
+      <li class="flex gap-2"><span class="text-emerald-600 font-black">✓</span> "System Admin / Master Control" text hidden on phones; avatar (AQ) stays visible.</li>
+      <li class="flex gap-2"><span class="text-emerald-600 font-black">✓</span> Main viewport padding from <code class="bg-gray-100 px-1.5 py-0.5 rounded text-xs">p-10</code> to <code class="bg-gray-100 px-1.5 py-0.5 rounded text-xs">p-3 sm:p-6 lg:p-10</code> — reclaims ~74px of usable width on a 375px phone.</li>
+      <li class="flex gap-2"><span class="text-emerald-600 font-black">✓</span> Footer trims long labels ("Platform v1.0.0", "Powered by AI") on phones so it stays on one line.</li>
+      <li class="flex gap-2"><span class="text-emerald-600 font-black">✓</span> Notification bell shows a real dropdown panel (not a browser alert) with live counts of overdue invoices + low-stock products.</li>
+    </ul>
+
+    <h3 class="text-lg font-black text-gray-900 mt-8 mb-4 uppercase tracking-tight">What's NOT yet mobile-polished</h3>
+    <ul class="space-y-2 text-sm text-gray-700">
+      <li class="flex gap-2"><span class="text-amber-600 font-black">⚠</span> Individual page contents (Customers list, Invoice form, Product Catalog, etc.) still use desktop-oriented grids. They'll horizontal-scroll on mobile but won't stack.</li>
+      <li class="flex gap-2"><span class="text-amber-600 font-black">⚠</span> Tables on mobile remain tables — they don't collapse into card lists. Page-by-page work required.</li>
+    </ul>
+  </div>
+
+  <p class="mt-8 text-xs text-gray-500 text-center">Open this file in Chrome/Safari to see the actual rendered layout. To verify in your real app: <code class="bg-gray-100 px-1.5 py-0.5 rounded">npm run dev</code> → open Chrome DevTools (F12) → toggle device toolbar (Cmd+Shift+M) → select iPhone 12 Pro.</p>
+</div>
+
+</body>
+</html>
