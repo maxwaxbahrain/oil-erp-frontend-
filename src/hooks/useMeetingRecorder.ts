@@ -40,13 +40,6 @@ export function deleteNote(id: string) {
   localStorage.setItem('soltol_meeting_notes', JSON.stringify(updated));
 }
 
-// Ensure SpeechRecognition is available on window for TypeScript
-declare global {
-  interface Window {
-    SpeechRecognition: any;
-    webkitSpeechRecognition: any;
-  }
-}
 
 export function useMeetingRecorder() {
   const [status, setStatus] = useState<RecorderStatus>('idle');
@@ -61,12 +54,13 @@ export function useMeetingRecorder() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentTitleRef = useRef('');
 
-  const isSupported = typeof window !== 'undefined' && !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+  const winAny = window as any;
+  const isSupported = typeof window !== 'undefined' && !!(winAny.SpeechRecognition || winAny.webkitSpeechRecognition);
 
   useEffect(() => {
     if (!isSupported) return;
     
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const SpeechRecognition = winAny.SpeechRecognition || winAny.webkitSpeechRecognition;
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
     recognition.interimResults = true;
