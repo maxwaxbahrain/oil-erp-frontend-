@@ -81,6 +81,13 @@ import AutoPOGeneration from '../pages/AI/AutoPOGeneration';
 import AnomalyDetection from '../pages/AI/AnomalyDetection';
 import CustomerForecast from '../pages/AI/CustomerForecast';
 import RevenueForecast from '../pages/AI/RevenueForecast';
+// Soltol Voice AI module — multi-tenant voice + WhatsApp ordering.
+import VoiceDashboard from '../pages/Voice/VoiceDashboard';
+import VoiceCallHistory from '../pages/Voice/CallHistory';
+import VoiceCallDetail from '../pages/Voice/CallDetail';
+import VoiceAnalytics from '../pages/Voice/Analytics';
+import VoiceCoachingRules from '../pages/Voice/CoachingRules';
+import VoiceTenantOnboard from '../pages/Voice/TenantOnboard';
 import AgentHub from '../pages/Agents/AgentHub';
 import UserAccessManagement from '../pages/UserManagement/UserAccessManagement';
 import NewsIntelligence from '../pages/News/NewsIntelligence';
@@ -236,6 +243,15 @@ export const AppRoutes = () => {
             <Route path="/ai/anomaly" element={<AnomalyDetection />} />
             <Route path="/ai/customer-forecast" element={<CustomerForecast />} />
             <Route path="/ai/revenue-forecast" element={<RevenueForecast />} />
+
+            {/* Soltol Voice AI module */}
+            <Route path="/voice" element={<Navigate to="/voice/dashboard" replace />} />
+            <Route path="/voice/dashboard" element={<VoiceDashboard />} />
+            <Route path="/voice/calls" element={<VoiceCallHistory />} />
+            <Route path="/voice/calls/:callId" element={<VoiceCallDetail />} />
+            <Route path="/voice/analytics" element={<VoiceAnalytics />} />
+            <Route path="/voice/coaching-rules" element={<VoiceCoachingRules />} />
+            <Route path="/voice/onboard" element={<VoiceTenantOnboard />} />
             <Route path="/agents" element={<AgentHub />} />
             <Route path="/agents/customer-service" element={<CustomerServiceAgent />} />
             <Route path="/agents/business-advisor" element={<BusinessAdvisorAgent />} />

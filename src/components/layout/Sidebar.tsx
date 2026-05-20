@@ -38,7 +38,8 @@ export default function Sidebar() {
         reports: false,
         ai: true,
         marketing: true,
-        agents: true
+        agents: true,
+        voice: true
     });
 
     const toggleSection = (section: string) => {
@@ -330,6 +331,27 @@ export default function Sidebar() {
                             <NavItem to="/ai/customer-forecast" icon={Users} label="Customer Forecast" />
                             <NavItem to="/ai/revenue-forecast" icon={DollarSign} label="Revenue Forecast" />
                             <NavItem to="/reports/demand-forecast" icon={TrendingUp} label="Demand Forecast" />
+                        </div>
+                    )}
+                </div>
+
+                {/* SOLTOL VOICE AI */}
+                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-brand/80 px-4 py-2 mt-1 flex items-center gap-1.5">
+                    <span>📞</span> Soltol Voice
+                </div>
+                <div>
+                    <SectionHeader
+                        label="Voice AI"
+                        isOpen={sections.voice}
+                        onClick={() => toggleSection('voice')}
+                    />
+                    {sections.voice && (
+                        <div className="space-y-0.5 pl-2 border-l-2 border-redwood-brand/20 ml-2">
+                            <NavItem to="/voice/dashboard" icon={LayoutDashboard} label="Voice Dashboard" />
+                            <NavItem to="/voice/calls" icon={Headphones} label="Call History" />
+                            <NavItem to="/voice/analytics" icon={BarChart2} label="Voice Analytics" />
+                            <NavItem to="/voice/coaching-rules" icon={Brain} label="Coaching Rules" />
+                            <NavItem to="/voice/onboard" icon={Briefcase} label="Onboard Tenant" />
                         </div>
                     )}
                 </div>
