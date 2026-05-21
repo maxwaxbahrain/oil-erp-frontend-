@@ -30,8 +30,8 @@ import {
   type SharePdfResult,
 } from '../../services/invoiceDocumentService';
 
-const THEME_PRIMARY = '#800020';
-const THEME_OVERDUE = '#5c0015';
+const THEME_PRIMARY = '#4F8EF7';
+const THEME_OVERDUE = '#EF4444';
 
 function formatMoney(n: number) {
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -92,15 +92,15 @@ type FilterTab = 'all' | 'today' | 'unpaid' | 'paid' | 'overdue';
 function statusBadgeClass(status: Invoice['status']): string {
   switch (status) {
     case 'Paid':
-      return 'bg-emerald-50 text-emerald-800 border border-emerald-200';
+      return 'bg-[rgba(34,197,94,0.12)] text-[#86EFAC] border border-[rgba(34,197,94,0.2)]';
     case 'Unpaid':
-      return 'bg-red-50 text-red-800 border border-red-200';
+      return 'bg-[rgba(245,158,11,0.12)] text-[#FCD34D] border border-[rgba(245,158,11,0.2)]';
     case 'Partial':
-      return 'bg-orange-50 text-orange-900 border border-orange-200';
+      return 'bg-[rgba(251,146,60,0.12)] text-[#FDBA74] border border-[rgba(251,146,60,0.2)]';
     case 'Overdue':
       return 'text-white border border-transparent';
     default:
-      return 'bg-gray-100 text-gray-800 border border-gray-200';
+      return 'bg-white/10 text-redwood-text-main border border-redwood-border';
   }
 }
 
@@ -309,7 +309,7 @@ export default function Invoices() {
       if (!portalInv) return null;
 
       const shareOptClass =
-        'w-full flex items-center gap-3 text-left text-[#1a1a1a] hover:bg-[#f3f4f6] cursor-pointer border-0 bg-transparent rounded-none';
+        'w-full flex items-center gap-3 text-left text-[#EEF2FF] hover:bg-white/10 cursor-pointer border-0 bg-transparent rounded-none';
       const shareOptStyle = { padding: '10px 16px', fontSize: '14px' } as const;
 
       return createPortal(
@@ -325,10 +325,10 @@ export default function Invoices() {
               top: shareMenuPos.top,
               left: shareMenuPos.left,
               zIndex: 99999,
-              background: '#FFFFFF',
-              border: '1px solid #e5e7eb',
+              background: '#0f1f33',
+              border: '1px solid rgba(255,255,255,0.12)',
               borderRadius: '8px',
-              boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
               minWidth: '200px',
               overflow: 'hidden',
             }}
@@ -409,11 +409,11 @@ export default function Invoices() {
     })();
 
   return (
-    <div className="min-h-screen bg-[#F8F9FA] pb-24 md:pb-10">
+    <div className="min-h-screen bg-redwood-bg-light pb-24 md:pb-10">
       <div className="max-w-7xl mx-auto px-4 md:px-6 pt-6 space-y-6">
         <div className="bg-white p-8 md:p-10 rounded-3xl border border-gray-100 shadow-sm relative overflow-hidden">
           <div className="absolute top-0 right-0 p-6 opacity-[0.06] pointer-events-none">
-            <FileText size={160} className="text-gray-900" />
+            <FileText size={160} className="text-white" />
           </div>
           <div className="relative flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
             <div className="flex items-start gap-5">
@@ -465,9 +465,9 @@ export default function Invoices() {
             </p>
             <p className="text-xs font-semibold text-gray-500 mt-2">Today&apos;s total</p>
           </div>
-          <div className="bg-white p-6 rounded-2xl border border-emerald-100 shadow-sm">
+          <div className="bg-white p-6 rounded-2xl border border-redwood-border shadow-sm">
             <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2">Collected Today</p>
-            <p className="text-3xl md:text-4xl font-black text-emerald-600 tabular-nums">
+            <p className="text-3xl md:text-4xl font-black text-[#86EFAC] tabular-nums">
               ${formatMoney(stats.collectedToday)}
             </p>
             <p className="text-xs font-semibold text-gray-500 mt-2">Paid invoices created today</p>
@@ -477,7 +477,7 @@ export default function Invoices() {
             <p
               className={clsx(
                 'text-3xl md:text-4xl font-black tabular-nums',
-                stats.outstanding > 0 ? 'text-red-600' : 'text-gray-400'
+                stats.outstanding > 0 ? 'text-[#FCA5A5]' : 'text-redwood-text-muted'
               )}
             >
               ${formatMoney(stats.outstanding)}
@@ -497,7 +497,7 @@ export default function Invoices() {
             placeholder="Search invoice # or customer…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm font-semibold text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#800020]/25 focus:border-[#800020]"
+            className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm font-semibold text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#4F8EF7]/25 focus:border-[#4F8EF7]"
           />
 
           <div className="flex flex-wrap gap-2">
@@ -558,7 +558,7 @@ export default function Invoices() {
         </div>
 
         {error && (
-          <div className="rounded-xl bg-red-50 text-red-800 text-sm font-bold px-4 py-3 border border-red-100">{error}</div>
+          <div className="rounded-xl bg-[rgba(239,68,68,0.10)] text-[#FCA5A5] text-sm font-bold px-4 py-3 border border-[rgba(239,68,68,0.2)]">{error}</div>
         )}
 
         {loading && invoices.length === 0 ? (
@@ -653,14 +653,14 @@ export default function Invoices() {
                               type="button"
                               title="Edit Invoice"
                               onClick={() => navigate(`/sales/invoices/${inv.id}`, { state: { editMode: true, invoice: inv } })}
-                              className="p-1.5 sm:p-2 rounded-lg text-orange-600 hover:bg-orange-50 transition-colors"
+                              className="p-1.5 sm:p-2 rounded-lg text-[#FB923C] hover:bg-[#FB923C]/10 transition-colors"
                             >
                               <Edit2 size={17} className="sm:w-[18px] sm:h-[18px]" />
                             </button>
                             <button
                               title="Delete Invoice"
                               onClick={(e) => void handleDeleteInvoice(inv, e)}
-                              className="p-2 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
+                              className="p-2 text-redwood-text-muted hover:text-[#FCA5A5] hover:bg-[#EF4444]/10 rounded transition-colors"
                               aria-label="Delete invoice"
                             >
                               <Trash2 size={17} className="sm:w-[18px] sm:h-[18px]" />
@@ -669,7 +669,7 @@ export default function Invoices() {
                               type="button"
                               title="View"
                               onClick={() => setDetailInvoice(inv)}
-                              className="p-1.5 sm:p-2 rounded-lg text-blue-700 hover:bg-blue-50 transition-colors"
+                              className="p-1.5 sm:p-2 rounded-lg text-[#4F8EF7] hover:bg-[#4F8EF7]/10 transition-colors"
                             >
                               <Eye size={17} className="sm:w-[18px] sm:h-[18px]" />
                             </button>
@@ -680,7 +680,7 @@ export default function Invoices() {
                               }}
                               title="Share"
                               onClick={(e) => openShareMenu(String(inv.id), e)}
-                              className="p-1.5 sm:p-2 rounded-lg flex items-center gap-0.5 text-[#800020] hover:bg-red-50 transition-colors"
+                              className="p-1.5 sm:p-2 rounded-lg flex items-center gap-0.5 text-[#4F8EF7] hover:bg-[#4F8EF7]/10 transition-colors"
                             >
                               <Share2 size={15} className="sm:w-4 sm:h-4" />
                               <ChevronDown size={12} className="opacity-70 sm:w-[14px] sm:h-[14px]" />
@@ -795,7 +795,7 @@ export default function Invoices() {
                   </div>
                   <div>
                     <p className="text-[10px] font-bold text-gray-500 uppercase">Amount paid</p>
-                    <p className="font-black text-emerald-700 font-mono tabular-nums">
+                    <p className="font-black text-[#86EFAC] font-mono tabular-nums">
                       ${formatMoney(detailInvoice.amount_paid ?? 0)}
                     </p>
                   </div>
