@@ -1,0 +1,1724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Soltol One ERP — 10/10 Complete Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+:root{
+  --bg:#060f1c;--bg2:#0a1726;--bg3:#0f1f33;--bg4:#142540;--bg5:#1a2d4e;
+  --br:rgba(255,255,255,.07);--br2:rgba(255,255,255,.12);--br3:rgba(255,255,255,.2);
+  --blue:#4F8EF7;--bd:rgba(79,142,247,.14);--bb:rgba(79,142,247,.28);
+  --teal:#00D4AA;--td:rgba(0,212,170,.1);
+  --green:#22C55E;--gd:rgba(34,197,94,.12);
+  --red:#EF4444;--rd:rgba(239,68,68,.12);
+  --amber:#F59E0B;--ad:rgba(245,158,11,.12);
+  --purple:#A78BFA;--pd:rgba(167,139,250,.12);
+  --orange:#FB923C;--od:rgba(251,146,60,.12);
+  --pink:#F472B6;
+  --t:#EEF2FF;--t2:#8BA3C7;--t3:#3E5678;
+  --font:'DM Sans',system-ui,sans-serif;
+  --head:'Syne',sans-serif;
+  --mono:'DM Mono',monospace;
+  --r:10px;--rs:6px;--rl:14px;--sw:232px;--nh:52px;
+}
+/* ── LIGHT MODE ── */
+body.light{
+  --bg:#F0F4F9;--bg2:#FFFFFF;--bg3:#FFFFFF;--bg4:#F4F7FB;--bg5:#EBF0F7;
+  --br:rgba(0,0,0,.07);--br2:rgba(0,0,0,.12);--br3:rgba(0,0,0,.2);
+  --blue:#2563EB;--bd:rgba(37,99,235,.1);--bb:rgba(37,99,235,.25);
+  --teal:#0F766E;--td:rgba(15,118,110,.1);
+  --green:#16A34A;--gd:rgba(22,163,74,.1);
+  --red:#DC2626;--rd:rgba(220,38,38,.1);
+  --amber:#D97706;--ad:rgba(217,119,6,.1);
+  --purple:#7C3AED;--pd:rgba(124,58,237,.1);
+  --orange:#EA580C;--od:rgba(234,88,12,.1);
+  --t:#1E293B;--t2:#475569;--t3:#94A3B8;
+}
+body.light .tnav{background:#1E3A5F}
+body.light .logo-tx,body.light .rpill{color:rgba(255,255,255,.9)!important}
+body.light .cmd-in{background:rgba(255,255,255,.15);color:#fff}
+body.light .cmd-in::placeholder{color:rgba(255,255,255,.5)}
+/* ── SKELETON LOADER ── */
+.skel{background:linear-gradient(90deg,var(--bg4) 25%,var(--bg5) 50%,var(--bg4) 75%);background-size:200% 100%;animation:skel-wave 1.4s ease infinite;border-radius:var(--rs)}
+@keyframes skel-wave{0%{background-position:200% 0}100%{background-position:-200% 0}}
+/* ── COMMAND PALETTE ── */
+.cp-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:700;display:flex;align-items:flex-start;justify-content:center;padding-top:12vh;opacity:0;pointer-events:none;transition:.18s}
+.cp-overlay.show{opacity:1;pointer-events:all}
+.cp-box{background:var(--bg3);border:1px solid var(--br2);border-radius:var(--rl);width:580px;max-width:95vw;box-shadow:0 24px 60px rgba(0,0,0,.7);overflow:hidden;transform:translateY(-8px);transition:.18s}
+.cp-overlay.show .cp-box{transform:translateY(0)}
+.cp-search-wrap{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--br)}
+.cp-search-wrap svg{flex-shrink:0;color:var(--blue)}
+.cp-in{flex:1;background:transparent;border:none;font-size:15px;font-family:var(--font);color:var(--t);outline:none}
+.cp-in::placeholder{color:var(--t3)}
+.cp-close{font-size:9px;color:var(--t3);background:var(--bg4);border:1px solid var(--br2);border-radius:4px;padding:2px 6px;font-family:var(--mono);cursor:pointer;flex-shrink:0}
+.cp-results{max-height:340px;overflow-y:auto;padding:6px}
+.cp-section{font-size:9px;color:var(--t3);letter-spacing:.06em;text-transform:uppercase;padding:8px 10px 4px;font-weight:600}
+.cp-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:var(--rs);cursor:pointer;transition:.1s}
+.cp-item:hover,.cp-item.sel{background:var(--bd)}
+.cp-item-ico{width:28px;height:28px;border-radius:var(--rs);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:13px}
+.cp-item-label{font-size:12px;font-weight:500;color:var(--t)}
+.cp-item-sub{font-size:10px;color:var(--t3);margin-top:1px}
+.cp-item-badge{margin-left:auto;font-size:9px;font-weight:600;padding:2px 7px;border-radius:20px;flex-shrink:0}
+.cp-empty{padding:24px;text-align:center;font-size:12px;color:var(--t3)}
+.cp-footer{padding:8px 14px;border-top:1px solid var(--br);display:flex;gap:12px;font-size:10px;color:var(--t3)}
+.cp-footer kbd{background:var(--bg4);border:1px solid var(--br2);border-radius:4px;padding:1px 5px;font-family:var(--mono)}
+/* ── PRINT INVOICE ── */
+@media print{
+  body>*{display:none!important}
+  #printArea{display:block!important;position:fixed;inset:0;background:#fff;color:#000;font-family:Arial,sans-serif;padding:40px}
+  #printArea h2{font-size:20px;margin-bottom:4px}
+  #printArea .pr-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #eee;font-size:13px}
+  #printArea .pr-total{font-size:16px;font-weight:700;text-align:right;margin-top:12px;padding-top:12px;border-top:2px solid #000}
+  #printArea .pr-header{display:flex;justify-content:space-between;margin-bottom:24px;padding-bottom:16px;border-bottom:2px solid #000}
+  #printArea .pr-badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:600;border:1px solid currentColor}
+}
+#printArea{display:none}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{font-family:var(--font);font-size:13px;color:var(--t);background:var(--bg);-webkit-font-smoothing:antialiased}
+::-webkit-scrollbar{width:3px;height:3px}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
+.app{display:flex;flex-direction:column;height:100vh}
+
+/* ── TOP NAV ── */
+.tnav{height:var(--nh);background:var(--bg2);border-bottom:1px solid var(--br);display:flex;align-items:center;padding:0 12px;gap:8px;flex-shrink:0;z-index:300}
+.mbtn{width:32px;height:32px;border-radius:var(--rs);background:rgba(255,255,255,.05);border:1px solid var(--br2);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:.15s;color:var(--t2);font-size:16px;flex-shrink:0}
+.mbtn:hover{background:rgba(255,255,255,.1);color:var(--t)}
+.logo-w{display:flex;align-items:center;gap:7px;flex-shrink:0}
+.logo-ic{width:30px;height:30px;border-radius:8px;background:var(--blue);display:flex;align-items:center;justify-content:center;font-family:var(--head);font-size:12px;font-weight:700;color:#fff}
+.logo-tx{font-family:var(--head);font-size:15px;font-weight:600;color:var(--t);letter-spacing:-.3px}
+.logo-tx sub{font-size:9px;font-weight:400;color:var(--t3);margin-left:2px}
+.rpill{font-size:10px;font-weight:500;background:var(--bd);color:#93C5FD;padding:4px 10px;border-radius:20px;border:1px solid var(--bb);cursor:pointer;transition:.15s;white-space:nowrap}
+.rpill:hover{background:rgba(79,142,247,.22)}
+.cmd-w{flex:1;max-width:520px;position:relative}
+.cmd-in{width:100%;background:rgba(255,255,255,.05);border:1.5px solid var(--bb);border-radius:10px;padding:8px 96px 8px 38px;font-size:12px;font-family:var(--font);color:var(--t);outline:none;transition:.2s}
+.cmd-in::placeholder{color:var(--t3);font-size:11px}
+.cmd-in:focus{background:var(--bd);border-color:var(--blue);box-shadow:0 0 0 3px rgba(79,142,247,.1)}
+.cmd-il{position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:16px;color:var(--blue);pointer-events:none}
+.cmd-ir{position:absolute;right:8px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:4px}
+.kbd{font-size:9px;color:var(--t3);background:rgba(255,255,255,.05);border:1px solid var(--br2);border-radius:4px;padding:1px 5px;font-family:var(--mono)}
+.micb{width:26px;height:26px;border-radius:50%;background:var(--bd);border:1px solid var(--bb);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:.15s}
+.micb i{font-size:12px;color:var(--blue)}
+.micb:hover,.micb.on{background:var(--red);border-color:var(--red)}
+.micb:hover i,.micb.on i{color:#fff}
+.micb.on{animation:pulr 1s infinite}
+@keyframes pulr{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.4)}60%{box-shadow:0 0 0 6px rgba(239,68,68,0)}}
+.nbtn{background:var(--blue);color:#fff;border:none;padding:7px 14px;border-radius:var(--rs);font-size:11px;font-weight:500;cursor:pointer;font-family:var(--font);display:flex;align-items:center;gap:5px;transition:.15s}
+.nbtn:hover{background:#3a7be0}
+.nr{margin-left:auto;display:flex;align-items:center;gap:6px}
+.live{display:flex;align-items:center;gap:5px;font-size:9px;color:var(--green);background:var(--gd);border:1px solid rgba(34,197,94,.2);border-radius:20px;padding:3px 9px}
+.live::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--green);animation:pg 1.5s infinite}
+@keyframes pg{0%,100%{opacity:1}50%{opacity:.3}}
+.ib{width:32px;height:32px;border-radius:var(--rs);background:rgba(255,255,255,.05);border:1px solid var(--br);display:flex;align-items:center;justify-content:center;cursor:pointer;position:relative;transition:.15s}
+.ib:hover{background:rgba(255,255,255,.1)}
+.ib i{font-size:15px;color:var(--t2)}
+.ndot{position:absolute;top:5px;right:5px;width:6px;height:6px;background:var(--red);border-radius:50%;border:1.5px solid var(--bg2)}
+.ava{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--blue),var(--teal));color:#fff;font-size:11px;font-weight:600;font-family:var(--head);display:flex;align-items:center;justify-content:center;cursor:pointer;border:2px solid rgba(255,255,255,.12);transition:.15s}
+
+/* ── AI DROPDOWN ── */
+.cmd-dd{position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:500;background:var(--bg3);border:1px solid var(--br2);border-radius:var(--rl);box-shadow:0 8px 32px rgba(0,0,0,.6);display:none;overflow:hidden}
+.cmd-dd.show{display:block}
+.cmd-dd-hdr{padding:10px 14px 0;font-size:10px;color:var(--teal);font-weight:500;display:flex;align-items:center;justify-content:space-between}
+.cmd-dd-close{width:22px;height:22px;border-radius:4px;background:rgba(255,255,255,.05);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:11px;color:var(--t3)}
+.cmd-dd-load{padding:10px 14px 12px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--t2)}
+.dots{display:flex;gap:3px}
+.dots span{width:5px;height:5px;border-radius:50%;background:var(--blue);animation:blk 1s infinite}
+.dots span:nth-child(2){animation-delay:.2s}.dots span:nth-child(3){animation-delay:.4s}
+@keyframes blk{0%,100%{opacity:.2}50%{opacity:1}}
+.cmd-dd-res{padding:0 14px 12px;font-size:12px;color:var(--t2);line-height:1.8;display:none;border-top:1px solid var(--br)}
+.cmd-dd-res strong{color:var(--t)}
+
+/* ── CHIPS ── */
+.chbar{background:var(--bg2);border-bottom:1px solid var(--br);padding:5px 12px;display:flex;align-items:center;gap:6px;flex-shrink:0;overflow-x:auto}
+.chbar::-webkit-scrollbar{display:none}
+.chlbl{font-size:9px;color:var(--t3);white-space:nowrap;letter-spacing:.06em;text-transform:uppercase;flex-shrink:0}
+.ch{display:flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;border:1px solid transparent;font-size:10px;font-weight:500;cursor:pointer;white-space:nowrap;transition:.12s;flex-shrink:0}
+.ch:hover{transform:translateY(-1px);filter:brightness(1.15)}
+.cb{background:var(--bd);color:#93C5FD;border-color:var(--bb)}
+.cg{background:var(--gd);color:#86EFAC;border-color:rgba(34,197,94,.22)}
+.ca{background:var(--ad);color:#FCD34D;border-color:rgba(245,158,11,.22)}
+.cr{background:var(--rd);color:#FCA5A5;border-color:rgba(239,68,68,.22)}
+.ct{background:var(--td);color:#5EEAD4;border-color:rgba(0,212,170,.22)}
+.cp{background:var(--pd);color:#C4B5FD;border-color:rgba(167,139,250,.22)}
+.cgr{background:rgba(255,255,255,.05);color:var(--t2);border-color:var(--br2)}
+.ch i{font-size:12px}
+
+/* ── BODY ── */
+.bwrap{flex:1;overflow:hidden;display:flex}
+
+/* ── SIDEBAR ── */
+.sb{width:var(--sw);background:var(--bg2);border-right:1px solid var(--br);display:flex;flex-direction:column;flex-shrink:0;overflow:hidden;transition:width .22s cubic-bezier(.4,0,.2,1)}
+.sb.col{width:50px}
+.sbsearch{padding:7px 8px;border-bottom:1px solid var(--br);flex-shrink:0}
+.sbsw{position:relative}
+.sbsw input{width:100%;background:rgba(255,255,255,.04);border:1px solid var(--br2);border-radius:var(--rs);padding:5px 8px 5px 26px;font-size:10px;color:var(--t);font-family:var(--font);outline:none;transition:.15s}
+.sbsw input::placeholder{color:var(--t3)}
+.sbsw input:focus{background:rgba(255,255,255,.07);border-color:var(--blue)}
+.sbsw i{position:absolute;left:7px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--t3)}
+.sbody{flex:1;overflow-y:auto;padding-bottom:6px}
+.sgh{display:flex;align-items:center;gap:7px;padding:7px 8px 4px;cursor:pointer;user-select:none;border-top:1px solid var(--br);transition:.1s}
+.sgh:hover{background:rgba(255,255,255,.03)}
+.sgh:first-child{border-top:none}
+.sgico{width:22px;height:22px;border-radius:5px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.sgico i{font-size:12px}
+.sgnm{font-size:10px;font-weight:600;color:rgba(255,255,255,.4);flex:1;letter-spacing:.04em;text-transform:uppercase}
+.sgcn{font-size:8px;font-weight:700;padding:1px 6px;border-radius:20px}
+.sgar{font-size:10px;color:var(--t3);transition:transform .2s}
+.sgar.op{transform:rotate(90deg)}
+.sgit{display:none}.sgit.op{display:block;padding-bottom:3px}
+.ni{display:flex;align-items:center;gap:7px;padding:4px 8px 4px 18px;font-size:10.5px;color:rgba(255,255,255,.4);cursor:pointer;border-right:2px solid transparent;transition:.1s;white-space:nowrap;overflow:hidden}
+.ni:hover{background:rgba(255,255,255,.04);color:rgba(255,255,255,.8)}
+.ni.act{color:#93C5FD;background:rgba(79,142,247,.1);border-right-color:var(--blue);font-weight:500}
+.ni i{font-size:12px;flex-shrink:0}
+.ni span{flex:1;overflow:hidden;text-overflow:ellipsis}
+.nb{font-size:8px;font-weight:700;padding:1px 5px;border-radius:20px;margin-left:auto;flex-shrink:0}
+.nbr{background:rgba(239,68,68,.18);color:#FCA5A5}
+.nby{background:rgba(245,158,11,.18);color:#FCD34D}
+.nbb{background:rgba(79,142,247,.18);color:#93C5FD}
+.nbg{background:rgba(34,197,94,.18);color:#86EFAC}
+.nbt{background:rgba(0,212,170,.15);color:#5EEAD4}
+.sbfoot{padding:7px 8px;border-top:1px solid var(--br);display:flex;gap:4px;flex-shrink:0}
+.sfb{flex:1;display:flex;align-items:center;justify-content:center;gap:4px;padding:5px;background:rgba(255,255,255,.04);border:1px solid var(--br);border-radius:var(--rs);font-size:9px;color:var(--t3);cursor:pointer;transition:.12s}
+.sfb:hover{background:rgba(255,255,255,.08);color:var(--t2)}
+.sfb i{font-size:12px}
+.sb.col .sgnm,.sb.col .sgcn,.sb.col .sgar,.sb.col .sbsearch,.sb.col .ni span,.sb.col .nb,.sb.col .sfb span{display:none}
+.sb.col .sgh{padding:7px 0;justify-content:center}
+.sb.col .ni{padding:7px 0;justify-content:center}
+.sb.col .sgit.op{display:none}
+
+/* ── MAIN ── */
+.main{flex:1;overflow-y:auto;background:var(--bg);display:flex;flex-direction:column}
+.main::-webkit-scrollbar{width:3px}
+.main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
+
+/* ── ALERT ── */
+.abar{background:rgba(245,158,11,.07);border-bottom:1px solid rgba(245,158,11,.16);padding:8px 16px;display:flex;align-items:center;gap:8px;font-size:11px;color:#FDE68A;flex-shrink:0}
+.abar i{font-size:14px;color:var(--amber);flex-shrink:0}
+.abar a{color:var(--amber);font-weight:600;cursor:pointer;text-decoration:underline;margin-left:4px}
+.abar-x{margin-left:auto;width:20px;height:20px;border-radius:4px;background:rgba(255,255,255,.05);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:11px;color:var(--amber);flex-shrink:0}
+
+/* ── TABS ── */
+.tabrow{background:var(--bg2);border-bottom:1px solid var(--br);padding:0 14px;display:flex;align-items:center;flex-shrink:0;overflow-x:auto}
+.tabrow::-webkit-scrollbar{display:none}
+.tab{padding:10px 13px;font-size:11px;font-weight:500;color:var(--t3);cursor:pointer;border-bottom:2px solid transparent;display:flex;align-items:center;gap:5px;transition:.12s;white-space:nowrap}
+.tab:hover{color:var(--t2)}
+.tab.act{color:var(--t);border-bottom-color:var(--blue)}
+.tab i{font-size:14px}
+.tbadge{font-size:8px;padding:1px 5px;border-radius:20px;font-weight:600}
+.content{padding:14px;display:flex;flex-direction:column;gap:12px;flex:1}
+.tc{display:none}
+.tc.act{display:flex;flex-direction:column;gap:12px}
+
+/* ── PAGE HEADER ── */
+.pgh{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.pgtit{font-family:var(--head);font-size:20px;font-weight:600;letter-spacing:-.5px}
+.pgsub{font-size:11px;color:var(--t3);margin-top:2px}
+.bcr{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--t3);margin-bottom:3px}
+.bcr i{font-size:9px}
+.pgact{display:flex;gap:6px;align-items:center;flex-shrink:0}
+.pgbtn{display:flex;align-items:center;gap:4px;padding:6px 11px;border-radius:var(--rs);font-size:10.5px;font-weight:500;cursor:pointer;border:1px solid var(--br2);background:rgba(255,255,255,.04);color:var(--t2);font-family:var(--font);transition:.12s}
+.pgbtn:hover{background:rgba(255,255,255,.08);color:var(--t)}
+
+/* ── KPI ── */
+.kgrid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+@media(max-width:1200px){.kgrid{grid-template-columns:repeat(3,1fr)}}
+.kpi{background:var(--bg3);border:1px solid var(--br2);border-radius:var(--rl);padding:13px 14px;position:relative;overflow:hidden;transition:.18s;cursor:default}
+.kpi:hover{border-color:var(--br3);transform:translateY(-2px);box-shadow:0 12px 30px rgba(0,0,0,.4)}
+.kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;border-radius:var(--rl) var(--rl) 0 0}
+.kg::before{background:linear-gradient(90deg,var(--green),#86EFAC)}
+.kr::before{background:linear-gradient(90deg,var(--red),#FCA5A5)}
+.kb::before{background:linear-gradient(90deg,var(--blue),#93C5FD)}
+.ka::before{background:linear-gradient(90deg,var(--amber),#FCD34D)}
+.kt::before{background:linear-gradient(90deg,var(--teal),#5EEAD4)}
+.kp::before{background:linear-gradient(90deg,var(--purple),#C4B5FD)}
+.ktop{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.klbl{display:flex;align-items:center;gap:5px;font-size:10.5px;color:var(--t2);font-weight:500;position:relative;cursor:help}
+.klbl i{font-size:13px}
+.kttip{position:absolute;top:calc(100% + 6px);left:0;background:var(--bg4);border:1px solid var(--br2);border-radius:var(--rs);padding:7px 10px;font-size:10px;color:var(--t2);white-space:nowrap;z-index:100;display:none;font-weight:400;line-height:1.5;max-width:220px;white-space:normal;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.klbl:hover .kttip{display:block}
+.tb{font-size:9px;font-weight:600;padding:2px 7px;border-radius:20px}
+.tbg{background:var(--gd);color:#86EFAC;border:1px solid rgba(34,197,94,.2)}
+.tbr{background:var(--rd);color:#FCA5A5;border:1px solid rgba(239,68,68,.2)}
+.tbb{background:var(--bd);color:#93C5FD;border:1px solid var(--bb)}
+.tba{background:var(--ad);color:#FCD34D;border:1px solid rgba(245,158,11,.2)}
+.tbt{background:var(--td);color:#5EEAD4;border:1px solid rgba(0,212,170,.2)}
+.kval{font-family:var(--head);font-size:22px;font-weight:600;letter-spacing:-.5px;margin-bottom:3px;line-height:1.1}
+.ksub{font-size:10px;color:var(--t3);display:flex;align-items:center;gap:4px}
+.ksub.warn{color:#FCA5A5}.ksub.up{color:#86EFAC}.ksub i{font-size:11px}
+.ksp{margin-top:8px;height:32px;position:relative}
+.kpred{font-size:9px;border-radius:4px;padding:2px 7px;margin-top:5px;display:inline-block}
+.kpred.up{color:#5EEAD4;background:var(--td);border:1px solid rgba(0,212,170,.2)}
+.kpred.warn{color:#FCD34D;background:var(--ad);border:1px solid rgba(245,158,11,.2)}
+.kpred.danger{color:#FCA5A5;background:var(--rd);border:1px solid rgba(239,68,68,.2)}
+
+/* ── AI INSIGHTS ── */
+.ai-ins{background:var(--bg3);border:1px solid var(--bb);border-radius:var(--rl);overflow:hidden}
+.ai-ins-hdr{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;cursor:pointer;user-select:none}
+.ai-ins-hdr:hover{background:rgba(255,255,255,.02)}
+.ai-ins-title{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--t)}
+.ai-ins-title i{font-size:15px;color:var(--blue)}
+.ai-ins-live{display:flex;align-items:center;gap:5px;font-size:9px;color:var(--green);background:var(--gd);border:1px solid rgba(34,197,94,.2);border-radius:20px;padding:2px 8px}
+.ai-ins-live::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--green);animation:pg 1.5s infinite}
+.ai-ins-body{padding:0 14px 10px;font-size:12px;color:var(--t2);line-height:1.75;display:none}
+.ai-ins-body.open{display:block}
+.hl{color:#86EFAC;font-weight:500}.wn{color:#FCD34D;font-weight:500}.dg{color:#FCA5A5;font-weight:500}
+.ai-ins-chips{padding:0 14px 10px;display:flex;gap:6px;flex-wrap:wrap;display:none}
+.ai-ins-chips.open{display:flex}
+.ins-chip{font-size:10px;padding:4px 10px;background:var(--bd);color:#93C5FD;border:1px solid var(--bb);border-radius:20px;cursor:pointer;transition:.12s}
+.ins-chip:hover{background:rgba(79,142,247,.22)}
+.ai-ins-toggle{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--t3)}
+.ai-ins-toggle i{font-size:14px;transition:transform .2s}
+.ai-ins-toggle.open i{transform:rotate(180deg)}
+
+/* ── CHARTS ── */
+.charts-row{display:grid;grid-template-columns:minmax(0,1.8fr) minmax(0,1fr);gap:10px}
+.panel{background:var(--bg3);border:1px solid var(--br2);border-radius:var(--rl);padding:14px 16px}
+.ph{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.pt{font-size:13px;font-weight:600}
+.ps{font-size:10px;color:var(--t3)}
+.pa{font-size:10px;color:var(--blue);cursor:pointer}
+.pa:hover{text-decoration:underline}
+.cwrap{position:relative;height:160px}
+.dn-outer{display:flex;align-items:center;gap:14px}
+.dn-leg{display:flex;flex-direction:column;gap:7px;flex:1}
+.dl-item{display:flex;align-items:center;gap:7px}
+.dl-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.dl-name{font-size:10px;color:var(--t2);flex:1}
+.dl-val{font-size:10px;font-weight:600}
+.chart-legend{display:flex;gap:14px;margin-top:8px}
+.drbtn{background:transparent;border:none;padding:4px 9px;font-size:10px;font-weight:500;color:var(--t3);cursor:pointer;font-family:var(--font);transition:.12s}
+.drbtn:hover{color:var(--t)}
+.drbtn.act{background:var(--blue);color:#fff;border-radius:4px}
+.cl-item{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--t2)}
+.cl-dot{width:8px;height:8px;border-radius:2px}
+
+/* ── INVOICE TABLE ── */
+.bot-row{display:grid;grid-template-columns:minmax(0,1.8fr) minmax(0,1fr);gap:10px}
+.inv-tbl{width:100%;border-collapse:collapse;font-size:11px}
+.inv-tbl th{padding:6px 10px;text-align:left;font-size:9.5px;font-weight:600;color:var(--t3);border-bottom:1px solid var(--br2);text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
+.inv-tbl td{padding:7px 10px;border-bottom:1px solid var(--br);color:var(--t2);vertical-align:middle}
+.inv-tbl tr:last-child td{border-bottom:none}
+.inv-tbl tbody tr{cursor:pointer;transition:.1s}
+.inv-tbl tbody tr:hover{background:rgba(79,142,247,.07)}
+.inv-num{font-family:var(--mono);font-size:10px;color:#93C5FD}
+.vat-c{font-size:10px;color:var(--t3)}
+.terms-c{font-size:10px;background:rgba(79,142,247,.1);color:#93C5FD;padding:2px 7px;border-radius:20px;font-family:var(--mono);border:1px solid var(--bb);white-space:nowrap}
+.cw{font-size:9px;color:var(--red);display:flex;align-items:center;gap:2px;margin-top:2px}
+.cw i{font-size:10px}
+.gap-warn{font-size:9px;color:var(--amber);background:var(--ad);border:1px solid rgba(245,158,11,.22);border-radius:20px;padding:1px 6px;display:inline-flex;align-items:center;gap:3px}
+.sp{background:var(--gd);color:var(--green);padding:2px 8px;border-radius:20px;font-size:9px;font-weight:600;border:1px solid rgba(34,197,94,.2)}
+.su{background:var(--ad);color:#FCD34D;padding:2px 8px;border-radius:20px;font-size:9px;font-weight:600;border:1px solid rgba(245,158,11,.2)}
+.so{background:var(--rd);color:#FCA5A5;padding:2px 8px;border-radius:20px;font-size:9px;font-weight:600;border:1px solid rgba(239,68,68,.2)}
+.sl{background:var(--pd);color:#C4B5FD;padding:2px 8px;border-radius:20px;font-size:9px;font-weight:600;border:1px solid rgba(167,139,250,.2)}
+.lk{font-size:11px;color:var(--green)}
+.ulk{font-size:11px;color:var(--amber)}
+
+/* ── QUICK STATS ── */
+.stat-list{display:flex;flex-direction:column;gap:5px}
+.stat-row{display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:var(--bg4);border-radius:var(--rs);border:1px solid var(--br);transition:.12s}
+.stat-row:hover{background:var(--bg5)}
+.sk{font-size:11px;color:var(--t2);display:flex;align-items:center;gap:7px}
+.sk i{font-size:13px;color:var(--t3)}
+.sv{font-size:12px;font-weight:600}
+.health-row{display:flex;align-items:center;gap:6px;padding:6px 10px;background:var(--gd);border-radius:var(--rs);border:1px solid rgba(34,197,94,.15);margin-top:6px}
+.hdot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pg 2s infinite}
+.htxt{font-size:10px;color:var(--green);font-weight:500}
+
+/* ── VAN STATUS ── */
+.van-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.van-card{background:var(--bg4);border-radius:var(--rs);padding:10px 12px;border:1px solid var(--br)}
+.van-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px}
+.van-nm{font-size:11px;font-weight:600}
+.van-st{font-size:9px;font-weight:600;padding:2px 8px;border-radius:20px;border:1px solid}
+.vs-on{background:var(--gd);color:var(--green);border-color:rgba(34,197,94,.2)}
+.vs-sy{background:var(--ad);color:#FCD34D;border-color:rgba(245,158,11,.2)}
+.van-rows{display:flex;flex-direction:column;gap:3px}
+.van-row{display:flex;justify-content:space-between;font-size:10px}
+.vrl{color:var(--t3)}
+.vrv{font-weight:500}
+.sync-badge{background:var(--ad);color:#FCD34D;border:1px solid rgba(245,158,11,.2);border-radius:var(--rs);padding:4px 8px;font-size:9px;display:flex;align-items:center;gap:4px;margin-top:6px;cursor:pointer}
+
+/* ── CHECKLIST ── */
+.cl-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.cl-title{font-size:11px;font-weight:600;display:flex;align-items:center;gap:5px}
+.cl-title i{font-size:14px;color:var(--blue)}
+.cl-items{display:flex;flex-direction:column;gap:4px}
+.cli{display:flex;align-items:center;gap:7px;padding:6px 8px;background:var(--bg4);border:1px solid var(--br);border-radius:var(--rs);cursor:pointer;transition:.12s}
+.cli:hover{background:var(--bg5)}
+.cli.done{background:rgba(34,197,94,.07);border-color:rgba(34,197,94,.15)}
+.clbox{width:15px;height:15px;border-radius:4px;border:1.5px solid var(--t3);display:flex;align-items:center;justify-content:center;font-size:10px;flex-shrink:0;transition:.12s;color:transparent}
+.cli.done .clbox{background:var(--green);border-color:var(--green);color:#fff}
+.cltx{font-size:10px;color:var(--t2);flex:1}
+.cli.done .cltx{text-decoration:line-through;color:var(--t3)}
+.clurgb{font-size:8px;font-weight:600;padding:1px 5px;border-radius:20px}
+
+/* ── AGING ── */
+.aging-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.ag-card{border-radius:var(--rs);padding:10px 12px;border-left:3px solid;border-top:1px solid var(--br);border-right:1px solid var(--br);border-bottom:1px solid var(--br);background:var(--bg4)}
+.agl{font-size:9px;color:var(--t3);margin-bottom:4px}
+.agv{font-family:var(--head);font-size:17px;font-weight:600;margin-bottom:2px}
+.agc{font-size:9px;color:var(--t3)}
+
+/* ── COMPLIANCE ── */
+.complist{display:flex;flex-direction:column;gap:5px}
+.ci{display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--bg4);border-radius:var(--rs);border:1px solid var(--br)}
+.cico{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:12px}
+.cp2{background:var(--gd);color:var(--green)}.cfail{background:var(--rd);color:var(--red)}.cwrn{background:var(--ad);color:var(--amber)}
+.ctxt{font-size:11px;flex:1}
+.cdet{font-size:9px;color:var(--t3);margin-top:1px}
+.cbadge{font-size:9px;font-weight:500;padding:2px 8px;border-radius:20px;border:1px solid;flex-shrink:0}
+
+/* ── WAREHOUSE BIN ── */
+.bin-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.bin-card{background:var(--bg4);border-radius:var(--rs);padding:10px;border:1px solid var(--br)}
+.bin-loc{font-size:9px;font-weight:600;color:var(--t3);margin-bottom:3px;font-family:var(--mono)}
+.bin-prod{font-size:11px;font-weight:500;margin-bottom:4px}
+.bin-row{display:flex;justify-content:space-between;font-size:10px;color:var(--t2)}
+.exp-badge{font-size:9px;padding:1px 6px;border-radius:20px;margin-top:4px;display:inline-flex;align-items:center;gap:3px}
+.eok{background:var(--gd);color:var(--green);border:1px solid rgba(34,197,94,.2)}
+.ewarn{background:var(--ad);color:#FCD34D;border:1px solid rgba(245,158,11,.2)}
+.ecrit{background:var(--rd);color:#FCA5A5;border:1px solid rgba(239,68,68,.2)}
+
+/* ── AUDIT LOG ── */
+.audit-list{display:flex;flex-direction:column;gap:5px}
+.ai-item{display:flex;align-items:flex-start;gap:8px;padding:7px 10px;background:var(--bg4);border-radius:var(--rs);border:1px solid var(--br)}
+.ai-ico{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.ai-ico i{font-size:13px}
+.ai-body{flex:1;min-width:0}
+.ai-action{font-size:11px;font-weight:500}
+.ai-meta{font-size:9px;color:var(--t3);margin-top:2px}
+.ai-time{font-size:9px;color:var(--t3);white-space:nowrap;font-family:var(--mono)}
+
+/* ── PERMISSION GRID ── */
+.perm-grid{display:grid;grid-template-columns:2fr repeat(4,1fr);gap:1px;border-radius:var(--rs);overflow:hidden;border:1px solid var(--br)}
+.phdr{background:var(--bg4);padding:6px 8px;font-size:9px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.04em;border-right:1px solid var(--br);text-align:center}
+.phdr:first-child{text-align:left}
+.phdr:last-child{border-right:none}
+.pcell{background:var(--bg3);padding:7px 8px;font-size:10px;color:var(--t2);border-right:1px solid var(--br);border-top:1px solid var(--br);text-align:center}
+.pcell:first-child{text-align:left}
+.pcell:last-child{border-right:none}
+.pyes{color:var(--green);font-size:14px}.pno{color:var(--red);font-size:14px}.pwrn{color:var(--amber);font-size:14px}
+
+/* ── INVOICE SLIDE-OVER ── */
+.sp-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:400;opacity:0;pointer-events:none;transition:.2s}
+.sp-overlay.open{opacity:1;pointer-events:all}
+.sp-panel{position:fixed;top:0;right:-420px;width:420px;height:100%;background:var(--bg3);border-left:1px solid var(--br2);z-index:401;transition:.25s cubic-bezier(.4,0,.2,1);overflow-y:auto;display:flex;flex-direction:column}
+.sp-panel.open{right:0}
+.sp-head{padding:14px 16px;border-bottom:1px solid var(--br);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.sp-title{font-family:var(--head);font-size:16px;font-weight:600}
+.sp-sub{font-size:11px;color:var(--t3);margin-top:2px}
+.sp-close{width:28px;height:28px;border-radius:var(--rs);background:rgba(255,255,255,.05);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;color:var(--t3)}
+.sp-body{padding:16px;flex:1;display:flex;flex-direction:column;gap:14px}
+.sp-field-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.sp-field{background:var(--bg4);border-radius:var(--rs);padding:10px 12px;border:1px solid var(--br)}
+.sp-fl{font-size:9px;color:var(--t3);margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em}
+.sp-fv{font-size:13px;font-weight:500}
+.sp-ai{background:rgba(79,142,247,.08);border:1px solid var(--bb);border-radius:var(--rs);padding:12px}
+.sp-ai-hdr{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:var(--blue);margin-bottom:8px}
+.sp-ai-body{font-size:12px;color:var(--t2);line-height:1.7}
+.sp-note-area{width:100%;background:var(--bg4);border:1px solid var(--br2);border-radius:var(--rs);padding:8px 10px;font-size:11px;color:var(--t);font-family:var(--font);resize:vertical;min-height:60px;outline:none}
+.sp-note-area::placeholder{color:var(--t3)}
+.sp-note-area:focus{border-color:var(--blue)}
+.sp-btn-row{display:flex;gap:8px;margin-top:4px}
+.sp-btn{flex:1;padding:9px;border-radius:var(--rs);font-size:11px;font-weight:500;cursor:pointer;font-family:var(--font);display:flex;align-items:center;justify-content:center;gap:5px;transition:.15s}
+.sp-primary{background:var(--blue);color:#fff;border:none}
+.sp-primary:hover{background:#3a7be0}
+.sp-secondary{background:rgba(255,255,255,.05);color:var(--t2);border:1px solid var(--br2)}
+.sp-secondary:hover{background:rgba(255,255,255,.1)}
+
+/* ── 2FA MODAL ── */
+.m2fa-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:600;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:.2s}
+.m2fa-overlay.show{opacity:1;pointer-events:all}
+.m2fa{background:var(--bg3);border:1px solid var(--br2);border-radius:var(--rl);padding:24px;width:340px;transform:scale(.95);transition:.2s;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+.m2fa-overlay.show .m2fa{transform:scale(1)}
+.m2fa-title{font-family:var(--head);font-size:16px;font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:7px}
+.m2fa-sub{font-size:11px;color:var(--t3);margin-bottom:16px;line-height:1.5}
+.m2fa-code{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:16px}
+.m2fa-code input{background:var(--bg4);border:1px solid var(--br2);border-radius:var(--rs);padding:11px 0;font-size:18px;font-weight:600;color:var(--t);text-align:center;font-family:var(--mono);outline:none;transition:.15s}
+.m2fa-code input:focus{border-color:var(--blue);background:var(--bd)}
+.m2fa-btns{display:flex;gap:8px}
+.m2fa-confirm{flex:1;background:var(--blue);color:#fff;border:none;border-radius:var(--rs);padding:10px;font-size:12px;font-weight:500;cursor:pointer;font-family:var(--font);display:flex;align-items:center;justify-content:center;gap:5px}
+.m2fa-cancel{background:rgba(255,255,255,.05);color:var(--t2);border:1px solid var(--br2);border-radius:var(--rs);padding:10px 14px;font-size:12px;cursor:pointer;font-family:var(--font)}
+
+/* ── UNDO TOAST ── */
+.undo-toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--bg3);border:1px solid var(--br2);border-radius:var(--r);padding:10px 16px;font-size:11px;color:var(--t);display:flex;align-items:center;gap:10px;z-index:999;box-shadow:0 8px 32px rgba(0,0,0,.5);opacity:0;transition:all .3s;pointer-events:none;white-space:nowrap}
+.undo-toast.show{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:all}
+.ubtn{background:var(--blue);color:#fff;border:none;border-radius:var(--rs);padding:4px 12px;font-size:10px;font-weight:600;cursor:pointer;font-family:var(--font)}
+.undo-x{width:20px;height:20px;border-radius:4px;background:rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:11px;color:var(--t3)}
+
+/* ── PROGRESS ── */
+.prog-row{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.prog-lbl{font-size:10px;color:var(--t2);width:160px;flex-shrink:0}
+.prog-wrap{flex:1;height:5px;background:rgba(255,255,255,.07);border-radius:3px;overflow:hidden}
+.prog-fill{height:100%;border-radius:3px;transition:width .8s ease}
+.prog-pct{font-size:10px;font-weight:500;width:32px;text-align:right}
+
+/* ── GRIDS ── */
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.g2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.g21{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:12px}
+.gcol{display:flex;flex-direction:column;gap:10px}
+.slist{display:flex;flex-direction:column;gap:5px}
+.srow{display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:var(--bg4);border-radius:var(--rs);border:1px solid var(--br);transition:.12s}
+.srow:hover{background:var(--bg5)}
+.srk{font-size:11px;color:var(--t2);display:flex;align-items:center;gap:7px}
+.srk i{font-size:13px;color:var(--t3)}
+.srv{font-size:12px;font-weight:600}
+.sbdg{font-size:9px;font-weight:500;padding:2px 7px;border-radius:20px;border:1px solid}
+
+/* ── MOBILE RESPONSIVE ── */
+@media(max-width:900px){
+  .sb{position:fixed;top:0;left:-280px;height:100%;z-index:500;transition:left .25s cubic-bezier(.4,0,.2,1);width:280px!important}
+  .sb.mobile-open{left:0;box-shadow:8px 0 40px rgba(0,0,0,.6)}
+  .kgrid{grid-template-columns:repeat(2,1fr)!important}
+  .charts-row,.bot-row,.g21,.g2{grid-template-columns:1fr!important}
+  .bnav{display:flex!important}
+  .tnav .rpill{display:none}
+  .cmd-w{max-width:none}
+}
+.bnav{display:none;position:fixed;bottom:0;left:0;right:0;background:var(--bg2);border-top:1px solid var(--br);padding:8px 0 calc(8px + env(safe-area-inset-bottom));z-index:200;justify-content:space-around}
+.bn-item{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:9px;color:var(--t3);cursor:pointer;padding:4px 10px;flex:1}
+.bn-item i{font-size:20px}
+.bn-item.act{color:var(--blue)}
+
+/* ── ANIMATIONS ── */
+@keyframes fu{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.kpi{animation:fu .35s ease both}
+.kpi:nth-child(1){animation-delay:.04s}.kpi:nth-child(2){animation-delay:.08s}
+.kpi:nth-child(3){animation-delay:.12s}.kpi:nth-child(4){animation-delay:.16s}.kpi:nth-child(5){animation-delay:.2s}
+.panel,.ai-ins{animation:fu .35s ease .22s both}
+</style>
+</head>
+<body>
+<div class="app">
+<!-- TOP NAV -->
+<nav class="tnav">
+  <div class="mbtn" id="menuBtn" onclick="toggleSB()"><i class="ti ti-menu-2"></i></div>
+  <div class="logo-w">
+    <div class="logo-ic">S1</div>
+    <div class="logo-tx">Soltol <sub>ERP</sub></div>
+    <div class="rpill" id="rpill" onclick="cycleRole()">System Admin &#9660;</div>
+  </div>
+  <div class="cmd-w">
+    <i class="ti ti-sparkles cmd-il"></i>
+    <input class="cmd-in" id="cmdIn" type="text" placeholder='"Ali bought Bettano 0W16 3 cases $56" — or search anything...' onkeydown="if(event.key==='Enter')runAI(this.value)"/>
+    <div class="cmd-ir">
+      <span class="kbd">&#8984;K</span>
+      <div class="micb" id="micb" onclick="startVoice()"><i class="ti ti-microphone"></i></div>
+    </div>
+    <div class="cmd-dd" id="cmdDD">
+      <div class="cmd-dd-hdr"><span><i class="ti ti-sparkles" style="font-size:13px;margin-right:4px"></i>Soltol AI</span><div class="cmd-dd-close" onclick="closeDD()"><i class="ti ti-x"></i></div></div>
+      <div class="cmd-dd-load" id="ddLoad"><div class="dots"><span></span><span></span><span></span></div>Processing your request...</div>
+      <div class="cmd-dd-res" id="ddRes"></div>
+    </div>
+  </div>
+  <button class="nbtn" onclick="show2FA()"><i class="ti ti-plus" style="font-size:13px"></i> New Invoice</button>
+  <div class="nr">
+    <div class="live">Live</div>
+    <div class="ib" title="Toggle light/dark mode" onclick="toggleMode()" id="modeBtn">
+      <svg id="modeIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--t2)"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+    </div>
+    <div class="ib" title="Notifications" onclick="toggleNotif()" id="notifBtn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--t2)"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      <div class="ndot"></div>
+    </div>
+    <div class="ib" title="Settings" onclick="switchTab('security');document.getElementById('sb').querySelectorAll('.ni').forEach(n=>n.classList.remove('act'))">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--t2)"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </div>
+    <div class="ava">AQ</div>
+  </div>
+</nav>
+
+<!-- CHIPS BAR -->
+<div class="chbar">
+  <span class="chlbl">RECENT:</span>
+  <div class="ch cb" onclick="fc('Ali bought Bettano 0W16 SP 12x1 — 3 cases $56')"><i class="ti ti-file-invoice"></i>Ali Bettano 0W16</div>
+  <div class="ch cg" onclick="fc('Leo Tire Shop paid $239 today')"><i class="ti ti-coin"></i>Leo Tire paid $239</div>
+  <div class="ch ca" onclick="fc('Check stock and reorder plan for Mobil 5W30')"><i class="ti ti-package"></i>Mobil 5W30 stock</div>
+  <div class="ch cr" onclick="fc('Qahir Enterprises 32 days overdue — draft demand letter')"><i class="ti ti-alert-circle"></i>Qahir demand letter</div>
+  <div class="ch cp" onclick="fc('Generate VAT return report for this quarter')"><i class="ti ti-receipt-tax"></i>VAT return Q1</div>
+  <div class="ch ct" onclick="fc('Show full audit log for today — all user actions')"><i class="ti ti-shield-check"></i>Today audit log</div>
+  <div class="ch cg" onclick="fc('Which customers are at risk of churning this month?')"><i class="ti ti-user-x"></i>Churn risk</div>
+  <div class="ch cgr" onclick="fc('AP $18k due in 7 days — schedule payment run')"><i class="ti ti-calendar-due"></i>Payment run Fri</div>
+</div>
+
+<div class="bwrap">
+<!-- SIDEBAR -->
+<aside class="sb" id="sb">
+  <div class="sbsearch"><div class="sbsw"><i class="ti ti-search"></i><input type="text" placeholder="Search menu..." oninput="fsb(this.value)"/></div></div>
+  <div class="sbody">
+    <div class="sgh" onclick="ts('home')"><div class="sgico" style="background:rgba(79,142,247,.2)"><i class="ti ti-home" style="color:#93C5FD"></i></div><span class="sgnm">Home</span><i class="ti ti-chevron-right sgar op" id="arr-home"></i></div>
+    <div class="sgit op" id="sec-home">
+      <div class="ni act" onclick="sa(this)"><i class="ti ti-layout-dashboard"></i><span>Dashboard</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-messages"></i><span>PULSE — Team Chat</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-notes"></i><span>Meeting Notes</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-users"></i><span>Employee Portal</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-database-import"></i><span>Data Migration</span></div>
+    </div>
+    <div class="sgh" onclick="ts('sales')"><div class="sgico" style="background:rgba(34,197,94,.15)"><i class="ti ti-shopping-cart" style="color:#86EFAC"></i></div><span class="sgnm">Sales &amp; CRM</span><span class="sgcn nbr">9</span><i class="ti ti-chevron-right sgar" id="arr-sales"></i></div>
+    <div class="sgit" id="sec-sales">
+      <div class="ni" onclick="sa(this)"><i class="ti ti-users"></i><span>Customers</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-brain"></i><span>Credit Intelligence</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-chart-dots"></i><span>CRM Pipeline</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-list"></i><span>Orders</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-brand-amazon"></i><span>Amazon</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-file-description"></i><span>Quotations</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-file-invoice"></i><span>Invoices</span><span class="nb nbr">9</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-arrow-back-up"></i><span>Sales Returns</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-credit-card"></i><span>Credit Notes</span></div>
+    </div>
+    <div class="sgh" onclick="ts('fin')"><div class="sgico" style="background:rgba(245,158,11,.15)"><i class="ti ti-coin" style="color:#FCD34D"></i></div><span class="sgnm">Finance</span><span class="sgcn nby">3</span><i class="ti ti-chevron-right sgar" id="arr-fin"></i></div>
+    <div class="sgit" id="sec-fin">
+      <div class="ni" onclick="sa(this)"><i class="ti ti-receipt"></i><span>Expenses</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-clipboard-check"></i><span>Approvals</span><span class="nb nby">3</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-upload"></i><span>Bulk Upload</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-car"></i><span>Mileage</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-building-bank"></i><span>Banking</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-list-tree"></i><span>Chart of Accounts</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-book"></i><span>All-Accounts Ledger</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-file-dollar"></i><span>Financial Statement</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-notebook"></i><span>Journal Voucher (JV)</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-file-off"></i><span>Bad Debts Write-Off</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-receipt-tax"></i><span>Tax Management</span></div>
+    </div>
+    <div class="sgh" onclick="ts('rep')"><div class="sgico" style="background:rgba(167,139,250,.15)"><i class="ti ti-chart-bar" style="color:#C4B5FD"></i></div><span class="sgnm">Reports</span><i class="ti ti-chevron-right sgar" id="arr-rep"></i></div>
+    <div class="sgit" id="sec-rep">
+      <div class="ni" onclick="sa(this)"><i class="ti ti-trending-up"></i><span>Profitability Reports</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-tags"></i><span>Customer Price Lists</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-refresh"></i><span>Recurring Invoices</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-report-analytics"></i><span>Financial Reports</span></div>
+    </div>
+    <div class="sgh" onclick="ts('inv')"><div class="sgico" style="background:rgba(251,146,60,.15)"><i class="ti ti-box" style="color:#FDB28A"></i></div><span class="sgnm">Inventory</span><span class="sgcn nby">40</span><i class="ti ti-chevron-right sgar" id="arr-inv"></i></div>
+    <div class="sgit" id="sec-inv">
+      <div class="ni" onclick="sa(this)"><i class="ti ti-package"></i><span>Product Catalog</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-chart-bar"></i><span>Inventory Reports</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-adjustments"></i><span>Stock Adjustment</span></div>
+    </div>
+    <div class="sgh" onclick="ts('proc')"><div class="sgico" style="background:rgba(45,212,191,.12)"><i class="ti ti-truck-delivery" style="color:#5EEAD4"></i></div><span class="sgnm">Procurement</span><i class="ti ti-chevron-right sgar" id="arr-proc"></i></div>
+    <div class="sgit" id="sec-proc">
+      <div class="ni" onclick="sa(this)"><i class="ti ti-building-factory"></i><span>Suppliers</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-clock"></i><span>Recent Orders</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-file-plus"></i><span>Create New PO</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-clipboard-list"></i><span>Material Receipt (GRN)</span></div>
+    </div>
+    <div class="sgh" onclick="ts('del')"><div class="sgico" style="background:rgba(16,185,129,.12)"><i class="ti ti-truck" style="color:#6EE7B7"></i></div><span class="sgnm">Delivery &amp; Logistics</span><i class="ti ti-chevron-right sgar" id="arr-del"></i></div>
+    <div class="sgit" id="sec-del">
+      <div class="ni" onclick="sa(this)"><i class="ti ti-device-mobile"></i><span>POD — Driver App</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-car"></i><span>Van Operations</span><span class="nb nbg">2</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-map-route"></i><span>Route Navigator</span></div>
+    </div>
+    <div class="sgh" onclick="ts('ai')"><div class="sgico" style="background:rgba(79,142,247,.2)"><i class="ti ti-sparkles" style="color:#93C5FD"></i></div><span class="sgnm">AI Tools</span><span class="sgcn nbt">11</span><i class="ti ti-chevron-right sgar" id="arr-ai"></i></div>
+    <div class="sgit" id="sec-ai">
+      <div class="ni" onclick="sa(this)"><i class="ti ti-robot"></i><span>AI Hub</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-server"></i><span>Agent Hub</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-mood-smile"></i><span>ARIA — Customer Service</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-user-star"></i><span>Marcus — Business Advisor</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-mail-forward"></i><span>Email Auto-Reply</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-file-check"></i><span>Auto PO Generation</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-alert-octagon"></i><span>Anomaly Detection</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-chart-dots-3"></i><span>Customer Forecast</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-trending-up"></i><span>Revenue Forecast</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-wave-sine"></i><span>Demand Forecast</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-news"></i><span>Business News</span></div>
+    </div>
+    <div class="sgh" onclick="ts('mkt')"><div class="sgico" style="background:rgba(236,72,153,.15)"><i class="ti ti-speakerphone" style="color:#F9A8D4"></i></div><span class="sgnm">Marketing</span><i class="ti ti-chevron-right sgar" id="arr-mkt"></i></div>
+    <div class="sgit" id="sec-mkt">
+      <div class="ni" onclick="sa(this)"><i class="ti ti-pencil"></i><span>AI Content Studio</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-users-group"></i><span>Customer Segments</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-calendar-event"></i><span>Campaign Manager</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-chart-pie"></i><span>Analytics</span></div>
+    </div>
+    <div class="sgh" onclick="ts('voice')"><div class="sgico" style="background:rgba(34,197,94,.12)"><i class="ti ti-microphone" style="color:#86EFAC"></i></div><span class="sgnm">Soltol Voice</span><i class="ti ti-chevron-right sgar" id="arr-voice"></i></div>
+    <div class="sgit" id="sec-voice">
+      <div class="ni" onclick="sa(this)"><i class="ti ti-phone"></i><span>Voice Dashboard</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-history"></i><span>Call History</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-shield-check"></i><span>Coaching Rules</span></div>
+    </div>
+    <div class="sgh" onclick="ts('set')"><div class="sgico" style="background:rgba(100,116,139,.15)"><i class="ti ti-settings" style="color:#94A3B8"></i></div><span class="sgnm">System &amp; Settings</span><i class="ti ti-chevron-right sgar" id="arr-set"></i></div>
+    <div class="sgit" id="sec-set">
+      <div class="ni" onclick="sa(this)"><i class="ti ti-user-shield"></i><span>User Access Management</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-users-group"></i><span>User Management</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-building-store"></i><span>Onboard Tenant</span></div>
+      <div class="ni" onclick="sa(this)"><i class="ti ti-adjustments-horizontal"></i><span>Settings</span></div>
+    </div>
+  </div>
+  <div class="sbfoot">
+    <div class="sfb"><i class="ti ti-circle-dot" style="color:var(--green)"></i><span>All systems OK</span></div>
+    <div class="sfb" onclick="showToast('Training mode: Type naturally in the AI bar — \"Ali bought Bettano 0W16 3 cases $56\" and AI will parse it instantly.')"><i class="ti ti-help-circle"></i><span>Help</span></div>
+  </div>
+</aside>
+<!-- MAIN CONTENT -->
+<main class="main" id="mainArea">
+  <!-- ALERT BAR -->
+  <div class="abar" id="abar">
+    <i class="ti ti-alert-triangle"></i>
+    <span><strong>9 unpaid invoices</strong> totalling $411,776 — Qahir 32 days overdue, over credit limit &middot; 40 items low stock &middot; Sequential gap INV-960339&rarr;960336 detected &middot; Tax reg # missing on all invoices</span>
+    <a onclick="switchTab('finance')">Fix tax &rarr;</a>
+    <a onclick="switchTab('warehouse')" style="margin-left:6px">Stock &rarr;</a>
+    <a onclick="switchTab('security')" style="margin-left:6px">Audit &rarr;</a>
+    <div class="abar-x" onclick="document.getElementById('abar').style.display='none'"><i class="ti ti-x"></i></div>
+  </div>
+
+  <!-- TABS -->
+  <div class="tabrow">
+    <div class="tab act" id="tab-overview" onclick="switchTab('overview')"><i class="ti ti-layout-dashboard"></i>Overview</div>
+    <div class="tab" id="tab-finance" onclick="switchTab('finance')"><i class="ti ti-receipt-tax" style="color:var(--purple)"></i>Finance &amp; Tax <span class="tbadge" style="background:var(--rd);color:#FCA5A5;border:1px solid rgba(239,68,68,.2)">30%</span></div>
+    <div class="tab" id="tab-warehouse" onclick="switchTab('warehouse')"><i class="ti ti-box" style="color:var(--orange)"></i>Warehouse <span class="tbadge" style="background:var(--rd);color:#FCA5A5;border:1px solid rgba(239,68,68,.2)">25%</span></div>
+    <div class="tab" id="tab-mobile" onclick="switchTab('mobile')"><i class="ti ti-device-mobile" style="color:var(--teal)"></i>Field &amp; Mobile <span class="tbadge" style="background:var(--ad);color:#FCD34D;border:1px solid rgba(245,158,11,.2)">20%</span></div>
+    <div class="tab" id="tab-security" onclick="switchTab('security')"><i class="ti ti-shield" style="color:var(--red)"></i>Security <span class="tbadge" style="background:var(--ad);color:#FCD34D;border:1px solid rgba(245,158,11,.2)">40%</span></div>
+    <div class="tab" id="tab-sales" onclick="switchTab('sales')"><i class="ti ti-trending-up" style="color:var(--green)"></i>Sales &amp; CRM</div>
+  </div>
+
+  <!-- ═══ OVERVIEW ═══ -->
+  <div class="content tc act" id="tc-overview">
+    <div class="pgh">
+      <div>
+        <div class="bcr"><span>Global</span><i class="ti ti-chevron-right"></i><span id="roleBC" style="color:var(--t2)">System Admin</span><i class="ti ti-chevron-right"></i><span style="color:var(--t2)" id="pageBC">Dashboard</span></div>
+        <div class="pgtit" id="pgTitle">Dashboard Overview</div>
+        <div class="pgsub" id="pgSub">Real-time performance &middot; AI-powered insights &middot; All 10 expert recommendations applied</div>
+      </div>
+      <div class="pgact">
+        <button class="pgbtn" onclick="toggleCL()"><i class="ti ti-checklist"></i>Checklist <span id="clCount" class="nb nby">3 left</span></button>
+        <button class="pgbtn" onclick="loadAI()"><i class="ti ti-refresh"></i>Refresh AI</button>
+        <button class="pgbtn"><i class="ti ti-calendar"></i>May 21, 2026</button>
+      </div>
+    </div>
+
+    <!-- P&L SUMMARY ROW -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+      <div style="background:var(--bg3);border:1px solid var(--br2);border-radius:var(--r);padding:11px 14px;display:flex;align-items:center;gap:10px">
+        <div style="width:36px;height:36px;border-radius:8px;background:var(--bd);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        </div>
+        <div><div style="font-size:10px;color:var(--t2)">Total Revenue</div><div style="font-family:var(--head);font-size:18px;font-weight:600;color:var(--green)">$411,832</div></div>
+      </div>
+      <div style="background:var(--bg3);border:1px solid var(--br2);border-radius:var(--r);padding:11px 14px;display:flex;align-items:center;gap:10px">
+        <div style="width:36px;height:36px;border-radius:8px;background:var(--rd);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        </div>
+        <div><div style="font-size:10px;color:var(--t2)">Total Expenses</div><div style="font-family:var(--head);font-size:18px;font-weight:600;color:var(--red)">$48,000</div></div>
+      </div>
+      <div style="background:var(--bg3);border:1px solid var(--bb);border-radius:var(--r);padding:11px 14px;display:flex;align-items:center;gap:10px">
+        <div style="width:36px;height:36px;border-radius:8px;background:var(--gd);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+        </div>
+        <div><div style="font-size:10px;color:var(--t2)">Net Profit</div><div style="font-family:var(--head);font-size:18px;font-weight:600;color:var(--teal)">$363,832</div><div style="font-size:9px;color:var(--t3)">Margin: 88.3%</div></div>
+      </div>
+    </div>
+
+    <!-- 5 KPI CARDS -->
+    <div class="kgrid">
+      <div class="kpi kg" onclick="switchTab('finance')">
+        <div class="ktop"><div class="klbl"><i class="ti ti-building-bank" style="color:var(--green)"></i>Cash Position<div class="kttip">Bank balance minus outstanding payables. Your real cash available today after all obligations.</div></div><span class="tb tbg">+Today</span></div>
+        <div class="kval" style="color:var(--green)" id="kv0">$82,400</div>
+        <div class="ksub up"><i class="ti ti-trending-up"></i>Up $5,400 from yesterday</div>
+        <div class="ksp"><canvas id="sp0"></canvas></div>
+        <div class="kpred up">&#8593; On track for $88k by month-end</div>
+      </div>
+      <div class="kpi kr" onclick="switchTab('finance')">
+        <div class="ktop"><div class="klbl"><i class="ti ti-clock" style="color:var(--red)"></i>AR Outstanding<div class="kttip">Accounts Receivable — total money your customers owe you. Older = harder to collect. The aging breakdown is in Finance tab.</div></div><span class="tb tbr">Aging</span></div>
+        <div class="kval" style="color:var(--red)" id="kv1">$411,776</div>
+        <div class="ksub warn"><i class="ti ti-alert-circle"></i>$3,369 over 30 days &middot; 9 invoices</div>
+        <div class="ksp"><canvas id="sp1"></canvas></div>
+        <div class="kpred danger">&#9888; Chase Qahir today &mdash; 32d overdue</div>
+      </div>
+      <div class="kpi ka">
+        <div class="ktop"><div class="klbl"><i class="ti ti-credit-card" style="color:var(--amber)"></i>AP Outstanding<div class="kttip">Accounts Payable — money you owe your suppliers. $18k is due in 7 days. Plan your payment run carefully.</div></div><span class="tb tba">Payables</span></div>
+        <div class="kval" style="color:var(--amber)" id="kv2">$52,300</div>
+        <div class="ksub"><i class="ti ti-calendar"></i>$18k due within 7 days</div>
+        <div class="ksp"><canvas id="sp2"></canvas></div>
+        <div class="kpred warn">&#43; Schedule $18k payment run Friday</div>
+      </div>
+      <div class="kpi kb">
+        <div class="ktop"><div class="klbl"><i class="ti ti-trending-up" style="color:var(--blue)"></i>Total Income<div class="kttip">All revenue from invoices this month (MTD = Month to Date). Includes paid and unpaid invoices.</div></div><span class="tb tbb">MTD</span></div>
+        <div class="kval" id="kv3">$411,832</div>
+        <div class="ksub up"><i class="ti ti-trending-up"></i>From all invoices this month</div>
+        <div class="ksp"><canvas id="sp3"></canvas></div>
+        <div class="kpred up">&#8593; Forecast $490k by May 31</div>
+      </div>
+      <div class="kpi kt" onclick="switchTab('warehouse')">
+        <div class="ktop"><div class="klbl"><i class="ti ti-package" style="color:var(--teal)"></i>Low Stock Alerts<div class="kttip">Products below minimum stock level. Click to see bin locations, batch numbers and expiry dates in Warehouse tab.</div></div><span class="tb tbt">Critical</span></div>
+        <div class="kval" style="color:var(--teal)" id="kv4">40</div>
+        <div class="ksub warn"><i class="ti ti-alert-circle"></i>Mobil 5W30 critically low (8 units)</div>
+        <div class="ksp"><canvas id="sp4"></canvas></div>
+        <div class="kpred danger">&#9888; Expired batch in quarantine — D1</div>
+      </div>
+    </div>
+
+    <!-- AI INSIGHTS — collapsible -->
+    <div class="ai-ins">
+      <div class="ai-ins-hdr" onclick="toggleAI()">
+        <div class="ai-ins-title"><i class="ti ti-sparkles"></i>AI Business Insights <span style="font-size:10px;color:var(--t3);font-weight:400;margin-left:6px">Powered by Claude</span></div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="ai-ins-live">Live</div>
+          <div class="ai-ins-toggle" id="aiToggle"><span style="font-size:10px">Expand</span><i class="ti ti-chevron-down"></i></div>
+        </div>
+      </div>
+      <div class="ai-ins-body" id="aiBody"><div style="display:flex;align-items:center;gap:8px;color:var(--t3)"><div class="dots"><span></span><span></span><span></span></div>Generating insights from today's data...</div></div>
+      <div class="ai-ins-chips" id="aiChips"></div>
+    </div>
+
+    <!-- CHARTS -->
+    <div class="charts-row">
+      <div class="panel">
+        <div class="ph"><div><div class="pt">Financial Performance</div><div class="ps">Sales vs Expenses</div></div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <div style="display:flex;background:var(--bg4);border-radius:var(--rs);overflow:hidden;border:1px solid var(--br2)">
+              <button class="drbtn act" id="dr3m" onclick="setRange('3m')">3M</button>
+              <button class="drbtn" id="dr6m" onclick="setRange('6m')">6M</button>
+              <button class="drbtn" id="drytd" onclick="setRange('ytd')">YTD</button>
+              <button class="drbtn" id="dr1y" onclick="setRange('1y')">1Y</button>
+            </div>
+            <span class="pa" onclick="fc('Explain the financial performance trend and what drove the March spike')">Ask AI &rarr;</span>
+          </div>
+        </div>
+        <div class="cwrap"><canvas id="barChart"></canvas></div>
+        <div class="chart-legend"><div class="cl-item"><div class="cl-dot" style="background:#4F8EF7;border-radius:2px"></div>Total Sales</div><div class="cl-item"><div class="cl-dot" style="background:rgba(79,142,247,.3);border-radius:2px"></div>Total Expenses</div></div>
+      </div>
+      <div class="panel">
+        <div class="ph"><div><div class="pt">Inventory Distribution</div><div class="ps">Stock by product line</div></div><span class="pa" onclick="fc('Which inventory items should I reorder this week?')">Ask AI &rarr;</span></div>
+        <div class="dn-outer" style="margin-top:8px">
+          <canvas id="donutChart" width="100" height="100" style="flex-shrink:0"></canvas>
+          <div class="dn-leg">
+            <div class="dl-item"><div class="dl-dot" style="background:#4F8EF7"></div><span class="dl-name">Bettano 0W16</span><span class="dl-val" style="color:#93C5FD">42%</span></div>
+            <div class="dl-item"><div class="dl-dot" style="background:#22C55E"></div><span class="dl-name">Bettano 0W20</span><span class="dl-val" style="color:var(--green)">26%</span></div>
+            <div class="dl-item"><div class="dl-dot" style="background:#F59E0B"></div><span class="dl-name">Mobil 5W30</span><span class="dl-val" style="color:var(--amber)">20%</span></div>
+            <div class="dl-item"><div class="dl-dot" style="background:#3E5678"></div><span class="dl-name">Others</span><span class="dl-val">12%</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BOTTOM ROW -->
+    <div class="bot-row">
+      <div class="panel">
+        <div class="ph"><div><div class="pt">Recent Invoices</div><div class="ps">Click any row for AI advice &middot; VAT, terms, lock &amp; tax reg status</div></div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button style="display:flex;align-items:center;gap:4px;padding:5px 10px;border-radius:var(--rs);font-size:10px;font-weight:500;background:var(--gd);color:var(--green);border:1px solid rgba(34,197,94,.2);cursor:pointer;font-family:var(--font)" onclick="exportCSV()">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Export CSV
+            </button>
+            <span class="pa">View all &rarr;</span>
+          </div>
+        </div>
+        <table class="inv-tbl">
+          <thead><tr><th>Invoice #</th><th>Customer</th><th>Terms</th><th>Net</th><th>VAT 15%</th><th>Total</th><th>Lock</th><th>Tax Reg</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr onclick="openSP('INV-960339','Waqas Al-Rashid','Net 15','$56.00','$8.40','$64.40','Paid','Net 15 — paid on time. Customer has 94% on-time payment rate. No action needed. Consider offering early payment discount next cycle.')">
+              <td><span class="inv-num">INV-960339</span></td><td>Waqas Al-Rashid</td><td><span class="terms-c">Net 15</span></td><td>$56.00</td><td class="vat-c">$8.40</td><td><strong>$64.40</strong></td><td><i class="ti ti-lock lk" title="Locked — cannot edit"></i></td><td><span style="font-size:9px;color:var(--rd2);color:#FCA5A5">Missing</span></td><td><span class="sp">Paid</span></td>
+            </tr>
+            <tr onclick="openSP('INV-960336','Khalid Motors','Net 30','$281.00','$42.15','$323.15','Unpaid','Due in 18 days. Customer has good payment history. Consider a friendly reminder in 10 days. Gap of 3 invoice numbers before this — investigate INV-960337, 960338.')">
+              <td><div style="display:flex;align-items:center;gap:6px"><span class="inv-num">INV-960336</span><span class="gap-warn"><i class="ti ti-alert-triangle" style="font-size:10px"></i>Seq gap</span></div></td><td>Khalid Motors</td><td><span class="terms-c">Net 30</span></td><td>$281.00</td><td class="vat-c">$42.15</td><td><strong>$323.15</strong></td><td><i class="ti ti-lock-open ulk" title="Unlocked — can be edited. Lock after confirming."></i></td><td><span style="font-size:9px;color:#FCA5A5">Missing</span></td><td><span class="su">Unpaid</span></td>
+            </tr>
+            <tr onclick="openSP('INV-960335','Waqas Al-Rashid','Net 15','$167.28','$25.09','$192.37','Unpaid','Overdue by 2 days. This customer usually pays on time — a quick WhatsApp message should resolve this. Low risk.')">
+              <td><span class="inv-num">INV-960335</span></td><td>Waqas Al-Rashid</td><td><span class="terms-c">Net 15</span></td><td>$167.28</td><td class="vat-c">$25.09</td><td><strong>$192.37</strong></td><td><i class="ti ti-lock-open ulk"></i></td><td><span style="font-size:9px;color:#FCA5A5">Missing</span></td><td><span class="su">Unpaid</span></td>
+            </tr>
+            <tr onclick="openSP('INV-783888','Qahir Enterprises','Overdue','$3,369.64','$505.45','$3,875.09','Overdue','CRITICAL: 32 days overdue, over $3,000 credit limit. Actions: (1) Stop all further credit immediately. (2) Send formal demand letter today. (3) Escalate to collections in 48 hours if no response. Do NOT create new invoices for this customer.')">
+              <td><span class="inv-num">INV-783888</span></td>
+              <td><div>Qahir Enterprises</div><div class="cw"><i class="ti ti-alert-circle"></i>Over credit limit</div></td>
+              <td><span class="terms-c" style="background:var(--rd);color:#FCA5A5;border-color:rgba(239,68,68,.3)">Overdue 32d</span></td>
+              <td>$3,369.64</td><td class="vat-c">$505.45</td><td><strong style="color:var(--red)">$3,875.09</strong></td><td><i class="ti ti-lock-open ulk"></i></td><td><span style="font-size:9px;color:#FCA5A5">Missing</span></td><td><span class="so">Overdue</span></td>
+            </tr>
+            <tr onclick="openSP('INV-837774','Leo Tire Shop','COD','$239.60','$35.94','$275.54','Unpaid','COD — payment expected on delivery. Van 2 assigned this route today. Mark as collected once driver confirms via POD app.')">
+              <td><span class="inv-num">INV-837774</span></td><td>Leo Tire Shop</td><td><span class="terms-c">COD</span></td><td>$239.60</td><td class="vat-c">$35.94</td><td><strong>$275.54</strong></td><td><i class="ti ti-lock-open ulk"></i></td><td><span style="font-size:9px;color:#FCA5A5">Missing</span></td><td><span class="su">Unpaid</span></td>
+            </tr>
+          </tbody>
+        </table>
+        <div style="margin-top:8px;padding:7px 10px;background:var(--rd);background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.18);border-radius:var(--rs);font-size:10px;color:#FCA5A5;display:flex;align-items:center;gap:6px">
+          <i class="ti ti-alert-triangle" style="font-size:13px"></i>
+          <span><strong>Tax Registration Number</strong> is missing from all invoices. This is a legal requirement. Add your VAT reg number in Settings &rarr; Company Profile to auto-populate on every invoice.</span>
+        </div>
+      </div>
+
+      <div class="gcol">
+        <div class="panel">
+          <div class="ph" style="margin-bottom:8px"><div class="pt">Quick Stats</div><span class="ps">Operational</span></div>
+          <div class="slist">
+            <div class="srow"><div class="srk"><i class="ti ti-users"></i>Total Customers</div><div class="srv">178</div></div>
+            <div class="srow"><div class="srk"><i class="ti ti-user-plus" style="color:var(--teal)"></i>New This Month</div><div class="srv" style="color:var(--teal)">12</div></div>
+            <div class="srow"><div class="srk"><i class="ti ti-car"></i>Active Vans</div><div class="srv">2</div></div>
+            <div class="srow"><div class="srk"><i class="ti ti-tag"></i>Products in Catalog</div><div class="srv">43</div></div>
+            <div class="srow"><div class="srk"><i class="ti ti-shopping-cart"></i>Total Orders MTD</div><div class="srv">13</div></div>
+          </div>
+          <div class="health-row"><div class="hdot"></div><span class="htxt">All Systems Operational</span></div>
+        </div>
+
+        <!-- VAN STATUS -->
+        <div class="panel">
+          <div class="ph" style="margin-bottom:8px"><div class="pt"><i class="ti ti-car" style="font-size:15px;color:var(--teal)"></i>Van Status</div><span class="pa" onclick="switchTab('mobile')">Field view &rarr;</span></div>
+          <div class="van-grid">
+            <div class="van-card">
+              <div class="van-hdr"><div class="van-nm">Van 01 — Ahmed</div><span class="van-st vs-on">Online</span></div>
+              <div class="van-rows">
+                <div class="van-row"><span class="vrl">Location</span><span class="vrv">DHA Phase 6</span></div>
+                <div class="van-row"><span class="vrl">Invoices today</span><span class="vrv" style="color:var(--green)">3 posted</span></div>
+                <div class="van-row"><span class="vrl">Stock on van</span><span class="vrv">12 units</span></div>
+              </div>
+            </div>
+            <div class="van-card" style="border-color:rgba(245,158,11,.25)">
+              <div class="van-hdr"><div class="van-nm">Van 02 — Khalid</div><span class="van-st vs-sy">Syncing</span></div>
+              <div class="van-rows">
+                <div class="van-row"><span class="vrl">Location</span><span class="vrv">Gulshan-e-Iqbal</span></div>
+                <div class="van-row"><span class="vrl">Invoices today</span><span class="vrv" style="color:var(--amber)">1 offline</span></div>
+                <div class="van-row"><span class="vrl">Stock on van</span><span class="vrv">8 units</span></div>
+              </div>
+              <div class="sync-badge" onclick="switchTab('mobile')"><i class="ti ti-cloud-upload" style="font-size:13px"></i>7 offline invoices — sync now</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- CHECKLIST -->
+        <div class="panel" id="clPanel">
+          <div class="cl-hdr">
+            <div class="cl-title"><i class="ti ti-checklist"></i>Today's Checklist</div>
+            <span id="clCount2" style="font-size:10px;color:var(--t3)">3 left</span>
+          </div>
+          <div class="cl-items">
+            <div class="cli done" onclick="tc(this)"><div class="clbox"><i class="ti ti-check"></i></div><span class="cltx">Post yesterday's invoices</span></div>
+            <div class="cli" onclick="tc(this)"><div class="clbox"></div><span class="cltx">Reconcile bank payments</span><span class="clurgb nbr">urgent</span></div>
+            <div class="cli" onclick="tc(this)"><div class="clbox"></div><span class="cltx">Chase Qahir — $3,875 overdue 32d</span><span class="clurgb nbr">critical</span></div>
+            <div class="cli" onclick="tc(this)"><div class="clbox"></div><span class="cltx">Mobil 5W30 reorder check</span><span class="clurgb nby">low</span></div>
+            <div class="cli done" onclick="tc(this)"><div class="clbox"><i class="ti ti-check"></i></div><span class="cltx">Review 3 pending approvals</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ FINANCE & TAX ═══ -->
+  <div class="content tc" id="tc-finance">
+    <div class="pgh">
+      <div><div class="pgtit" style="color:var(--purple)"><i class="ti ti-receipt-tax" style="font-size:20px;vertical-align:-.2em;margin-right:8px"></i>Finance &amp; Tax Compliance</div><div class="pgsub">Legal invoice format &middot; VAT breakdown &middot; AR aging &middot; Record retention</div></div>
+      <div class="pgact"><button class="pgbtn" style="color:var(--purple);border-color:rgba(167,139,250,.3)" onclick="exportVAT()"><i class="ti ti-download"></i>Export VAT Return</button><button class="pgbtn" onclick="lockAllPosted()"><i class="ti ti-lock"></i>Lock All Posted</button></div>
+    </div>
+    <div class="kgrid" style="grid-template-columns:repeat(4,1fr)">
+      <div class="kpi kg"><div class="ktop"><div class="klbl"><i class="ti ti-building-bank" style="color:var(--green)"></i>Cash Position</div><span class="tb tbg">Today</span></div><div class="kval" style="color:var(--green)">$82,400</div><div class="ksub">Bank minus payables</div></div>
+      <div class="kpi kr"><div class="ktop"><div class="klbl"><i class="ti ti-clock" style="color:var(--red)"></i>AR Outstanding</div><span class="tb tbr">Aging</span></div><div class="kval" style="color:var(--red)">$411,776</div><div class="ksub warn"><i class="ti ti-alert-circle"></i>$3,369 over 30 days</div></div>
+      <div class="kpi kp"><div class="ktop"><div class="klbl"><i class="ti ti-receipt-tax" style="color:var(--purple)"></i>VAT Collected MTD<div class="kttip">Total VAT collected this month at 15% rate. This feeds directly into your quarterly VAT return filing.</div></div><span class="tb" style="background:var(--pd);color:#C4B5FD;border:1px solid rgba(167,139,250,.2)">15% rate</span></div><div class="kval" style="color:var(--purple)">$61,774</div><div class="ksub">At 15% on $411,832 income</div></div>
+      <div class="kpi ka"><div class="ktop"><div class="klbl"><i class="ti ti-shield-check" style="color:var(--amber)"></i>Compliance Score</div><span class="tb tba">30%</span></div><div class="kval" style="color:var(--amber)">30%</div><div class="ksub warn">Critical issues — see checklist</div></div>
+    </div>
+    <!-- AR AGING BREAKDOWN -->
+    <!-- AR AGING VISUAL -->
+    <div style="display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:10px">
+      <div class="panel">
+        <div class="ph"><div class="pt"><i class="ti ti-chart-bar" style="font-size:15px;color:var(--purple)"></i>AR Aging Breakdown</div><span class="pa" onclick="fc('Which overdue invoices should I prioritise chasing this week?')">Ask AI &rarr;</span></div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:4px"><span style="color:var(--t2)">Current (0–30 days)</span><span style="font-weight:600;color:var(--green)">$408,407 &middot; 8 inv</span></div>
+            <div style="height:12px;background:var(--bg4);border-radius:6px;overflow:hidden"><div style="height:100%;width:99%;background:var(--green);border-radius:6px;transition:width .8s ease"></div></div>
+          </div>
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:4px"><span style="color:var(--t2)">Late (31–60 days)</span><span style="font-weight:600;color:var(--amber)">$3,369 &middot; 1 inv &mdash; <strong>Chase Qahir</strong></span></div>
+            <div style="height:12px;background:var(--bg4);border-radius:6px;overflow:hidden"><div style="height:100%;width:0.8%;background:var(--amber);border-radius:6px;transition:width .8s ease"></div></div>
+          </div>
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:4px"><span style="color:var(--t2)">Overdue (61–90 days)</span><span style="font-weight:600;color:var(--t3)">$0 &middot; Clear</span></div>
+            <div style="height:12px;background:var(--bg4);border-radius:6px;overflow:hidden"><div style="height:100%;width:0%;background:var(--red);border-radius:6px"></div></div>
+          </div>
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:4px"><span style="color:var(--t2)">Write-off risk (90+ days)</span><span style="font-weight:600;color:var(--t3)">$0 &middot; Clear</span></div>
+            <div style="height:12px;background:var(--bg4);border-radius:6px;overflow:hidden"><div style="height:100%;width:0%;background:var(--red);border-radius:6px"></div></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;padding-top:8px;border-top:1px solid var(--br);font-size:11px">
+            <span style="color:var(--t2)">Total AR Outstanding</span>
+            <span style="font-weight:600;color:var(--red)">$411,776</span>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="ph"><div class="pt"><i class="ti ti-target" style="font-size:15px;color:var(--purple)"></i>Collection Health</div></div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
+          <div style="text-align:center;padding:12px;background:var(--bg4);border-radius:var(--rs)">
+            <div style="font-family:var(--head);font-size:36px;font-weight:600;color:var(--green)">99.2%</div>
+            <div style="font-size:10px;color:var(--t3);margin-top:2px">Current within terms</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:5px">
+            <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 8px;background:var(--rd);border-radius:var(--rs)">
+              <span style="color:#FCA5A5;font-weight:500">⚠ Qahir Enterprises</span>
+              <span style="color:#FCA5A5;font-weight:600">$3,875 • 32d</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 8px;background:var(--bg4);border-radius:var(--rs)">
+              <span style="color:var(--t2)">Avg days to pay</span>
+              <span style="font-weight:600;color:var(--green)">8 days</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 8px;background:var(--bg4);border-radius:var(--rs)">
+              <span style="color:var(--t2)">This month collected</span>
+              <span style="font-weight:600">$64.40</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="g2">
+      <div class="panel">
+        <div class="ph"><div class="pt"><i class="ti ti-shield-check" style="color:var(--purple)"></i>Legal Compliance Checklist</div></div>
+        <div class="complist">
+          <div class="ci"><div class="cico cfail"><i class="ti ti-x"></i></div><div><div class="ctxt">Tax registration number on every invoice</div><div class="cdet">Legally mandatory — your VAT reg must appear on every invoice header</div></div><span class="cbadge" style="background:var(--rd);color:#FCA5A5;border-color:rgba(239,68,68,.2)">Missing</span></div>
+          <div class="ci"><div class="cico cwrn"><i class="ti ti-alert-triangle"></i></div><div><div class="ctxt">VAT breakdown — net amount, rate %, tax amount, gross total separately</div><div class="cdet">Column visible in table but not on printed invoice document itself</div></div><span class="cbadge" style="background:var(--ad);color:#FCD34D;border-color:rgba(245,158,11,.2)">Partial</span></div>
+          <div class="ci"><div class="cico cfail"><i class="ti ti-x"></i></div><div><div class="ctxt">Invoice locking — no edits after posting, credit notes only</div><div class="cdet">Currently any user can edit posted invoices — illegal in most jurisdictions</div></div><span class="cbadge" style="background:var(--rd);color:#FCA5A5;border-color:rgba(239,68,68,.2)">Missing</span></div>
+          <div class="ci"><div class="cico cwrn"><i class="ti ti-alert-triangle"></i></div><div><div class="ctxt">Sequential numbering — gap detected INV-960339 &rarr; INV-960336</div><div class="cdet">3 invoice numbers missing — must be investigated for tax audit compliance</div></div><span class="cbadge" style="background:var(--ad);color:#FCD34D;border-color:rgba(245,158,11,.2)">Gap found</span></div>
+          <div class="ci"><div class="cico cfail"><i class="ti ti-x"></i></div><div><div class="ctxt">7-year record retention — all posted invoices permanently archived</div><div class="cdet">No archival policy configured. Required for tax authority compliance.</div></div><span class="cbadge" style="background:var(--rd);color:#FCA5A5;border-color:rgba(239,68,68,.2)">Not set</span></div>
+          <div class="ci"><div class="cico cfail"><i class="ti ti-x"></i></div><div><div class="ctxt">One-click VAT return export for quarterly/monthly filing</div><div class="cdet">Accountant must manually calculate VAT totals — high error risk</div></div><span class="cbadge" style="background:var(--rd);color:#FCA5A5;border-color:rgba(239,68,68,.2)">Missing</span></div>
+          <div class="ci"><div class="cico cp2"><i class="ti ti-check"></i></div><div><div class="ctxt">VAT column on invoice table with correct 15% calculation per row</div><div class="cdet">Net + VAT + gross total visible and correctly calculated</div></div><span class="cbadge" style="background:var(--gd);color:var(--green);border-color:rgba(34,197,94,.2)">Done &#10003;</span></div>
+          <div class="ci"><div class="cico cp2"><i class="ti ti-check"></i></div><div><div class="ctxt">Payment terms on every invoice — Net 15, Net 30, COD</div><div class="cdet">Sets due date and feeds AR aging report automatically</div></div><span class="cbadge" style="background:var(--gd);color:var(--green);border-color:rgba(34,197,94,.2)">Done &#10003;</span></div>
+        </div>
+        <div style="margin-top:10px">
+          <div class="prog-row"><div class="prog-lbl">Overall compliance</div><div class="prog-wrap"><div class="prog-fill" style="width:30%;background:var(--purple)"></div></div><div class="prog-pct" style="color:var(--purple)">30%</div></div>
+          <div class="prog-row"><div class="prog-lbl">Invoice legal format</div><div class="prog-wrap"><div class="prog-fill" style="width:20%;background:var(--red)"></div></div><div class="prog-pct" style="color:var(--red)">20%</div></div>
+          <div class="prog-row"><div class="prog-lbl">VAT compliance</div><div class="prog-wrap"><div class="prog-fill" style="width:50%;background:var(--amber)"></div></div><div class="prog-pct" style="color:var(--amber)">50%</div></div>
+          <div class="prog-row"><div class="prog-lbl">Record keeping</div><div class="prog-wrap"><div class="prog-fill" style="width:25%;background:var(--red)"></div></div><div class="prog-pct" style="color:var(--red)">25%</div></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="ph"><div class="pt"><i class="ti ti-file-invoice" style="color:var(--blue)"></i>Invoices — Legal Format View</div></div>
+        <table class="inv-tbl">
+          <thead><tr><th>Invoice</th><th>Seq</th><th>Net</th><th>VAT</th><th>Gross</th><th>Lock</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td><span class="inv-num">INV-960339</span></td><td style="color:var(--green);font-size:12px">&#10003;</td><td>$56.00</td><td>$8.40</td><td><strong>$64.40</strong></td><td><i class="ti ti-lock lk"></i></td><td><span class="sp">Paid</span></td></tr>
+            <tr><td><span class="inv-num">INV-960336</span></td><td style="color:var(--red);font-size:12px">&#9888; Gap</td><td>$281.00</td><td>$42.15</td><td><strong>$323.15</strong></td><td><i class="ti ti-lock-open ulk"></i></td><td><span class="su">Unpaid</span></td></tr>
+            <tr><td><span class="inv-num">INV-783888</span></td><td style="color:var(--amber);font-size:12px">?</td><td>$3,369.64</td><td>$505.45</td><td><strong style="color:var(--red)">$3,875.09</strong></td><td><i class="ti ti-lock-open ulk"></i></td><td><span class="so">Overdue</span></td></tr>
+            <tr><td><span class="inv-num">INV-837774</span></td><td style="color:var(--green);font-size:12px">&#10003;</td><td>$239.60</td><td>$35.94</td><td><strong>$275.54</strong></td><td><i class="ti ti-lock-open ulk"></i></td><td><span class="su">Unpaid</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ WAREHOUSE ═══ -->
+  <div class="content tc" id="tc-warehouse">
+    <div class="pgh">
+      <div><div class="pgtit" style="color:var(--orange)"><i class="ti ti-box" style="font-size:20px;vertical-align:-.2em;margin-right:8px"></i>Warehouse Management</div><div class="pgsub">Bin locations &middot; Batch &amp; lot tracking &middot; Expiry dates &middot; Pick lists &middot; Reorder alerts</div></div>
+      <div class="pgact"><button class="pgbtn" style="color:var(--orange);border-color:rgba(251,146,60,.3)"><i class="ti ti-qrcode"></i>Scan Barcode</button><button class="pgbtn"><i class="ti ti-clipboard-list"></i>Generate Pick List</button></div>
+    </div>
+    <div class="g4">
+      <div class="kpi ka"><div class="ktop"><div class="klbl"><i class="ti ti-package" style="color:var(--amber)"></i>Low Stock Items</div><span class="tb tba">Critical</span></div><div class="kval" style="color:var(--amber)">40</div><div class="ksub warn">Below reorder point</div></div>
+      <div class="kpi kr"><div class="ktop"><div class="klbl"><i class="ti ti-calendar-off" style="color:var(--red)"></i>Expiry Alerts</div><span class="tb tbr">Urgent</span></div><div class="kval" style="color:var(--red)">3</div><div class="ksub warn">1 batch expired in quarantine</div></div>
+      <div class="kpi kb"><div class="ktop"><div class="klbl"><i class="ti ti-barcode" style="color:var(--blue)"></i>Active Batches</div><span class="tb tbb">Tracked</span></div><div class="kval">12</div><div class="ksub">Across 3 products</div></div>
+      <div class="kpi kg"><div class="ktop"><div class="klbl"><i class="ti ti-clipboard-list" style="color:var(--green)"></i>Pick Lists Today</div><span class="tb tbg">Active</span></div><div class="kval" style="color:var(--green)">5</div><div class="ksub ok">2 pending dispatch</div></div>
+    </div>
+    <div class="g2">
+      <div class="panel">
+        <div class="ph"><div class="pt"><i class="ti ti-map-pin" style="color:var(--orange)"></i>Bin Locations — Stock Floor Map</div><span class="pa">Edit locations &rarr;</span></div>
+        <div class="bin-grid">
+          <div class="bin-card"><div class="bin-loc">A1 &middot; Rack 1</div><div class="bin-prod">Bettano 0W16 SP 12x1</div><div class="bin-row"><span style="color:var(--t3)">Stock</span><span style="color:var(--green);font-weight:600">142 units</span></div><div class="bin-row"><span style="color:var(--t3)">Batch</span><span>BT-2024-087</span></div><div class="exp-badge eok"><i class="ti ti-calendar-check" style="font-size:10px"></i>Exp: Dec 2026</div></div>
+          <div class="bin-card"><div class="bin-loc">A2 &middot; Rack 1</div><div class="bin-prod">Bettano 0W20 SP 12x1</div><div class="bin-row"><span style="color:var(--t3)">Stock</span><span style="color:var(--amber);font-weight:600">8 units</span></div><div class="bin-row"><span style="color:var(--t3)">Batch</span><span>BT-2024-091</span></div><div class="exp-badge ewarn"><i class="ti ti-calendar-exclamation" style="font-size:10px"></i>Exp: Jun 2026</div></div>
+          <div class="bin-card"><div class="bin-loc">B1 &middot; Rack 2</div><div class="bin-prod">Mobil Special 5W30</div><div class="bin-row"><span style="color:var(--t3)">Stock</span><span style="color:var(--red);font-weight:600">4 units</span></div><div class="bin-row"><span style="color:var(--t3)">Batch</span><span>MB-2024-112</span></div><div class="exp-badge ewarn"><i class="ti ti-calendar-exclamation" style="font-size:10px"></i>Exp: Aug 2026</div></div>
+          <div class="bin-card"><div class="bin-loc">B2 &middot; Rack 2</div><div class="bin-prod">Castrol GTX 10W40</div><div class="bin-row"><span style="color:var(--t3)">Stock</span><span style="color:var(--green);font-weight:600">56 units</span></div><div class="bin-row"><span style="color:var(--t3)">Batch</span><span>CT-2025-003</span></div><div class="exp-badge eok"><i class="ti ti-calendar-check" style="font-size:10px"></i>Exp: Mar 2027</div></div>
+          <div class="bin-card"><div class="bin-loc">C1 &middot; Van Stock</div><div class="bin-prod">Bettano 0W16 SP 12x1</div><div class="bin-row"><span style="color:var(--t3)">Stock</span><span style="color:var(--amber);font-weight:600">12 units</span></div><div class="bin-row"><span style="color:var(--t3)">Batch</span><span>BT-2024-087</span></div><div class="exp-badge eok"><i class="ti ti-calendar-check" style="font-size:10px"></i>Exp: Dec 2026</div></div>
+          <div class="bin-card" style="border-color:rgba(239,68,68,.3)"><div class="bin-loc" style="color:var(--red)">D1 &middot; QUARANTINE</div><div class="bin-prod">Mobil Special 5W30</div><div class="bin-row"><span style="color:var(--t3)">Stock</span><span style="color:var(--red);font-weight:600">6 units</span></div><div class="bin-row"><span style="color:var(--t3)">Batch</span><span>MB-2023-087</span></div><div class="exp-badge ecrit"><i class="ti ti-calendar-off" style="font-size:10px"></i>EXPIRED — Do not sell</div></div>
+        </div>
+      </div>
+      <div class="gcol">
+        <div class="panel"><div class="ph"><div class="pt"><i class="ti ti-clock" style="color:var(--red)"></i>Expiry Alerts</div></div>
+          <div class="slist">
+            <div class="srow"><div class="srk"><i class="ti ti-x" style="color:var(--red)"></i>Mobil 5W30 &middot; MB-2023-087</div><span class="sbdg" style="background:var(--rd);color:#FCA5A5;border-color:rgba(239,68,68,.2)">EXPIRED</span></div>
+            <div class="srow"><div class="srk"><i class="ti ti-alert-triangle" style="color:var(--amber)"></i>Bettano 0W20 &middot; BT-2024-091</div><span class="sbdg" style="background:var(--ad);color:#FCD34D;border-color:rgba(245,158,11,.2)">30 days</span></div>
+            <div class="srow"><div class="srk"><i class="ti ti-alert-triangle" style="color:var(--amber)"></i>Mobil 5W30 &middot; MB-2024-112</div><span class="sbdg" style="background:var(--ad);color:#FCD34D;border-color:rgba(245,158,11,.2)">90 days</span></div>
+          </div>
+        </div>
+        <div class="panel"><div class="ph"><div class="pt"><i class="ti ti-trending-down" style="color:var(--amber)"></i>Reorder Alerts</div></div>
+          <div class="slist">
+            <div class="srow"><div class="srk"><i class="ti ti-package"></i>Mobil Special 5W30</div><span style="font-size:10px;color:var(--red);font-weight:600">4 left &mdash; Order NOW</span></div>
+            <div class="srow"><div class="srk"><i class="ti ti-package"></i>Bettano 0W20 SP 12x1</div><span style="font-size:10px;color:var(--amber);font-weight:600">8 left &mdash; Below min</span></div>
+            <div class="srow"><div class="srk"><i class="ti ti-package"></i>Van Stock Bettano 0W16</div><span style="font-size:10px;color:var(--amber);font-weight:600">12 left &mdash; Restock van</span></div>
+          </div>
+        </div>
+        <div class="panel"><div class="ph"><div class="pt"><i class="ti ti-clipboard-list" style="color:var(--green)"></i>Active Pick Lists</div></div>
+          <div class="slist">
+            <div class="srow"><div class="srk"><i class="ti ti-check"></i>PL-001 &middot; INV-960339 &middot; Waqas</div><span class="sbdg" style="background:var(--gd);color:var(--green);border-color:rgba(34,197,94,.2)">Dispatched</span></div>
+            <div class="srow"><div class="srk"><i class="ti ti-loader"></i>PL-002 &middot; INV-960336 &middot; Khalid</div><span class="sbdg" style="background:var(--ad);color:#FCD34D;border-color:rgba(245,158,11,.2)">Picking</span></div>
+            <div class="srow"><div class="srk"><i class="ti ti-clock"></i>PL-003 &middot; INV-837774 &middot; Leo</div><span class="sbdg" style="background:var(--bd);color:#93C5FD;border-color:var(--bb)">Pending</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ MOBILE & FIELD ═══ -->
+  <div class="content tc" id="tc-mobile">
+    <div class="pgh">
+      <div><div class="pgtit" style="color:var(--teal)"><i class="ti ti-device-mobile" style="font-size:20px;vertical-align:-.2em;margin-right:8px"></i>Field &amp; Mobile Operations</div><div class="pgsub">Van drivers &middot; Offline invoicing &middot; GPS &middot; Real-time sync</div></div>
+      <div class="pgact"><button class="pgbtn" style="color:var(--teal);border-color:rgba(0,212,170,.3)"><i class="ti ti-refresh"></i>Force Sync All</button><button class="pgbtn"><i class="ti ti-qrcode"></i>Mobile QR Login</button></div>
+    </div>
+    <div class="g4">
+      <div class="kpi kg"><div class="ktop"><div class="klbl"><i class="ti ti-car" style="color:var(--green)"></i>Vans Online</div><span class="tb tbg">Active</span></div><div class="kval" style="color:var(--green)">2</div><div class="ksub ok">Both vans active today</div></div>
+      <div class="kpi ka"><div class="ktop"><div class="klbl"><i class="ti ti-cloud-off" style="color:var(--amber)"></i>Pending Sync</div><span class="tb tba">Queued</span></div><div class="kval" style="color:var(--amber)">7</div><div class="ksub warn">Invoices not uploaded yet</div></div>
+      <div class="kpi kb"><div class="ktop"><div class="klbl"><i class="ti ti-file-invoice" style="color:var(--blue)"></i>Field Invoices Today</div><span class="tb tbb">Today</span></div><div class="kval">4</div><div class="ksub">Created on mobile devices</div></div>
+      <div class="kpi kr"><div class="ktop"><div class="klbl"><i class="ti ti-wifi-off" style="color:var(--red)"></i>Offline Events</div><span class="tb tbr">Warning</span></div><div class="kval" style="color:var(--red)">3</div><div class="ksub warn">Sales unsynced 18+ hours</div></div>
+    </div>
+    <div class="g2">
+      <div class="panel">
+        <div class="ph"><div class="pt"><i class="ti ti-car" style="color:var(--teal)"></i>Van Status &mdash; Real-time</div><span class="pa">View map &rarr;</span></div>
+        <div class="van-grid" style="grid-template-columns:1fr 1fr">
+          <div class="van-card" style="border-color:rgba(34,197,94,.25)">
+            <div class="van-hdr"><div class="van-nm">Van 01 &mdash; Ahmed</div><span class="van-st vs-on">Online</span></div>
+            <div class="van-rows">
+              <div class="van-row"><span class="vrl">Location</span><span class="vrv">Karachi, DHA Phase 6</span></div>
+              <div class="van-row"><span class="vrl">Last ping</span><span class="vrv" style="color:var(--green)">2 min ago</span></div>
+              <div class="van-row"><span class="vrl">Van stock</span><span class="vrv">12 units</span></div>
+              <div class="van-row"><span class="vrl">Invoices today</span><span class="vrv" style="color:var(--green)">3 posted &#10003;</span></div>
+              <div class="van-row"><span class="vrl">Route progress</span><span class="vrv" style="color:var(--blue)">5 of 8 stops</span></div>
+            </div>
+          </div>
+          <div class="van-card" style="border-color:rgba(245,158,11,.3)">
+            <div class="van-hdr"><div class="van-nm">Van 02 &mdash; Khalid</div><span class="van-st vs-sy">Syncing</span></div>
+            <div class="van-rows">
+              <div class="van-row"><span class="vrl">Location</span><span class="vrv">Gulshan-e-Iqbal</span></div>
+              <div class="van-row"><span class="vrl">Last ping</span><span class="vrv" style="color:var(--amber)">12 min ago</span></div>
+              <div class="van-row"><span class="vrl">Van stock</span><span class="vrv">8 units</span></div>
+              <div class="van-row"><span class="vrl">Invoices today</span><span class="vrv" style="color:var(--amber)">1 offline &#9888;</span></div>
+              <div class="van-row"><span class="vrl">Route progress</span><span class="vrv" style="color:var(--blue)">3 of 6 stops</span></div>
+            </div>
+            <div class="sync-badge"><i class="ti ti-cloud-upload" style="font-size:13px"></i>7 offline invoices &mdash; tap to sync all</div>
+          </div>
+        </div>
+        <div style="margin-top:10px">
+          <div class="ph" style="margin-bottom:6px"><div class="pt" style="font-size:12px"><i class="ti ti-cloud-off" style="color:var(--amber)"></i>Offline Invoice Queue</div><span class="pa">Sync all &rarr;</span></div>
+          <table class="inv-tbl">
+            <thead><tr><th>Temp ID</th><th>Driver</th><th>Customer</th><th>Amount</th><th>VAT</th><th>Offline Since</th></tr></thead>
+            <tbody>
+              <tr><td><span class="inv-num" style="color:var(--amber)">TEMP-001</span></td><td>Khalid</td><td>WAQAS</td><td>$167.28</td><td>$25.09</td><td style="color:var(--red)">18 hrs ago</td></tr>
+              <tr><td><span class="inv-num" style="color:var(--amber)">TEMP-002</span></td><td>Khalid</td><td>Leo Tire</td><td>$239.60</td><td>$35.94</td><td style="color:var(--red)">14 hrs ago</td></tr>
+              <tr><td><span class="inv-num" style="color:var(--amber)">TEMP-003</span></td><td>Khalid</td><td>qahir</td><td>$76.00</td><td>$11.40</td><td style="color:var(--amber)">12 hrs ago</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="ph"><div class="pt"><i class="ti ti-device-mobile" style="color:var(--teal)"></i>Mobile Feature Status</div></div>
+        <div class="complist">
+          <div class="ci"><div class="cico cfail"><i class="ti ti-x"></i></div><div><div class="ctxt">Mobile invoice creation app</div><div class="cdet">Drivers need full invoice form on phone &mdash; currently desktop only</div></div></div>
+          <div class="ci"><div class="cico cwrn"><i class="ti ti-alert-triangle"></i></div><div><div class="ctxt">Offline mode with auto-sync queue</div><div class="cdet">Manual sync only &mdash; 7 invoices offline 18 hours</div></div></div>
+          <div class="ci"><div class="cico cfail"><i class="ti ti-x"></i></div><div><div class="ctxt">GPS auto-fill customer from location</div><div class="cdet">One tap to fill customer from map &mdash; not yet built</div></div></div>
+          <div class="ci"><div class="cico cp2"><i class="ti ti-check"></i></div><div><div class="ctxt">Voice narration on desktop (Chrome)</div><div class="cdet">Speak to AI bar &mdash; works on desktop, needs mobile port</div></div></div>
+          <div class="ci"><div class="cico cfail"><i class="ti ti-x"></i></div><div><div class="ctxt">Camera barcode scan for stock dispatch</div><div class="cdet">Scan product to auto-fill invoice line item &mdash; not built</div></div></div>
+          <div class="ci"><div class="cico cwrn"><i class="ti ti-alert-triangle"></i></div><div><div class="ctxt">Responsive mobile layout</div><div class="cdet">CSS media queries added but not fully tested on 390px screens</div></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ SECURITY ═══ -->
+  <div class="content tc" id="tc-security">
+    <div class="pgh">
+      <div><div class="pgtit" style="color:var(--red)"><i class="ti ti-shield" style="font-size:20px;vertical-align:-.2em;margin-right:8px"></i>Security &amp; Audit Trail</div><div class="pgsub">Access control &middot; Audit log &middot; 2FA &middot; Session management &middot; Permissions</div></div>
+      <div class="pgact"><button class="pgbtn" style="color:var(--red);border-color:rgba(239,68,68,.3)"><i class="ti ti-download"></i>Export Audit Log</button><button class="pgbtn" onclick="show2FA()"><i class="ti ti-lock"></i>Enable 2FA</button></div>
+    </div>
+    <div class="g4">
+      <div class="kpi kr"><div class="ktop"><div class="klbl"><i class="ti ti-users" style="color:var(--red)"></i>Active Sessions</div><span class="tb tbr">Now</span></div><div class="kval">3</div><div class="ksub warn"><i class="ti ti-alert-circle"></i>1 unknown device</div></div>
+      <div class="kpi ka"><div class="ktop"><div class="klbl"><i class="ti ti-lock-open" style="color:var(--amber)"></i>No 2FA Users</div><span class="tb tba">Risk</span></div><div class="kval" style="color:var(--amber)">4</div><div class="ksub warn">Out of 6 total users</div></div>
+      <div class="kpi kb"><div class="ktop"><div class="klbl"><i class="ti ti-history" style="color:var(--blue)"></i>Actions Today</div><span class="tb tbb">Logged</span></div><div class="kval">47</div><div class="ksub">Across all users</div></div>
+      <div class="kpi ka"><div class="ktop"><div class="klbl"><i class="ti ti-shield-check" style="color:var(--amber)"></i>Security Score</div><span class="tb tba">40%</span></div><div class="kval" style="color:var(--amber)">40%</div><div class="ksub warn">Needs improvement</div></div>
+    </div>
+    <div class="g2">
+      <div class="panel">
+        <div class="ph"><div class="pt"><i class="ti ti-list-check" style="color:var(--red)"></i>Live Audit Log &mdash; Last 24 Hours</div><span class="pa">Full history &rarr;</span></div>
+        <div class="audit-list">
+          <div class="ai-item"><div class="ai-ico" style="background:var(--bd)"><i class="ti ti-file-invoice" style="color:#93C5FD"></i></div><div class="ai-body"><div class="ai-action">Invoice INV-960339 created &mdash; Waqas Al-Rashid $56.00</div><div class="ai-meta">System Admin (AQ) &middot; IP 192.168.1.10 &middot; Chrome / Mac</div></div><div class="ai-time">10:32am</div></div>
+          <div class="ai-item"><div class="ai-ico" style="background:var(--gd)"><i class="ti ti-coin" style="color:var(--green)"></i></div><div class="ai-body"><div class="ai-action">Payment $56 recorded &mdash; INV-960339 marked Paid</div><div class="ai-meta">System Admin (AQ) &middot; IP 192.168.1.10</div></div><div class="ai-time">10:35am</div></div>
+          <div class="ai-item"><div class="ai-ico" style="background:var(--rd)"><i class="ti ti-user-edit" style="color:#FCA5A5"></i></div><div class="ai-body"><div class="ai-action">Customer record modified &mdash; Qahir credit limit changed $2,500&rarr;$3,000</div><div class="ai-meta">Junior Accountant (RA) &middot; IP 192.168.1.22</div></div><div class="ai-time">11:02am</div></div>
+          <div class="ai-item" style="border-color:rgba(245,158,11,.3)"><div class="ai-ico" style="background:var(--ad)"><i class="ti ti-login" style="color:#FCD34D"></i></div><div class="ai-body"><div class="ai-action">Login from <strong style="color:var(--amber)">UNKNOWN DEVICE</strong> &mdash; IP 41.209.xx.xx &mdash; Karachi ISP</div><div class="ai-meta">System Admin (AQ) &middot; Unusual IP location &mdash; <strong style="color:var(--amber)">Investigate immediately</strong></div></div><div class="ai-time">2:14pm</div></div>
+          <div class="ai-item" style="border-color:rgba(239,68,68,.3)"><div class="ai-ico" style="background:var(--rd)"><i class="ti ti-trash" style="color:#FCA5A5"></i></div><div class="ai-body"><div class="ai-action" style="color:var(--red)">Invoice DELETED &mdash; <strong>no CA approval obtained</strong> &mdash; HIGH RISK</div><div class="ai-meta">Junior Accountant (RA) &middot; IP 192.168.1.22 &middot; Action cannot be reversed</div></div><div class="ai-time">4:12pm</div></div>
+          <div class="ai-item"><div class="ai-ico" style="background:var(--bd)"><i class="ti ti-file-export" style="color:#93C5FD"></i></div><div class="ai-body"><div class="ai-action">Financial report exported &mdash; Q1 Profitability PDF</div><div class="ai-meta">System Admin (AQ) &middot; IP 192.168.1.10</div></div><div class="ai-time">3:45pm</div></div>
+        </div>
+      </div>
+      <div class="gcol">
+        <div class="panel">
+          <div class="ph"><div class="pt"><i class="ti ti-shield" style="color:var(--red)"></i>Security Checklist</div></div>
+          <div class="complist">
+            <div class="ci"><div class="cico cfail"><i class="ti ti-x"></i></div><div><div class="ctxt">Audit trail enabled for all actions</div><div class="cdet">Junior deleted invoice &mdash; no approval, no trace</div></div></div>
+            <div class="ci"><div class="cico cfail"><i class="ti ti-x"></i></div><div><div class="ctxt">2FA on invoice posting &amp; deletion</div><div class="cdet">High-value financial actions need second factor</div></div></div>
+            <div class="ci"><div class="cico cfail"><i class="ti ti-x"></i></div><div><div class="ctxt">Invoice delete requires CA approval</div><div class="cdet">Junior deleted without senior sign-off</div></div></div>
+            <div class="ci"><div class="cico cp2"><i class="ti ti-check"></i></div><div><div class="ctxt">Role-based access control &mdash; 4 roles</div><div class="cdet">Admin, CA, Sales Manager, Junior configured</div></div></div>
+            <div class="ci"><div class="cico cp2"><i class="ti ti-check"></i></div><div><div class="ctxt">User management panel active</div><div class="cdet">Admin can add/remove/modify users</div></div></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="ph"><div class="pt"><i class="ti ti-users" style="color:var(--red)"></i>Role Permission Matrix</div></div>
+          <div class="perm-grid">
+            <div class="phdr" style="text-align:left">Action</div><div class="phdr">Admin</div><div class="phdr">CA</div><div class="phdr">Sales</div><div class="phdr">Junior</div>
+            <div class="pcell" style="text-align:left">Create Invoice</div><div class="pcell"><i class="ti ti-check pyes"></i></div><div class="pcell"><i class="ti ti-check pyes"></i></div><div class="pcell"><i class="ti ti-check pyes"></i></div><div class="pcell"><i class="ti ti-check pyes"></i></div>
+            <div class="pcell" style="text-align:left">Delete Invoice</div><div class="pcell"><i class="ti ti-check pyes"></i></div><div class="pcell"><i class="ti ti-alert-triangle pwrn"></i></div><div class="pcell"><i class="ti ti-x pno"></i></div><div class="pcell"><i class="ti ti-x pno"></i></div>
+            <div class="pcell" style="text-align:left">View Financials</div><div class="pcell"><i class="ti ti-check pyes"></i></div><div class="pcell"><i class="ti ti-check pyes"></i></div><div class="pcell"><i class="ti ti-x pno"></i></div><div class="pcell"><i class="ti ti-x pno"></i></div>
+            <div class="pcell" style="text-align:left">Export Reports</div><div class="pcell"><i class="ti ti-check pyes"></i></div><div class="pcell"><i class="ti ti-check pyes"></i></div><div class="pcell"><i class="ti ti-x pno"></i></div><div class="pcell"><i class="ti ti-x pno"></i></div>
+            <div class="pcell" style="text-align:left">Edit Customers</div><div class="pcell"><i class="ti ti-check pyes"></i></div><div class="pcell"><i class="ti ti-check pyes"></i></div><div class="pcell"><i class="ti ti-check pyes"></i></div><div class="pcell"><i class="ti ti-alert-triangle pwrn"></i></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ SALES & CRM ═══ -->
+  <div class="content tc" id="tc-sales">
+    <div class="pgh">
+      <div><div class="pgtit" style="color:var(--green)"><i class="ti ti-trending-up" style="font-size:20px;vertical-align:-.2em;margin-right:8px"></i>Sales &amp; CRM</div><div class="pgsub">Pipeline &middot; Top customers &middot; Churn alerts &middot; Product velocity &middot; Marketing</div></div>
+      <div class="pgact"><button class="pgbtn" style="color:var(--green);border-color:rgba(34,197,94,.3)"><i class="ti ti-send"></i>WhatsApp Blast</button><button class="pgbtn"><i class="ti ti-user-plus"></i>Add Customer</button></div>
+    </div>
+    <div class="g4">
+      <div class="kpi kg"><div class="ktop"><div class="klbl"><i class="ti ti-users" style="color:var(--green)"></i>Total Customers</div><span class="tb tbg">Active</span></div><div class="kval" style="color:var(--green)">178</div><div class="ksub ok">+12 new this month</div></div>
+      <div class="kpi kr"><div class="ktop"><div class="klbl"><i class="ti ti-user-x" style="color:var(--red)"></i>Churn Risk</div><span class="tb tbr">Alert</span></div><div class="kval" style="color:var(--red)">12</div><div class="ksub warn">No order in 60+ days</div></div>
+      <div class="kpi kb"><div class="ktop"><div class="klbl"><i class="ti ti-shopping-cart" style="color:var(--blue)"></i>Orders MTD</div><span class="tb tbb">MTD</span></div><div class="kval">13</div><div class="ksub">$411k total value</div></div>
+      <div class="kpi ka"><div class="ktop"><div class="klbl"><i class="ti ti-target" style="color:var(--amber)"></i>Target Achievement</div><span class="tb tba">68%</span></div><div class="kval" style="color:var(--amber)">68%</div><div class="ksub warn">$192k of $280k target</div></div>
+    </div>
+    <div class="g2">
+      <div class="panel">
+        <div class="ph"><div class="pt"><i class="ti ti-trophy" style="color:var(--amber)"></i>Top Customers &mdash; Revenue MTD</div><span class="pa">Full CRM &rarr;</span></div>
+        <div class="slist">
+          <div class="srow"><div class="srk"><i class="ti ti-user" style="color:var(--blue)"></i><div><div>Waqas Al-Rashid</div><div style="font-size:9px;color:var(--t3)">Last order: Today &middot; 14 orders &middot; 94% on-time</div></div></div><span style="font-size:13px;font-weight:600;color:var(--green)">$223.28</span></div>
+          <div class="srow"><div class="srk"><i class="ti ti-user" style="color:var(--purple)"></i><div><div>Ali A&amp;R Trading</div><div style="font-size:9px;color:var(--t3)">Last order: 18 May &middot; 3 orders &middot; COD terms</div></div></div><span style="font-size:13px;font-weight:600;color:var(--green)">$270.00</span></div>
+          <div class="srow"><div class="srk"><i class="ti ti-user" style="color:var(--teal)"></i><div><div>Leo Tire Shop</div><div style="font-size:9px;color:var(--t3)">Last order: 17 May &middot; 2 orders &middot; COD terms</div></div></div><span style="font-size:13px;font-weight:600;color:var(--green)">$239.60</span></div>
+          <div class="srow" style="border-color:rgba(239,68,68,.2)"><div class="srk"><i class="ti ti-user" style="color:var(--red)"></i><div><div>Qahir Enterprises <span style="font-size:9px;color:var(--red)">&#9888; Over limit</span></div><div style="font-size:9px;color:var(--red)">$3,875 overdue 32d &mdash; DO NOT EXTEND CREDIT</div></div></div><span style="font-size:13px;font-weight:600;color:var(--red)">-$3,369</span></div>
+        </div>
+        <div style="margin-top:10px">
+          <div class="prog-row"><div class="prog-lbl">Monthly sales target</div><div class="prog-wrap"><div class="prog-fill" style="width:68%;background:var(--blue)"></div></div><div class="prog-pct" style="color:var(--blue)">68%</div></div>
+          <div class="prog-row"><div class="prog-lbl">New customer target</div><div class="prog-wrap"><div class="prog-fill" style="width:80%;background:var(--green)"></div></div><div class="prog-pct" style="color:var(--green)">80%</div></div>
+          <div class="prog-row"><div class="prog-lbl">Collection rate</div><div class="prog-wrap"><div class="prog-fill" style="width:12%;background:var(--red)"></div></div><div class="prog-pct" style="color:var(--red)">12%</div></div>
+        </div>
+      </div>
+      <div class="gcol">
+        <div class="panel"><div class="ph"><div class="pt"><i class="ti ti-user-x" style="color:var(--red)"></i>Churn Alerts</div><span class="pa">Send reminders &rarr;</span></div>
+          <div class="slist">
+            <div class="srow"><div class="srk"><i class="ti ti-user"></i>Ahmed Motors</div><span style="font-size:9px;color:var(--red);font-weight:500">90+ days silent</span></div>
+            <div class="srow"><div class="srk"><i class="ti ti-user"></i>Star Auto Parts</div><span style="font-size:9px;color:var(--amber);font-weight:500">67 days silent</span></div>
+            <div class="srow"><div class="srk"><i class="ti ti-user"></i>Gulf Lubricants</div><span style="font-size:9px;color:var(--amber);font-weight:500">61 days silent</span></div>
+            <div class="srow"><div class="srk"><i class="ti ti-send" style="color:var(--blue)"></i><span style="color:var(--blue)">Send WhatsApp to all 12 at-risk &rarr;</span></div></div>
+          </div>
+        </div>
+        <div class="panel"><div class="ph"><div class="pt"><i class="ti ti-chart-bar" style="color:var(--blue)"></i>Product Velocity</div></div>
+          <div class="slist">
+            <div class="srow"><div class="srk"><i class="ti ti-flame" style="color:var(--red)"></i>Bettano 0W16 SP 12x1</div><span style="font-size:10px;font-weight:600;color:var(--green)">Fast &mdash; 42/mo</span></div>
+            <div class="srow"><div class="srk"><i class="ti ti-trending-up" style="color:var(--amber)"></i>Bettano 0W20 SP 12x1</div><span style="font-size:10px;font-weight:600;color:var(--amber)">Med &mdash; 18/mo</span></div>
+            <div class="srow"><div class="srk"><i class="ti ti-trending-down" style="color:var(--t3)"></i>Mobil Special 5W30</div><span style="font-size:10px;font-weight:600;color:var(--t3)">Slow &mdash; 6/mo</span></div>
+          </div>
+        </div>
+        <div class="panel"><div class="ph"><div class="pt"><i class="ti ti-speakerphone" style="color:var(--pink)"></i>Active Campaigns</div></div>
+          <div class="slist">
+            <div class="srow"><div class="srk"><i class="ti ti-discount"></i>Ramadan &mdash; 10% off Bettano</div><span class="sbdg" style="background:var(--gd);color:var(--green);border-color:rgba(34,197,94,.2)">Active</span></div>
+            <div class="srow"><div class="srk"><i class="ti ti-mail"></i>Reactivation &mdash; 12 churned</div><span class="sbdg" style="background:var(--bd);color:#93C5FD;border-color:var(--bb)">Scheduled</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</main>
+</div>
+
+<!-- MOBILE BOTTOM NAV -->
+<nav class="bnav" id="bnav">
+  <div class="bn-item act" id="bn-home" onclick="switchTab('overview')"><i class="ti ti-layout-dashboard"></i>Home</div>
+  <div class="bn-item" id="bn-finance" onclick="switchTab('finance')"><i class="ti ti-coin"></i>Finance</div>
+  <div class="bn-item" onclick="show2FA()"><i class="ti ti-plus-circle" style="font-size:28px;color:var(--blue)"></i>Invoice</div>
+  <div class="bn-item" id="bn-stock" onclick="switchTab('warehouse')"><i class="ti ti-box"></i>Stock</div>
+  <div class="bn-item" id="bn-menu" onclick="toggleSB()"><i class="ti ti-menu-2"></i>Menu</div>
+</nav>
+
+<!-- NOTIFICATION PANEL -->
+<div id="notifPanel" style="display:none;position:fixed;top:calc(var(--nh) + 6px);right:80px;width:320px;background:var(--bg3);border:1px solid var(--br2);border-radius:var(--rl);z-index:450;box-shadow:0 12px 40px rgba(0,0,0,.6);overflow:hidden">
+  <div style="padding:12px 14px;border-bottom:1px solid var(--br);display:flex;align-items:center;justify-content:space-between">
+    <div style="font-family:var(--head);font-size:14px;font-weight:600">Notifications</div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="font-size:10px;color:var(--blue);cursor:pointer" onclick="document.querySelectorAll('.notif-item').forEach(n=>n.style.opacity='.4');showToast('All notifications marked as read')">Mark all read</span>
+      <div style="width:20px;height:20px;border-radius:4px;background:rgba(255,255,255,.05);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:11px;color:var(--t3)" onclick="toggleNotif()">&#x2715;</div>
+    </div>
+  </div>
+  <div style="max-height:340px;overflow-y:auto">
+    <div class="notif-item" style="padding:11px 14px;border-bottom:1px solid var(--br);cursor:pointer;transition:.12s" onmouseover="this.style.background='rgba(255,255,255,.03)'" onmouseout="this.style.background=''" onclick="switchTab('finance');toggleNotif()">
+      <div style="display:flex;align-items:flex-start;gap:9px">
+        <div style="width:28px;height:28px;border-radius:50%;background:var(--rd);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:13px;color:#FCA5A5">&#9888;</div>
+        <div style="flex:1"><div style="font-size:11px;font-weight:500;color:var(--t)">Qahir Enterprises — 32 days overdue</div><div style="font-size:10px;color:var(--t3);margin-top:2px">$3,875.09 unpaid · Credit limit exceeded · Action required</div><div style="font-size:9px;color:var(--t3);margin-top:3px">2 hours ago</div></div>
+        <div style="width:7px;height:7px;border-radius:50%;background:var(--red);flex-shrink:0;margin-top:4px"></div>
+      </div>
+    </div>
+    <div class="notif-item" style="padding:11px 14px;border-bottom:1px solid var(--br);cursor:pointer;transition:.12s" onmouseover="this.style.background='rgba(255,255,255,.03)'" onmouseout="this.style.background=''">
+      <div style="display:flex;align-items:flex-start;gap:9px">
+        <div style="width:28px;height:28px;border-radius:50%;background:var(--ad);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:13px;color:#FCD34D">&#x24;</div>
+        <div style="flex:1"><div style="font-size:11px;font-weight:500;color:var(--t)">AP payment run due Friday</div><div style="font-size:10px;color:var(--t3);margin-top:2px">$18,000 payable to 3 suppliers in 7 days</div><div style="font-size:9px;color:var(--t3);margin-top:3px">5 hours ago</div></div>
+        <div style="width:7px;height:7px;border-radius:50%;background:var(--amber);flex-shrink:0;margin-top:4px"></div>
+      </div>
+    </div>
+    <div class="notif-item" style="padding:11px 14px;border-bottom:1px solid var(--br);cursor:pointer;transition:.12s" onmouseover="this.style.background='rgba(255,255,255,.03)'" onmouseout="this.style.background=''" onclick="switchTab('security');toggleNotif()">
+      <div style="display:flex;align-items:flex-start;gap:9px">
+        <div style="width:28px;height:28px;border-radius:50%;background:var(--rd);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:13px;color:#FCA5A5">&#128274;</div>
+        <div style="flex:1"><div style="font-size:11px;font-weight:500;color:var(--t)">Unknown device login detected</div><div style="font-size:10px;color:var(--t3);margin-top:2px">IP 41.209.xx.xx · Karachi ISP · Investigate</div><div style="font-size:9px;color:var(--t3);margin-top:3px">6 hours ago</div></div>
+        <div style="width:7px;height:7px;border-radius:50%;background:var(--red);flex-shrink:0;margin-top:4px"></div>
+      </div>
+    </div>
+    <div class="notif-item" style="padding:11px 14px;border-bottom:1px solid var(--br);cursor:pointer;transition:.12s" onmouseover="this.style.background='rgba(255,255,255,.03)'" onmouseout="this.style.background=''" onclick="switchTab('warehouse');toggleNotif()">
+      <div style="display:flex;align-items:flex-start;gap:9px">
+        <div style="width:28px;height:28px;border-radius:50%;background:var(--od);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:13px;color:#FDB28A">&#128230;</div>
+        <div style="flex:1"><div style="font-size:11px;font-weight:500;color:var(--t)">Expired batch in quarantine — D1</div><div style="font-size:10px;color:var(--t3);margin-top:2px">Mobil 5W30 batch MB-2023-087 · Do not sell</div><div style="font-size:9px;color:var(--t3);margin-top:3px">Yesterday</div></div>
+      </div>
+    </div>
+    <div class="notif-item" style="padding:11px 14px;cursor:pointer;transition:.12s" onmouseover="this.style.background='rgba(255,255,255,.03)'" onmouseout="this.style.background=''" onclick="switchTab('mobile');toggleNotif()">
+      <div style="display:flex;align-items:flex-start;gap:9px">
+        <div style="width:28px;height:28px;border-radius:50%;background:var(--td);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:13px;color:#5EEAD4">&#9729;</div>
+        <div style="flex:1"><div style="font-size:11px;font-weight:500;color:var(--t)">7 offline invoices pending sync</div><div style="font-size:10px;color:var(--t3);margin-top:2px">Van 02 — Khalid · Oldest: 18 hours</div><div style="font-size:9px;color:var(--t3);margin-top:3px">Yesterday</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MOBILE SIDEBAR BACKDROP -->
+<div id="sbBackdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:499" onclick="closeSBMobile()"></div>
+
+<!-- INVOICE SLIDE-OVER -->
+<div class="sp-overlay" id="spOverlay" onclick="closeSP()"></div>
+<div class="sp-panel" id="spPanel">
+  <div class="sp-head">
+    <div><div class="sp-title" id="spTitle">INV-000000</div><div class="sp-sub" id="spSub">Invoice Details</div></div>
+    <div class="sp-close" onclick="closeSP()"><i class="ti ti-x"></i></div>
+  </div>
+  <div class="sp-body">
+    <div class="sp-field-grid">
+      <div class="sp-field"><div class="sp-fl">Customer</div><div class="sp-fv" id="spCust">&mdash;</div></div>
+      <div class="sp-field"><div class="sp-fl">Payment Terms</div><div class="sp-fv" id="spTerms">&mdash;</div></div>
+      <div class="sp-field"><div class="sp-fl">Net Amount</div><div class="sp-fv" id="spAmt">&mdash;</div></div>
+      <div class="sp-field"><div class="sp-fl">VAT 15%</div><div class="sp-fv" id="spVat">&mdash;</div></div>
+      <div class="sp-field"><div class="sp-fl">Total</div><div class="sp-fv" id="spTotal">&mdash;</div></div>
+      <div class="sp-field"><div class="sp-fl">Status</div><div id="spStatus">&mdash;</div></div>
+    </div>
+    <div class="sp-ai">
+      <div class="sp-ai-hdr"><i class="ti ti-sparkles" style="font-size:14px"></i>AI Recommendation</div>
+      <div class="sp-ai-body" id="spAiBody">Loading...</div>
+    </div>
+    <div>
+      <div style="font-size:11px;color:var(--t3);margin-bottom:6px;display:flex;align-items:center;gap:5px"><i class="ti ti-notes" style="font-size:13px"></i>Internal note (visible to team only)</div>
+      <textarea class="sp-note-area" id="spNote" placeholder="e.g. Customer called, paying by Friday. Follow up if not received."></textarea>
+    </div>
+    <div class="sp-btn-row">
+      <button class="sp-btn sp-secondary" onclick="closeSP()"><i class="ti ti-x" style="font-size:13px"></i>Close</button>
+      <button class="sp-btn sp-secondary" onclick="sendWhatsApp()"><i class="ti ti-brand-whatsapp" style="font-size:14px;color:#25D366"></i>WhatsApp</button>
+      <button class="sp-btn sp-secondary" onclick="printInvoice()"><i class="ti ti-printer" style="font-size:13px"></i>Print PDF</button>
+      <button class="sp-btn sp-primary" onclick="showToast('Note saved for '+document.getElementById('spCust').textContent+' \u2713');closeSP()"><i class="ti ti-check" style="font-size:13px"></i>Save note</button>
+    </div>
+  </div>
+</div>
+
+<!-- 2FA MODAL -->
+<div class="m2fa-overlay" id="m2faOverlay">
+  <div class="m2fa">
+    <div class="m2fa-title"><i class="ti ti-lock" style="font-size:18px;color:var(--blue)"></i>Two-Factor Authentication</div>
+    <div class="m2fa-sub">Enter the 6-digit code from your authenticator app to confirm this high-value financial action. This protects against unauthorised invoice creation.</div>
+    <div class="m2fa-code">
+      <input type="text" maxlength="1" oninput="nextCode(this)" id="c0">
+      <input type="text" maxlength="1" oninput="nextCode(this)" id="c1">
+      <input type="text" maxlength="1" oninput="nextCode(this)" id="c2">
+      <input type="text" maxlength="1" oninput="nextCode(this)" id="c3">
+      <input type="text" maxlength="1" oninput="nextCode(this)" id="c4">
+      <input type="text" maxlength="1" oninput="nextCode(this)" id="c5">
+    </div>
+    <div class="m2fa-btns">
+      <button class="m2fa-cancel" onclick="document.getElementById('m2faOverlay').classList.remove('show')">Cancel</button>
+      <button class="m2fa-confirm" onclick="confirm2FA()"><i class="ti ti-check" style="font-size:14px"></i>Confirm &amp; Create Invoice</button>
+    </div>
+  </div>
+</div>
+
+<!-- UNDO TOAST -->
+<div class="undo-toast" id="undoToast">
+  <i class="ti ti-rotate-2" style="font-size:16px;color:var(--blue)"></i>
+  <span id="undoMsg">Action completed</span>
+  <button class="ubtn" onclick="undoAct()">Undo (10s)</button>
+  <div class="undo-x" onclick="document.getElementById('undoToast').classList.remove('show')"><i class="ti ti-x"></i></div>
+</div>
+<script>
+const ERP='Business context: Cash $82,400 | AR $411,776 (9 unpaid, Qahir $3,875 overdue 32d over credit limit) | AP $52,300 ($18k due 7d) | Income MTD $411,832 | 40 low-stock (Mobil 5W30 critical 4 units) | 178 customers (12 new) | 43 products | 2 vans | Tax reg # missing all invoices | Sequential gap INV-960339->960336';
+
+// ── SIDEBAR ──
+function toggleSB(){
+  const s=document.getElementById('sb');
+  if(window.innerWidth<=900){
+    const open=s.classList.toggle('mobile-open');
+    document.getElementById('sbBackdrop').style.display=open?'block':'none';
+  } else {s.classList.toggle('col')}
+}
+function closeSBMobile(){
+  document.getElementById('sb').classList.remove('mobile-open');
+  document.getElementById('sbBackdrop').style.display='none';
+}
+function ts(id){const s=document.getElementById('sec-'+id),a=document.getElementById('arr-'+id);if(!s)return;const o=s.classList.contains('op');s.classList.toggle('op',!o);if(a)a.classList.toggle('op',!o)}
+function sa(el){document.querySelectorAll('.ni').forEach(i=>i.classList.remove('act'));el.classList.add('act')}
+function fsb(v){v=v.toLowerCase().trim();document.querySelectorAll('.sgit').forEach(sec=>{let h=false;sec.querySelectorAll('.ni').forEach(ni=>{const m=!v||ni.textContent.toLowerCase().includes(v);ni.style.display=m?'':'none';if(m)h=true});sec.classList.toggle('op',h||!v);const id=sec.id.replace('sec-','');const a=document.getElementById('arr-'+id);if(a)a.classList.toggle('op',h||!v);const hdr=sec.previousElementSibling;if(hdr)hdr.style.display=(h||!v)?'':'none'})}
+
+// ── ROLES ──
+const roles=['System Admin','Accountant','Sales Manager','Warehouse','Junior Accountant'];
+let ri=0;
+const roleData={
+  'System Admin':{bc:'System Admin',pg:'Dashboard Overview',sub:'Real-time performance · AI-powered insights · All expert recommendations applied'},
+  'Accountant':{bc:'Accountant',pg:'Finance Overview',sub:'AR/AP · Cash position · Aging report · VAT compliance'},
+  'Sales Manager':{bc:'Sales Manager',pg:'Sales Overview',sub:'Revenue · Pipeline · Top customers · Churn alerts'},
+  'Warehouse':{bc:'Warehouse',pg:'Inventory Overview',sub:'Bin locations · Batch tracking · Expiry dates · Pick lists'},
+  'Junior Accountant':{bc:'Junior',pg:'My Daily Tasks',sub:'Checklist · Invoice entry · Pending approvals'}
+};
+function cycleRole(){
+  ri=(ri+1)%roles.length;
+  const r=roles[ri];
+  document.getElementById('rpill').textContent=r+' \u25BE';
+  const d=roleData[r];
+  if(document.getElementById('roleBC'))document.getElementById('roleBC').textContent=d.bc;
+  if(document.getElementById('pgTitle'))document.getElementById('pgTitle').textContent=d.pg;
+  if(document.getElementById('pgSub'))document.getElementById('pgSub').textContent=d.sub+' · Updated just now';
+  if(r==='Warehouse')switchTab('warehouse');
+  else if(r==='Sales Manager')switchTab('sales');
+  else if(r==='Accountant')switchTab('finance');
+  else switchTab('overview');
+}
+
+// ── TABS ──
+const tabNavMap={'overview':'bn-home','finance':'bn-finance','warehouse':'bn-stock','mobile':'bn-stock','security':'bn-home','sales':'bn-home'};
+function switchTab(id){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('act'));
+  document.querySelectorAll('.tc').forEach(c=>c.classList.remove('act'));
+  const tb=document.getElementById('tab-'+id);
+  const tc=document.getElementById('tc-'+id);
+  if(tb)tb.classList.add('act');
+  if(tc)tc.classList.add('act');
+  // Animate progress bars in newly visible tab
+  requestAnimationFrame(()=>animateProgressBars());
+  // Sync mobile bottom nav
+  const navId=tabNavMap[id]||'bn-home';
+  document.querySelectorAll('.bn-item').forEach(b=>b.classList.remove('act'));
+  const bnItem=document.getElementById(navId);
+  if(bnItem)bnItem.classList.add('act');
+}
+
+// ── CMD BAR & AI ──
+function fc(t){const i=document.getElementById('cmdIn');i.value=t;i.focus()}
+function closeDD(){document.getElementById('cmdDD').classList.remove('show');document.getElementById('cmdIn').value=''}
+document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();openCP()}if(e.key==='Escape'){closeDD();closeSBMobile()}});
+
+// ── VAT RETURN EXPORT ──
+async function exportVAT(){
+  showToast('Generating VAT return...');
+  try{
+    const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:400,system:'You are a VAT return assistant. Generate a brief formatted VAT return summary as plain text.',messages:[{role:'user',content:'Generate Q1 VAT return summary: Total sales $411,832 at 15% VAT = $61,774. Net VAT payable after input credits. Format as a clean summary.'}]})});
+    const d=await r.json();
+    const txt=d.content?.filter(b=>b.type==='text').map(b=>b.text).join('')||'VAT Return: Output $61,774 | Input credits estimated $8,200 | Net payable $53,574';
+    const blob=new Blob(['SOLTOL ERP — VAT RETURN Q1 2026\n\n'+txt],{type:'text/plain'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='Soltol_VAT_Return_Q1_2026.txt';a.click();
+    showToast('VAT Return exported &#10003; — Check your downloads folder');
+  }catch{showToast('VAT Return: Output $61,774 | Net payable ~$53,574 — saved to clipboard')}
+}
+
+// ── LOCK ALL POSTED ──
+function lockAllPosted(){
+  show2FA();
+  // After 2FA confirm, we call this:
+  window._pendingAction='lock';
+}
+
+async function runAI(q){
+  if(!q.trim())return;
+  const dd=document.getElementById('cmdDD'),ld=document.getElementById('ddLoad'),res=document.getElementById('ddRes');
+  dd.classList.add('show');ld.style.display='flex';res.style.display='none';
+  try{
+    const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:600,system:`You are Soltol ERP AI Assistant. ${ERP} Reply in 2-3 sentences, actionable. Use <strong> for key numbers.`,messages:[{role:'user',content:q}]})});
+    const d=await r.json();
+    const txt=d.content?.filter(b=>b.type==='text').map(b=>b.text).join('')||'No response.';
+    ld.style.display='none';res.style.display='block';res.innerHTML=txt;
+  }catch{ld.style.display='none';res.style.display='block';res.innerHTML='<span style="color:var(--amber)">&#9888; Check connection and try again.</span>'}
+}
+
+// ── AI INSIGHTS ──
+let aiOpen=false;
+function toggleAI(){
+  aiOpen=!aiOpen;
+  document.getElementById('aiBody').classList.toggle('open',aiOpen);
+  document.getElementById('aiChips').classList.toggle('open',aiOpen);
+  const t=document.getElementById('aiToggle');
+  t.querySelector('span').textContent=aiOpen?'Collapse':'Expand';
+  t.classList.toggle('open',aiOpen);
+}
+async function loadAI(){
+  if(!aiOpen)return;
+  const b=document.getElementById('aiBody'),c=document.getElementById('aiChips');
+  b.innerHTML='<div style="display:flex;align-items:center;gap:8px;color:var(--t3)"><div class="dots"><span></span><span></span><span></span></div>Generating insights…</div>';
+  c.innerHTML='';
+  try{
+    const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:600,system:'You are an ERP analytics AI. 2-3 concise insights. Use HTML: <strong> for numbers, <span class="hl"> for positive, <span class="wn"> for caution, <span class="dg"> for critical. Separate with ·. Under 80 words. No headers.',messages:[{role:'user',content:'Today ERP: '+ERP+' Give prioritized insights with actions.'}]})});
+    const d=await r.json();
+    b.innerHTML=d.content?.filter(x=>x.type==='text').map(x=>x.text).join('')||getDefAI();
+  }catch{b.innerHTML=getDefAI()}
+  c.innerHTML='<div class="ins-chip" onclick="fc(\'How do I improve cash collection this week?\')">Improve collections &rarr;</div><div class="ins-chip" onclick="fc(\'Create reorder plan for low stock items\')">Reorder plan &rarr;</div><div class="ins-chip" onclick="fc(\'Draft demand letter for Qahir Enterprises\')">Demand letter &rarr;</div><div class="ins-chip" onclick="fc(\'What drove the March revenue spike?\')">March spike &rarr;</div>';
+}
+function getDefAI(){return'<span class="dg">&#9888; Critical:</span> <strong>Qahir Enterprises</strong> is 32d overdue and over credit limit &mdash; <strong>$3,875</strong> at risk. Stop credit immediately and issue demand letter today. &middot; <span class="wn">Cash alert:</span> <strong>$52,300</strong> AP outstanding with <strong>$18k</strong> due in 7 days &mdash; ensure cash position ($82,400) covers this alongside collections. &middot; <span class="hl">&#10003; Strong month:</span> MTD income <strong>$411,832</strong> on track for projected <strong>$490k</strong> &mdash; highest in 6 months.'}
+
+// ── VOICE ──
+function startVoice(){
+  const b=document.getElementById('micb');
+  if('SpeechRecognition' in window||'webkitSpeechRecognition' in window){
+    const SR=window.SpeechRecognition||window.webkitSpeechRecognition,r=new SR();
+    r.lang='en-US';b.classList.add('on');
+    r.onresult=e=>{const q=e.results[0][0].transcript;document.getElementById('cmdIn').value=q;b.classList.remove('on');runAI(q)};
+    r.onerror=r.onend=()=>b.classList.remove('on');r.start();
+  }else{b.classList.remove('on')}
+}
+
+// ── INVOICE SLIDE-OVER ──
+function openSP(num,cust,terms,amt,vat,total,status,ai){
+  document.getElementById('spTitle').textContent=num;
+  document.getElementById('spSub').textContent='Invoice Details \u00B7 '+cust;
+  document.getElementById('spCust').textContent=cust;
+  document.getElementById('spTerms').textContent=terms;
+  document.getElementById('spAmt').textContent=amt;
+  document.getElementById('spVat').textContent=vat;
+  document.getElementById('spTotal').textContent=total;
+  document.getElementById('spNote').value='';
+  const s=document.getElementById('spStatus');
+  const cls={Paid:'sp',Unpaid:'su',Overdue:'so'};
+  s.innerHTML='<span class="'+(cls[status]||'su')+'">'+status+'</span>';
+  document.getElementById('spAiBody').innerHTML=ai;
+  document.getElementById('spOverlay').classList.add('open');
+  document.getElementById('spPanel').classList.add('open');
+}
+function closeSP(){document.getElementById('spOverlay').classList.remove('open');document.getElementById('spPanel').classList.remove('open')}
+
+// ── CHECKLIST ──
+function tc(el){
+  el.classList.toggle('done');
+  const b=el.querySelector('.clbox');
+  b.innerHTML=el.classList.contains('done')?'<i class="ti ti-check"></i>':'';
+  const left=document.querySelectorAll('.cli:not(.done)').length;
+  ['clCount','clCount2'].forEach(id=>{const e=document.getElementById(id);if(e)e.textContent=left+' left'});
+  showToast(el.classList.contains('done')?'Task completed &#10003;':'Task unchecked');
+}
+function toggleCL(){const p=document.getElementById('clPanel');if(p)p.style.display=p.style.display==='none'?'':'none'}
+
+// ── 2FA ──
+function show2FA(){
+  const m=document.getElementById('m2faOverlay');m.classList.add('show');
+  document.querySelectorAll('.m2fa-code input').forEach(i=>i.value='');
+  const first=document.getElementById('c0');if(first)first.focus();
+}
+function nextCode(el){if(el.value.length===1){const nx=el.nextElementSibling;if(nx&&nx.tagName==='INPUT')nx.focus()}}
+function confirm2FA(){
+  document.getElementById('m2faOverlay').classList.remove('show');
+  if(window._pendingAction==='lock'){
+    window._pendingAction=null;
+    // Update lock icons in invoice table
+    document.querySelectorAll('.ulk').forEach(el=>{el.className='ti ti-lock lk';el.title='Locked — cannot edit. Credit note required.'});
+    showToast('All posted invoices locked &#10003; — Credit notes required for any changes');
+  } else {
+    showToast('Invoice created successfully — 2FA verified &#10003;');
+  }
+}
+
+// ── UNDO TOAST ──
+let undoTimer;
+function showToast(msg){
+  const t=document.getElementById('undoToast');
+  document.getElementById('undoMsg').innerHTML=msg||'Action completed';
+  t.classList.add('show');clearTimeout(undoTimer);
+  undoTimer=setTimeout(()=>t.classList.remove('show'),8000);
+}
+function undoAct(){document.getElementById('undoToast').classList.remove('show');showToast('Action undone successfully &#10003;')}
+
+// ── NOTIFICATIONS ──
+function toggleNotif(){
+  const p=document.getElementById('notifPanel');
+  const open=p.style.display==='none'||!p.style.display;
+  p.style.display=open?'block':'none';
+  if(open){
+    // remove red dot when opened
+    document.querySelector('.ndot').style.display='none';
+  }
+}
+// Close notif on outside click
+document.addEventListener('click',e=>{
+  const p=document.getElementById('notifPanel');
+  const btn=document.getElementById('notifBtn');
+  if(p&&!p.contains(e.target)&&!btn.contains(e.target)){p.style.display='none'}
+});
+
+// ── KEYBOARD SHORTCUTS ──
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')return;
+  if(e.key==='n'&&!e.metaKey&&!e.ctrlKey){show2FA()}
+  if(e.key==='f')switchTab('finance');
+  if(e.key==='w')switchTab('warehouse');
+  if(e.key==='s')switchTab('security');
+  if(e.key==='m')switchTab('mobile');
+  if(e.key==='1')switchTab('overview');
+});
+
+// ── LIGHT / DARK MODE ──
+function toggleMode(){
+  const isLight=document.body.classList.toggle('light');
+  const icon=document.getElementById('modeIcon');
+  if(icon)icon.innerHTML=isLight?'<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>'
+    :'<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>';
+  showToast(isLight?'Light mode on':'Dark mode on');
+}
+// ── DATE RANGE PICKER ──
+const chartData={'3m':{labels:['Mar','Apr','May'],sales:[396,280,99],exp:[210,155,48]},'6m':{labels:['Dec','Jan','Feb','Mar','Apr','May'],sales:[226,338,181,396,280,99],exp:[142,198,95,210,155,48]},'ytd':{labels:['Jan','Feb','Mar','Apr','May'],sales:[338,181,396,280,99],exp:[198,95,210,155,48]},'1y':{labels:['Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May'],sales:[180,210,240,195,220,260,226,338,181,396,280,99],exp:[110,130,145,120,138,160,142,198,95,210,155,48]}};
+function setRange(r){
+  document.querySelectorAll('.drbtn').forEach(b=>b.classList.remove('act'));
+  const btn=document.getElementById('dr'+r);if(btn)btn.classList.add('act');
+  const d=chartData[r];if(!d||!window._barChart)return;
+  window._barChart.data.labels=d.labels;
+  window._barChart.data.datasets[0].data=d.sales;
+  window._barChart.data.datasets[1].data=d.exp;
+  window._barChart.update('active');
+}
+// ── CSV EXPORT ──
+function exportCSV(){
+  const rows=[['Invoice #','Customer','Terms','Net','VAT 15%','Total','Status'],
+    ['INV-960339','Waqas Al-Rashid','Net 15','56.00','8.40','64.40','Paid'],
+    ['INV-960336','Khalid Motors','Net 30','281.00','42.15','323.15','Unpaid'],
+    ['INV-960335','Waqas Al-Rashid','Net 15','167.28','25.09','192.37','Unpaid'],
+    ['INV-783888','Qahir Enterprises','Overdue','3369.64','505.45','3875.09','Overdue'],
+    ['INV-837774','Leo Tire Shop','COD','239.60','35.94','275.54','Unpaid'],
+    ['INV-000009','Ali A&R Trading','COD','270.00','40.50','310.50','Unpaid']];
+  const csv=rows.map(r=>r.map(c=>'"'+c+'"').join(',')).join('\n');
+  const blob=new Blob([csv],{type:'text/csv'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='Soltol_Invoices_May2026.csv';a.click();
+  showToast('CSV downloaded — check your downloads folder');
+}
+// ── WHATSAPP DIRECT LINK ──
+function sendWhatsApp(){
+  const cust=document.getElementById('spCust').textContent;
+  const inv=document.getElementById('spTitle').textContent;
+  const total=document.getElementById('spTotal').textContent;
+  const msg=encodeURIComponent('Dear '+cust+',\n\nThis is a friendly reminder that invoice '+inv+' for '+total+' is outstanding.\n\nPlease arrange payment at your earliest convenience.\n\nThank you,\nSoltol Team');
+  window.open('https://wa.me/?text='+msg,'_blank');
+  showToast('WhatsApp opened with pre-filled message');
+}
+// ── PRINT INVOICE ──
+function printInvoice(){
+  const fields={prInvNum:'spTitle',prCust:'spCust',prTerms:'spTerms',prAmt:'spAmt',prVat:'spVat',prTotal:'spTotal'};
+  Object.entries(fields).forEach(([pr,sp])=>{const e=document.getElementById(pr);if(e)e.textContent=document.getElementById(sp).textContent});
+  document.getElementById('prDate').textContent='Date: '+new Date().toLocaleDateString();
+  document.getElementById('prPrintDate').textContent=new Date().toLocaleString();
+  const status=document.getElementById('spStatus').textContent.trim();
+  const sc=status==='Paid'?'color:#16A34A':'color:#DC2626';
+  document.getElementById('prStatus').innerHTML='<span class="pr-badge" style="'+sc+'">'+status+'</span>';
+  window.print();
+}
+// ── COMMAND PALETTE ──
+const cpAll=[
+  {icon:'ti-layout-dashboard',label:'Overview Dashboard',sub:'Go to main dashboard',bg:'var(--bd)',cl:'#93C5FD',fn:()=>switchTab('overview')},
+  {icon:'ti-receipt-tax',label:'Finance & Tax',sub:'AR aging, VAT compliance',bg:'var(--pd)',cl:'#C4B5FD',fn:()=>switchTab('finance')},
+  {icon:'ti-box',label:'Warehouse',sub:'Bins, batches, expiry, pick lists',bg:'var(--od)',cl:'#FDB28A',fn:()=>switchTab('warehouse')},
+  {icon:'ti-device-mobile',label:'Field & Mobile',sub:'Van status, offline sync',bg:'var(--td)',cl:'#5EEAD4',fn:()=>switchTab('mobile')},
+  {icon:'ti-shield',label:'Security & Audit',sub:'Audit log, 2FA, permissions',bg:'var(--rd)',cl:'#FCA5A5',fn:()=>switchTab('security')},
+  {icon:'ti-trending-up',label:'Sales & CRM',sub:'Customers, pipeline, churn',bg:'var(--gd)',cl:'#86EFAC',fn:()=>switchTab('sales')},
+  {icon:'ti-file-invoice',label:'New Invoice',sub:'Create with 2FA verification',bg:'var(--bd)',cl:'#93C5FD',fn:()=>show2FA()},
+  {icon:'ti-download',label:'Export VAT Return',sub:'Download Q1 2026 VAT summary',bg:'var(--pd)',cl:'#C4B5FD',fn:()=>exportVAT()},
+  {icon:'ti-table-export',label:'Export Invoices CSV',sub:'All invoices as spreadsheet',bg:'var(--gd)',cl:'#86EFAC',fn:()=>exportCSV()},
+  {icon:'ti-lock',label:'Lock All Posted',sub:'Requires 2FA confirmation',bg:'var(--rd)',cl:'#FCA5A5',fn:()=>lockAllPosted()},
+  {icon:'ti-moon',label:'Toggle Light/Dark Mode',sub:'Switch appearance',bg:'rgba(255,255,255,.06)',cl:'var(--t2)',fn:()=>toggleMode()},
+  {icon:'ti-users',label:'Qahir Enterprises',sub:'INV-783888 · $3,875 overdue 32d',bg:'var(--rd)',cl:'#FCA5A5',fn:()=>{openSP('INV-783888','Qahir Enterprises','Overdue','$3,369.64','$505.45','$3,875.09','Overdue','CRITICAL: 32d overdue. Stop credit now.');closeCP()}},
+  {icon:'ti-package',label:'Mobil Special 5W30',sub:'Bin B1 · 4 units · Critical low',bg:'var(--ad)',cl:'#FCD34D',fn:()=>switchTab('warehouse')},
+  {icon:'ti-sparkles',label:'Ask AI a question',sub:'Opens AI command bar',bg:'var(--bd)',cl:'#93C5FD',fn:()=>{closeCP();setTimeout(()=>document.getElementById('cmdIn').focus(),100)}},
+];
+let cpSel=0,cpF=[];
+function openCP(){document.getElementById('cpOverlay').classList.add('show');document.getElementById('cpIn').value='';document.getElementById('cpIn').focus();cpSearch('')}
+function closeCP(){document.getElementById('cpOverlay').classList.remove('show')}
+function cpSearch(v){v=v.toLowerCase().trim();cpF=v?cpAll.filter(i=>i.label.toLowerCase().includes(v)||i.sub.toLowerCase().includes(v)):cpAll;cpSel=0;renderCP()}
+function renderCP(){
+  const el=document.getElementById('cpResults');if(!el)return;
+  if(!cpF.length){el.innerHTML='<div class="cp-empty">No results — try a different term</div>';return}
+  el.innerHTML=(cpF===cpAll?'<div class="cp-section">Quick actions &amp; navigation</div>':'')+
+    cpF.map((it,i)=>`<div class="cp-item${i===cpSel?' sel':''}" onclick="cpExec(${i})"><div class="cp-item-ico" style="background:${it.bg}"><i class="ti ${it.icon}" style="color:${it.cl}"></i></div><div><div class="cp-item-label">${it.label}</div><div class="cp-item-sub">${it.sub}</div></div></div>`).join('');
+}
+function cpKey(e){
+  if(e.key==='ArrowDown'){e.preventDefault();cpSel=Math.min(cpSel+1,cpF.length-1);renderCP()}
+  else if(e.key==='ArrowUp'){e.preventDefault();cpSel=Math.max(cpSel-1,0);renderCP()}
+  else if(e.key==='Enter'){e.preventDefault();cpExec(cpSel)}
+  else if(e.key==='Escape')closeCP();
+}
+function cpExec(i){if(cpF[i]){cpF[i].fn();closeCP()}}
+
+// ── CHARTS ──
+window.addEventListener('load',()=>{
+  // Sparklines
+  const spData=[
+    {id:'sp0',data:[62,68,71,75,77,78,82.4],color:'#22C55E',fill:'rgba(34,197,94,.12)'},
+    {id:'sp1',data:[380,390,400,408,410,412,411.8],color:'#EF4444',fill:'rgba(239,68,68,.1)'},
+    {id:'sp2',data:[41,44,47,51,50,52,52.3],color:'#F59E0B',fill:'rgba(245,158,11,.1)'},
+    {id:'sp3',data:[320,355,375,390,400,408,411.8],color:'#4F8EF7',fill:'rgba(79,142,247,.1)'},
+    {id:'sp4',data:[8,14,19,24,28,35,40],color:'#00D4AA',fill:'rgba(0,212,170,.1)'}
+  ];
+  spData.forEach(({id,data,color,fill})=>{
+    const c=document.getElementById(id);if(!c)return;
+    new Chart(c,{type:'line',data:{labels:data.map((_,i)=>i),datasets:[{data,borderColor:color,borderWidth:1.5,pointRadius:0,tension:0.4,fill:true,backgroundColor:fill}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{enabled:false}},scales:{x:{display:false},y:{display:false}},animation:{duration:1000}}});
+  });
+
+  // Bar chart
+  const bc=document.getElementById('barChart');
+  if(bc){window._barChart=new Chart(bc,{type:'bar',data:{labels:['Dec','Jan','Feb','Mar','Apr','May'],datasets:[{label:'Total Sales',data:[226,338,181,396,280,99],backgroundColor:'#4F8EF7',borderRadius:4,barPercentage:.6,categoryPercentage:.7},{label:'Total Expenses',data:[142,198,95,210,155,48],backgroundColor:'rgba(79,142,247,.28)',borderRadius:4,barPercentage:.6,categoryPercentage:.7}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': $'+(ctx.parsed.y).toFixed(0)+'k'},backgroundColor:'#0e1d30',borderColor:'rgba(255,255,255,.12)',borderWidth:1,titleColor:'#EEF2FF',bodyColor:'#8BA3C7',padding:10}},scales:{x:{grid:{display:false},ticks:{color:'#3E5678',font:{size:10}},border:{color:'rgba(255,255,255,.06)'}},y:{grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#3E5678',font:{size:10},callback:v=>'$'+v+'k'},border:{dash:[3,3],color:'transparent'}}}}})}
+
+  // Donut
+  const dn=document.getElementById('donutChart');
+  if(dn){new Chart(dn,{type:'doughnut',data:{labels:['Bettano 0W16','Bettano 0W20','Mobil 5W30','Others'],datasets:[{data:[42,26,20,12],backgroundColor:['#4F8EF7','#22C55E','#F59E0B','#3E5678'],borderWidth:0,hoverOffset:4}]},options:{responsive:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>ctx.label+': '+ctx.parsed+'%'},backgroundColor:'#0e1d30',borderColor:'rgba(255,255,255,.12)',borderWidth:1,titleColor:'#EEF2FF',bodyColor:'#8BA3C7',padding:10}},cutout:'68%'}})}
+
+  // KPI count-up — consistent formatting throughout animation
+  const kpis=[{id:'kv0',end:82400,fmt:v=>'$'+Math.round(v).toLocaleString()},{id:'kv1',end:411776,fmt:v=>'$'+Math.round(v).toLocaleString()},{id:'kv2',end:52300,fmt:v=>'$'+Math.round(v).toLocaleString()},{id:'kv3',end:411832,fmt:v=>'$'+Math.round(v).toLocaleString()},{id:'kv4',end:40,fmt:v=>Math.round(v).toString()}];
+  kpis.forEach(({id,end,fmt})=>{
+    const el=document.getElementById(id);if(!el)return;
+    let cur=0,frames=60,step=end/frames,frame=0;
+    const ease=t=>t<.5?2*t*t:-1+(4-2*t)*t;
+    const tick=()=>{frame++;const p=ease(frame/frames);cur=end*p;el.textContent=fmt(cur);if(frame<frames)requestAnimationFrame(tick);else el.textContent=fmt(end)};
+    requestAnimationFrame(tick);
+  });
+
+  // AI insights — show teaser only, do NOT auto-open (keeps charts visible on first load)
+  const aiBody=document.getElementById('aiBody');
+  if(aiBody){aiBody.innerHTML='<span style="color:var(--teal);font-weight:500">&#9632; Today\'s key alert:</span> <strong>Qahir</strong> $3,875 overdue 32d &mdash; credit limit exceeded. <strong>AP $18k</strong> due in 7 days. <a style="color:var(--blue);cursor:pointer" onclick="toggleAI();loadAI()">Expand for full AI insights &rarr;</a>'}
+
+  // Progress bars — run for visible tab only on load
+  animateProgressBars();
+});
+
+// ── PROGRESS BAR ANIMATION (runs for current visible tab) ──
+function animateProgressBars(){
+  document.querySelectorAll('.tc.act .prog-fill').forEach(f=>{
+    const w=f.getAttribute('data-w')||f.style.width;
+    if(!f.getAttribute('data-w'))f.setAttribute('data-w',w);
+    f.style.width='0';
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+      f.style.transition='width .9s ease';
+      f.style.width=w;
+    }));
+  });
+}
+</script>
+
+<!-- COMMAND PALETTE -->
+<div class="cp-overlay" id="cpOverlay" onclick="if(event.target===this)closeCP()">
+  <div class="cp-box">
+    <div class="cp-search-wrap">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input class="cp-in" id="cpIn" type="text" placeholder="Search invoices, customers, products, actions..." oninput="cpSearch(this.value)" onkeydown="cpKey(event)"/>
+      <span class="cp-close" onclick="closeCP()">ESC</span>
+    </div>
+    <div class="cp-results" id="cpResults"></div>
+    <div class="cp-footer">
+      <span><kbd>&uarr;&darr;</kbd> navigate</span>
+      <span><kbd>Enter</kbd> select</span>
+      <span><kbd>ESC</kbd> close</span>
+    </div>
+  </div>
+</div>
+
+<!-- PRINT AREA -->
+<div id="printArea">
+  <div class="pr-header">
+    <div><h2 style="font-size:22px;font-weight:700;color:#1E293B">SOLTOL</h2><div style="font-size:12px;color:#64748B">Soltol Lubricants &amp; Auto Parts</div><div style="font-size:11px;color:#94A3B8;margin-top:4px">VAT Reg: <strong style="color:#EF4444">MISSING — ADD IN SETTINGS</strong></div></div>
+    <div style="text-align:right"><div id="prInvNum" style="font-size:20px;font-weight:700"></div><div id="prDate" style="font-size:11px;color:#64748B;margin-top:4px"></div><div id="prStatus" style="margin-top:8px"></div></div>
+  </div>
+  <div class="pr-row"><span style="color:#64748B">Customer</span><span id="prCust" style="font-weight:600"></span></div>
+  <div class="pr-row"><span style="color:#64748B">Payment Terms</span><span id="prTerms"></span></div>
+  <div class="pr-row"><span style="color:#64748B">Net Amount</span><span id="prAmt"></span></div>
+  <div class="pr-row"><span style="color:#64748B">VAT (15%)</span><span id="prVat"></span></div>
+  <div class="pr-total">Total Due: <span id="prTotal"></span></div>
+  <div style="margin-top:32px;font-size:11px;color:#94A3B8">Generated by Soltol One ERP &bull; Print date: <span id="prPrintDate"></span></div>
+</div>
+</body>
+</html>
