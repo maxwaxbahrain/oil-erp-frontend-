@@ -185,6 +185,15 @@ function App() {
                 <span className="text-[11px] font-bold text-redwood-text-main">{breadcrumb.join(' / ')}</span>
               </div>
             </div>
+            <button
+              type="button"
+              onClick={cycleRole}
+              title="Click to switch role"
+              className="hidden sm:inline-flex items-center gap-1 bg-[rgba(79,142,247,0.14)] text-[#93C5FD] border border-[rgba(79,142,247,0.28)] rounded-full px-3 py-1 text-[11px] font-medium hover:bg-[rgba(79,142,247,0.22)] transition-colors whitespace-nowrap"
+            >
+              {ROLES[roleIndex]}
+              <ChevronDown size={12} />
+            </button>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-6">
@@ -247,15 +256,6 @@ function App() {
               >
                 {/* Name + status block hidden on phones; avatar stays visible. */}
                 <div className="hidden sm:flex text-right flex-col justify-center">
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); cycleRole(); }}
-                    title="Click to switch role"
-                    className="self-end mb-1 inline-flex items-center gap-1 bg-[rgba(79,142,247,0.14)] text-[#93C5FD] border border-[rgba(79,142,247,0.28)] rounded-full px-2.5 py-1 text-[10px] font-medium hover:bg-[rgba(79,142,247,0.22)] transition-colors whitespace-nowrap"
-                  >
-                    {ROLES[roleIndex]}
-                    <ChevronDown size={10} />
-                  </button>
                   <div className="flex items-center gap-1.5 justify-end">
                     <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
                     <span className="text-[9px] text-redwood-secondary font-black uppercase tracking-widest">Master Control</span>
