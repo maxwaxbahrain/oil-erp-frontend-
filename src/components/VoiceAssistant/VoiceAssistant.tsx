@@ -18,7 +18,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Mic, Loader2, Volume2 } from 'lucide-react';
-import { useVoiceRecognition } from './useVoiceRecognition';
+import { useDeepgramRecognition as useVoiceRecognition } from './useDeepgramRecognition';
 import { processVoiceCommand } from './VoiceCommandProcessor';
 
 type AssistantState = 'idle' | 'listening' | 'processing' | 'speaking';
@@ -127,8 +127,12 @@ export function VoiceAssistant() {
         }
 
         // state === 'listening' — user wants to stop early.
+        // Option (b): flip to processing immediately so the UI
+        // reflects the upload + Deepgram round-trip, not a stale
+        // pulsing red mic.
         try {
             recognition.stop();
+            setState('processing');
         } catch {
             /* ignore — onend / onresult / onerror will reset state */
         }
