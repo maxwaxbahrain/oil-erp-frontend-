@@ -127,6 +127,7 @@ import PODTestRunner from '../pages/POD/PODTestRunner';
 import VanOperations from '../pages/Logistics/VanOperations';
 import RouteNavigator from '../pages/Logistics/RouteNavigator';
 import PublicInvoice from '../pages/PublicInvoice';
+import SoltolThemePreview from '../pages/PreviewTheme/SoltolThemePreview';
 
 import OrganizationChart from '../pages/UserManagement/OrganizationChart';
 import UserDirectory from '../pages/UserManagement/UserDirectory';
@@ -154,6 +155,7 @@ export const AppRoutes = () => {
     return (
         <Routes>
             <Route path="/invoice/:token" element={<PublicInvoice />} />
+            <Route path="/preview-soltol-theme" element={<SoltolThemePreview />} />
             <Route path="/" element={<Dashboard />} />
 
             {/* Inventory & Products */}

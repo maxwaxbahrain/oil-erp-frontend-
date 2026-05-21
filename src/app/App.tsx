@@ -89,6 +89,12 @@ function App() {
     );
   }
 
+  // Soltol theme preview — bypass the Redwood shell so the preview
+  // takes over the full viewport (mirrors the public-invoice branch).
+  if (location.pathname.startsWith('/preview-soltol-theme')) {
+    return <AppRoutes />;
+  }
+
   const paths = location.pathname.split('/').filter(p => p);
   const breadcrumb = paths.length > 0
     ? paths.map(p => p.charAt(0).toUpperCase() + p.slice(1).replace('-', ' '))
