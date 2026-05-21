@@ -2,18 +2,37 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Menu,
   ChevronRight,
+  ChevronDown,
   HelpCircle,
   Bell,
-  Globe
+  Globe,
+  FileText,
+  UserPlus,
+  ShoppingCart,
+  Package,
+  Receipt,
+  AlertCircle,
+  BookOpen,
+  Wallet,
+  LayoutDashboard,
+  Smartphone,
+  Shield,
+  TrendingUp,
+  AlertTriangle,
+  X,
 } from 'lucide-react';
 import { AppRoutes } from './routes';
 import Sidebar from '../components/layout/Sidebar';
 import AIAssistant from '../components/AIAssistant';
 import VoiceAssistant from '../components/VoiceAssistant/VoiceAssistant';
 import CommandBar from '../components/VoiceAssistant/CommandBar';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { getInvoices, getCustomers, getProducts, getPayments } from '../services/api';
 import { getPurchaseOrders } from '../services/purchasesService';
+
+// Available roles for the cycling role pill in the top nav.  Cosmetic
+// only — does not affect permissions, just the displayed label.
+const ROLES = ['System Admin', 'Accountant', 'Sales Manager', 'Warehouse', 'Junior'] as const;
 
 function App() {
   const location = useLocation();
@@ -21,6 +40,30 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [notifsOpen, setNotifsOpen] = useState(false);
   const notifsRef = useRef<HTMLDivElement>(null);
+
+  // Role pill — cycles through ROLES on click.  In-memory state only.
+  const [roleIndex, setRoleIndex] = useState(0);
+  const cycleRole = () => setRoleIndex((i) => (i + 1) % ROLES.length);
+
+  // Alert bar — dismissible per-session.
+  const [showAlertBar, setShowAlertBar] = useState(() => {
+    try { return sessionStorage.getItem('soltol_alert_dismissed') !== '1'; } catch { return true; }
+  });
+  const alertCounts = useMemo(() => {
+    const invs = (aiCtx.invoices as any[]) || [];
+    const prods = (aiCtx.products as any[]) || [];
+    const unpaidList = invs.filter((i) => {
+      const s = String(i.status || '').toLowerCase();
+      return s === 'unpaid' || s === 'pending' || s === 'partial' || s === 'overdue';
+    });
+    const unpaid = unpaidList.length;
+    const unpaidTotal = unpaidList.reduce(
+      (sum, i) => sum + (Number(i.remaining_balance ?? i.grandTotal) || 0), 0
+    );
+    const overdue = invs.filter((i) => String(i.status || '').toLowerCase() === 'overdue').length;
+    const lowStock = prods.filter((p) => Number(p.current_stock || 0) < 10).length;
+    return { unpaid, unpaidTotal, overdue, lowStock };
+  }, [aiCtx]);
 
   // TC-03 — Build a short list of "notifications" from live ERP data
   // so the dropdown shows something concrete instead of the canned
@@ -204,7 +247,15 @@ function App() {
               >
                 {/* Name + status block hidden on phones; avatar stays visible. */}
                 <div className="hidden sm:flex text-right flex-col justify-center">
-                  <span className="text-[13px] font-black text-redwood-text-main leading-none mb-1">System Admin</span>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); cycleRole(); }}
+                    title="Click to switch role"
+                    className="self-end mb-1 inline-flex items-center gap-1 bg-[rgba(79,142,247,0.14)] text-[#93C5FD] border border-[rgba(79,142,247,0.28)] rounded-full px-2.5 py-1 text-[10px] font-medium hover:bg-[rgba(79,142,247,0.22)] transition-colors whitespace-nowrap"
+                  >
+                    {ROLES[roleIndex]}
+                    <ChevronDown size={10} />
+                  </button>
                   <div className="flex items-center gap-1.5 justify-end">
                     <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
                     <span className="text-[9px] text-redwood-secondary font-black uppercase tracking-widest">Master Control</span>
@@ -231,6 +282,117 @@ function App() {
             </div>
           </div>
         </header>
+
+        {/* Chips bar — quick action shortcuts to common routes */}
+        <div className="bg-redwood-midnight border-b border-redwood-border px-3 sm:px-8 py-1.5 flex items-center gap-1.5 overflow-x-auto print:hidden">
+          <span className="text-[9px] text-redwood-text-muted whitespace-nowrap uppercase tracking-[0.06em] flex-shrink-0">Quick actions:</span>
+          {[
+            { label: '+ New Invoice',   route: '/sales/invoices/new',      icon: FileText,      bg: 'rgba(79,142,247,0.14)', color: '#93C5FD', border: 'rgba(79,142,247,0.22)' },
+            { label: '+ New Customer',  route: '/customers/new',           icon: UserPlus,      bg: 'rgba(34,197,94,0.12)',  color: '#86EFAC', border: 'rgba(34,197,94,0.22)' },
+            { label: '+ New PO',        route: '/purchases/new',           icon: ShoppingCart,  bg: 'rgba(245,158,11,0.12)', color: '#FCD34D', border: 'rgba(245,158,11,0.22)' },
+            { label: 'Stock Adjust',    route: '/inventory/adjustments',   icon: Package,       bg: 'rgba(167,139,250,0.12)', color: '#C4B5FD', border: 'rgba(167,139,250,0.22)' },
+            { label: 'Tax Filing',      route: '/tax/filing',              icon: Receipt,       bg: 'rgba(0,212,170,0.10)',  color: '#5EEAD4', border: 'rgba(0,212,170,0.22)' },
+            { label: 'Aged Receivable', route: '/reports/aged-receivable', icon: AlertCircle,   bg: 'rgba(239,68,68,0.12)',  color: '#FCA5A5', border: 'rgba(239,68,68,0.22)' },
+            { label: 'Day Book',        route: '/reports/day-book',        icon: BookOpen,      bg: 'rgba(255,255,255,0.05)', color: '#8BA3C7', border: 'rgba(255,255,255,0.12)' },
+            { label: 'Banking',         route: '/finance/banking',         icon: Wallet,        bg: 'rgba(34,197,94,0.12)',  color: '#86EFAC', border: 'rgba(34,197,94,0.22)' },
+          ].map((c, i) => {
+            const Icon = c.icon;
+            return (
+              <button
+                key={i}
+                type="button"
+                onClick={() => navigate(c.route)}
+                className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-medium whitespace-nowrap transition-all hover:-translate-y-[1px] hover:brightness-110 flex-shrink-0 border"
+                style={{ background: c.bg, color: c.color, borderColor: c.border }}
+              >
+                <Icon size={12} />
+                {c.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Alert bar — shows only when there's something to alert about */}
+        {showAlertBar && (alertCounts.unpaid > 0 || alertCounts.overdue > 0 || alertCounts.lowStock > 0) && (
+          <div className="bg-[rgba(245,158,11,0.07)] border-b border-[rgba(245,158,11,0.16)] px-4 sm:px-8 py-2 flex items-center gap-2 text-[11px] text-[#FDE68A] print:hidden">
+            <AlertTriangle size={14} className="text-[#F59E0B] flex-shrink-0" />
+            <span className="flex-1 min-w-0">
+              {alertCounts.unpaid > 0 && (
+                <>
+                  <strong>{alertCounts.unpaid} unpaid invoice{alertCounts.unpaid === 1 ? '' : 's'}</strong>
+                  {alertCounts.unpaidTotal > 0 && ` totalling $${alertCounts.unpaidTotal.toLocaleString()}`}
+                </>
+              )}
+              {alertCounts.unpaid > 0 && (alertCounts.overdue > 0 || alertCounts.lowStock > 0) && ' · '}
+              {alertCounts.overdue > 0 && <>{alertCounts.overdue} overdue</>}
+              {alertCounts.overdue > 0 && alertCounts.lowStock > 0 && ' · '}
+              {alertCounts.lowStock > 0 && <>{alertCounts.lowStock} item{alertCounts.lowStock === 1 ? '' : 's'} low stock</>}
+            </span>
+            {alertCounts.unpaid > 0 && (
+              <button onClick={() => navigate('/sales/invoices')} className="text-[#F59E0B] font-semibold underline hover:no-underline flex-shrink-0">Invoices →</button>
+            )}
+            {alertCounts.lowStock > 0 && (
+              <button onClick={() => navigate('/products')} className="text-[#F59E0B] font-semibold underline hover:no-underline flex-shrink-0">Stock →</button>
+            )}
+            {alertCounts.overdue > 0 && (
+              <button onClick={() => navigate('/reports/aged-receivable')} className="text-[#F59E0B] font-semibold underline hover:no-underline flex-shrink-0">Aged AR →</button>
+            )}
+            <button
+              onClick={() => {
+                try { sessionStorage.setItem('soltol_alert_dismissed', '1'); } catch { /* ignore */ }
+                setShowAlertBar(false);
+              }}
+              className="ml-2 w-5 h-5 rounded bg-white/5 flex items-center justify-center text-[#F59E0B] hover:bg-white/10 flex-shrink-0"
+              aria-label="Dismiss"
+            >
+              <X size={11} />
+            </button>
+          </div>
+        )}
+
+        {/* Tab row — broad navigation categories with route mapping */}
+        <div className="bg-redwood-midnight border-b border-redwood-border px-3 sm:px-8 flex items-center overflow-x-auto print:hidden">
+          {[
+            { key: 'overview',  label: 'Overview',       route: '/',                   icon: LayoutDashboard, prefix: ['/'],                                       badge: null,  badgeColor: null },
+            { key: 'finance',   label: 'Finance & Tax',  route: '/finance/accounting', icon: Receipt,         prefix: ['/finance', '/tax'],                        badge: '30%', badgeColor: 'red' },
+            { key: 'warehouse', label: 'Warehouse',      route: '/products',           icon: Package,         prefix: ['/products', '/inventory'],                 badge: '25%', badgeColor: 'red' },
+            { key: 'mobile',    label: 'Field & Mobile', route: '/logistics/pod',      icon: Smartphone,      prefix: ['/logistics', '/pod', '/van-sales'],        badge: '20%', badgeColor: 'amber' },
+            { key: 'security',  label: 'Security',       route: '/access-management',  icon: Shield,          prefix: ['/access-management', '/users'],            badge: '40%', badgeColor: 'amber' },
+            { key: 'sales',     label: 'Sales & CRM',    route: '/sales/orders',       icon: TrendingUp,      prefix: ['/sales', '/customers', '/crm'],            badge: null,  badgeColor: null },
+          ].map((t) => {
+            const Icon = t.icon;
+            const isActive = t.key === 'overview'
+              ? location.pathname === '/'
+              : t.prefix.some((p) => location.pathname.startsWith(p));
+            return (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => navigate(t.route)}
+                className={`flex items-center gap-1.5 px-3 py-2.5 text-[11px] font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${
+                  isActive
+                    ? 'text-redwood-text-main border-[#4F8EF7]'
+                    : 'text-redwood-text-muted border-transparent hover:text-redwood-text-main'
+                }`}
+              >
+                <Icon size={14} />
+                {t.label}
+                {t.badge && (
+                  <span
+                    className="text-[8px] font-semibold px-1.5 py-[1px] rounded-full ml-0.5"
+                    style={
+                      t.badgeColor === 'red'
+                        ? { background: 'rgba(239,68,68,0.12)', color: '#FCA5A5', border: '1px solid rgba(239,68,68,0.2)' }
+                        : { background: 'rgba(245,158,11,0.12)', color: '#FCD34D', border: '1px solid rgba(245,158,11,0.2)' }
+                    }
+                  >
+                    {t.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
 
         {/* Scalable Viewport Canvas */}
         <div className="flex-1 overflow-y-auto p-3 sm:p-6 lg:p-10 scroll-smooth bg-redwood-bg-light">
