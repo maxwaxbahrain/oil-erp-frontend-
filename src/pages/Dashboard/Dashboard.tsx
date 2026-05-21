@@ -3,22 +3,22 @@ import {
     Wallet,
     TrendingUp,
     AlertTriangle,
-    FileText,
-    ArrowRight,
-    TrendingDown,
-    Activity,
     MoreVertical,
     RefreshCw,
     Download,
     Calendar,
     Sliders,
     X,
+    Users,
+    UserPlus,
+    Truck,
+    Package,
 } from 'lucide-react';
-import { useEffect, useMemo, useState, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     BarChart, Bar, PieChart, Pie, Cell,
-    XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
+    XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
 import { getCustomers, getInvoices, getProducts, getSalesOrders, getVans, getPayments, type Invoice, type Product } from '../../services/api';
 import { getPurchaseOrders } from '../../services/purchasesService';
@@ -28,8 +28,6 @@ import { generateStandardPDF } from '../../utils/documentGenerator';
 import { formatCurrency } from '../../services/settingsService';
 import { useEscape } from '../../hooks/useEscape';
 
-const PIE_COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042'];
-
 export default function Dashboard() {
     const navigate = useNavigate();
     const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -38,7 +36,7 @@ export default function Dashboard() {
     const [vansCount, setVansCount] = useState(0);
     const [customersCount, setCustomersCount] = useState(0);
     const [newCustomersThisMonth, setNewCustomersThisMonth] = useState(0);
-    const [dataError, setDataError] = useState(false);
+    const [, setDataError] = useState(false);
     const [aiContext, setAiContext] = useState({ invoices: [], customers: [], products: [], payments: [], purchaseOrders: [] } as any);
     // TC-02 — Options dropdown state.
     const [optionsOpen, setOptionsOpen] = useState(false);
@@ -47,6 +45,7 @@ export default function Dashboard() {
     const [showDateRange, setShowDateRange] = useState(false);
     const [dashFrom, setDashFrom] = useState<string>('');
     const [dashTo, setDashTo] = useState<string>('');
+    const [chartRange, setChartRange] = useState<'3m' | '6m' | 'ytd' | '1y'>('3m');
     const optionsRef = useRef<HTMLDivElement>(null);
 
     // TC-02 — Extracted the data loader so "Refresh Data" can call it
@@ -163,6 +162,13 @@ export default function Dashboard() {
         flashToast('Dashboard customization — coming soon.');
     }
 
+    // Opens the existing AI Business Advisor in the bottom-right via
+    // the same window-event AIHub uses.  No pre-fill (would require
+    // touching AIAssistant.tsx, out of scope).
+    const askAI = useCallback(() => {
+        try { window.dispatchEvent(new Event('soltol:open-ai-advisor')); } catch { /* ignore */ }
+    }, []);
+
     // TC-02 — When a date range is set, filter invoices for chart computation.
     // Empty range = no filter (the default behavior).
     const filteredInvoices = useMemo(() => {
@@ -192,10 +198,17 @@ export default function Dashboard() {
     // affects the monthly performance bars (and only the bars — the KPI
     // tiles still reflect all-time totals so a date filter doesn't make
     // the user think their revenue dropped).
+    //
+    // chartRange controls how many months back to display (3M / 6M / YTD / 1Y).
     const monthlyPerformanceData = useMemo(() => {
         const now = new Date();
+        const months =
+            chartRange === '3m' ? 3 :
+            chartRange === '6m' ? 6 :
+            chartRange === '1y' ? 12 :
+            /* ytd */ now.getMonth() + 1;
         const points: Array<{ month: string; sales: number; expenses: number }> = [];
-        for (let i = 5; i >= 0; i--) {
+        for (let i = months - 1; i >= 0; i--) {
             const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
             const keyYear = d.getFullYear();
             const keyMonth = d.getMonth();
@@ -209,12 +222,36 @@ export default function Dashboard() {
             points.push({ month: monthLabel, sales, expenses: 0 });
         }
         return points;
-    }, [filteredInvoices]);
+    }, [filteredInvoices, chartRange]);
 
-    const inventoryPieData = useMemo(
-        () => products.map((p) => ({ name: p.name, value: Number(p.current_stock) || 0 })).filter((x) => x.value > 0),
-        [products]
-    );
+    // Donut data — top 3 products by stock + an aggregated "Others"
+    // bucket.  Each item carries its own colour so the donut and side
+    // legend render consistently.
+    const inventoryDonutData = useMemo(() => {
+        const sorted = products
+            .map((p) => ({ name: p.name, value: Number(p.current_stock) || 0 }))
+            .filter((x) => x.value > 0)
+            .sort((a, b) => b.value - a.value);
+        const total = sorted.reduce((sum, x) => sum + x.value, 0);
+        if (total === 0) return [];
+        const palette = ['#4F8EF7', '#22C55E', '#F59E0B'];
+        const top3 = sorted.slice(0, 3).map((item, i) => ({
+            name: item.name,
+            value: item.value,
+            pct: Math.round((item.value / total) * 100),
+            color: palette[i],
+        }));
+        const othersValue = sorted.slice(3).reduce((sum, x) => sum + x.value, 0);
+        if (othersValue > 0) {
+            top3.push({
+                name: 'Others',
+                value: othersValue,
+                pct: Math.round((othersValue / total) * 100),
+                color: '#3E5678',
+            });
+        }
+        return top3;
+    }, [products]);
 
     const recentOrders = useMemo(() => {
         const custMap: Record<string, string> = {};
@@ -226,19 +263,12 @@ export default function Dashboard() {
                 id: i.invoiceNumber || String(i.id),
                 customer: i.customerName || custMap[String(i.customerId)] || custMap[String((i as any).customer_id)] || 'Customer',
                 date: i.invoiceDate || i.createdAt?.slice(0, 10) || '—',
+                net: Number(i.subtotal) || 0,
+                vat: Number(i.taxAmount) || 0,
                 amount: Number(i.grandTotal) || 0,
                 status: i.status || 'Unpaid',
             }));
     }, [invoices, aiContext.customers]);
-
-    const stats = [
-        { label: 'Total Income', value: `$${metrics.totalIncome.toLocaleString()}`, icon: TrendingUp, color: 'text-emerald-600', bg: 'bg-emerald-50', trend: dataError ? 'N/A' : 'From invoices' },
-        { label: 'Total Expenses', value: '$0', icon: TrendingDown, color: 'text-rose-600', bg: 'bg-rose-50', trend: 'N/A' },
-        { label: 'Net Profit', value: `$${metrics.netProfit.toLocaleString()}`, icon: Wallet, color: 'text-blue-600', bg: 'bg-blue-50', trend: dataError ? 'N/A' : 'Income - Expenses' },
-        { label: 'Unpaid Invoices', value: `$${metrics.unpaidAmount.toLocaleString()}`, icon: FileText, color: 'text-amber-600', bg: 'bg-amber-50', trend: `${metrics.overdueCount} overdue` },
-        { label: 'Low Stock Alerts', value: String(metrics.lowStock), icon: AlertTriangle, color: 'text-orange-600', bg: 'bg-orange-50', trend: 'stock < 10' },
-        { label: 'Total Orders', value: String(salesOrdersCount), icon: ShoppingCart, color: 'text-purple-600', bg: 'bg-purple-50', trend: 'All sales orders' },
-    ];
 
     return (
         <div className="space-y-8 animate-in fade-in duration-700 pb-10">
@@ -347,172 +377,329 @@ export default function Dashboard() {
                 </div>
             )}
 
-            {/* 1. Key Metrics Cards (Grid of 6) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-                {stats.map((stat, i) => (
-                    <div key={i} className="bg-redwood-bg-surface p-5 rounded-lg border border-redwood-border/60 shadow-sm hover:shadow-md transition-shadow">
-                        <div className="flex justify-between items-start mb-3">
-                            <div className={`w-8 h-8 rounded-md flex items-center justify-center ${stat.bg}`}>
-                                <stat.icon size={16} className={stat.color} />
+            {/* 1. Key Metrics Cards — 5 Soltol-themed KPI tiles */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+                {([
+                    {
+                        label: 'Total Income',
+                        value: `$${metrics.totalIncome.toLocaleString()}`,
+                        sub: 'From all invoices',
+                        badge: 'MTD',
+                        color: '#22C55E',
+                        light: '#86EFAC',
+                        tint:  'rgba(34,197,94,0.12)',
+                        border:'rgba(34,197,94,0.2)',
+                        icon: TrendingUp,
+                        isWarn: false,
+                    },
+                    {
+                        label: 'AR Outstanding',
+                        value: `$${metrics.unpaidAmount.toLocaleString()}`,
+                        sub: `${metrics.overdueCount} overdue invoices`,
+                        badge: 'Aging',
+                        color: '#EF4444',
+                        light: '#FCA5A5',
+                        tint:  'rgba(239,68,68,0.12)',
+                        border:'rgba(239,68,68,0.2)',
+                        icon: AlertTriangle,
+                        isWarn: true,
+                    },
+                    {
+                        label: 'Active Orders',
+                        value: String(salesOrdersCount),
+                        sub: 'Sales orders open',
+                        badge: 'Open',
+                        color: '#F59E0B',
+                        light: '#FCD34D',
+                        tint:  'rgba(245,158,11,0.12)',
+                        border:'rgba(245,158,11,0.2)',
+                        icon: ShoppingCart,
+                        isWarn: false,
+                    },
+                    {
+                        label: 'Net Profit',
+                        value: `$${metrics.netProfit.toLocaleString()}`,
+                        sub: 'Income − Expenses',
+                        badge: 'MTD',
+                        color: '#4F8EF7',
+                        light: '#93C5FD',
+                        tint:  'rgba(79,142,247,0.14)',
+                        border:'rgba(79,142,247,0.28)',
+                        icon: Wallet,
+                        isWarn: false,
+                    },
+                    {
+                        label: 'Low Stock Alerts',
+                        value: String(metrics.lowStock),
+                        sub: 'Below reorder point',
+                        badge: 'Critical',
+                        color: '#00D4AA',
+                        light: '#5EEAD4',
+                        tint:  'rgba(0,212,170,0.10)',
+                        border:'rgba(0,212,170,0.2)',
+                        icon: AlertTriangle,
+                        isWarn: metrics.lowStock > 0,
+                    },
+                ] as const).map((k, i) => {
+                    const Icon = k.icon;
+                    return (
+                        <div
+                            key={i}
+                            className="relative overflow-hidden bg-redwood-bg-surface border border-redwood-border rounded-[14px] px-[14px] py-[13px] transition-all hover:-translate-y-0.5 hover:shadow-[0_12px_30px_rgba(0,0,0,0.4)] hover:border-white/20"
+                        >
+                            {/* Top accent gradient stripe */}
+                            <div
+                                className="absolute top-0 left-0 right-0 h-0.5 rounded-t-[14px]"
+                                style={{ background: `linear-gradient(90deg, ${k.color}, ${k.light})` }}
+                            />
+
+                            {/* Label row + status badge */}
+                            <div className="flex items-center justify-between mb-1.5">
+                                <div className="flex items-center gap-1.5 text-[10.5px] font-medium text-redwood-text-muted">
+                                    <Icon size={13} style={{ color: k.color }} />
+                                    {k.label}
+                                </div>
+                                <span
+                                    className="text-[9px] font-semibold px-[7px] py-[2px] rounded-full"
+                                    style={{
+                                        background: k.tint,
+                                        color: k.light,
+                                        border: `1px solid ${k.border}`,
+                                    }}
+                                >
+                                    {k.badge}
+                                </span>
                             </div>
-                            {/* Optional: Trend Badge Area */}
+
+                            {/* Big value — Syne font, color-tinted */}
+                            <div
+                                className="text-[22px] font-semibold leading-[1.1] tracking-[-0.5px] mb-[3px]"
+                                style={{ fontFamily: "'Syne', sans-serif", color: k.color }}
+                            >
+                                {k.value}
+                            </div>
+
+                            {/* Sub-label */}
+                            <div
+                                className="text-[10px] flex items-center gap-1"
+                                style={{ color: k.isWarn ? '#FCA5A5' : '#3E5678' }}
+                            >
+                                {k.sub}
+                            </div>
                         </div>
-                        <div className="text-[11px] font-bold text-redwood-text-muted uppercase tracking-wider mb-1">{stat.label}</div>
-                        <div className="text-2xl font-black text-redwood-text-main leading-tight mb-2">{stat.value}</div>
-                        <div className={`text-[10px] font-bold ${stat.color} flex items-center gap-1`}>
-                            {stat.trend}
-                        </div>
-                    </div>
-                ))}
+                    );
+                })}
             </div>
 
-            {/* 2. Charts Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Monthly Sales vs Expenses (Bar/Line) */}
-                <div className="lg:col-span-2 bg-redwood-bg-surface p-6 rounded-lg border border-redwood-border shadow-sm">
-                    <div className="mb-6 flex justify-between items-center">
+            {/* 2. Charts Row — Soltol two-panel design */}
+            <div className="grid grid-cols-1 lg:grid-cols-[1.8fr_1fr] gap-[10px]">
+                {/* Financial Performance — left, wider */}
+                <div className="bg-redwood-bg-surface border border-redwood-border rounded-[14px] px-4 py-3.5">
+                    <div className="flex items-center justify-between mb-3">
                         <div>
-                            <h3 className="text-[16px] font-black text-redwood-text-main">Financial Performance</h3>
-                            <p className="text-[12px] text-redwood-text-muted font-medium">Sales vs Expenses (Last 6 Months)</p>
+                            <div className="text-[13px] font-semibold text-redwood-text-main">Financial Performance</div>
+                            <div className="text-[10px] text-redwood-text-muted">Sales vs Expenses</div>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                            <div className="flex bg-[#142540] rounded-md overflow-hidden border border-redwood-border">
+                                {(['3m', '6m', 'ytd', '1y'] as const).map((r) => (
+                                    <button
+                                        key={r}
+                                        onClick={() => setChartRange(r)}
+                                        className={`px-[9px] py-1 text-[10px] font-medium transition-colors ${
+                                            chartRange === r
+                                                ? 'bg-[#4F8EF7] text-white'
+                                                : 'bg-transparent text-redwood-text-muted hover:text-redwood-text-main'
+                                        }`}
+                                    >
+                                        {r === 'ytd' ? 'YTD' : r.toUpperCase()}
+                                    </button>
+                                ))}
+                            </div>
+                            <button onClick={askAI} className="text-[10px] text-[#4F8EF7] hover:underline">
+                                Ask AI →
+                            </button>
                         </div>
                     </div>
-                    <div className="h-[300px]">
+                    <div className="h-[160px]">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={monthlyPerformanceData}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
                                 <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#8BA3C7' }} stroke="rgba(255,255,255,0.12)" />
                                 <YAxis tick={{ fontSize: 11, fill: '#8BA3C7' }} stroke="rgba(255,255,255,0.12)" />
-                                <Tooltip
-                                    contentStyle={{ backgroundColor: '#0f1f33', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', fontSize: '12px', fontWeight: 600, color: '#EEF2FF' }}
-                                />
-                                <Legend wrapperStyle={{ fontSize: '12px', fontWeight: 600, paddingTop: '10px', color: '#EEF2FF' }} />
-                                <Bar dataKey="sales" name="Total Sales" fill="#00758f" radius={[4, 4, 0, 0]} />
-                                <Bar dataKey="expenses" name="Total Expenses" fill="#FF5630" radius={[4, 4, 0, 0]} />
+                                <Tooltip contentStyle={{ backgroundColor: '#0f1f33', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', fontSize: '12px', fontWeight: 600, color: '#EEF2FF' }} />
+                                <Bar dataKey="sales" name="Total Sales" fill="#4F8EF7" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="expenses" name="Total Expenses" fill="rgba(79,142,247,0.3)" radius={[4, 4, 0, 0]} />
                             </BarChart>
                         </ResponsiveContainer>
                     </div>
+                    <div className="flex gap-[14px] mt-2">
+                        <div className="flex items-center gap-[5px] text-[10px] text-redwood-text-muted">
+                            <div className="w-2 h-2 rounded-sm" style={{ background: '#4F8EF7' }} />
+                            Total Sales
+                        </div>
+                        <div className="flex items-center gap-[5px] text-[10px] text-redwood-text-muted">
+                            <div className="w-2 h-2 rounded-sm" style={{ background: 'rgba(79,142,247,0.3)' }} />
+                            Total Expenses
+                        </div>
+                    </div>
                 </div>
 
-                {/* Inventory by Category (Pie Chart) */}
-                <div className="bg-redwood-bg-surface p-6 rounded-lg border border-redwood-border shadow-sm">
-                    <div className="mb-6">
-                        <h3 className="text-[16px] font-black text-redwood-text-main">Inventory Distribution</h3>
-                            <p className="text-[12px] text-redwood-text-muted font-medium">Stock by product</p>
+                {/* Inventory Distribution — right, donut + side legend */}
+                <div className="bg-redwood-bg-surface border border-redwood-border rounded-[14px] px-4 py-3.5">
+                    <div className="flex items-center justify-between mb-3">
+                        <div>
+                            <div className="text-[13px] font-semibold text-redwood-text-main">Inventory Distribution</div>
+                            <div className="text-[10px] text-redwood-text-muted">Stock by product line</div>
+                        </div>
+                        <button onClick={askAI} className="text-[10px] text-[#4F8EF7] hover:underline">
+                            Ask AI →
+                        </button>
                     </div>
-                    <div className="h-[300px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                                <Pie
-                                    data={inventoryPieData}
-                                    cx="50%"
-                                    cy="50%"
-                                    innerRadius={60}
-                                    outerRadius={80}
-                                    fill="#8884d8"
-                                    paddingAngle={5}
-                                    dataKey="value"
-                                >
-                                    {inventoryPieData.map((_, index) => (
-                                        <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                                    ))}
-                                </Pie>
-                                <Tooltip contentStyle={{ backgroundColor: '#0f1f33', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', fontSize: '12px', fontWeight: 600, color: '#EEF2FF' }} />
-                                <Legend wrapperStyle={{ fontSize: '11px', fontWeight: 600, color: '#EEF2FF' }} />
-                            </PieChart>
-                        </ResponsiveContainer>
+                    <div className="flex items-center gap-[14px] mt-2">
+                        <div className="w-[100px] h-[100px] flex-shrink-0">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                    <Pie
+                                        data={inventoryDonutData}
+                                        cx="50%"
+                                        cy="50%"
+                                        innerRadius={32}
+                                        outerRadius={50}
+                                        paddingAngle={2}
+                                        dataKey="value"
+                                        isAnimationActive={false}
+                                    >
+                                        {inventoryDonutData.map((d, i) => (
+                                            <Cell key={`cell-${i}`} fill={d.color} stroke="none" />
+                                        ))}
+                                    </Pie>
+                                    <Tooltip contentStyle={{ backgroundColor: '#0f1f33', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', fontSize: '12px', fontWeight: 600, color: '#EEF2FF' }} />
+                                </PieChart>
+                            </ResponsiveContainer>
+                        </div>
+                        <div className="flex flex-col gap-[7px] flex-1 min-w-0">
+                            {inventoryDonutData.length === 0 ? (
+                                <div className="text-[10px] text-redwood-text-muted">No inventory data</div>
+                            ) : (
+                                inventoryDonutData.map((d, i) => (
+                                    <div key={i} className="flex items-center gap-[7px]">
+                                        <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: d.color }} />
+                                        <span className="text-[10px] text-redwood-text-muted flex-1 truncate">{d.name}</span>
+                                        <span className="text-[10px] font-semibold" style={{ color: d.color }}>{d.pct}%</span>
+                                    </div>
+                                ))
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>
 
-            {/* 3. Recent Orders & Quick Stats */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-                {/* Recent Orders List */}
-                <div className="lg:col-span-2 bg-redwood-bg-surface rounded-lg border border-redwood-border shadow-sm overflow-hidden dash-table-container">
-                    <div className="p-6 border-b border-redwood-border flex justify-between items-center">
+            {/* 3. Bottom Row — Recent Invoices + Quick Stats */}
+            <div className="grid grid-cols-1 lg:grid-cols-[1.8fr_1fr] gap-[10px]">
+                {/* Recent Invoices — compact dark table */}
+                <div className="bg-redwood-bg-surface border border-redwood-border rounded-[14px] px-4 py-3.5">
+                    <div className="flex items-center justify-between mb-3">
                         <div>
-                        <h3 className="text-[16px] font-black text-redwood-text-main">Recent Orders</h3>
-                        <p className="text-[12px] text-redwood-text-muted font-medium">Latest real invoices</p>
+                            <div className="text-[13px] font-semibold text-redwood-text-main">Recent Invoices</div>
+                            <div className="text-[10px] text-redwood-text-muted">Latest activity · click a row for detail</div>
                         </div>
-                        <button onClick={() => navigate('/sales/orders')} className="text-[12px] font-bold text-redwood-brand hover:underline flex items-center gap-1">
-                            View All <ArrowRight size={12} />
+                        <button
+                            onClick={() => navigate('/sales/invoices')}
+                            className="text-[10px] text-[#4F8EF7] hover:underline"
+                        >
+                            View all →
                         </button>
                     </div>
                     <div className="overflow-x-auto">
-                        <table className="w-full text-left">
-                            <thead className="bg-white/5 border-b border-redwood-border">
+                        <table className="w-full border-collapse text-[11px]">
+                            <thead>
                                 <tr>
-                                    <th className="px-6 py-3 text-[11px] font-bold text-redwood-text-muted uppercase tracking-wider">Order/Invoice</th>
-                                    <th className="px-6 py-3 text-[11px] font-bold text-redwood-text-muted uppercase tracking-wider">Customer</th>
-                                    <th className="px-6 py-3 text-[11px] font-bold text-redwood-text-muted uppercase tracking-wider">Date</th>
-                                    <th className="px-6 py-3 text-[11px] font-bold text-redwood-text-muted uppercase tracking-wider text-right">Amount</th>
-                                    <th className="px-6 py-3 text-[11px] font-bold text-redwood-text-muted uppercase tracking-wider">Status</th>
+                                    <th className="text-left text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">Invoice #</th>
+                                    <th className="text-left text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">Customer</th>
+                                    <th className="text-left text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">Date</th>
+                                    <th className="text-right text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">Net</th>
+                                    <th className="text-right text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">VAT</th>
+                                    <th className="text-right text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">Total</th>
+                                    <th className="text-left text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">Status</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-gray-50">
-                                {recentOrders.map((order) => (
-                                    <tr
-                                        key={order.id}
-                                        onClick={() => navigate(`/sales/invoices/${order.id}`)}
-                                        className="hover:bg-white/5 cursor-pointer transition-colors"
-                                    >
-                                        <td className="px-6 py-4 text-[13px] font-bold text-redwood-text-main">{order.id}</td>
-                                        <td className="px-6 py-4 text-[13px] text-redwood-text-main">{order.customer}</td>
-                                        <td className="px-6 py-4 text-[13px] text-redwood-text-muted">{order.date}</td>
-                                        <td className="px-6 py-4 text-[13px] font-bold text-redwood-text-main text-right">${order.amount.toLocaleString()}</td>
-                                        <td className="px-6 py-4">
-                                            <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${String(order.status).toLowerCase() === 'paid' || String(order.status).toLowerCase() === 'completed' ? 'bg-emerald-100 text-emerald-700' :
-                                                String(order.status).toLowerCase() === 'unpaid' || String(order.status).toLowerCase() === 'pending' ? 'bg-amber-100 text-amber-700' :
-                                                    String(order.status).toLowerCase() === 'overdue' ? 'bg-rose-100 text-rose-700' : 'bg-blue-100 text-blue-700'
-                                                }`}>
-                                                {order.status}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                ))}
+                            <tbody>
+                                {recentOrders.length === 0 ? (
+                                    <tr><td colSpan={7} className="text-center text-[11px] text-redwood-text-muted px-2.5 py-6">No recent invoices</td></tr>
+                                ) : recentOrders.map((order) => {
+                                    const s = String(order.status).toLowerCase();
+                                    const pill =
+                                        s === 'paid' || s === 'completed' ?
+                                            { bg: 'rgba(34,197,94,0.12)', color: '#22C55E', border: 'rgba(34,197,94,0.2)' } :
+                                        s === 'overdue' ?
+                                            { bg: 'rgba(239,68,68,0.12)', color: '#FCA5A5', border: 'rgba(239,68,68,0.2)' } :
+                                            { bg: 'rgba(245,158,11,0.12)', color: '#FCD34D', border: 'rgba(245,158,11,0.2)' };
+                                    return (
+                                        <tr
+                                            key={order.id}
+                                            onClick={() => navigate(`/sales/invoices/${order.id}`)}
+                                            className="cursor-pointer transition-colors hover:bg-[rgba(79,142,247,0.07)]"
+                                        >
+                                            <td className="px-2.5 py-2 border-b border-white/5">
+                                                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: '10px', color: '#93C5FD' }}>{order.id}</span>
+                                            </td>
+                                            <td className="px-2.5 py-2 border-b border-white/5 text-redwood-text-main">{order.customer}</td>
+                                            <td className="px-2.5 py-2 border-b border-white/5 text-redwood-text-muted">{order.date}</td>
+                                            <td className="px-2.5 py-2 border-b border-white/5 text-right text-redwood-text-muted">${order.net.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                            <td className="px-2.5 py-2 border-b border-white/5 text-right" style={{ color: '#93C5FD' }}>${order.vat.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                            <td className="px-2.5 py-2 border-b border-white/5 text-right">
+                                                <strong className="text-redwood-text-main">${order.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                                            </td>
+                                            <td className="px-2.5 py-2 border-b border-white/5">
+                                                <span
+                                                    className="text-[9px] font-semibold px-2 py-[2px] rounded-full"
+                                                    style={{ background: pill.bg, color: pill.color, border: `1px solid ${pill.border}` }}
+                                                >
+                                                    {order.status}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>
                 </div>
 
-                {/* Quick Stats Grid */}
-                <div className="bg-redwood-bg-surface p-6 rounded-lg border border-redwood-border shadow-sm">
-                    <div className="mb-6">
-                        <h3 className="text-[16px] font-black text-redwood-text-main">Quick Stats</h3>
-                        <p className="text-[12px] text-redwood-text-muted font-medium">Operational efficiency checks</p>
+                {/* Quick Stats — operational list */}
+                <div className="bg-redwood-bg-surface border border-redwood-border rounded-[14px] px-4 py-3.5">
+                    <div className="flex items-center justify-between mb-2">
+                        <div className="text-[13px] font-semibold text-redwood-text-main">Quick Stats</div>
+                        <div className="text-[10px] text-redwood-text-muted">Operational</div>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="p-4 bg-white/5 rounded-lg text-center border border-redwood-border">
-                            <div className="text-[24px] font-black text-redwood-brand mb-1">{vansCount}</div>
-                            <div className="text-[10px] font-bold text-redwood-text-muted uppercase">Active Vans</div>
-                        </div>
-                        <div className="p-4 bg-white/5 rounded-lg text-center border border-redwood-border">
-                            <div className="text-[24px] font-black text-emerald-600 mb-1">{newCustomersThisMonth}</div>
-                            <div className="text-[10px] font-bold text-redwood-text-muted uppercase">New Customers</div>
-                        </div>
-                        <div className="p-4 bg-white/5 rounded-lg text-center border border-redwood-border">
-                            <div className="text-[24px] font-black text-blue-600 mb-1">{customersCount}</div>
-                            <div className="text-[10px] font-bold text-redwood-text-muted uppercase">Total Customers</div>
-                        </div>
-                        <div className="p-4 bg-white/5 rounded-lg text-center border border-redwood-border">
-                            <div className="text-[24px] font-black text-purple-600 mb-1">{metrics.productCount}</div>
-                            <div className="text-[10px] font-bold text-redwood-text-muted uppercase">Products In Catalog</div>
-                        </div>
+                    <div className="flex flex-col gap-[5px]">
+                        {([
+                            { icon: Users,        label: 'Total Customers',     value: customersCount,         color: undefined as string | undefined },
+                            { icon: UserPlus,     label: 'New This Month',      value: newCustomersThisMonth,  color: '#00D4AA' },
+                            { icon: Truck,        label: 'Active Vans',         value: vansCount,              color: undefined },
+                            { icon: Package,      label: 'Products in Catalog', value: metrics.productCount,   color: undefined },
+                            { icon: ShoppingCart, label: 'Total Orders MTD',    value: salesOrdersCount,       color: undefined },
+                        ]).map((row, i) => {
+                            const Icon = row.icon;
+                            return (
+                                <div key={i} className="flex items-center justify-between px-2.5 py-1.5 bg-[#142540] border border-redwood-border rounded-[6px] transition-colors hover:bg-[#1a2d4e]">
+                                    <div className="flex items-center gap-1.5 text-[11px] text-redwood-text-muted">
+                                        <Icon size={13} style={row.color ? { color: row.color } : { color: '#3E5678' }} />
+                                        {row.label}
+                                    </div>
+                                    <div className="text-[12px] font-semibold" style={row.color ? { color: row.color } : { color: '#EEF2FF' }}>
+                                        {row.value}
+                                    </div>
+                                </div>
+                            );
+                        })}
                     </div>
 
-                    <div className="mt-6 pt-6 border-t border-redwood-border">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
-                                <Activity size={20} />
-                            </div>
-                            <div>
-                                <div className="text-[12px] font-bold text-redwood-text-main">System Health</div>
-                                <div className="text-[11px] text-emerald-600 font-bold flex items-center gap-1">
-                                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                                    All Systems Operational
-                                </div>
-                            </div>
-                        </div>
+                    {/* System Health */}
+                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[rgba(34,197,94,0.10)] border border-[rgba(34,197,94,0.15)] rounded-[6px] mt-1.5">
+                        <div className="w-2 h-2 rounded-full bg-[#22C55E] animate-pulse" />
+                        <span className="text-[10px] text-[#86EFAC] font-medium">All Systems Operational</span>
                     </div>
                 </div>
 
