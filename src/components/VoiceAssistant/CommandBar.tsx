@@ -1,152 +1,119 @@
-// COMMAND BAR — ChatGPT/Spotlight-style floating input at top-center.
+// COMMAND BAR — voice-first redesign.
 //
-// Collapsed pill: search icon + placeholder + mic + send.
-// Expanded: dropdown with QUICK COMMANDS, RECENT, and RESULT views.
+// Always-visible pill at top-center.  Three runtime states:
+//   * idle/typing — gray pill with mic-on-left, input, send-on-right
+//   * listening   — gray-200 pill with animated waveform + cancel + submit
+//   * processing/result — pill returns to idle; transcript box appears
+//                         BELOW the pill, fades out 2s after result
+//
+// No dropdown, no quick commands, no recent list — just the pill and
+// the transcript box.
 //
 // Triggers:
-//   * Click the pill / input → expand
-//   * Cmd+K (macOS) or Ctrl+K (Win/Linux) → toggle
-//   * Escape → close
-//   * Enter → submit typed command
-//   * Mic icon → toggle Deepgram recording (green-pulsing while listening)
-//   * Click outside → close
+//   * Click mic icon (left) → start Deepgram recording
+//   * X (during listening) → cancel without processing
+//   * Check (during listening) → stop + process the captured audio
+//   * Enter or Send (typed text) → process the typed command
+//   * Cmd+K / Ctrl+K → focus the input (resets state if not idle)
+//   * Escape → cancel / dismiss
+//   * Click outside → cancel / dismiss
 //
-// All typed/spoken/recent-rerun submissions flow through the SAME
-// VoiceCommandProcessor used by VoiceAssistant.tsx.  Quick commands
-// navigate directly without a Claude call (deterministic paths —
-// saves tokens + latency).
+// Pipeline: typed/spoken text → processVoiceCommand → navigation +
+// response text shown in transcript box.
 //
-// Persists last 5 successful commands in localStorage key
-// `voice_recent_commands`; shows the top 3 in the dropdown.
-//
-// ISOLATION: imports only react, react-router-dom, lucide-react
-// (already a dep), and the sibling files in this folder.  No new
-// project imports.  Does not touch any existing file.
+// ISOLATION: imports only react, react-router-dom, lucide-react, and
+// the sibling files in this folder.  Does not touch any other file.
 // ============================================
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Mic, Send, Loader2 } from 'lucide-react';
+import { Mic, Send, X, Check } from 'lucide-react';
 import { useDeepgramRecognition } from './useDeepgramRecognition';
 import { processVoiceCommand } from './VoiceCommandProcessor';
 
 type BarState = 'idle' | 'listening' | 'processing' | 'result';
 
-const RECENTS_KEY = 'voice_recent_commands';
-const MAX_RECENTS_STORED = 5;
-const MAX_RECENTS_SHOWN = 3;
-const AUTO_CLOSE_MS = 2000;
-
-const QUICK_COMMANDS: ReadonlyArray<{ label: string; path: string }> = [
-    { label: 'Open customers', path: '/customers' },
-    { label: 'New invoice', path: '/sales/invoices/new' },
-    { label: 'View reports', path: '/reports' },
-    { label: 'Add expense', path: '/finance/expenses' },
+// ── Waveform bars — 7 staggered, varied durations between 0.85-1.15s
+//    and delays between 0-240ms so they look organic (not in lockstep).
+const WAVEFORM_BARS: ReadonlyArray<{ delay: string; duration: string }> = [
+    { delay: '0ms',   duration: '0.85s' },
+    { delay: '120ms', duration: '1.05s' },
+    { delay: '80ms',  duration: '0.95s' },
+    { delay: '240ms', duration: '1.15s' },
+    { delay: '160ms', duration: '0.9s' },
+    { delay: '200ms', duration: '1.1s' },
+    { delay: '60ms',  duration: '1.0s' },
 ];
 
-// ── localStorage helpers ────────────────────────────────────────
-function loadRecents(): string[] {
-    try {
-        const raw = localStorage.getItem(RECENTS_KEY);
-        if (!raw) return [];
-        const arr = JSON.parse(raw);
-        if (!Array.isArray(arr)) return [];
-        return arr.filter(
-            (s): s is string => typeof s === 'string' && !!s.trim()
-        );
-    } catch {
-        return [];
-    }
+// ── Component-scoped CSS.  Injected once via React's <style> child;
+//    browser dedupes identical @keyframes blocks if the component
+//    ever remounts.
+const KEYFRAMES_CSS = `
+@keyframes voiceWave {
+    0%, 100% { transform: scaleY(0.3); }
+    50%      { transform: scaleY(1); }
 }
-
-function saveRecents(list: string[]): void {
-    try {
-        localStorage.setItem(
-            RECENTS_KEY,
-            JSON.stringify(list.slice(0, MAX_RECENTS_STORED))
-        );
-    } catch {
-        /* quota / disabled storage — silently ignore */
-    }
+@keyframes voiceTranscriptFade {
+    0%, 75% { opacity: 1; }
+    100%    { opacity: 0; }
 }
+`;
 
-function pushRecent(command: string, current: string[]): string[] {
-    const t = command.trim();
-    if (!t) return current;
-    const deduped = [t, ...current.filter((c) => c !== t)];
-    const truncated = deduped.slice(0, MAX_RECENTS_STORED);
-    saveRecents(truncated);
-    return truncated;
-}
-
-// ── Component ──────────────────────────────────────────────────
 export function CommandBar() {
     const navigate = useNavigate();
-    const [isOpen, setIsOpen] = useState(false);
     const [state, setState] = useState<BarState>('idle');
-    const [query, setQuery] = useState('');
-    const [response, setResponse] = useState('');
-    const [recents, setRecents] = useState<string[]>(() => loadRecents());
+    const [query, setQuery] = useState('');         // text user is typing
+    const [transcript, setTranscript] = useState(''); // submitted text shown in box
+    const [response, setResponse] = useState('');   // Claude's reply
 
     const inputRef = useRef<HTMLInputElement | null>(null);
     const containerRef = useRef<HTMLDivElement | null>(null);
     const ignoreNextResultRef = useRef(false);
-    const closeTimerRef = useRef<number | null>(null);
+    // Hold the latest state in a ref so closeAndReset stays stable
+    // (no churning useEffect deps) but can still read 'state' to
+    // decide whether to stop the mic.
+    const stateRef = useRef<BarState>('idle');
+    useEffect(() => {
+        stateRef.current = state;
+    }, [state]);
 
-    // ── Open / close primitives ─────────────────────────────────
-    const openBar = useCallback(() => {
-        setIsOpen(true);
-        window.setTimeout(() => inputRef.current?.focus(), 0);
-    }, []);
-
-    const closeBar = useCallback(() => {
-        if (closeTimerRef.current != null) {
-            window.clearTimeout(closeTimerRef.current);
-            closeTimerRef.current = null;
-        }
-        setIsOpen(false);
-        setState('idle');
-        setQuery('');
-        setResponse('');
-    }, []);
-
-    // ── Shared command pipeline (typed, spoken, or recent re-run) ─
+    // ── Shared command pipeline (typed or spoken).
     const runCommand = useCallback(
         async (text: string) => {
             const t = text.trim();
             if (!t) return;
-            setRecents((curr) => pushRecent(t, curr));
-            setQuery(t);
+            setTranscript(t);
+            setQuery('');
             setResponse('');
             setState('processing');
             try {
                 const result = await processVoiceCommand(t, navigate);
-                const reply = result.message || 'Done.';
-                setResponse(reply);
+                setResponse(result.message || 'Done.');
             } catch (e: unknown) {
                 const msg =
                     e instanceof Error ? e.message : 'Could not process command.';
                 setResponse(`Error: ${msg}`);
             } finally {
                 setState('result');
-                closeTimerRef.current = window.setTimeout(() => {
-                    closeBar();
-                }, AUTO_CLOSE_MS);
+                // 2s display + fade is handled by the CSS animation
+                // on the transcript box; onAnimationEnd calls
+                // closeAndReset.  No setTimeout needed.
             }
         },
-        [navigate, closeBar]
+        [navigate]
     );
 
     // ── Mic hook callbacks ──────────────────────────────────────
     const handleTranscript = useCallback(
-        (transcript: string) => {
+        (text: string) => {
             if (ignoreNextResultRef.current) {
                 ignoreNextResultRef.current = false;
                 return;
             }
-            const t = transcript.trim();
+            const t = text.trim();
             if (!t) {
+                // Empty capture — silent return to idle.
                 setState('idle');
                 return;
             }
@@ -155,53 +122,50 @@ export function CommandBar() {
         [runCommand]
     );
 
-    const handleListenError = useCallback(
-        (message: string) => {
-            if (ignoreNextResultRef.current) {
-                ignoreNextResultRef.current = false;
-                return;
-            }
-            setResponse(message || 'Microphone error.');
-            setState('result');
-            closeTimerRef.current = window.setTimeout(
-                () => closeBar(),
-                AUTO_CLOSE_MS
-            );
-        },
-        [closeBar]
-    );
+    const handleListenError = useCallback((message: string) => {
+        if (ignoreNextResultRef.current) {
+            ignoreNextResultRef.current = false;
+            return;
+        }
+        setTranscript('');
+        setResponse(message || 'Microphone error.');
+        setState('result');
+    }, []);
 
     const recognition = useDeepgramRecognition({
         onResult: handleTranscript,
         onError: handleListenError,
     });
 
-    // ── Mic toggle ──────────────────────────────────────────────
-    const handleMicToggle = useCallback(() => {
-        if (state === 'processing' || state === 'result') return;
-
-        if (state === 'listening') {
+    // ── Cancel / dismiss — used by X button, Escape, click-outside,
+    //    and onAnimationEnd when the 2s fade completes.
+    const closeAndReset = useCallback(() => {
+        if (stateRef.current === 'listening') {
+            ignoreNextResultRef.current = true;
             try {
                 recognition.stop();
             } catch {
-                /* hook callbacks reset state */
+                /* ignore */
             }
-            setState('processing');
-            return;
         }
+        setState('idle');
+        setQuery('');
+        setTranscript('');
+        setResponse('');
+    }, [recognition]);
 
-        // idle → start listening (and open the dropdown for feedback)
+    // ── Click the mic icon (idle/typing → start listening).
+    const handleMicStart = useCallback(() => {
+        if (state !== 'idle') return;
         if (!recognition.isSupported) {
+            setTranscript('');
             setResponse('Microphone not supported in this browser.');
             setState('result');
-            setIsOpen(true);
-            closeTimerRef.current = window.setTimeout(
-                () => closeBar(),
-                AUTO_CLOSE_MS
-            );
             return;
         }
-        setIsOpen(true);
+        setQuery('');
+        setTranscript('');
+        setResponse('');
         setState('listening');
         try {
             recognition.start();
@@ -210,14 +174,23 @@ export function CommandBar() {
                 e instanceof Error ? e.message : 'Could not start microphone.';
             setResponse(`Error: ${msg}`);
             setState('result');
-            closeTimerRef.current = window.setTimeout(
-                () => closeBar(),
-                AUTO_CLOSE_MS
-            );
         }
-    }, [state, recognition, closeBar]);
+    }, [state, recognition]);
 
-    // ── Form submit (Enter / Send) ──────────────────────────────
+    // ── Check button during listening — stop + process.
+    const handleMicSubmit = useCallback(() => {
+        if (state !== 'listening') return;
+        try {
+            recognition.stop();
+        } catch {
+            /* ignore — hook callbacks reset state */
+        }
+        setState('processing');
+        // handleTranscript will arrive with the captured text and
+        // continue the pipeline through runCommand.
+    }, [state, recognition]);
+
+    // ── Form submit (Enter or Send for typed text).
     const handleSubmit = useCallback(
         (e: FormEvent) => {
             e.preventDefault();
@@ -236,94 +209,43 @@ export function CommandBar() {
         [query, state, recognition, runCommand]
     );
 
-    // ── Quick command click — navigate directly, skip Claude ───
-    const handleQuickCommand = useCallback(
-        (cmd: { label: string; path: string }) => {
-            if (state === 'listening') {
-                ignoreNextResultRef.current = true;
-                try {
-                    recognition.stop();
-                } catch {
-                    /* ignore */
-                }
-            }
-            setResponse(`Opening ${cmd.label.toLowerCase()}`);
-            setState('result');
-            navigate(cmd.path);
-            closeTimerRef.current = window.setTimeout(
-                () => closeBar(),
-                AUTO_CLOSE_MS
-            );
-        },
-        [navigate, state, recognition, closeBar]
-    );
-
-    // ── Recent command click — re-run through Claude ───────────
-    const handleRecentClick = useCallback(
-        (text: string) => {
-            if (state === 'listening') {
-                ignoreNextResultRef.current = true;
-                try {
-                    recognition.stop();
-                } catch {
-                    /* ignore */
-                }
-            }
-            void runCommand(text);
-        },
-        [state, recognition, runCommand]
-    );
-
-    // ── Cmd+K / Ctrl+K toggle + Escape close ────────────────────
+    // ── Cmd+K / Ctrl+K + Escape global handlers.
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             const isK = e.key === 'k' || e.key === 'K';
             if ((e.metaKey || e.ctrlKey) && isK) {
                 e.preventDefault();
-                if (isOpen) closeBar();
-                else openBar();
+                if (stateRef.current !== 'idle') closeAndReset();
+                window.setTimeout(() => inputRef.current?.focus(), 0);
                 return;
             }
-            if (e.key === 'Escape' && isOpen) {
+            if (e.key === 'Escape' && stateRef.current !== 'idle') {
                 e.preventDefault();
-                closeBar();
+                closeAndReset();
             }
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [isOpen, openBar, closeBar]);
+    }, [closeAndReset]);
 
-    // ── Click outside to close ──────────────────────────────────
+    // ── Click outside to cancel/dismiss (only when not idle).
     useEffect(() => {
-        if (!isOpen) return;
+        if (state === 'idle') return;
         const onClickOutside = (e: MouseEvent) => {
             if (!containerRef.current) return;
-            if (!containerRef.current.contains(e.target as Node)) {
-                closeBar();
-            }
+            if (containerRef.current.contains(e.target as Node)) return;
+            closeAndReset();
         };
         document.addEventListener('mousedown', onClickOutside);
         return () => document.removeEventListener('mousedown', onClickOutside);
-    }, [isOpen, closeBar]);
-
-    // ── Cleanup pending timer on unmount ────────────────────────
-    useEffect(() => {
-        return () => {
-            if (closeTimerRef.current != null) {
-                window.clearTimeout(closeTimerRef.current);
-                closeTimerRef.current = null;
-            }
-        };
-    }, []);
+    }, [state, closeAndReset]);
 
     // ── Render ──────────────────────────────────────────────────
-    const showQuickAndRecent =
-        isOpen && (state === 'idle' || state === 'listening');
-    const showResult = isOpen && (state === 'processing' || state === 'result');
-    const micButtonClasses =
-        state === 'listening'
-            ? 'bg-emerald-500 text-white animate-pulse'
-            : 'bg-gray-100 hover:bg-gray-200 text-gray-600';
+    const pillBg = state === 'listening' ? 'bg-gray-200' : 'bg-gray-100';
+    const showTranscriptBox =
+        (state === 'processing' || state === 'result') && !!transcript;
+    const sendDisabled =
+        !query.trim() || state === 'processing' || state === 'result';
     const inputDisabled = state === 'processing' || state === 'result';
 
     return (
@@ -332,134 +254,122 @@ export function CommandBar() {
             className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] w-full max-w-[480px] px-4 print:hidden"
             data-component="command-bar"
         >
-            {/* Always-visible pill */}
+            <style>{KEYFRAMES_CSS}</style>
+
+            {/* Pill */}
             <form
                 onSubmit={handleSubmit}
-                className="bg-white rounded-full flex items-center gap-2 px-4 py-2 border border-gray-100"
-                style={{ boxShadow: '0 4px 24px rgba(0,0,0,0.12)' }}
+                className={`rounded-full flex items-center gap-2 px-4 py-2 border border-gray-200 transition-colors ${pillBg}`}
             >
-                <Search size={16} className="text-gray-400 flex-shrink-0" />
-                <input
-                    ref={inputRef}
-                    type="text"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    onFocus={() => setIsOpen(true)}
-                    onClick={() => setIsOpen(true)}
-                    placeholder="Search or type a command..."
-                    disabled={inputDisabled}
-                    aria-label="Command input"
-                    className="flex-1 bg-transparent text-sm focus:outline-none disabled:opacity-50 min-w-0 text-gray-800 placeholder:text-gray-400"
-                />
-                <button
-                    type="button"
-                    onClick={handleMicToggle}
-                    disabled={state === 'processing' || state === 'result'}
-                    aria-label={
-                        state === 'listening' ? 'Stop listening' : 'Speak a command'
-                    }
-                    title={state === 'listening' ? 'Stop listening' : 'Click to speak'}
-                    className={`w-8 h-8 rounded-full flex items-center justify-center transition-all disabled:opacity-40 flex-shrink-0 ${micButtonClasses}`}
-                >
-                    <Mic size={14} />
-                </button>
-                <button
-                    type="submit"
-                    disabled={
-                        !query.trim() ||
-                        state === 'processing' ||
-                        state === 'result'
-                    }
-                    aria-label="Submit command"
-                    className="w-8 h-8 rounded-full flex items-center justify-center text-white disabled:opacity-40 transition-all hover:opacity-90 flex-shrink-0"
-                    style={{ backgroundColor: '#C74634' }}
-                >
-                    <Send size={14} />
-                </button>
+                {state === 'listening' ? (
+                    <>
+                        {/* Spacer left so waveform stays visually centered */}
+                        <div className="w-8 flex-shrink-0" aria-hidden="true" />
+
+                        {/* Waveform */}
+                        <div
+                            className="flex-1 flex items-center justify-center h-[28px]"
+                            style={{ gap: '6px' }}
+                            aria-label="Listening — speak now"
+                        >
+                            {WAVEFORM_BARS.map((bar, i) => (
+                                <div
+                                    key={i}
+                                    style={{
+                                        width: '3px',
+                                        height: '28px',
+                                        backgroundColor: '#C74634',
+                                        borderRadius: '9999px',
+                                        animation: `voiceWave ${bar.duration} ease-in-out ${bar.delay} infinite`,
+                                    }}
+                                />
+                            ))}
+                        </div>
+
+                        {/* Cancel */}
+                        <button
+                            type="button"
+                            onClick={closeAndReset}
+                            aria-label="Cancel"
+                            title="Cancel"
+                            className="w-8 h-8 rounded-full flex items-center justify-center text-gray-600 bg-white hover:bg-gray-50 transition-colors flex-shrink-0 border border-gray-200"
+                        >
+                            <X size={14} />
+                        </button>
+
+                        {/* Submit (stop + process) */}
+                        <button
+                            type="button"
+                            onClick={handleMicSubmit}
+                            aria-label="Submit"
+                            title="Stop and submit"
+                            className="w-8 h-8 rounded-full flex items-center justify-center text-white hover:opacity-90 transition-opacity flex-shrink-0"
+                            style={{ backgroundColor: '#C74634' }}
+                        >
+                            <Check size={14} />
+                        </button>
+                    </>
+                ) : (
+                    <>
+                        {/* Mic icon — click to start listening */}
+                        <button
+                            type="button"
+                            onClick={handleMicStart}
+                            disabled={inputDisabled}
+                            aria-label="Speak a command"
+                            title="Click to speak"
+                            className="w-8 h-8 rounded-full flex items-center justify-center text-gray-500 hover:text-gray-700 hover:bg-white/70 transition-colors disabled:opacity-40 flex-shrink-0"
+                        >
+                            <Mic size={14} />
+                        </button>
+
+                        {/* Text input */}
+                        <input
+                            ref={inputRef}
+                            type="text"
+                            value={query}
+                            onChange={(e) => setQuery(e.target.value)}
+                            placeholder="Ask anything or speak a command..."
+                            disabled={inputDisabled}
+                            aria-label="Command input"
+                            className="flex-1 bg-transparent text-sm focus:outline-none disabled:opacity-50 min-w-0 text-gray-700 placeholder:text-gray-400"
+                        />
+
+                        {/* Send */}
+                        <button
+                            type="submit"
+                            disabled={sendDisabled}
+                            aria-label="Submit"
+                            className="w-8 h-8 rounded-full flex items-center justify-center text-white disabled:opacity-40 transition-all hover:opacity-90 flex-shrink-0"
+                            style={{ backgroundColor: '#C74634' }}
+                        >
+                            <Send size={14} />
+                        </button>
+                    </>
+                )}
             </form>
 
-            {/* Dropdown */}
-            {isOpen && (
+            {/* Transcript box — appears during processing & result */}
+            {showTranscriptBox && (
                 <div
-                    className="mt-2 bg-white rounded-2xl border border-gray-100 overflow-hidden"
-                    style={{ boxShadow: '0 8px 28px rgba(0,0,0,0.16)' }}
+                    className="bg-gray-100 rounded-2xl px-4 py-3 mt-2 text-gray-700"
+                    style={{
+                        animation:
+                            state === 'result'
+                                ? 'voiceTranscriptFade 2s ease-out forwards'
+                                : undefined,
+                    }}
+                    onAnimationEnd={
+                        state === 'result' ? closeAndReset : undefined
+                    }
                 >
-                    {showResult && (
-                        <div className="p-5 flex items-start gap-3">
-                            {state === 'processing' ? (
-                                <Loader2
-                                    size={18}
-                                    className="animate-spin flex-shrink-0 mt-0.5"
-                                    style={{ color: '#C74634' }}
-                                />
-                            ) : (
-                                <div
-                                    className="w-2 h-2 rounded-full mt-2 flex-shrink-0"
-                                    style={{ backgroundColor: '#C74634' }}
-                                />
-                            )}
-                            <div className="flex-1 min-w-0">
-                                {query && (
-                                    <div className="text-xs text-gray-500 mb-1 truncate">
-                                        "{query}"
-                                    </div>
-                                )}
-                                <div className="text-sm text-gray-800 font-medium leading-relaxed">
-                                    {state === 'processing'
-                                        ? 'Processing your command…'
-                                        : response}
-                                </div>
-                            </div>
+                    <div className="text-sm">"{transcript}"</div>
+                    {(response || state === 'processing') && (
+                        <div className="text-xs text-gray-500 mt-1">
+                            {state === 'processing'
+                                ? 'Processing…'
+                                : response}
                         </div>
-                    )}
-
-                    {showQuickAndRecent && (
-                        <>
-                            <div className="p-2">
-                                <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-3 py-2">
-                                    Quick commands
-                                </div>
-                                <div className="flex flex-col">
-                                    {QUICK_COMMANDS.map((cmd) => (
-                                        <button
-                                            key={cmd.path}
-                                            type="button"
-                                            onClick={() => handleQuickCommand(cmd)}
-                                            className="text-left text-sm text-gray-700 hover:text-gray-900 hover:bg-gray-50 px-3 py-2 rounded-lg transition-colors flex items-center gap-2"
-                                        >
-                                            <span className="text-gray-400 flex-shrink-0">→</span>
-                                            <span>{cmd.label}</span>
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                            {recents.length > 0 && (
-                                <div className="p-2 border-t border-gray-100">
-                                    <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-3 py-2">
-                                        Recent
-                                    </div>
-                                    <div className="flex flex-col">
-                                        {recents
-                                            .slice(0, MAX_RECENTS_SHOWN)
-                                            .map((text, i) => (
-                                                <button
-                                                    key={`${text}-${i}`}
-                                                    type="button"
-                                                    onClick={() => handleRecentClick(text)}
-                                                    className="text-left text-sm text-gray-700 hover:text-gray-900 hover:bg-gray-50 px-3 py-2 rounded-lg transition-colors flex items-center gap-2 min-w-0"
-                                                >
-                                                    <span className="text-gray-400 flex-shrink-0">↻</span>
-                                                    <span className="truncate">{text}</span>
-                                                </button>
-                                            ))}
-                                    </div>
-                                </div>
-                            )}
-                            <div className="px-5 py-2 border-t border-gray-100 text-[10px] text-gray-400 flex items-center justify-between">
-                                <span>Enter to submit · Esc to close</span>
-                                <span className="font-mono">⌘K</span>
-                            </div>
-                        </>
                     )}
                 </div>
             )}
