@@ -379,13 +379,13 @@ export default function Dashboard() {
                     <div className="h-[300px]">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={monthlyPerformanceData}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                                <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#637381' }} stroke="#dfe3e8" />
-                                <YAxis tick={{ fontSize: 11, fill: '#637381' }} stroke="#dfe3e8" />
+                                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                                <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#8BA3C7' }} stroke="rgba(255,255,255,0.12)" />
+                                <YAxis tick={{ fontSize: 11, fill: '#8BA3C7' }} stroke="rgba(255,255,255,0.12)" />
                                 <Tooltip
-                                    contentStyle={{ backgroundColor: '#fff', border: '1px solid #dfe3e8', borderRadius: '6px', fontSize: '12px', fontWeight: 600 }}
+                                    contentStyle={{ backgroundColor: '#0f1f33', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', fontSize: '12px', fontWeight: 600, color: '#EEF2FF' }}
                                 />
-                                <Legend wrapperStyle={{ fontSize: '12px', fontWeight: 600, paddingTop: '10px' }} />
+                                <Legend wrapperStyle={{ fontSize: '12px', fontWeight: 600, paddingTop: '10px', color: '#EEF2FF' }} />
                                 <Bar dataKey="sales" name="Total Sales" fill="#00758f" radius={[4, 4, 0, 0]} />
                                 <Bar dataKey="expenses" name="Total Expenses" fill="#FF5630" radius={[4, 4, 0, 0]} />
                             </BarChart>
@@ -416,8 +416,8 @@ export default function Dashboard() {
                                         <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
                                     ))}
                                 </Pie>
-                                <Tooltip />
-                                <Legend wrapperStyle={{ fontSize: '11px', fontWeight: 600 }} />
+                                <Tooltip contentStyle={{ backgroundColor: '#0f1f33', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', fontSize: '12px', fontWeight: 600, color: '#EEF2FF' }} />
+                                <Legend wrapperStyle={{ fontSize: '11px', fontWeight: 600, color: '#EEF2FF' }} />
                             </PieChart>
                         </ResponsiveContainer>
                     </div>
