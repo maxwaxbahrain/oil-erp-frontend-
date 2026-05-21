@@ -10,6 +10,7 @@ import { AppRoutes } from './routes';
 import Sidebar from '../components/layout/Sidebar';
 import AIAssistant from '../components/AIAssistant';
 import VoiceAssistant from '../components/VoiceAssistant/VoiceAssistant';
+import CommandBar from '../components/VoiceAssistant/CommandBar';
 import { useState, useEffect, useRef } from 'react';
 import { getInvoices, getCustomers, getProducts, getPayments } from '../services/api';
 import { getPurchaseOrders } from '../services/purchasesService';
@@ -235,6 +236,7 @@ function App() {
         {/* AI Accountant - Available on all pages */}
         <AIAssistant context={aiCtx} />
         <VoiceAssistant />
+        <CommandBar />
 
         {/* Global Identity Footer */}
         <footer className="h-10 bg-white border-t border-redwood-border px-3 sm:px-8 flex items-center justify-between text-[10px] font-bold text-redwood-text-muted uppercase tracking-[0.2em] shadow-[0_-1px_3px_rgba(0,0,0,0.02)] print:hidden">

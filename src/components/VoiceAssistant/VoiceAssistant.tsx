@@ -242,14 +242,6 @@ export function VoiceAssistant() {
         : state === 'processing' ? 'Processing'
         : state === 'speaking' ? 'Speaking'
         : '';
-    const headlineText =
-        state === 'listening'
-            ? (lastTranscript || 'Listening… speak your command')
-            : state === 'processing'
-                ? (lastTranscript ? `"${lastTranscript}"` : 'Processing your command…')
-                : state === 'speaking'
-                    ? (responseMessage || 'Done.')
-                    : '';
     const StatusIcon =
         state === 'listening' ? Mic
         : state === 'processing' ? Loader2
@@ -257,17 +249,17 @@ export function VoiceAssistant() {
         : Mic;
     const statusIconClasses =
         state === 'listening'
-            ? 'bg-red-500 text-white animate-pulse'
+            ? 'bg-emerald-500 text-white animate-pulse'
             : state === 'processing'
                 ? 'bg-[#C74634] text-white opacity-95'
                 : state === 'speaking'
-                    ? 'bg-emerald-500 text-white'
+                    ? 'bg-blue-500 text-white'
                     : 'bg-gray-500 text-white';
     const iconShadow =
         state === 'listening'
-            ? '0 12px 36px rgba(239,68,68,0.4)'
+            ? '0 12px 36px rgba(16,185,129,0.4)'
             : state === 'speaking'
-                ? '0 12px 36px rgba(16,185,129,0.4)'
+                ? '0 12px 36px rgba(59,130,246,0.4)'
                 : '0 12px 36px rgba(199,70,52,0.4)';
     const inputDisabled = state === 'processing' || state === 'speaking';
 
@@ -331,8 +323,31 @@ export function VoiceAssistant() {
                                 {statusLabel}
                             </div>
 
-                            <div className="min-h-[3.5rem] text-center text-base text-gray-800 leading-relaxed font-medium px-2">
-                                {headlineText}
+                            <div className="min-h-[3.5rem] flex flex-col items-center justify-center text-center px-2 gap-2">
+                                {state === 'listening' && (
+                                    <div className="text-base text-gray-800 leading-relaxed font-medium">
+                                        {lastTranscript || 'Listening… speak your command'}
+                                    </div>
+                                )}
+                                {state === 'processing' && (
+                                    <div className="text-base text-gray-800 leading-relaxed font-medium">
+                                        {lastTranscript
+                                            ? `"${lastTranscript}"`
+                                            : 'Processing your command…'}
+                                    </div>
+                                )}
+                                {state === 'speaking' && (
+                                    <>
+                                        {lastTranscript && (
+                                            <div className="text-sm text-gray-500 italic">
+                                                "{lastTranscript}"
+                                            </div>
+                                        )}
+                                        <div className="text-base text-gray-800 leading-relaxed font-medium">
+                                            {responseMessage || 'Done.'}
+                                        </div>
+                                    </>
+                                )}
                             </div>
 
                             {state === 'listening' && (
