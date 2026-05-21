@@ -1,25 +1,23 @@
-// COMMAND BAR — voice-first redesign.
+// COMMAND BAR — centered, large, frosted-glass voice-first input.
 //
-// Always-visible pill at top-center.  Three runtime states:
-//   * idle/typing — gray pill with mic-on-left, input, send-on-right
-//   * listening   — gray-200 pill with animated waveform + cancel + submit
-//   * processing/result — pill returns to idle; transcript box appears
-//                         BELOW the pill, fades out 2s after result
-//
-// No dropdown, no quick commands, no recent list — just the pill and
-// the transcript box.
+// Always-visible toggle button at bottom-52 right-6 lets the user
+// hide/show the pill (preference persists in localStorage).  When
+// shown, the pill sits at the EXACT center of the viewport
+// (top-1/2 left-1/2 -translate-x/y-1/2).  Four runtime states:
+//   * idle/typing — frosted pill with [search][input][mic][send]
+//   * listening   — pill shows centered waveform; mic icon pulses
+//                   in brand red; "Listening..." text below pill
+//   * processing/result — transcript box appears below pill, fades
+//                          out 2s after result
 //
 // Triggers:
-//   * Click mic icon (left) → start Deepgram recording
-//   * X (during listening) → cancel without processing
-//   * Check (during listening) → stop + process the captured audio
+//   * Click mic → start Deepgram recording
+//   * Click mic again (while listening) → stop + process audio
 //   * Enter or Send (typed text) → process the typed command
-//   * Cmd+K / Ctrl+K → focus the input (resets state if not idle)
-//   * Escape → cancel / dismiss
-//   * Click outside → cancel / dismiss
-//
-// Pipeline: typed/spoken text → processVoiceCommand → navigation +
-// response text shown in transcript box.
+//   * Cmd+K / Ctrl+K → focus input.  If bar is hidden, restore it.
+//   * Escape → cancel / dismiss (only when bar is visible)
+//   * Click outside → cancel / dismiss (only when bar is visible)
+//   * Click toggle button → hide / show the pill
 //
 // ISOLATION: imports only react, react-router-dom, lucide-react, and
 // the sibling files in this folder.  Does not touch any other file.
@@ -28,14 +26,13 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Mic, Send, X, Check } from 'lucide-react';
+import { Search, Mic, Send, ChevronUp, ChevronDown } from 'lucide-react';
 import { useDeepgramRecognition } from './useDeepgramRecognition';
 import { processVoiceCommand } from './VoiceCommandProcessor';
 
 type BarState = 'idle' | 'listening' | 'processing' | 'result';
 
-// ── Waveform bars — 7 staggered, varied durations between 0.85-1.15s
-//    and delays between 0-240ms so they look organic (not in lockstep).
+// ── Waveform bars — 7 staggered (durations 0.85-1.15s, delays 0-240ms).
 const WAVEFORM_BARS: ReadonlyArray<{ delay: string; duration: string }> = [
     { delay: '0ms',   duration: '0.85s' },
     { delay: '120ms', duration: '1.05s' },
@@ -46,9 +43,6 @@ const WAVEFORM_BARS: ReadonlyArray<{ delay: string; duration: string }> = [
     { delay: '60ms',  duration: '1.0s' },
 ];
 
-// ── Component-scoped CSS.  Injected once via React's <style> child;
-//    browser dedupes identical @keyframes blocks if the component
-//    ever remounts.
 const KEYFRAMES_CSS = `
 @keyframes voiceWave {
     0%, 100% { transform: scaleY(0.3); }
@@ -60,19 +54,51 @@ const KEYFRAMES_CSS = `
 }
 `;
 
+// ── Persisted UI preference — whether the pill is shown on screen.
+//    Default: true.  Survives page reloads.
+const VISIBLE_KEY = 'command_bar_visible';
+
+function loadVisible(): boolean {
+    try {
+        // Only the explicit string 'false' counts as hidden — anything
+        // else (missing, malformed, 'true') means visible.
+        return localStorage.getItem(VISIBLE_KEY) !== 'false';
+    } catch {
+        return true;
+    }
+}
+
+function saveVisible(visible: boolean): void {
+    try {
+        localStorage.setItem(VISIBLE_KEY, visible ? 'true' : 'false');
+    } catch {
+        /* quota / disabled storage — ignore */
+    }
+}
+
 export function CommandBar() {
     const navigate = useNavigate();
     const [state, setState] = useState<BarState>('idle');
-    const [query, setQuery] = useState('');         // text user is typing
-    const [transcript, setTranscript] = useState(''); // submitted text shown in box
-    const [response, setResponse] = useState('');   // Claude's reply
+    const [query, setQuery] = useState('');
+    const [transcript, setTranscript] = useState('');
+    const [response, setResponse] = useState('');
 
     const inputRef = useRef<HTMLInputElement | null>(null);
     const containerRef = useRef<HTMLDivElement | null>(null);
     const ignoreNextResultRef = useRef(false);
-    // Hold the latest state in a ref so closeAndReset stays stable
-    // (no churning useEffect deps) but can still read 'state' to
-    // decide whether to stop the mic.
+
+    // ── Bar visibility — persisted across reloads.  When hidden,
+    //    only the small toggle button is rendered.
+    const [isVisible, setIsVisible] = useState<boolean>(() => loadVisible());
+    // visibleRef keeps the latest value accessible to global keydown
+    // listeners without re-binding them on every toggle.
+    const visibleRef = useRef<boolean>(isVisible);
+    useEffect(() => {
+        visibleRef.current = isVisible;
+    }, [isVisible]);
+
+    // stateRef lets stable callbacks read the current state without
+    // becoming dependencies (avoids re-attaching window listeners).
     const stateRef = useRef<BarState>('idle');
     useEffect(() => {
         stateRef.current = state;
@@ -96,9 +122,8 @@ export function CommandBar() {
                 setResponse(`Error: ${msg}`);
             } finally {
                 setState('result');
-                // 2s display + fade is handled by the CSS animation
-                // on the transcript box; onAnimationEnd calls
-                // closeAndReset.  No setTimeout needed.
+                // 2s fade handled by CSS animation on transcript box;
+                // onAnimationEnd calls closeAndReset.
             }
         },
         [navigate]
@@ -113,7 +138,6 @@ export function CommandBar() {
             }
             const t = text.trim();
             if (!t) {
-                // Empty capture — silent return to idle.
                 setState('idle');
                 return;
             }
@@ -137,8 +161,7 @@ export function CommandBar() {
         onError: handleListenError,
     });
 
-    // ── Cancel / dismiss — used by X button, Escape, click-outside,
-    //    and onAnimationEnd when the 2s fade completes.
+    // ── Cancel / dismiss ────────────────────────────────────────
     const closeAndReset = useCallback(() => {
         if (stateRef.current === 'listening') {
             ignoreNextResultRef.current = true;
@@ -154,9 +177,48 @@ export function CommandBar() {
         setResponse('');
     }, [recognition]);
 
-    // ── Click the mic icon (idle/typing → start listening).
-    const handleMicStart = useCallback(() => {
-        if (state !== 'idle') return;
+    // ── Hide / show toggle ──────────────────────────────────────
+    const toggleVisibility = useCallback(() => {
+        if (isVisible) {
+            // About to hide — cancel any in-flight recognition first,
+            // then reset state so the bar reopens fresh next time.
+            if (stateRef.current === 'listening') {
+                ignoreNextResultRef.current = true;
+                try {
+                    recognition.stop();
+                } catch {
+                    /* ignore */
+                }
+            }
+            if (stateRef.current !== 'idle') {
+                setState('idle');
+                setQuery('');
+                setTranscript('');
+                setResponse('');
+            }
+            setIsVisible(false);
+            saveVisible(false);
+        } else {
+            setIsVisible(true);
+            saveVisible(true);
+        }
+    }, [isVisible, recognition]);
+
+    // ── Mic toggle — starts listening OR stops and submits ─────
+    const handleMicToggle = useCallback(() => {
+        if (state === 'processing' || state === 'result') return;
+
+        if (state === 'listening') {
+            try {
+                recognition.stop();
+            } catch {
+                /* ignore — hook callbacks reset state */
+            }
+            setState('processing');
+            return;
+        }
+
+        // idle → start listening
         if (!recognition.isSupported) {
             setTranscript('');
             setResponse('Microphone not supported in this browser.');
@@ -177,20 +239,7 @@ export function CommandBar() {
         }
     }, [state, recognition]);
 
-    // ── Check button during listening — stop + process.
-    const handleMicSubmit = useCallback(() => {
-        if (state !== 'listening') return;
-        try {
-            recognition.stop();
-        } catch {
-            /* ignore — hook callbacks reset state */
-        }
-        setState('processing');
-        // handleTranscript will arrive with the captured text and
-        // continue the pipeline through runCommand.
-    }, [state, recognition]);
-
-    // ── Form submit (Enter or Send for typed text).
+    // ── Form submit (Enter or Send for typed text) ─────────────
     const handleSubmit = useCallback(
         (e: FormEvent) => {
             e.preventDefault();
@@ -209,17 +258,28 @@ export function CommandBar() {
         [query, state, recognition, runCommand]
     );
 
-    // ── Cmd+K / Ctrl+K + Escape global handlers.
+    // ── Cmd+K / Ctrl+K + Escape global handlers ────────────────
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             const isK = e.key === 'k' || e.key === 'K';
             if ((e.metaKey || e.ctrlKey) && isK) {
                 e.preventDefault();
+                // If hidden, restore the bar and focus the input.
+                if (!visibleRef.current) {
+                    setIsVisible(true);
+                    saveVisible(true);
+                    window.setTimeout(() => inputRef.current?.focus(), 50);
+                    return;
+                }
                 if (stateRef.current !== 'idle') closeAndReset();
                 window.setTimeout(() => inputRef.current?.focus(), 0);
                 return;
             }
-            if (e.key === 'Escape' && stateRef.current !== 'idle') {
+            if (
+                e.key === 'Escape' &&
+                visibleRef.current &&
+                stateRef.current !== 'idle'
+            ) {
                 e.preventDefault();
                 closeAndReset();
             }
@@ -228,9 +288,9 @@ export function CommandBar() {
         return () => window.removeEventListener('keydown', onKey);
     }, [closeAndReset]);
 
-    // ── Click outside to cancel/dismiss (only when not idle).
+    // ── Click outside (only when not idle AND bar is visible) ──
     useEffect(() => {
-        if (state === 'idle') return;
+        if (state === 'idle' || !isVisible) return;
         const onClickOutside = (e: MouseEvent) => {
             if (!containerRef.current) return;
             if (containerRef.current.contains(e.target as Node)) return;
@@ -238,142 +298,166 @@ export function CommandBar() {
         };
         document.addEventListener('mousedown', onClickOutside);
         return () => document.removeEventListener('mousedown', onClickOutside);
-    }, [state, closeAndReset]);
+    }, [state, isVisible, closeAndReset]);
 
     // ── Render ──────────────────────────────────────────────────
-    const pillBg = state === 'listening' ? 'bg-gray-200' : 'bg-gray-100';
     const showTranscriptBox =
         (state === 'processing' || state === 'result') && !!transcript;
     const sendDisabled =
-        !query.trim() || state === 'processing' || state === 'result';
+        !query.trim() ||
+        state === 'processing' ||
+        state === 'result' ||
+        state === 'listening';
     const inputDisabled = state === 'processing' || state === 'result';
+    const micDisabled = state === 'processing' || state === 'result';
 
     return (
-        <div
-            ref={containerRef}
-            className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] w-full max-w-[480px] px-4 print:hidden"
-            data-component="command-bar"
-        >
-            <style>{KEYFRAMES_CSS}</style>
-
-            {/* Pill */}
-            <form
-                onSubmit={handleSubmit}
-                className={`rounded-full flex items-center gap-2 px-4 py-2 border border-gray-200 transition-colors ${pillBg}`}
+        <>
+            {/* Toggle button — always visible.  Sits at bottom-52 right-6
+                (above the AI Business Advisor in the right column). */}
+            <button
+                type="button"
+                onClick={toggleVisibility}
+                aria-label={isVisible ? 'Hide command bar' : 'Show command bar'}
+                title={isVisible ? 'Hide command bar' : 'Show command bar'}
+                className="fixed bottom-52 right-6 z-[100] w-8 h-8 rounded-full backdrop-blur-sm bg-white/30 border border-white/40 text-gray-600 hover:bg-white/50 flex items-center justify-center transition-colors print:hidden"
+                data-component="command-bar-toggle"
             >
-                {state === 'listening' ? (
-                    <>
-                        {/* Spacer left so waveform stays visually centered */}
-                        <div className="w-8 flex-shrink-0" aria-hidden="true" />
+                {isVisible ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
 
-                        {/* Waveform */}
-                        <div
-                            className="flex-1 flex items-center justify-center h-[28px]"
-                            style={{ gap: '6px' }}
-                            aria-label="Listening — speak now"
-                        >
-                            {WAVEFORM_BARS.map((bar, i) => (
-                                <div
-                                    key={i}
-                                    style={{
-                                        width: '3px',
-                                        height: '28px',
-                                        backgroundColor: '#C74634',
-                                        borderRadius: '9999px',
-                                        animation: `voiceWave ${bar.duration} ease-in-out ${bar.delay} infinite`,
-                                    }}
-                                />
-                            ))}
-                        </div>
-
-                        {/* Cancel */}
-                        <button
-                            type="button"
-                            onClick={closeAndReset}
-                            aria-label="Cancel"
-                            title="Cancel"
-                            className="w-8 h-8 rounded-full flex items-center justify-center text-gray-600 bg-white hover:bg-gray-50 transition-colors flex-shrink-0 border border-gray-200"
-                        >
-                            <X size={14} />
-                        </button>
-
-                        {/* Submit (stop + process) */}
-                        <button
-                            type="button"
-                            onClick={handleMicSubmit}
-                            aria-label="Submit"
-                            title="Stop and submit"
-                            className="w-8 h-8 rounded-full flex items-center justify-center text-white hover:opacity-90 transition-opacity flex-shrink-0"
-                            style={{ backgroundColor: '#C74634' }}
-                        >
-                            <Check size={14} />
-                        </button>
-                    </>
-                ) : (
-                    <>
-                        {/* Mic icon — click to start listening */}
-                        <button
-                            type="button"
-                            onClick={handleMicStart}
-                            disabled={inputDisabled}
-                            aria-label="Speak a command"
-                            title="Click to speak"
-                            className="w-8 h-8 rounded-full flex items-center justify-center text-gray-500 hover:text-gray-700 hover:bg-white/70 transition-colors disabled:opacity-40 flex-shrink-0"
-                        >
-                            <Mic size={14} />
-                        </button>
-
-                        {/* Text input */}
-                        <input
-                            ref={inputRef}
-                            type="text"
-                            value={query}
-                            onChange={(e) => setQuery(e.target.value)}
-                            placeholder="Ask anything or speak a command..."
-                            disabled={inputDisabled}
-                            aria-label="Command input"
-                            className="flex-1 bg-transparent text-sm focus:outline-none disabled:opacity-50 min-w-0 text-gray-700 placeholder:text-gray-400"
-                        />
-
-                        {/* Send */}
-                        <button
-                            type="submit"
-                            disabled={sendDisabled}
-                            aria-label="Submit"
-                            className="w-8 h-8 rounded-full flex items-center justify-center text-white disabled:opacity-40 transition-all hover:opacity-90 flex-shrink-0"
-                            style={{ backgroundColor: '#C74634' }}
-                        >
-                            <Send size={14} />
-                        </button>
-                    </>
-                )}
-            </form>
-
-            {/* Transcript box — appears during processing & result */}
-            {showTranscriptBox && (
+            {/* Bar — only when visible */}
+            {isVisible && (
                 <div
-                    className="bg-gray-100 rounded-2xl px-4 py-3 mt-2 text-gray-700"
-                    style={{
-                        animation:
-                            state === 'result'
-                                ? 'voiceTranscriptFade 2s ease-out forwards'
-                                : undefined,
-                    }}
-                    onAnimationEnd={
-                        state === 'result' ? closeAndReset : undefined
-                    }
+                    ref={containerRef}
+                    className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[100] w-full max-w-[600px] px-4 print:hidden"
+                    data-component="command-bar"
                 >
-                    <div className="text-sm">"{transcript}"</div>
-                    {(response || state === 'processing') && (
-                        <div className="text-xs text-gray-500 mt-1">
-                            {state === 'processing'
-                                ? 'Processing…'
-                                : response}
-                        </div>
-                    )}
+                    <style>{KEYFRAMES_CSS}</style>
+
+                    {/* Wrapper makes the transcript box / hint position
+                        absolutely below the pill so the pill itself stays
+                        rock-solid centered when those appear. */}
+                    <div className="relative">
+                        {/* Pill */}
+                        <form
+                            onSubmit={handleSubmit}
+                            className="rounded-full flex items-center gap-3 px-6 py-4 backdrop-blur-md bg-white/20 border border-white/30 transition-colors"
+                            style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.12)' }}
+                        >
+                            {/* Search icon — decorative */}
+                            <Search
+                                size={20}
+                                className="text-gray-600 flex-shrink-0"
+                                aria-hidden="true"
+                            />
+
+                            {/* Middle area: input OR waveform */}
+                            {state === 'listening' ? (
+                                <div
+                                    className="flex-1 flex items-center justify-center h-[36px]"
+                                    style={{ gap: '8px' }}
+                                    aria-label="Listening — speak now"
+                                >
+                                    {WAVEFORM_BARS.map((bar, i) => (
+                                        <div
+                                            key={i}
+                                            style={{
+                                                width: '4px',
+                                                height: '36px',
+                                                backgroundColor: '#C74634',
+                                                borderRadius: '9999px',
+                                                animation: `voiceWave ${bar.duration} ease-in-out ${bar.delay} infinite`,
+                                            }}
+                                        />
+                                    ))}
+                                </div>
+                            ) : (
+                                <input
+                                    ref={inputRef}
+                                    type="text"
+                                    value={query}
+                                    onChange={(e) => setQuery(e.target.value)}
+                                    placeholder="Ask anything or speak a command..."
+                                    disabled={inputDisabled}
+                                    aria-label="Command input"
+                                    className="flex-1 bg-white/40 rounded-full px-3 py-1 text-base focus:outline-none disabled:opacity-50 min-w-0 text-gray-800 placeholder:text-gray-500"
+                                />
+                            )}
+
+                            {/* Mic — toggle: click to start, click to stop+submit.
+                                Pulses brand red during listening. */}
+                            <button
+                                type="button"
+                                onClick={handleMicToggle}
+                                disabled={micDisabled}
+                                aria-label={
+                                    state === 'listening'
+                                        ? 'Stop and submit'
+                                        : 'Speak a command'
+                                }
+                                title={
+                                    state === 'listening'
+                                        ? 'Stop and submit'
+                                        : 'Click to speak'
+                                }
+                                className={`w-10 h-10 rounded-full flex items-center justify-center transition-all disabled:opacity-40 flex-shrink-0 ${
+                                    state === 'listening'
+                                        ? 'text-[#C74634] animate-pulse'
+                                        : 'text-gray-600 hover:text-gray-900 hover:bg-white/30'
+                                }`}
+                            >
+                                <Mic size={20} />
+                            </button>
+
+                            {/* Send */}
+                            <button
+                                type="submit"
+                                disabled={sendDisabled}
+                                aria-label="Submit"
+                                className="w-10 h-10 rounded-full flex items-center justify-center text-white disabled:opacity-40 transition-all hover:opacity-90 flex-shrink-0"
+                                style={{ backgroundColor: '#C74634' }}
+                            >
+                                <Send size={18} />
+                            </button>
+                        </form>
+
+                        {/* "Listening..." hint — absolute, doesn't shift pill */}
+                        {state === 'listening' && (
+                            <div className="absolute top-full left-0 right-0 mt-3 text-center text-sm text-gray-500">
+                                Listening…
+                            </div>
+                        )}
+
+                        {/* Transcript box — absolute, doesn't shift pill */}
+                        {showTranscriptBox && (
+                            <div
+                                className="absolute top-full left-0 right-0 mt-3 backdrop-blur-md bg-white/30 border border-white/30 rounded-2xl px-5 py-4 text-gray-700"
+                                style={{
+                                    boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
+                                    animation:
+                                        state === 'result'
+                                            ? 'voiceTranscriptFade 2s ease-out forwards'
+                                            : undefined,
+                                }}
+                                onAnimationEnd={
+                                    state === 'result' ? closeAndReset : undefined
+                                }
+                            >
+                                <div className="text-base">"{transcript}"</div>
+                                {(response || state === 'processing') && (
+                                    <div className="text-sm text-gray-500 mt-2">
+                                        {state === 'processing'
+                                            ? 'Processing…'
+                                            : response}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
                 </div>
             )}
-        </div>
+        </>
     );
 }
 
