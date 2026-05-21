@@ -101,7 +101,7 @@ function App() {
     : ['Dashboard Overview'];
 
   return (
-    <div className="flex h-screen bg-[#F0F2F5] overflow-hidden text-redwood-text-main font-inter">
+    <div className="flex h-screen bg-redwood-bg-light overflow-hidden text-redwood-text-main font-inter">
       {/* Sidebar - Precision Redwood SideNav.  The Menu button in the
           header below toggles `sidebarCollapsed`.  On mobile (< md)
           the sidebar becomes a drawer: fixed-positioned overlay with
@@ -123,7 +123,7 @@ function App() {
 
       {/* Main Orchestration Area */}
       <main className="flex-1 flex flex-col min-w-0">
-        <header className="h-[64px] bg-white border-b border-redwood-border px-3 sm:px-8 flex items-center justify-between sticky top-0 z-30 shadow-sm print:hidden">
+        <header className="h-[64px] bg-redwood-midnight border-b border-redwood-border px-3 sm:px-8 flex items-center justify-between sticky top-0 z-30 shadow-sm print:hidden">
           <div className="flex items-center gap-2 sm:gap-6">
             <button
               onClick={() => setSidebarCollapsed(v => !v)}
@@ -161,7 +161,7 @@ function App() {
                   )}
                 </button>
                 {notifsOpen && (
-                  <div className="absolute right-0 top-full mt-2 w-72 bg-white border border-redwood-border rounded-sm shadow-lg z-40 overflow-hidden">
+                  <div className="absolute right-0 top-full mt-2 w-72 bg-redwood-bg-surface border border-redwood-border rounded-sm shadow-lg z-40 overflow-hidden">
                     <div className="px-4 py-2 border-b border-redwood-border bg-redwood-bg-light text-[11px] font-black text-redwood-text-muted uppercase tracking-widest">
                       Notifications
                     </div>
@@ -233,7 +233,7 @@ function App() {
         </header>
 
         {/* Scalable Viewport Canvas */}
-        <div className="flex-1 overflow-y-auto p-3 sm:p-6 lg:p-10 scroll-smooth bg-[#F8F9FA]">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-6 lg:p-10 scroll-smooth bg-redwood-bg-light">
           <div className="max-w-[1600px] mx-auto min-h-full">
             <AppRoutes />
           </div>
@@ -245,7 +245,7 @@ function App() {
         <CommandBar />
 
         {/* Global Identity Footer */}
-        <footer className="h-10 bg-white border-t border-redwood-border px-3 sm:px-8 flex items-center justify-between text-[10px] font-bold text-redwood-text-muted uppercase tracking-[0.2em] shadow-[0_-1px_3px_rgba(0,0,0,0.02)] print:hidden">
+        <footer className="h-10 bg-redwood-midnight border-t border-redwood-border px-3 sm:px-8 flex items-center justify-between text-[10px] font-bold text-redwood-text-muted uppercase tracking-[0.2em] shadow-[0_-1px_3px_rgba(0,0,0,0.02)] print:hidden">
           <div className="flex items-center gap-4 flex-wrap min-w-0">
             <span className="text-redwood-brand whitespace-nowrap shrink-0">SOLTOL ONE</span>
             {/* Version + tagline hidden on phones to avoid footer overflow. */}

@@ -1,18 +1,18 @@
 @import "tailwindcss";
 
 @theme {
-  --color-redwood-brand: #C74634;
+  --color-redwood-brand: #4F8EF7;
   --color-redwood-primary: #00758F;
   --color-redwood-secondary: #5F6B7D;
-  --color-redwood-midnight: #161C24;
-  --color-redwood-slate: #212B36;
-  --color-redwood-bg-light: #F9FAFB;
-  --color-redwood-bg-surface: #FFFFFF;
-  --color-redwood-border: #DFE3E8;
-  --color-redwood-text-main: #212B36;
-  --color-redwood-text-muted: #637381;
+  --color-redwood-midnight: #0a1726;
+  --color-redwood-slate: #0f1f33;
+  --color-redwood-bg-light: #060f1c;
+  --color-redwood-bg-surface: #0f1f33;
+  --color-redwood-border: rgba(255, 255, 255, 0.12);
+  --color-redwood-text-main: #EEF2FF;
+  --color-redwood-text-muted: #8BA3C7;
 
-  --font-inter: "Inter", sans-serif;
+  --font-inter: "DM Sans", "Inter", sans-serif;
 }
 
 :root {
@@ -24,6 +24,25 @@
   --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
 }
 
+/* ── GLOBAL DARK FALLBACK — covers pages not yet migrated ──
+   Remove each rule as pages get properly migrated.        */
+main .bg-white            { background: var(--color-redwood-bg-surface) !important; }
+main .bg-gray-50          { background: rgba(255,255,255,.04) !important; }
+main .bg-gray-100         { background: rgba(255,255,255,.07) !important; }
+main .bg-gray-200         { background: rgba(255,255,255,.10) !important; }
+main .text-gray-900,
+main .text-gray-800,
+main .text-gray-700,
+main .text-gray-600       { color: var(--color-redwood-text-main) !important; }
+main .text-gray-500,
+main .text-gray-400       { color: var(--color-redwood-text-muted) !important; }
+main .border-gray-100,
+main .border-gray-200,
+main .border-gray-300,
+main .border-gray-400     { border-color: var(--color-redwood-border) !important; }
+main .hover\:bg-gray-50:hover  { background: rgba(255,255,255,.04) !important; }
+main .hover\:bg-gray-100:hover { background: rgba(255,255,255,.07) !important; }
+
 * {
   margin: 0;
   padding: 0;
@@ -31,7 +50,7 @@
 }
 
 body {
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: 'DM Sans', 'Inter', system-ui, -apple-system, sans-serif;
   background-color: var(--bg-app);
   color: var(--text-main);
   -webkit-font-smoothing: antialiased;
@@ -61,12 +80,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #c4cdd5;
+  background: rgba(255, 255, 255, 0.10);
   border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #919eab;
+  background: rgba(255, 255, 255, 0.20);
 }
 
 /* Base UI Components - Oracle Redwood Style */
@@ -111,7 +130,7 @@ body {
 
 .oracle-button-primary:hover {
   filter: brightness(0.9);
-  box-shadow: 0 4px 12px rgba(199, 70, 52, 0.2);
+  box-shadow: 0 4px 12px rgba(79, 142, 247, 0.2);
 }
 
 .oracle-button-secondary:hover {

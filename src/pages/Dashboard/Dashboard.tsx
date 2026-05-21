@@ -269,19 +269,19 @@ export default function Dashboard() {
                 <div ref={optionsRef} className="relative">
                     <button
                         onClick={() => setOptionsOpen(o => !o)}
-                        className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 hover:border-gray-400 rounded-xl text-sm font-black uppercase tracking-widest text-gray-700 shadow-sm transition-all"
+                        className="flex items-center gap-2 px-4 py-2.5 bg-redwood-bg-surface border border-redwood-border hover:border-redwood-border rounded-xl text-sm font-black uppercase tracking-widest text-redwood-text-main shadow-sm transition-all"
                         aria-haspopup="menu"
                         aria-expanded={optionsOpen}
                     >
                         <MoreVertical size={16} /> Options
                     </button>
                     {optionsOpen && (
-                        <div role="menu" className="absolute right-0 top-full mt-2 w-64 bg-white border border-gray-200 rounded-xl shadow-2xl py-2 z-40">
+                        <div role="menu" className="absolute right-0 top-full mt-2 w-64 bg-redwood-bg-surface border border-redwood-border rounded-xl shadow-2xl py-2 z-40">
                             <button
                                 onClick={() => void handleRefresh()}
                                 disabled={refreshing}
                                 role="menuitem"
-                                className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-50 text-left"
+                                className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-redwood-text-main hover:bg-white/5 disabled:opacity-50 text-left"
                             >
                                 <RefreshCw size={16} className={refreshing ? 'animate-spin text-orange-600' : 'text-orange-600'} />
                                 Refresh Data
@@ -289,7 +289,7 @@ export default function Dashboard() {
                             <button
                                 onClick={handleExportPDF}
                                 role="menuitem"
-                                className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50 text-left"
+                                className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-redwood-text-main hover:bg-white/5 text-left"
                             >
                                 <Download size={16} className="text-blue-600" />
                                 Export as PDF
@@ -297,16 +297,16 @@ export default function Dashboard() {
                             <button
                                 onClick={handleOpenDateRange}
                                 role="menuitem"
-                                className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50 text-left"
+                                className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-redwood-text-main hover:bg-white/5 text-left"
                             >
                                 <Calendar size={16} className="text-emerald-600" />
                                 Set Date Range
                             </button>
-                            <div className="h-px bg-gray-100 my-1" />
+                            <div className="h-px bg-white/10 my-1" />
                             <button
                                 onClick={handleCustomize}
                                 role="menuitem"
-                                className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50 text-left"
+                                className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-redwood-text-main hover:bg-white/5 text-left"
                             >
                                 <Sliders size={16} className="text-purple-600" />
                                 Customize
@@ -318,28 +318,28 @@ export default function Dashboard() {
 
             {/* TC-02 — Inline date range picker, shown when "Set Date Range" is chosen. */}
             {showDateRange && (
-                <div className="bg-white border-2 border-emerald-200 rounded-xl shadow-md p-6">
+                <div className="bg-redwood-bg-surface border-2 border-emerald-200 rounded-xl shadow-md p-6">
                     <div className="flex items-center justify-between mb-4">
                         <div>
-                            <p className="text-sm font-black text-gray-900 uppercase tracking-widest">Chart Date Range</p>
-                            <p className="text-xs text-gray-500 mt-1">Filters the Monthly Performance chart below. KPIs stay at all-time totals.</p>
+                            <p className="text-sm font-black text-redwood-text-main uppercase tracking-widest">Chart Date Range</p>
+                            <p className="text-xs text-redwood-text-muted mt-1">Filters the Monthly Performance chart below. KPIs stay at all-time totals.</p>
                         </div>
-                        <button onClick={() => setShowDateRange(false)} className="p-2 hover:bg-gray-100 rounded-lg text-gray-400"><X size={16} /></button>
+                        <button onClick={() => setShowDateRange(false)} className="p-2 hover:bg-white/10 rounded-lg text-redwood-text-muted"><X size={16} /></button>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                         <div>
-                            <label className="block text-xs font-black text-gray-600 uppercase mb-2">From</label>
+                            <label className="block text-xs font-black text-redwood-text-main uppercase mb-2">From</label>
                             <input type="date" value={dashFrom} onChange={e => setDashFrom(e.target.value)}
-                                className="w-full border-2 border-gray-300 rounded-lg px-3 py-3 text-sm font-bold outline-none focus:border-emerald-500" />
+                                className="w-full border-2 border-redwood-border rounded-lg px-3 py-3 text-sm font-bold outline-none focus:border-emerald-500" />
                         </div>
                         <div>
-                            <label className="block text-xs font-black text-gray-600 uppercase mb-2">To</label>
+                            <label className="block text-xs font-black text-redwood-text-main uppercase mb-2">To</label>
                             <input type="date" value={dashTo} onChange={e => setDashTo(e.target.value)}
-                                className="w-full border-2 border-gray-300 rounded-lg px-3 py-3 text-sm font-bold outline-none focus:border-emerald-500" />
+                                className="w-full border-2 border-redwood-border rounded-lg px-3 py-3 text-sm font-bold outline-none focus:border-emerald-500" />
                         </div>
                         <div className="flex gap-2">
                             <button onClick={() => { setDashFrom(''); setDashTo(''); }}
-                                className="px-4 py-3 bg-gray-100 hover:bg-gray-200 text-xs font-black uppercase tracking-widest rounded-lg">Clear</button>
+                                className="px-4 py-3 bg-white/10 hover:bg-white/15 text-xs font-black uppercase tracking-widest rounded-lg">Clear</button>
                             <button onClick={() => { setShowDateRange(false); flashToast('Date range applied to charts.'); }}
                                 className="px-6 py-3 bg-emerald-600 text-white text-xs font-black uppercase tracking-widest rounded-lg hover:bg-emerald-700">Apply</button>
                         </div>
@@ -350,7 +350,7 @@ export default function Dashboard() {
             {/* 1. Key Metrics Cards (Grid of 6) */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
                 {stats.map((stat, i) => (
-                    <div key={i} className="bg-white p-5 rounded-lg border border-redwood-border/60 shadow-sm hover:shadow-md transition-shadow">
+                    <div key={i} className="bg-redwood-bg-surface p-5 rounded-lg border border-redwood-border/60 shadow-sm hover:shadow-md transition-shadow">
                         <div className="flex justify-between items-start mb-3">
                             <div className={`w-8 h-8 rounded-md flex items-center justify-center ${stat.bg}`}>
                                 <stat.icon size={16} className={stat.color} />
@@ -369,7 +369,7 @@ export default function Dashboard() {
             {/* 2. Charts Section */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Monthly Sales vs Expenses (Bar/Line) */}
-                <div className="lg:col-span-2 bg-white p-6 rounded-lg border border-redwood-border shadow-sm">
+                <div className="lg:col-span-2 bg-redwood-bg-surface p-6 rounded-lg border border-redwood-border shadow-sm">
                     <div className="mb-6 flex justify-between items-center">
                         <div>
                             <h3 className="text-[16px] font-black text-redwood-text-main">Financial Performance</h3>
@@ -394,7 +394,7 @@ export default function Dashboard() {
                 </div>
 
                 {/* Inventory by Category (Pie Chart) */}
-                <div className="bg-white p-6 rounded-lg border border-redwood-border shadow-sm">
+                <div className="bg-redwood-bg-surface p-6 rounded-lg border border-redwood-border shadow-sm">
                     <div className="mb-6">
                         <h3 className="text-[16px] font-black text-redwood-text-main">Inventory Distribution</h3>
                             <p className="text-[12px] text-redwood-text-muted font-medium">Stock by product</p>
@@ -428,7 +428,7 @@ export default function Dashboard() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
                 {/* Recent Orders List */}
-                <div className="lg:col-span-2 bg-white rounded-lg border border-redwood-border shadow-sm overflow-hidden dash-table-container">
+                <div className="lg:col-span-2 bg-redwood-bg-surface rounded-lg border border-redwood-border shadow-sm overflow-hidden dash-table-container">
                     <div className="p-6 border-b border-redwood-border flex justify-between items-center">
                         <div>
                         <h3 className="text-[16px] font-black text-redwood-text-main">Recent Orders</h3>
@@ -440,7 +440,7 @@ export default function Dashboard() {
                     </div>
                     <div className="overflow-x-auto">
                         <table className="w-full text-left">
-                            <thead className="bg-gray-50 border-b border-gray-100">
+                            <thead className="bg-white/5 border-b border-redwood-border">
                                 <tr>
                                     <th className="px-6 py-3 text-[11px] font-bold text-redwood-text-muted uppercase tracking-wider">Order/Invoice</th>
                                     <th className="px-6 py-3 text-[11px] font-bold text-redwood-text-muted uppercase tracking-wider">Customer</th>
@@ -454,12 +454,12 @@ export default function Dashboard() {
                                     <tr
                                         key={order.id}
                                         onClick={() => navigate(`/sales/invoices/${order.id}`)}
-                                        className="hover:bg-gray-50 cursor-pointer transition-colors"
+                                        className="hover:bg-white/5 cursor-pointer transition-colors"
                                     >
                                         <td className="px-6 py-4 text-[13px] font-bold text-redwood-text-main">{order.id}</td>
-                                        <td className="px-6 py-4 text-[13px] text-gray-700">{order.customer}</td>
-                                        <td className="px-6 py-4 text-[13px] text-gray-500">{order.date}</td>
-                                        <td className="px-6 py-4 text-[13px] font-bold text-gray-900 text-right">${order.amount.toLocaleString()}</td>
+                                        <td className="px-6 py-4 text-[13px] text-redwood-text-main">{order.customer}</td>
+                                        <td className="px-6 py-4 text-[13px] text-redwood-text-muted">{order.date}</td>
+                                        <td className="px-6 py-4 text-[13px] font-bold text-redwood-text-main text-right">${order.amount.toLocaleString()}</td>
                                         <td className="px-6 py-4">
                                             <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${String(order.status).toLowerCase() === 'paid' || String(order.status).toLowerCase() === 'completed' ? 'bg-emerald-100 text-emerald-700' :
                                                 String(order.status).toLowerCase() === 'unpaid' || String(order.status).toLowerCase() === 'pending' ? 'bg-amber-100 text-amber-700' :
@@ -476,31 +476,31 @@ export default function Dashboard() {
                 </div>
 
                 {/* Quick Stats Grid */}
-                <div className="bg-white p-6 rounded-lg border border-redwood-border shadow-sm">
+                <div className="bg-redwood-bg-surface p-6 rounded-lg border border-redwood-border shadow-sm">
                     <div className="mb-6">
                         <h3 className="text-[16px] font-black text-redwood-text-main">Quick Stats</h3>
                         <p className="text-[12px] text-redwood-text-muted font-medium">Operational efficiency checks</p>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
-                        <div className="p-4 bg-gray-50 rounded-lg text-center border border-gray-100">
+                        <div className="p-4 bg-white/5 rounded-lg text-center border border-redwood-border">
                             <div className="text-[24px] font-black text-redwood-brand mb-1">{vansCount}</div>
                             <div className="text-[10px] font-bold text-redwood-text-muted uppercase">Active Vans</div>
                         </div>
-                        <div className="p-4 bg-gray-50 rounded-lg text-center border border-gray-100">
+                        <div className="p-4 bg-white/5 rounded-lg text-center border border-redwood-border">
                             <div className="text-[24px] font-black text-emerald-600 mb-1">{newCustomersThisMonth}</div>
                             <div className="text-[10px] font-bold text-redwood-text-muted uppercase">New Customers</div>
                         </div>
-                        <div className="p-4 bg-gray-50 rounded-lg text-center border border-gray-100">
+                        <div className="p-4 bg-white/5 rounded-lg text-center border border-redwood-border">
                             <div className="text-[24px] font-black text-blue-600 mb-1">{customersCount}</div>
                             <div className="text-[10px] font-bold text-redwood-text-muted uppercase">Total Customers</div>
                         </div>
-                        <div className="p-4 bg-gray-50 rounded-lg text-center border border-gray-100">
+                        <div className="p-4 bg-white/5 rounded-lg text-center border border-redwood-border">
                             <div className="text-[24px] font-black text-purple-600 mb-1">{metrics.productCount}</div>
                             <div className="text-[10px] font-bold text-redwood-text-muted uppercase">Products In Catalog</div>
                         </div>
                     </div>
 
-                    <div className="mt-6 pt-6 border-t border-gray-100">
+                    <div className="mt-6 pt-6 border-t border-redwood-border">
                         <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
                                 <Activity size={20} />
