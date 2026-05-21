@@ -1,0 +1,974 @@
+/* ═══════════════════════════════════════════════════
+   SOLTOL ONE ERP — DESIGN SYSTEM v1.0  (preview only)
+
+   Scoped to .soltol-dashboard so it never leaks to the
+   global app.  Every selector is either:
+     • .soltol-dashboard { … }
+     • .soltol-dashboard.soltol-light { … }   (light mode opt-in)
+     • a .soltol-* component class            (only rendered
+                                                inside the preview)
+
+   Variables are declared on .soltol-dashboard (not :root) so
+   that pages without the wrapper class see none of these tokens.
+═══════════════════════════════════════════════════ */
+
+/* ── DESIGN TOKENS — scoped wrapper ── */
+.soltol-dashboard {
+    /* Backgrounds — dark navy layered system */
+    --soltol-bg:    #060f1c;
+    --soltol-bg2:   #0a1726;
+    --soltol-bg3:   #0f1f33;
+    --soltol-bg4:   #142540;
+    --soltol-bg5:   #1a2d4e;
+
+    /* Borders */
+    --soltol-br:    rgba(255,255,255,.07);
+    --soltol-br2:   rgba(255,255,255,.12);
+    --soltol-br3:   rgba(255,255,255,.20);
+
+    /* Brand — electric blue */
+    --soltol-blue:  #4F8EF7;
+    --soltol-bd:    rgba(79,142,247,.14);
+    --soltol-bb:    rgba(79,142,247,.28);
+
+    /* Semantic colours */
+    --soltol-teal:   #00D4AA;
+    --soltol-td:     rgba(0,212,170,.10);
+    --soltol-green:  #22C55E;
+    --soltol-gd:     rgba(34,197,94,.12);
+    --soltol-red:    #EF4444;
+    --soltol-rd:     rgba(239,68,68,.12);
+    --soltol-amber:  #F59E0B;
+    --soltol-ad:     rgba(245,158,11,.12);
+    --soltol-purple: #A78BFA;
+    --soltol-pd:     rgba(167,139,250,.12);
+    --soltol-orange: #FB923C;
+    --soltol-od:     rgba(251,146,60,.12);
+
+    /* Text */
+    --soltol-t:   #EEF2FF;
+    --soltol-t2:  #8BA3C7;
+    --soltol-t3:  #3E5678;
+
+    /* Typography */
+    --soltol-font:  'DM Sans', system-ui, sans-serif;
+    --soltol-head:  'Syne', sans-serif;
+    --soltol-mono:  'DM Mono', monospace;
+
+    /* Radii */
+    --soltol-r:   10px;
+    --soltol-rs:   6px;
+    --soltol-rl:  14px;
+
+    /* Layout */
+    --soltol-sidebar-width: 232px;
+    --soltol-nav-height:     52px;
+}
+
+/* ── LIGHT MODE OVERRIDES (toggle with .soltol-dashboard.soltol-light) ── */
+.soltol-dashboard.soltol-light {
+    --soltol-bg:    #F0F4F9;
+    --soltol-bg2:   #FFFFFF;
+    --soltol-bg3:   #FFFFFF;
+    --soltol-bg4:   #F4F7FB;
+    --soltol-bg5:   #EBF0F7;
+    --soltol-br:    rgba(0,0,0,.07);
+    --soltol-br2:   rgba(0,0,0,.12);
+    --soltol-br3:   rgba(0,0,0,.20);
+    --soltol-blue:  #2563EB;
+    --soltol-bd:    rgba(37,99,235,.10);
+    --soltol-bb:    rgba(37,99,235,.25);
+    --soltol-t:    #1E293B;
+    --soltol-t2:   #475569;
+    --soltol-t3:   #94A3B8;
+    --soltol-green:  #16A34A;
+    --soltol-gd:     rgba(22,163,74,.10);
+    --soltol-red:    #DC2626;
+    --soltol-rd:     rgba(220,38,38,.10);
+    --soltol-amber:  #D97706;
+    --soltol-ad:     rgba(217,119,6,.10);
+}
+
+/* ═══════════════════════════════════════════════════
+   LAYOUT SHELL
+═══════════════════════════════════════════════════ */
+
+.soltol-dashboard {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+    font-family: var(--soltol-font);
+    font-size: 13px;
+    color: var(--soltol-t);
+    background: var(--soltol-bg);
+    -webkit-font-smoothing: antialiased;
+}
+
+/* ── TOP NAV ── */
+.soltol-topnav {
+    height: var(--soltol-nav-height);
+    background: var(--soltol-bg2);
+    border-bottom: 1px solid var(--soltol-br);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    gap: 8px;
+    flex-shrink: 0;
+    z-index: 300;
+}
+
+/* ── LOGO ── */
+.soltol-logo-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: var(--soltol-blue);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--soltol-head);
+    font-size: 12px;
+    font-weight: 700;
+    color: #fff;
+    flex-shrink: 0;
+}
+
+.soltol-logo-text {
+    font-family: var(--soltol-head);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--soltol-t);
+    letter-spacing: -0.3px;
+}
+
+/* ── AI COMMAND BAR ── */
+.soltol-cmd-wrap {
+    flex: 1;
+    max-width: 540px;
+    position: relative;
+}
+
+.soltol-cmd-bar {
+    display: flex;
+    align-items: center;
+    background: rgba(255,255,255,.07);
+    border: 1.5px solid var(--soltol-bb);
+    border-radius: 12px;
+    padding: 0 6px 0 12px;
+    gap: 6px;
+    transition: .2s;
+    height: 40px;
+}
+
+.soltol-cmd-bar:focus-within {
+    background: rgba(79,142,247,.09);
+    border-color: var(--soltol-blue);
+    box-shadow: 0 0 0 3px rgba(79,142,247,.12);
+}
+
+.soltol-cmd-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    font-size: 12px;
+    font-family: var(--soltol-font);
+    color: var(--soltol-t);
+    outline: none;
+    padding: 0;
+    min-width: 0;
+}
+
+.soltol-cmd-input::placeholder {
+    color: var(--soltol-t3);
+    font-size: 11px;
+}
+
+.soltol-send-btn {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: var(--soltol-blue);
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all .15s;
+    color: #fff;
+    opacity: 0;
+    transform: scale(.7);
+    pointer-events: none;
+}
+
+.soltol-send-btn.visible {
+    opacity: 1;
+    transform: scale(1);
+    pointer-events: all;
+}
+
+.soltol-send-btn:hover { background: #3a7be0; }
+.soltol-send-btn:active { transform: scale(.92); }
+
+.soltol-mic-btn {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: transparent;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: .15s;
+    flex-shrink: 0;
+    color: var(--soltol-t2);
+}
+
+.soltol-mic-btn:hover { background: rgba(255,255,255,.08); }
+.soltol-mic-btn.recording { background: rgba(239,68,68,.2); animation: soltol-pulse 1s infinite; }
+
+/* ── PRIMARY BUTTON ── */
+.soltol-btn-primary {
+    background: var(--soltol-blue);
+    color: #fff;
+    border: none;
+    padding: 7px 14px;
+    border-radius: var(--soltol-rs);
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: var(--soltol-font);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: .15s;
+}
+
+.soltol-btn-primary:hover { background: #3a7be0; }
+
+/* ── SECONDARY / GHOST BUTTON ── */
+.soltol-btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 11px;
+    border-radius: var(--soltol-rs);
+    font-size: 10.5px;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid var(--soltol-br2);
+    background: rgba(255,255,255,.04);
+    color: var(--soltol-t2);
+    font-family: var(--soltol-font);
+    transition: .12s;
+}
+
+.soltol-btn-ghost:hover {
+    background: rgba(255,255,255,.08);
+    color: var(--soltol-t);
+}
+
+/* ── ICON BUTTON ── */
+.soltol-icon-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--soltol-rs);
+    background: rgba(255,255,255,.05);
+    border: 1px solid var(--soltol-br);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    position: relative;
+    transition: .15s;
+    color: var(--soltol-t2);
+}
+
+.soltol-icon-btn:hover { background: rgba(255,255,255,.1); color: var(--soltol-t); }
+
+/* ── AVATAR ── */
+.soltol-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--soltol-blue), var(--soltol-teal));
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: var(--soltol-head);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    border: 2px solid rgba(255,255,255,.12);
+    transition: .15s;
+}
+
+/* ── LIVE INDICATOR ── */
+.soltol-live {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 9px;
+    color: var(--soltol-green);
+    background: var(--soltol-gd);
+    border: 1px solid rgba(34,197,94,.2);
+    border-radius: 20px;
+    padding: 3px 9px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+}
+
+.soltol-live::before {
+    content: '';
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--soltol-green);
+    animation: soltol-pulse-green 1.5s infinite;
+}
+
+/* ── NOTIFICATION DOT ── */
+.soltol-notif-dot {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 6px;
+    height: 6px;
+    background: var(--soltol-red);
+    border-radius: 50%;
+    border: 1.5px solid var(--soltol-bg2);
+}
+
+/* ── CHIPS BAR ── */
+.soltol-chips-bar {
+    background: var(--soltol-bg2);
+    border-bottom: 1px solid var(--soltol-br);
+    padding: 5px 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow-x: auto;
+    flex-shrink: 0;
+}
+
+.soltol-chips-bar::-webkit-scrollbar { display: none; }
+
+.soltol-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    border: 1px solid transparent;
+    font-size: 10px;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: .12s;
+    flex-shrink: 0;
+}
+
+.soltol-chip:hover { transform: translateY(-1px); filter: brightness(1.15); }
+
+.soltol-chip-blue   { background: var(--soltol-bd); color: #93C5FD; border-color: var(--soltol-bb); }
+.soltol-chip-green  { background: var(--soltol-gd); color: #86EFAC; border-color: rgba(34,197,94,.22); }
+.soltol-chip-amber  { background: var(--soltol-ad); color: #FCD34D; border-color: rgba(245,158,11,.22); }
+.soltol-chip-red    { background: var(--soltol-rd); color: #FCA5A5; border-color: rgba(239,68,68,.22); }
+.soltol-chip-teal   { background: var(--soltol-td); color: #5EEAD4; border-color: rgba(0,212,170,.22); }
+.soltol-chip-purple { background: var(--soltol-pd); color: #C4B5FD; border-color: rgba(167,139,250,.22); }
+.soltol-chip-grey   { background: rgba(255,255,255,.05); color: var(--soltol-t2); border-color: var(--soltol-br2); }
+
+/* ── SIDEBAR ── */
+.soltol-sidebar {
+    width: var(--soltol-sidebar-width);
+    background: var(--soltol-bg2);
+    border-right: 1px solid var(--soltol-br);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    overflow: hidden;
+    transition: width .22s cubic-bezier(.4,0,.2,1);
+}
+
+.soltol-sidebar.collapsed { width: 50px; }
+
+.soltol-sb-search {
+    padding: 7px 8px;
+    border-bottom: 1px solid var(--soltol-br);
+}
+
+.soltol-sb-input {
+    width: 100%;
+    background: rgba(255,255,255,.04);
+    border: 1px solid var(--soltol-br2);
+    border-radius: var(--soltol-rs);
+    padding: 5px 8px 5px 26px;
+    font-size: 10px;
+    color: var(--soltol-t);
+    font-family: var(--soltol-font);
+    outline: none;
+    transition: .15s;
+}
+
+.soltol-sb-input:focus {
+    background: rgba(255,255,255,.07);
+    border-color: var(--soltol-blue);
+}
+
+.soltol-sg-header {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 8px 4px;
+    cursor: pointer;
+    user-select: none;
+    border-top: 1px solid var(--soltol-br);
+    transition: .1s;
+}
+
+.soltol-sg-header:hover { background: rgba(255,255,255,.03); }
+
+.soltol-sg-icon {
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.soltol-sg-name {
+    font-size: 10px;
+    font-weight: 600;
+    color: rgba(255,255,255,.4);
+    flex: 1;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+.soltol-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 8px 4px 18px;
+    font-size: 10.5px;
+    color: rgba(255,255,255,.4);
+    cursor: pointer;
+    border-right: 2px solid transparent;
+    transition: .1s;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.soltol-nav-item:hover {
+    background: rgba(255,255,255,.04);
+    color: rgba(255,255,255,.8);
+}
+
+.soltol-nav-item.active {
+    color: #93C5FD;
+    background: rgba(79,142,247,.10);
+    border-right-color: var(--soltol-blue);
+    font-weight: 500;
+}
+
+/* ── TABS ── */
+.soltol-tabrow {
+    background: var(--soltol-bg2);
+    border-bottom: 1px solid var(--soltol-br);
+    padding: 0 14px;
+    display: flex;
+    align-items: center;
+    overflow-x: auto;
+}
+
+.soltol-tabrow::-webkit-scrollbar { display: none; }
+
+.soltol-tab {
+    padding: 10px 13px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--soltol-t3);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: .12s;
+    white-space: nowrap;
+}
+
+.soltol-tab:hover { color: var(--soltol-t2); }
+.soltol-tab.active { color: var(--soltol-t); border-bottom-color: var(--soltol-blue); }
+
+/* ── KPI CARD ── */
+.soltol-kpi {
+    background: var(--soltol-bg3);
+    border: 1px solid var(--soltol-br2);
+    border-radius: var(--soltol-rl);
+    padding: 13px 14px;
+    position: relative;
+    overflow: hidden;
+    transition: .18s;
+    cursor: default;
+}
+
+.soltol-kpi:hover {
+    border-color: var(--soltol-br3);
+    transform: translateY(-2px);
+    box-shadow: 0 12px 30px rgba(0,0,0,.4);
+}
+
+.soltol-kpi::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    border-radius: var(--soltol-rl) var(--soltol-rl) 0 0;
+}
+
+.soltol-kpi-green::before  { background: linear-gradient(90deg, var(--soltol-green), #86EFAC); }
+.soltol-kpi-red::before    { background: linear-gradient(90deg, var(--soltol-red),   #FCA5A5); }
+.soltol-kpi-blue::before   { background: linear-gradient(90deg, var(--soltol-blue),  #93C5FD); }
+.soltol-kpi-amber::before  { background: linear-gradient(90deg, var(--soltol-amber), #FCD34D); }
+.soltol-kpi-teal::before   { background: linear-gradient(90deg, var(--soltol-teal),  #5EEAD4); }
+.soltol-kpi-purple::before { background: linear-gradient(90deg, var(--soltol-purple),#C4B5FD); }
+
+.soltol-kpi-value {
+    font-family: var(--soltol-head);
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+    margin-bottom: 3px;
+    line-height: 1.1;
+    color: var(--soltol-t);
+}
+
+.soltol-kpi-label {
+    font-size: 10.5px;
+    color: var(--soltol-t2);
+    font-weight: 500;
+    margin-bottom: 6px;
+}
+
+.soltol-kpi-sub {
+    font-size: 10px;
+    color: var(--soltol-t3);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.soltol-kpi-sub.warn  { color: #FCA5A5; }
+.soltol-kpi-sub.good  { color: #86EFAC; }
+
+.soltol-kpi-tip {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    background: var(--soltol-bg4);
+    border: 1px solid var(--soltol-br2);
+    border-radius: var(--soltol-rs);
+    padding: 7px 10px;
+    font-size: 10px;
+    color: var(--soltol-t2);
+    z-index: 100;
+    display: none;
+    font-weight: 400;
+    line-height: 1.5;
+    max-width: 220px;
+    white-space: normal;
+    box-shadow: 0 8px 24px rgba(0,0,0,.5);
+}
+
+.soltol-kpi-label:hover .soltol-kpi-tip { display: block; }
+
+/* ── PANEL ── */
+.soltol-panel {
+    background: var(--soltol-bg3);
+    border: 1px solid var(--soltol-br2);
+    border-radius: var(--soltol-rl);
+    padding: 14px 16px;
+}
+
+.soltol-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.soltol-panel-title {
+    font-family: var(--soltol-head);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--soltol-t);
+}
+
+.soltol-panel-action {
+    font-size: 10px;
+    color: var(--soltol-blue);
+    cursor: pointer;
+}
+
+.soltol-panel-action:hover { text-decoration: underline; }
+
+/* ── DATA TABLE ── */
+.soltol-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+}
+
+.soltol-table th {
+    padding: 6px 10px;
+    text-align: left;
+    font-size: 9.5px;
+    font-weight: 600;
+    color: var(--soltol-t3);
+    border-bottom: 1px solid var(--soltol-br2);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    white-space: nowrap;
+}
+
+.soltol-table td {
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--soltol-br);
+    color: var(--soltol-t2);
+    vertical-align: middle;
+}
+
+.soltol-table tr:last-child td { border-bottom: none; }
+.soltol-table tbody tr:hover { background: rgba(79,142,247,.05); cursor: pointer; }
+
+.soltol-mono {
+    font-family: var(--soltol-mono);
+    font-size: 10px;
+    color: #93C5FD;
+}
+
+/* ── STATUS BADGES ── */
+.soltol-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 9px;
+    font-weight: 600;
+    border: 1px solid;
+}
+
+.soltol-badge-green  { background: var(--soltol-gd); color: var(--soltol-green); border-color: rgba(34,197,94,.2); }
+.soltol-badge-amber  { background: var(--soltol-ad); color: #FCD34D;             border-color: rgba(245,158,11,.2); }
+.soltol-badge-red    { background: var(--soltol-rd); color: #FCA5A5;             border-color: rgba(239,68,68,.2); }
+.soltol-badge-blue   { background: var(--soltol-bd); color: #93C5FD;             border-color: var(--soltol-bb); }
+.soltol-badge-purple { background: var(--soltol-pd); color: #C4B5FD;             border-color: rgba(167,139,250,.2); }
+.soltol-badge-teal   { background: var(--soltol-td); color: #5EEAD4;             border-color: rgba(0,212,170,.2); }
+
+/* ── LIST ROW ── */
+.soltol-list-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    background: var(--soltol-bg4);
+    border-radius: var(--soltol-rs);
+    border: 1px solid var(--soltol-br);
+    transition: .12s;
+}
+
+.soltol-list-row:hover { background: var(--soltol-bg5); }
+
+/* ── PROGRESS BAR ── */
+.soltol-progress-track {
+    height: 5px;
+    background: rgba(255,255,255,.07);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.soltol-progress-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width .8s ease;
+}
+
+/* ── CHECKLIST ITEM ── */
+.soltol-checklist-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 8px;
+    background: var(--soltol-bg4);
+    border: 1px solid var(--soltol-br);
+    border-radius: var(--soltol-rs);
+    cursor: pointer;
+    transition: .12s;
+}
+
+.soltol-checklist-item:hover { background: var(--soltol-bg5); }
+
+.soltol-checklist-item.done {
+    background: rgba(34,197,94,.07);
+    border-color: rgba(34,197,94,.15);
+}
+
+.soltol-checkbox {
+    width: 15px;
+    height: 15px;
+    border-radius: 4px;
+    border: 1.5px solid var(--soltol-t3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    flex-shrink: 0;
+    transition: .12s;
+}
+
+.soltol-checklist-item.done .soltol-checkbox {
+    background: var(--soltol-green);
+    border-color: var(--soltol-green);
+    color: #fff;
+}
+
+.soltol-checklist-item.done .soltol-checklist-text {
+    text-decoration: line-through;
+    color: var(--soltol-t3);
+}
+
+/* ── ALERT BAR ── */
+.soltol-alert {
+    background: rgba(245,158,11,.07);
+    border-bottom: 1px solid rgba(245,158,11,.16);
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: #FDE68A;
+}
+
+/* ── AI INSIGHTS PANEL ── */
+.soltol-ai-panel {
+    background: var(--soltol-bg3);
+    border: 1px solid var(--soltol-bb);
+    border-radius: var(--soltol-rl);
+    overflow: hidden;
+}
+
+/* ── SLIDE-OVER / DRAWER ── */
+.soltol-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.5);
+    z-index: 400;
+    opacity: 0;
+    pointer-events: none;
+    transition: .2s;
+}
+
+.soltol-overlay.open { opacity: 1; pointer-events: all; }
+
+.soltol-drawer {
+    position: fixed;
+    top: 0;
+    right: -420px;
+    width: 420px;
+    height: 100%;
+    background: var(--soltol-bg3);
+    border-left: 1px solid var(--soltol-br2);
+    z-index: 401;
+    transition: right .25s cubic-bezier(.4,0,.2,1);
+    overflow-y: auto;
+}
+
+.soltol-drawer.open { right: 0; }
+
+/* ── 2FA / MODAL ── */
+.soltol-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.65);
+    z-index: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: .2s;
+}
+
+.soltol-modal-overlay.open { opacity: 1; pointer-events: all; }
+
+.soltol-modal {
+    background: var(--soltol-bg3);
+    border: 1px solid var(--soltol-br2);
+    border-radius: var(--soltol-rl);
+    padding: 24px;
+    width: 340px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.6);
+    transform: scale(.95);
+    transition: .2s;
+}
+
+.soltol-modal-overlay.open .soltol-modal { transform: scale(1); }
+
+/* ── COMMAND PALETTE ── */
+.soltol-palette-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.65);
+    z-index: 700;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 12vh;
+    opacity: 0;
+    pointer-events: none;
+    transition: .18s;
+}
+
+.soltol-palette-overlay.open { opacity: 1; pointer-events: all; }
+
+.soltol-palette {
+    background: var(--soltol-bg3);
+    border: 1px solid var(--soltol-br2);
+    border-radius: var(--soltol-rl);
+    width: 580px;
+    max-width: 95vw;
+    box-shadow: 0 24px 60px rgba(0,0,0,.7);
+    overflow: hidden;
+    transform: translateY(-8px);
+    transition: .18s;
+}
+
+.soltol-palette-overlay.open .soltol-palette { transform: translateY(0); }
+
+/* ── UNDO TOAST ── */
+.soltol-toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--soltol-bg3);
+    border: 1px solid var(--soltol-br2);
+    border-radius: var(--soltol-r);
+    padding: 10px 16px;
+    font-size: 11px;
+    color: var(--soltol-t);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    z-index: 999;
+    box-shadow: 0 8px 32px rgba(0,0,0,.5);
+    opacity: 0;
+    transition: all .3s;
+    pointer-events: none;
+    white-space: nowrap;
+}
+
+.soltol-toast.visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+    pointer-events: all;
+}
+
+/* ── HEADING TYPOGRAPHY ── */
+.soltol-page-title {
+    font-family: var(--soltol-head);
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+    color: var(--soltol-t);
+}
+
+.soltol-page-subtitle {
+    font-size: 11px;
+    color: var(--soltol-t3);
+    margin-top: 2px;
+}
+
+.soltol-section-title {
+    font-family: var(--soltol-head);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--soltol-t);
+}
+
+/* ── SKELETON LOADER ── */
+.soltol-skeleton {
+    background: linear-gradient(90deg, var(--soltol-bg4) 25%, var(--soltol-bg5) 50%, var(--soltol-bg4) 75%);
+    background-size: 200% 100%;
+    animation: soltol-skeleton-wave 1.4s ease infinite;
+    border-radius: var(--soltol-rs);
+}
+
+/* ── SCROLLBAR ── */
+.soltol-dashboard ::-webkit-scrollbar { width: 3px; height: 3px; }
+.soltol-dashboard ::-webkit-scrollbar-track { background: transparent; }
+.soltol-dashboard ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 3px; }
+
+/* ── MOBILE BOTTOM NAV ── */
+.soltol-bottom-nav {
+    display: none;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--soltol-bg2);
+    border-top: 1px solid var(--soltol-br);
+    padding: 8px 0 calc(8px + env(safe-area-inset-bottom));
+    z-index: 200;
+    justify-content: space-around;
+}
+
+@media (max-width: 900px) {
+    .soltol-bottom-nav { display: flex; }
+    .soltol-sidebar { position: fixed; top: 0; left: -280px; height: 100%; z-index: 500; width: 280px !important; transition: left .25s cubic-bezier(.4,0,.2,1); }
+    .soltol-sidebar.mobile-open { left: 0; box-shadow: 8px 0 40px rgba(0,0,0,.6); }
+}
+
+/* ── ANIMATIONS ── */
+@keyframes soltol-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,.4); }
+    60%      { box-shadow: 0 0 0 6px rgba(239,68,68,0); }
+}
+
+@keyframes soltol-pulse-green {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: .3; }
+}
+
+@keyframes soltol-skeleton-wave {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+@keyframes soltol-fade-up {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes soltol-dropdown-in {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Entry animations for cards */
+.soltol-dashboard .soltol-kpi,
+.soltol-dashboard .soltol-panel {
+    animation: soltol-fade-up .35s ease both;
+}
+
+.soltol-dashboard .soltol-kpi:nth-child(1) { animation-delay: .04s; }
+.soltol-dashboard .soltol-kpi:nth-child(2) { animation-delay: .08s; }
+.soltol-dashboard .soltol-kpi:nth-child(3) { animation-delay: .12s; }
+.soltol-dashboard .soltol-kpi:nth-child(4) { animation-delay: .16s; }
+.soltol-dashboard .soltol-kpi:nth-child(5) { animation-delay: .20s; }
