@@ -27,9 +27,9 @@ export default function DataTable<T extends { id?: string | number }>({
     actions
 }: DataTableProps<T>) {
     return (
-        <div className="bg-white border border-redwood-border rounded-sm shadow-sm overflow-hidden flex flex-col min-h-[500px]">
+        <div className="bg-redwood-bg-surface border border-redwood-border rounded-sm shadow-sm overflow-hidden flex flex-col min-h-[500px]">
             {/* Table Header */}
-            <div className="px-6 py-5 border-b border-redwood-bg-light bg-white flex justify-between items-center">
+            <div className="px-6 py-5 border-b border-redwood-border bg-redwood-bg-surface flex justify-between items-center">
                 <div>
                     <h3 className="text-lg font-black text-redwood-text-main uppercase tracking-tight">{title}</h3>
                     {subtitle && <p className="text-sm text-redwood-text-muted mt-1">{subtitle}</p>}
@@ -41,11 +41,11 @@ export default function DataTable<T extends { id?: string | number }>({
             <div className="flex-1 overflow-x-auto">
                 <table className="w-full border-collapse">
                     <thead>
-                        <tr className="border-b border-gray-200">
+                        <tr className="border-b border-redwood-border">
                             {(columns as any).map((col: any, i: number) => (
                                 <th
                                     key={i}
-                                    className={`px-6 py-3 text-left text-xs font-bold uppercase tracking-wider ${col.headerClassName || 'bg-gray-50 text-gray-500'
+                                    className={`px-6 py-3 text-left text-xs font-bold uppercase tracking-wider ${col.headerClassName || 'bg-white/5 text-redwood-text-muted'
                                         } ${col.className || ''}`}
                                 >
                                     {col.header}
@@ -59,7 +59,7 @@ export default function DataTable<T extends { id?: string | number }>({
                                 <tr key={i} className="animate-pulse">
                                     {(columns as any).map((_: any, j: number) => (
                                         <td key={j} className="px-6 py-5">
-                                            <div className="h-4 bg-gray-200 rounded w-full"></div>
+                                            <div className="h-4 bg-white/10 rounded w-full"></div>
                                         </td>
                                     ))}
                                 </tr>
@@ -68,8 +68,8 @@ export default function DataTable<T extends { id?: string | number }>({
                             <tr>
                                 <td colSpan={(columns as any).length} className="px-6 py-20 text-center">
                                     <div className="flex flex-col items-center">
-                                        <p className="text-sm font-bold text-gray-400 uppercase">No Records Found</p>
-                                        <p className="text-xs text-gray-400 mt-2">No data available to display</p>
+                                        <p className="text-sm font-bold text-redwood-text-muted uppercase">No Records Found</p>
+                                        <p className="text-xs text-redwood-text-muted mt-2">No data available to display</p>
                                     </div>
                                 </td>
                             </tr>
@@ -78,7 +78,7 @@ export default function DataTable<T extends { id?: string | number }>({
                                 <tr
                                     key={item.id || i}
                                     onClick={() => onRowClick?.(item)}
-                                    className={`transition-colors cursor-pointer border-b border-gray-100/80 hover:bg-redwood-bg-light/80 ${i % 2 === 0 ? 'bg-white' : 'bg-[#F8F9FA]'
+                                    className={`transition-colors cursor-pointer border-b border-redwood-border hover:bg-[rgba(79,142,247,0.07)] ${i % 2 === 0 ? 'bg-redwood-bg-surface' : 'bg-white/[0.02]'
                                         }`}
                                 >
                                     {(columns as any).map((col: any, j: number) => (

@@ -139,7 +139,7 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
       header: 'Classification',
       headerClassName: tableHead,
       accessor: (c: Customer) => (
-        <span className="text-[11px] font-black bg-redwood-bg-light border border-redwood-border px-2 py-1 rounded-sm uppercase tracking-widest">
+        <span className="text-[11px] font-black bg-white/10 text-redwood-text-main border border-redwood-border px-2 py-1 rounded-sm uppercase tracking-widest">
           {c.category || 'RETAIL'}
         </span>
       )
@@ -158,10 +158,10 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
           else if (name.includes(',')) addr = name.split(',').slice(1).join(',').trim();
         }
         if (!addr) {
-          return <span className="text-xs text-gray-400">—</span>;
+          return <span className="text-xs text-redwood-text-muted">—</span>;
         }
         const shown = addr.length > 40 ? `${addr.slice(0, 40)}…` : addr;
-        return <span className="text-xs text-gray-500">{shown}</span>;
+        return <span className="text-xs text-redwood-text-muted">{shown}</span>;
       }
     },
     {
@@ -191,7 +191,7 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
             onClick={(e) => { e.stopPropagation(); navigate(`/customers/edit/${c.id}`); }}
             title="Edit customer"
             aria-label="Edit customer"
-            className="p-1.5 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+            className="p-1.5 text-redwood-text-muted hover:text-redwood-text-main hover:bg-white/10 rounded transition-colors"
           >
             <Edit2 size={14} />
           </button>
@@ -199,7 +199,7 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
             onClick={(e) => void handleDelete(c, e)}
             title="Delete customer"
             aria-label="Delete customer"
-            className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
+            className="p-1.5 text-redwood-text-muted hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors"
           >
             <Trash2 size={14} />
           </button>
@@ -224,8 +224,8 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="bg-white border border-redwood-border rounded-sm shadow-sm p-4">
+    <div className="space-y-4 bg-redwood-bg-light min-h-screen -m-4 p-4">
+      <div className="bg-redwood-bg-surface border border-redwood-border rounded-sm shadow-sm p-4">
         <div className="flex items-center justify-between gap-4">
           <div className="flex-1 max-w-md relative">
             <input
@@ -234,7 +234,7 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
               placeholder="Search customers by name, ID, or location..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-sm text-sm focus:border-redwood-brand focus:outline-none focus:ring-0"
+              className="w-full px-4 py-2 bg-redwood-bg-light border border-redwood-border rounded-sm text-sm text-redwood-text-main placeholder:text-redwood-text-muted focus:border-redwood-brand focus:outline-none focus:ring-0"
               style={{
                 WebkitAppearance: 'none' as const,
                 MozAppearance: 'none' as const,
@@ -264,7 +264,7 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
       )}
 
       {!loading && customers.length > 0 && filteredCustomers.length === 0 && (
-        <div className="rounded-sm border border-gray-200 bg-white px-4 py-2 text-[12px] text-redwood-text-muted">
+        <div className="rounded-sm border border-redwood-border bg-redwood-bg-surface px-4 py-2 text-[12px] text-redwood-text-muted">
           No rows match your search — clear the search box to see all {customers.length} customers.
         </div>
       )}
