@@ -51,9 +51,9 @@ export default function SalesOrderList() {
       accessor: (o: SalesOrder) => (
         <span className={`text-[10px] font-black px-3 py-1 rounded-sm uppercase tracking-widest border ${
           o.status === 'delivered' || o.status === 'invoiced'
-            ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
+            ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
             : o.status === 'confirmed'
-              ? 'bg-blue-50 text-blue-700 border-blue-100'
+              ? 'bg-blue-500/15 text-blue-300 border-blue-500/30'
               : 'bg-redwood-brand/5 text-redwood-brand border-redwood-brand/20'
           }`}>
           {o.status}

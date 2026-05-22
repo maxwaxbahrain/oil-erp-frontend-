@@ -126,10 +126,10 @@ export default function InventoryDashboard() {
     if (showForm) {
         return (
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-in fade-in duration-200">
-                <div className="bg-white rounded-lg shadow-2xl w-full max-w-2xl m-4 overflow-hidden">
-                    <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-                        <h3 className="text-lg font-bold text-gray-800">New Product</h3>
-                        <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600 transition-colors">
+                <div className="bg-redwood-bg-surface border border-redwood-border rounded-lg shadow-2xl w-full max-w-2xl m-4 overflow-hidden">
+                    <div className="px-6 py-4 border-b border-redwood-border flex justify-between items-center bg-redwood-bg-light">
+                        <h3 className="text-lg font-bold text-redwood-text-main">New Product</h3>
+                        <button onClick={() => setShowForm(false)} className="text-redwood-text-muted hover:text-redwood-text-main transition-colors">
                             <X size={20} />
                         </button>
                     </div>
@@ -192,17 +192,17 @@ export default function InventoryDashboard() {
                             />
                         </div>
 
-                        <div className="pt-4 border-t border-gray-100 flex justify-end gap-3">
+                        <div className="pt-4 border-t border-redwood-border flex justify-end gap-3">
                             <button
                                 type="button"
                                 onClick={() => setShowForm(false)}
-                                className="px-6 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-semibold rounded-md hover:bg-gray-50 transition-all"
+                                className="px-6 py-2 bg-redwood-bg-light border border-redwood-border text-redwood-text-main text-sm font-semibold rounded-md hover:bg-white/10 transition-all"
                             >
                                 Cancel
                             </button>
                             <button
                                 type="submit"
-                                className="px-6 py-2 bg-blue-600 text-white text-sm font-bold rounded-md hover:bg-blue-700 transition-all shadow-md flex items-center gap-2"
+                                className="px-6 py-2 bg-redwood-brand text-white text-sm font-bold rounded-md hover:brightness-90 transition-all shadow-md flex items-center gap-2"
                             >
                                 <Save size={16} /> Save Product
                             </button>
