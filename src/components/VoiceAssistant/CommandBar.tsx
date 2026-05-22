@@ -26,7 +26,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Mic } from 'lucide-react';
+import { Sparkles, Mic, Send } from 'lucide-react';
 import { useDeepgramRecognition } from './useDeepgramRecognition';
 import { processVoiceCommand } from './VoiceCommandProcessor';
 
@@ -228,6 +228,23 @@ export function CommandBar() {
         return () => document.removeEventListener('mousedown', onClickOutside);
     }, [state, closeAndReset]);
 
+    // ── External fill via custom event (chips bar dispatches this) ──
+    // Chips emit `soltol:fill-cmd` with { detail: { text } }; we set the
+    // input value and focus.  No public API change — purely additive
+    // window listener so the chip bar in App.tsx can drive the input
+    // without prop drilling.
+    useEffect(() => {
+        const onFill = (e: Event) => {
+            const detail = (e as CustomEvent<{ text?: string }>).detail;
+            const text = detail?.text;
+            if (!text) return;
+            setQuery(text);
+            window.setTimeout(() => inputRef.current?.focus(), 0);
+        };
+        window.addEventListener('soltol:fill-cmd', onFill as EventListener);
+        return () => window.removeEventListener('soltol:fill-cmd', onFill as EventListener);
+    }, []);
+
     // ── Render ──────────────────────────────────────────────────
     const showTranscriptBox =
         (state === 'processing' || state === 'result') && !!transcript;
@@ -270,16 +287,16 @@ export function CommandBar() {
                     </div>
                 )}
 
-                {/* Pill — compact dark, py-2 px-4, rounded-full */}
+                {/* Pill — 40px height, rounded-xl, blue 1.5px border per preview */}
                 <form
                     onSubmit={handleSubmit}
-                    className="flex items-center gap-2 py-2 px-4 rounded-full bg-gray-800 text-white w-full border border-transparent focus-within:border-[#4F8EF7] focus-within:ring-2 focus-within:ring-[#4F8EF7]/30 transition-colors"
-                    style={{ boxShadow: '0 4px 16px rgba(0,0,0,0.2)' }}
+                    className="flex items-center gap-2 px-3 rounded-xl bg-[#0f1f33] text-white w-full h-10 focus-within:border-[#4F8EF7] focus-within:ring-2 focus-within:ring-[#4F8EF7]/10 transition-colors"
+                    style={{ border: '1.5px solid rgba(79,142,247,0.28)' }}
                 >
-                    {/* Search icon — decorative */}
-                    <Search
+                    {/* Sparkle icon — decorative, blue */}
+                    <Sparkles
                         size={14}
-                        className="text-gray-400 flex-shrink-0"
+                        className="text-[#4F8EF7] flex-shrink-0"
                         aria-hidden="true"
                     />
 
@@ -311,11 +328,33 @@ export function CommandBar() {
                             type="text"
                             value={query}
                             onChange={(e) => setQuery(e.target.value)}
-                            placeholder="Search or speak..."
+                            placeholder={'"Ali bought Bettano OW16 3 cases $56" — or ask anything...'}
                             disabled={inputDisabled}
                             aria-label="Command input"
                             className="bg-transparent text-sm text-white placeholder:text-gray-400 focus:outline-none disabled:opacity-50 flex-1 min-w-0"
                         />
+                    )}
+
+                    {/* ⌘K hint badge (idle only).  Visual only — actual focus
+                        is handled by the global keydown listener above. */}
+                    {state !== 'listening' && (
+                        <kbd className="hidden sm:inline-flex items-center text-[10px] font-mono text-redwood-text-muted bg-white/5 border border-redwood-border rounded px-1.5 py-[1px] flex-shrink-0">
+                            ⌘K
+                        </kbd>
+                    )}
+
+                    {/* Send button — appears only when there's typed text and
+                        we're not listening / processing.  Submits the form. */}
+                    {state !== 'listening' && query.trim().length > 0 && (
+                        <button
+                            type="submit"
+                            aria-label="Send command"
+                            title="Send (Enter)"
+                            disabled={inputDisabled}
+                            className="w-6 h-6 rounded-full flex items-center justify-center bg-[#4F8EF7] text-white hover:brightness-110 transition-colors disabled:opacity-40 flex-shrink-0"
+                        >
+                            <Send size={12} />
+                        </button>
                     )}
 
                     {/* Mic — toggle: click to start, click to stop+submit.

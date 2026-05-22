@@ -7,12 +7,9 @@ import {
   Bell,
   Globe,
   FileText,
-  UserPlus,
-  ShoppingCart,
   Package,
   Receipt,
   AlertCircle,
-  BookOpen,
   Wallet,
   LayoutDashboard,
   Smartphone,
@@ -20,6 +17,9 @@ import {
   TrendingUp,
   AlertTriangle,
   X,
+  Calendar,
+  UserX,
+  Plus,
 } from 'lucide-react';
 import { AppRoutes } from './routes';
 import Sidebar from '../components/layout/Sidebar';
@@ -219,6 +219,19 @@ function App() {
             <CommandBar />
           </div>
 
+          {/* + New Invoice — blue header CTA matching preview.  Hidden
+              on phones (narrow header).  Navigates only — no business
+              logic, the invoice form on the other side owns that. */}
+          <button
+            type="button"
+            onClick={() => navigate('/sales/invoices/new')}
+            title="Create a new invoice"
+            className="hidden md:inline-flex items-center gap-1.5 bg-[#4F8EF7] text-white hover:brightness-110 transition-all rounded-md px-3 h-9 text-[12px] font-semibold whitespace-nowrap shadow-sm"
+          >
+            <Plus size={14} strokeWidth={2.5} />
+            New Invoice
+          </button>
+
           <div className="flex items-center gap-2 sm:gap-6">
             {/* BUG #1 FIX: Removed Query ERP Records search bar */}
 
@@ -306,25 +319,31 @@ function App() {
           </div>
         </header>
 
-        {/* Chips bar — quick action shortcuts to common routes */}
+        {/* Chips bar — RECENT AI prompts.  Click fills CommandBar input
+            via the `soltol:fill-cmd` window event (CommandBar listens).
+            No navigation — the prompt is queued in the search bar and
+            the user reviews / hits Enter to submit. */}
         <div className="bg-redwood-midnight border-b border-redwood-border px-3 sm:px-8 py-1.5 flex items-center gap-1.5 overflow-x-auto print:hidden">
-          <span className="text-[9px] text-redwood-text-muted whitespace-nowrap uppercase tracking-[0.06em] flex-shrink-0">Quick actions:</span>
+          <span className="text-[9px] text-redwood-text-muted whitespace-nowrap uppercase tracking-[0.06em] flex-shrink-0">RECENT:</span>
           {[
-            { label: '+ New Invoice',   route: '/sales/invoices/new',      icon: FileText,      bg: 'rgba(79,142,247,0.14)', color: '#93C5FD', border: 'rgba(79,142,247,0.22)' },
-            { label: '+ New Customer',  route: '/customers/new',           icon: UserPlus,      bg: 'rgba(34,197,94,0.12)',  color: '#86EFAC', border: 'rgba(34,197,94,0.22)' },
-            { label: '+ New PO',        route: '/purchases/new',           icon: ShoppingCart,  bg: 'rgba(245,158,11,0.12)', color: '#FCD34D', border: 'rgba(245,158,11,0.22)' },
-            { label: 'Stock Adjust',    route: '/inventory/adjustments',   icon: Package,       bg: 'rgba(167,139,250,0.12)', color: '#C4B5FD', border: 'rgba(167,139,250,0.22)' },
-            { label: 'Tax Filing',      route: '/tax/filing',              icon: Receipt,       bg: 'rgba(0,212,170,0.10)',  color: '#5EEAD4', border: 'rgba(0,212,170,0.22)' },
-            { label: 'Aged Receivable', route: '/reports/aged-receivable', icon: AlertCircle,   bg: 'rgba(239,68,68,0.12)',  color: '#FCA5A5', border: 'rgba(239,68,68,0.22)' },
-            { label: 'Day Book',        route: '/reports/day-book',        icon: BookOpen,      bg: 'rgba(255,255,255,0.05)', color: '#8BA3C7', border: 'rgba(255,255,255,0.12)' },
-            { label: 'Banking',         route: '/finance/banking',         icon: Wallet,        bg: 'rgba(34,197,94,0.12)',  color: '#86EFAC', border: 'rgba(34,197,94,0.22)' },
+            { label: 'Ali Bettano 0W16',    text: 'Ali bought Bettano 0W16 SP 12x1 — 3 cases $56',          icon: FileText,    bg: 'rgba(79,142,247,0.14)',  color: '#93C5FD', border: 'rgba(79,142,247,0.22)' },
+            { label: 'Leo Tire paid $239',  text: 'Leo Tire Shop paid $239 today',                          icon: Wallet,      bg: 'rgba(34,197,94,0.12)',   color: '#86EFAC', border: 'rgba(34,197,94,0.22)' },
+            { label: 'Mobil 5W30 stock',    text: 'Check stock and reorder plan for Mobil 5W30',            icon: Package,     bg: 'rgba(245,158,11,0.12)',  color: '#FCD34D', border: 'rgba(245,158,11,0.22)' },
+            { label: 'Qahir demand letter', text: 'Qahir Enterprises 32 days overdue — draft demand letter', icon: AlertCircle, bg: 'rgba(239,68,68,0.12)',   color: '#FCA5A5', border: 'rgba(239,68,68,0.22)' },
+            { label: 'VAT return Q1',       text: 'Generate VAT return report for this quarter',            icon: Receipt,     bg: 'rgba(167,139,250,0.12)', color: '#C4B5FD', border: 'rgba(167,139,250,0.22)' },
+            { label: 'Today audit log',     text: 'Show full audit log for today — all user actions',       icon: Shield,      bg: 'rgba(0,212,170,0.10)',   color: '#5EEAD4', border: 'rgba(0,212,170,0.22)' },
+            { label: 'Churn risk',          text: 'Which customers are at risk of churning this month?',    icon: UserX,       bg: 'rgba(34,197,94,0.12)',   color: '#86EFAC', border: 'rgba(34,197,94,0.22)' },
+            { label: 'Payment run Fri',     text: 'AP $18k due in 7 days — schedule payment run',           icon: Calendar,    bg: 'rgba(255,255,255,0.05)', color: '#8BA3C7', border: 'rgba(255,255,255,0.12)' },
           ].map((c, i) => {
             const Icon = c.icon;
             return (
               <button
                 key={i}
                 type="button"
-                onClick={() => navigate(c.route)}
+                onClick={() => {
+                  try { window.dispatchEvent(new CustomEvent('soltol:fill-cmd', { detail: { text: c.text } })); } catch { /* ignore */ }
+                }}
+                title={c.text}
                 className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-medium whitespace-nowrap transition-all hover:-translate-y-[1px] hover:brightness-110 flex-shrink-0 border"
                 style={{ background: c.bg, color: c.color, borderColor: c.border }}
               >

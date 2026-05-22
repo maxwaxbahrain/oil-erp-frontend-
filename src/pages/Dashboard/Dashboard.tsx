@@ -13,6 +13,11 @@ import {
     UserPlus,
     Truck,
     Package,
+    Sparkles,
+    ChevronDown,
+    Lock,
+    Unlock,
+    ListChecks,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -28,6 +33,55 @@ import { generateStandardPDF } from '../../utils/documentGenerator';
 import { formatCurrency } from '../../services/settingsService';
 import { useEscape } from '../../hooks/useEscape';
 
+// ── KPI sparkline data — static, hardcoded.  Matches the spec from
+// public/preview.html.  These are NOT real metrics — they're a
+// 7-point trend silhouette under each KPI tile so the card hints
+// at directional momentum without committing to per-card history
+// queries (which would require new backend work).
+const SPARKLINE_DATA = {
+    income:   [62, 68, 71, 75, 77, 78, 82],
+    ar:       [380, 390, 400, 408, 410, 412, 411],
+    ap:       [41, 44, 47, 51, 50, 52, 52],
+    total:    [320, 355, 375, 390, 400, 408, 412],
+    lowstock: [8, 14, 19, 24, 28, 35, 40],
+} as const;
+type SparkKey = keyof typeof SPARKLINE_DATA;
+
+// ── Prediction-chip palette.  Three semantic variants:
+//   teal  = on-track / positive
+//   amber = action-needed / heads-up
+//   red   = critical / warn
+const PREDICTION_PALETTE = {
+    teal:  { bg: 'rgba(0,212,170,0.10)', color: '#5EEAD4', border: 'rgba(0,212,170,0.2)' },
+    amber: { bg: 'rgba(245,158,11,0.12)', color: '#FCD34D', border: 'rgba(245,158,11,0.2)' },
+    red:   { bg: 'rgba(239,68,68,0.12)', color: '#FCA5A5', border: 'rgba(239,68,68,0.2)' },
+} as const;
+type PredictionVariant = keyof typeof PREDICTION_PALETTE;
+
+// ── Inline SVG sparkline — single polyline, no fill.  preserveAspectRatio
+// "none" lets the line stretch horizontally to the card width.
+function Sparkline({ data, color }: { data: readonly number[]; color: string }) {
+    const min = Math.min(...data);
+    const max = Math.max(...data);
+    const range = max - min || 1;
+    const w = 100, h = 32;
+    const pts = data
+        .map((v, i) => `${(i / (data.length - 1)) * w},${h - ((v - min) / range) * h}`)
+        .join(' ');
+    return (
+        <svg
+            width="100%"
+            height={h}
+            viewBox={`0 0 ${w} ${h}`}
+            preserveAspectRatio="none"
+            className="mt-2 block"
+            aria-hidden="true"
+        >
+            <polyline fill="none" stroke={color} strokeWidth="1.5" points={pts} />
+        </svg>
+    );
+}
+
 export default function Dashboard() {
     const navigate = useNavigate();
     const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -37,7 +91,7 @@ export default function Dashboard() {
     const [customersCount, setCustomersCount] = useState(0);
     const [newCustomersThisMonth, setNewCustomersThisMonth] = useState(0);
     const [, setDataError] = useState(false);
-    const [aiContext, setAiContext] = useState({ invoices: [], customers: [], products: [], payments: [], purchaseOrders: [] } as any);
+    const [aiContext, setAiContext] = useState({ invoices: [], customers: [], products: [], payments: [], purchaseOrders: [], vans: [] } as any);
     // TC-02 — Options dropdown state.
     const [optionsOpen, setOptionsOpen] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
@@ -47,6 +101,26 @@ export default function Dashboard() {
     const [dashTo, setDashTo] = useState<string>('');
     const [chartRange, setChartRange] = useState<'3m' | '6m' | 'ytd' | '1y'>('3m');
     const optionsRef = useRef<HTMLDivElement>(null);
+
+    // AI Business Insights collapsible panel (between KPIs and Charts row).
+    // Static text per spec — no live AI call here; CTA opens the existing
+    // advisor via the `soltol:open-ai-advisor` event (see askAI).
+    const [aiOpen, setAiOpen] = useState(false);
+
+    // Today's Checklist — local UI state only, no persistence.  Tag values
+    // 'urgent' | 'critical' | 'low' | null drive the row badge color.
+    type ChecklistTag = 'urgent' | 'critical' | 'low' | null;
+    type ChecklistItem = { label: string; done: boolean; tag: ChecklistTag };
+    const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([
+        { label: "Post yesterday's invoices",         done: true,  tag: null },
+        { label: 'Reconcile bank payments',            done: false, tag: 'urgent' },
+        { label: 'Chase Qahir — $3,875 overdue 32d',   done: false, tag: 'critical' },
+        { label: 'Mobil 5W30 reorder check',           done: false, tag: 'low' },
+        { label: 'Review 3 pending approvals',         done: true,  tag: null },
+    ]);
+    const toggleCheck = (i: number) =>
+        setChecklistItems(prev => prev.map((item, idx) => idx === i ? { ...item, done: !item.done } : item));
+    const checkLeft = checklistItems.filter(i => !i.done).length;
 
     // TC-02 — Extracted the data loader so "Refresh Data" can call it
     // from the Options menu and the mount effect can call it once.
@@ -63,7 +137,7 @@ export default function Dashboard() {
                 getPayments().catch(() => []),
                 getPurchaseOrders().catch(() => []),
             ]);
-            setAiContext({ invoices: inv, customers, products: prod, payments: pays, purchaseOrders: pos });
+            setAiContext({ invoices: inv, customers, products: prod, payments: pays, purchaseOrders: pos, vans });
             setInvoices(Array.isArray(inv) ? inv : []);
             setProducts(Array.isArray(prod) ? prod : []);
             setSalesOrdersCount(Array.isArray(orders) ? orders.length : 0);
@@ -267,6 +341,10 @@ export default function Dashboard() {
                 vat: Number(i.taxAmount) || 0,
                 amount: Number(i.grandTotal) || 0,
                 status: i.status || 'Unpaid',
+                // Per spec: payment terms fallback to 'COD'; isOverdue from status.
+                // Source fields are optional on the Invoice type — cast for safety.
+                terms: (i as any).paymentTerms || (i as any).terms || 'COD',
+                isOverdue: String(i.status || '').toLowerCase() === 'overdue',
             }));
     }, [invoices, aiContext.customers]);
 
@@ -391,6 +469,8 @@ export default function Dashboard() {
                         border:'rgba(34,197,94,0.2)',
                         icon: TrendingUp,
                         isWarn: false,
+                        spark: 'income' as SparkKey,
+                        prediction: { text: '↑ Forecast $490k by May 31', variant: 'teal' as PredictionVariant },
                     },
                     {
                         label: 'AR Outstanding',
@@ -403,6 +483,8 @@ export default function Dashboard() {
                         border:'rgba(239,68,68,0.2)',
                         icon: AlertTriangle,
                         isWarn: true,
+                        spark: 'ar' as SparkKey,
+                        prediction: { text: '⚠ Chase Qahir today — 32d overdue', variant: 'red' as PredictionVariant },
                     },
                     {
                         label: 'Active Orders',
@@ -415,6 +497,8 @@ export default function Dashboard() {
                         border:'rgba(245,158,11,0.2)',
                         icon: ShoppingCart,
                         isWarn: false,
+                        spark: 'ap' as SparkKey,
+                        prediction: { text: '+ Schedule $18k payment run Friday', variant: 'amber' as PredictionVariant },
                     },
                     {
                         label: 'Net Profit',
@@ -427,6 +511,8 @@ export default function Dashboard() {
                         border:'rgba(79,142,247,0.28)',
                         icon: Wallet,
                         isWarn: false,
+                        spark: 'total' as SparkKey,
+                        prediction: { text: '↑ On track for $88k by month-end', variant: 'teal' as PredictionVariant },
                     },
                     {
                         label: 'Low Stock Alerts',
@@ -439,6 +525,8 @@ export default function Dashboard() {
                         border:'rgba(0,212,170,0.2)',
                         icon: AlertTriangle,
                         isWarn: metrics.lowStock > 0,
+                        spark: 'lowstock' as SparkKey,
+                        prediction: { text: '⚠ Expired batch in quarantine — D1', variant: 'red' as PredictionVariant },
                     },
                 ] as const).map((k, i) => {
                     const Icon = k.icon;
@@ -486,9 +574,86 @@ export default function Dashboard() {
                             >
                                 {k.sub}
                             </div>
+
+                            {/* Sparkline — 7-point trend silhouette */}
+                            <Sparkline data={SPARKLINE_DATA[k.spark]} color={k.color} />
+
+                            {/* Prediction chip */}
+                            <div
+                                className="text-[9px] mt-1 px-2 py-[2px] rounded-full inline-flex items-center"
+                                style={{
+                                    background: PREDICTION_PALETTE[k.prediction.variant].bg,
+                                    color:      PREDICTION_PALETTE[k.prediction.variant].color,
+                                    border:     `1px solid ${PREDICTION_PALETTE[k.prediction.variant].border}`,
+                                }}
+                            >
+                                {k.prediction.text}
+                            </div>
                         </div>
                     );
                 })}
+            </div>
+
+            {/* AI Business Insights — collapsible.  Static copy (spec).
+                Click header or chevron to expand; teaser always shows
+                a one-line summary so the panel is useful when closed. */}
+            <div className="bg-redwood-bg-surface border border-[rgba(79,142,247,0.28)] rounded-[14px] overflow-hidden">
+                <div
+                    onClick={() => setAiOpen(v => !v)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setAiOpen(v => !v); } }}
+                    aria-expanded={aiOpen}
+                    className="flex items-center justify-between px-4 py-2.5 cursor-pointer select-none hover:bg-white/5"
+                >
+                    <div className="flex items-center gap-2">
+                        <Sparkles size={14} className="text-[#4F8EF7]" aria-hidden="true" />
+                        <span className="text-[12px] font-semibold text-redwood-text-main">AI Business Insights</span>
+                        <span className="text-[10px] text-redwood-text-muted">Powered by Claude</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <span className="text-[9px] text-[#22C55E] bg-[rgba(34,197,94,0.12)] border border-[rgba(34,197,94,0.2)] rounded-full px-2 py-[2px] inline-flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E] animate-pulse inline-block" />
+                            Live
+                        </span>
+                        <span className="text-[10px] text-redwood-text-muted inline-flex items-center gap-1">
+                            {aiOpen ? 'Collapse' : 'Expand'}
+                            <ChevronDown
+                                size={12}
+                                style={{ transform: aiOpen ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}
+                            />
+                        </span>
+                    </div>
+                </div>
+
+                {/* Teaser — visible only when collapsed */}
+                {!aiOpen && (
+                    <div className="px-4 pb-2.5 text-[11px] text-redwood-text-muted border-t border-redwood-border">
+                        ⬛ Today: <strong className="text-redwood-text-main">Qahir</strong> $3,875 overdue 32d ·{' '}
+                        <strong className="text-redwood-text-main">AP $18k</strong> due Friday · Income on track for $490k ·{' '}
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setAiOpen(true); }}
+                            className="text-[#4F8EF7] underline ml-1 hover:no-underline"
+                        >
+                            Expand for full AI insights →
+                        </button>
+                    </div>
+                )}
+
+                {/* Full content — visible only when expanded */}
+                {aiOpen && (
+                    <div className="px-4 py-3 text-[12px] text-redwood-text-muted leading-[1.8] border-t border-redwood-border">
+                        <span style={{ color: '#FCA5A5', fontWeight: 500 }}>⚠ Critical:</span>{' '}
+                        <strong className="text-redwood-text-main">Qahir Enterprises</strong> is 32d overdue —{' '}
+                        <strong className="text-redwood-text-main">$3,875</strong> at risk. Stop credit immediately and issue demand letter today. ·{' '}
+                        <span style={{ color: '#FCD34D', fontWeight: 500 }}>Cash alert:</span>{' '}
+                        <strong className="text-redwood-text-main">$52,300</strong> AP outstanding with{' '}
+                        <strong className="text-redwood-text-main">$18k</strong> due in 7 days. ·{' '}
+                        <span style={{ color: '#86EFAC', fontWeight: 500 }}>✓ Strong month:</span>{' '}
+                        MTD income <strong className="text-redwood-text-main">$411,832</strong> on track for projected{' '}
+                        <strong className="text-redwood-text-main">$490k</strong>.
+                    </div>
+                )}
             </div>
 
             {/* 2. Charts Row — Soltol two-panel design */}
@@ -618,15 +783,18 @@ export default function Dashboard() {
                                     <th className="text-left text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">Invoice #</th>
                                     <th className="text-left text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">Customer</th>
                                     <th className="text-left text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">Date</th>
+                                    <th className="text-left text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">Terms</th>
                                     <th className="text-right text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">Net</th>
-                                    <th className="text-right text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">VAT</th>
+                                    <th className="text-right text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">VAT 15%</th>
                                     <th className="text-right text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">Total</th>
+                                    <th className="text-center text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">Lock</th>
+                                    <th className="text-left text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">Tax Reg</th>
                                     <th className="text-left text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">Status</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {recentOrders.length === 0 ? (
-                                    <tr><td colSpan={7} className="text-center text-[11px] text-redwood-text-muted px-2.5 py-6">No recent invoices</td></tr>
+                                    <tr><td colSpan={10} className="text-center text-[11px] text-redwood-text-muted px-2.5 py-6">No recent invoices</td></tr>
                                 ) : recentOrders.map((order) => {
                                     const s = String(order.status).toLowerCase();
                                     const pill =
@@ -646,11 +814,38 @@ export default function Dashboard() {
                                             </td>
                                             <td className="px-2.5 py-2 border-b border-white/5 text-redwood-text-main">{order.customer}</td>
                                             <td className="px-2.5 py-2 border-b border-white/5 text-redwood-text-muted">{order.date}</td>
+
+                                            {/* Terms — pill: blue for normal terms, red for overdue */}
+                                            <td className="px-2.5 py-2 border-b border-white/5">
+                                                <span
+                                                    className={`text-[10px] px-2 py-[2px] rounded-full font-mono border whitespace-nowrap ${
+                                                        order.isOverdue
+                                                            ? 'bg-[rgba(239,68,68,0.12)] text-[#FCA5A5] border-[rgba(239,68,68,0.2)]'
+                                                            : 'bg-[rgba(79,142,247,0.10)] text-[#93C5FD] border-[rgba(79,142,247,0.28)]'
+                                                    }`}
+                                                >
+                                                    {order.isOverdue ? 'Overdue' : (order.terms || 'COD')}
+                                                </span>
+                                            </td>
+
                                             <td className="px-2.5 py-2 border-b border-white/5 text-right text-redwood-text-muted">${order.net.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                             <td className="px-2.5 py-2 border-b border-white/5 text-right" style={{ color: '#93C5FD' }}>${order.vat.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                             <td className="px-2.5 py-2 border-b border-white/5 text-right">
                                                 <strong className="text-redwood-text-main">${order.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
                                             </td>
+
+                                            {/* Lock — green padlock if paid, amber open padlock otherwise */}
+                                            <td className="px-2.5 py-2 border-b border-white/5 text-center">
+                                                {String(order.status).toLowerCase() === 'paid'
+                                                    ? <Lock size={13} className="inline-block" style={{ color: '#22C55E' }} aria-label="Locked (paid)" />
+                                                    : <Unlock size={13} className="inline-block" style={{ color: '#F59E0B' }} aria-label="Unlocked (unpaid)" />}
+                                            </td>
+
+                                            {/* Tax Reg — static "Missing" until source field exists */}
+                                            <td className="px-2.5 py-2 border-b border-white/5">
+                                                <span className="text-[9px] text-[#FCA5A5]">Missing</span>
+                                            </td>
+
                                             <td className="px-2.5 py-2 border-b border-white/5">
                                                 <span
                                                     className="text-[9px] font-semibold px-2 py-[2px] rounded-full"
@@ -665,8 +860,21 @@ export default function Dashboard() {
                             </tbody>
                         </table>
                     </div>
+
+                    {/* Tax Reg warning banner — static, single instance.
+                        Sits below the table inside the same panel card so
+                        the red callout shares the panel's border radius. */}
+                    <div className="mt-2 px-3 py-2 bg-[rgba(239,68,68,0.07)] border border-[rgba(239,68,68,0.18)] rounded-[8px] text-[10px] text-[#FCA5A5] flex items-start gap-2">
+                        <AlertTriangle size={13} className="flex-shrink-0 mt-[1px]" aria-hidden="true" />
+                        <span>
+                            <strong>Tax Registration Number</strong> is missing from all invoices. This is a legal requirement.
+                            Add your VAT reg number in Settings → Company Profile to auto-populate on every invoice.
+                        </span>
+                    </div>
                 </div>
 
+                {/* RIGHT column — stacked: Quick Stats → Van Status → Today's Checklist */}
+                <div className="flex flex-col gap-[10px]">
                 {/* Quick Stats — operational list */}
                 <div className="bg-redwood-bg-surface border border-redwood-border rounded-[14px] px-4 py-3.5">
                     <div className="flex items-center justify-between mb-2">
@@ -702,6 +910,116 @@ export default function Dashboard() {
                         <span className="text-[10px] text-[#86EFAC] font-medium">All Systems Operational</span>
                     </div>
                 </div>
+
+                {/* Van Status — 2-up tile grid driven by aiContext.vans */}
+                <div className="bg-redwood-bg-surface border border-redwood-border rounded-[14px] px-4 py-3.5">
+                    <div className="flex items-center justify-between mb-2.5">
+                        <div className="text-[13px] font-semibold text-redwood-text-main flex items-center gap-1.5">
+                            <Truck size={13} className="text-redwood-text-muted" />
+                            Van Status
+                        </div>
+                        <button
+                            onClick={() => navigate('/logistics/operations')}
+                            className="text-[10px] text-[#4F8EF7] hover:underline"
+                        >
+                            Field view →
+                        </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                        {((aiContext.vans as any[]) || []).slice(0, 2).map((van: any, i: number) => {
+                            const isOnline = van.status === 'active' || van.isOnline;
+                            return (
+                                <div
+                                    key={i}
+                                    className={`rounded-[8px] p-2.5 border bg-[#142540] ${isOnline ? 'border-[rgba(34,197,94,0.25)]' : 'border-[rgba(245,158,11,0.25)]'}`}
+                                >
+                                    <div className="flex items-center justify-between mb-1.5">
+                                        <span className="text-[11px] font-semibold text-redwood-text-main">
+                                            {van.name || `Van 0${i + 1}`}
+                                        </span>
+                                        <span
+                                            className={`text-[9px] font-semibold px-1.5 py-[1px] rounded-full border ${
+                                                isOnline
+                                                    ? 'bg-[rgba(34,197,94,0.12)] text-[#86EFAC] border-[rgba(34,197,94,0.2)]'
+                                                    : 'bg-[rgba(245,158,11,0.12)] text-[#FCD34D] border-[rgba(245,158,11,0.2)]'
+                                            }`}
+                                        >
+                                            {isOnline ? 'Online' : 'Offline'}
+                                        </span>
+                                    </div>
+                                    {van.driverName && <div className="text-[10px] text-redwood-text-muted">Driver: {van.driverName}</div>}
+                                    {van.location && <div className="text-[10px] text-redwood-text-muted">{van.location}</div>}
+                                    <div className="text-[10px] text-redwood-text-muted mt-0.5">
+                                        Stock on van: {van.currentStock ?? van.stock ?? 0} units
+                                    </div>
+                                    {Number(van.offlineInvoices) > 0 && (
+                                        <div className="mt-1.5 text-[9px] bg-[rgba(245,158,11,0.12)] text-[#FCD34D] border border-[rgba(245,158,11,0.2)] rounded-[5px] px-2 py-1 flex items-center gap-1">
+                                            ☁ {van.offlineInvoices} offline invoices — sync now
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                        {((aiContext.vans as any[]) || []).length === 0 && (
+                            <div className="col-span-2 text-[10px] text-redwood-text-muted text-center py-3">
+                                No van data available
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Today's Checklist — local toggle state */}
+                <div className="bg-redwood-bg-surface border border-redwood-border rounded-[14px] px-4 py-3.5">
+                    <div className="flex items-center justify-between mb-2.5">
+                        <div className="text-[13px] font-semibold text-redwood-text-main flex items-center gap-1.5">
+                            <ListChecks size={13} className="text-redwood-text-muted" />
+                            Today's Checklist
+                        </div>
+                        <span className="text-[10px] text-redwood-text-muted">{checkLeft} left</span>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                        {checklistItems.map((item, i) => (
+                            <div
+                                key={i}
+                                onClick={() => toggleCheck(i)}
+                                role="checkbox"
+                                aria-checked={item.done}
+                                tabIndex={0}
+                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCheck(i); } }}
+                                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-[6px] border cursor-pointer transition-colors ${
+                                    item.done
+                                        ? 'bg-[rgba(34,197,94,0.07)] border-[rgba(34,197,94,0.15)]'
+                                        : 'bg-[#142540] border-redwood-border hover:bg-[#1a2d4e]'
+                                }`}
+                            >
+                                <div className={`w-3.5 h-3.5 rounded-[3px] border-[1.5px] flex items-center justify-center flex-shrink-0 transition-colors ${
+                                    item.done ? 'bg-[#22C55E] border-[#22C55E]' : 'border-[#3E5678]'
+                                }`}>
+                                    {item.done && (
+                                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round">
+                                            <polyline points="20 6 9 17 4 12" />
+                                        </svg>
+                                    )}
+                                </div>
+                                <span className={`text-[10px] flex-1 ${item.done ? 'line-through text-redwood-text-muted' : 'text-redwood-text-main'}`}>
+                                    {item.label}
+                                </span>
+                                {item.tag && (
+                                    <span
+                                        className={`text-[8px] font-semibold px-1.5 py-[1px] rounded-full border ${
+                                            item.tag === 'urgent' || item.tag === 'critical'
+                                                ? 'bg-[rgba(239,68,68,0.12)] text-[#FCA5A5] border-[rgba(239,68,68,0.2)]'
+                                                : 'bg-[rgba(245,158,11,0.12)] text-[#FCD34D] border-[rgba(245,158,11,0.2)]'
+                                        }`}
+                                    >
+                                        {item.tag}
+                                    </span>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+                </div>  {/* close RIGHT column wrapper */}
 
             </div>
         </div>
