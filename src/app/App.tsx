@@ -34,6 +34,18 @@ import { getPurchaseOrders } from '../services/purchasesService';
 // only — does not affect permissions, just the displayed label.
 const ROLES = ['System Admin', 'Accountant', 'Sales Manager', 'Warehouse', 'Junior'] as const;
 
+// Route to navigate to when cycling INTO each role.  Pure UX affordance —
+// the role label is the user-facing "context" they're switching to; the
+// route opens the most-relevant page for that context.  No auth /
+// permissions logic — the route is the only side effect.
+const ROLE_ROUTES: Record<typeof ROLES[number], string> = {
+  'System Admin':  '/',
+  'Accountant':    '/finance/accounting',
+  'Sales Manager': '/sales/orders',
+  'Warehouse':     '/products',
+  'Junior':        '/',
+};
+
 function App() {
   const location = useLocation();
   const [aiCtx, setAiCtx] = useState<any>({ invoices: [], customers: [], products: [], payments: [], purchaseOrders: [] });
@@ -43,7 +55,11 @@ function App() {
 
   // Role pill — cycles through ROLES on click.  In-memory state only.
   const [roleIndex, setRoleIndex] = useState(0);
-  const cycleRole = () => setRoleIndex((i) => (i + 1) % ROLES.length);
+  const cycleRole = () => {
+    const next = (roleIndex + 1) % ROLES.length;
+    setRoleIndex(next);
+    navigate(ROLE_ROUTES[ROLES[next]]);
+  };
 
   // Alert bar — dismissible per-session.
   const [showAlertBar, setShowAlertBar] = useState(() => {
@@ -194,6 +210,13 @@ function App() {
               {ROLES[roleIndex]}
               <ChevronDown size={12} />
             </button>
+          </div>
+
+          {/* Header-center command bar — search + voice.  Hidden on
+              phones (the header is too narrow to host the pill plus
+              the right-cluster icons). */}
+          <div className="hidden md:flex flex-1 max-w-[520px] mx-4 justify-center">
+            <CommandBar />
           </div>
 
           <div className="flex items-center gap-2 sm:gap-6">
@@ -404,7 +427,6 @@ function App() {
         {/* AI Accountant - Available on all pages */}
         <AIAssistant context={aiCtx} />
         <VoiceAssistant />
-        <CommandBar />
 
         {/* Global Identity Footer */}
         <footer className="h-10 bg-redwood-midnight border-t border-redwood-border px-3 sm:px-8 flex items-center justify-between text-[10px] font-bold text-redwood-text-muted uppercase tracking-[0.2em] shadow-[0_-1px_3px_rgba(0,0,0,0.02)] print:hidden">

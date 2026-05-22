@@ -1,12 +1,14 @@
-// COMMAND BAR — compact dark pill at bottom-right.
+// COMMAND BAR — header-center search/voice pill.
 //
-// Sits to the left of the AI Business Advisor at fixed bottom-6
-// right-[280px].  No toggle, no localStorage — the pill is always
-// visible.  Three runtime states:
+// Mounted inside the top <header> in App.tsx, centered between the
+// role pill (left cluster) and the icon strip (right cluster).  The
+// outer wrapper here is a plain in-flow container (`w-full`); the
+// caller provides positioning + max-width via its parent wrapper.
+// Three runtime states:
 //   * idle/typing — compact dark pill: [search][input][mic]
 //   * listening   — same pill, waveform replaces input, mic icon
 //                   pulses brand red
-//   * processing/result — transcript box appears ABOVE the pill,
+//   * processing/result — transcript box appears BELOW the pill,
 //                          fades out 2s after result
 //
 // Triggers:
@@ -235,7 +237,7 @@ export function CommandBar() {
     return (
         <div
             ref={containerRef}
-            className="fixed bottom-6 right-[280px] z-[100] print:hidden"
+            className="w-full print:hidden"
             data-component="command-bar"
         >
             <style>{KEYFRAMES_CSS}</style>
@@ -245,7 +247,7 @@ export function CommandBar() {
                 {/* Transcript box ABOVE pill — absolute, doesn't shift pill */}
                 {showTranscriptBox && (
                     <div
-                        className="absolute bottom-full left-0 right-0 mb-3 bg-gray-800 text-white rounded-2xl px-4 py-3"
+                        className="absolute top-full left-0 right-0 mt-3 z-[100] bg-gray-800 text-white rounded-2xl px-4 py-3"
                         style={{
                             boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
                             animation:
@@ -271,7 +273,7 @@ export function CommandBar() {
                 {/* Pill — compact dark, py-2 px-4, rounded-full */}
                 <form
                     onSubmit={handleSubmit}
-                    className="flex items-center gap-2 py-2 px-4 rounded-full bg-gray-800 text-white"
+                    className="flex items-center gap-2 py-2 px-4 rounded-full bg-gray-800 text-white w-full border border-transparent focus-within:border-[#4F8EF7] focus-within:ring-2 focus-within:ring-[#4F8EF7]/30 transition-colors"
                     style={{ boxShadow: '0 4px 16px rgba(0,0,0,0.2)' }}
                 >
                     {/* Search icon — decorative */}
@@ -312,7 +314,7 @@ export function CommandBar() {
                             placeholder="Search or speak..."
                             disabled={inputDisabled}
                             aria-label="Command input"
-                            className="bg-transparent text-sm text-white placeholder:text-gray-400 focus:outline-none disabled:opacity-50 w-[160px]"
+                            className="bg-transparent text-sm text-white placeholder:text-gray-400 focus:outline-none disabled:opacity-50 flex-1 min-w-0"
                         />
                     )}
 
