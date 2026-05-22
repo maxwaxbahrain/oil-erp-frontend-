@@ -1,137 +1,346 @@
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  TrendingUp,
-  Target,
-  FileText,
-  BarChart3,
-  ShoppingCart,
-  Plus,
-  Filter,
-  Download,
-  ChevronRight
+  Users, UserX, ShoppingCart, Target, TrendingUp,
+  User, Trophy, Send, BarChart2, Megaphone,
+  Plus, MessageCircle,
 } from 'lucide-react';
-import SalesOrderList from '../../modules/sales/SalesOrderList';
+import { getCustomers, getSalesOrders, getProducts } from '../../services/api';
 
 export default function SalesDashboard() {
   const navigate = useNavigate();
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [salesOrders, setSalesOrders] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
+
+  useEffect(() => {
+    Promise.all([
+      getCustomers(),
+      getSalesOrders(),
+      getProducts(),
+    ]).then(([custs, orders, prods]) => {
+      setCustomers(custs || []);
+      setSalesOrders(orders || []);
+      setProducts(prods || []);
+    }).catch(console.error);
+  }, []);
+
+  // ----- Computations (pure JS, no new APIs) -----
+  const totalCustomers = customers.length;
+  const now = new Date();
+  const newThisMonth = customers.filter((c: any) => {
+    const created = new Date(c.createdAt || c.created_at || '');
+    return created.getMonth() === now.getMonth() && created.getFullYear() === now.getFullYear();
+  }).length;
+
+  const churnThreshold = 60 * 24 * 60 * 60 * 1000;
+  const churnRisk = customers.filter((c: any) => {
+    const lastOrder = salesOrders
+      .filter((o: any) => String(o.customerId || o.customer_id) === String(c.id))
+      .sort((a: any, b: any) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime())[0];
+    if (!lastOrder) return true;
+    return Date.now() - new Date(lastOrder.createdAt || lastOrder.date).getTime() > churnThreshold;
+  }).length;
+
+  const mtdOrders = salesOrders.filter((o: any) => {
+    const d = new Date(o.createdAt || o.date || '');
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  });
+  const ordersMTD = mtdOrders.length;
+  const ordersTotalValue = mtdOrders.reduce((sum: number, o: any) => sum + (Number(o.grandTotal || o.total) || 0), 0);
+
+  const TARGET = 280000;
+  const achieved = ordersTotalValue;
+  const targetPct = Math.round((achieved / TARGET) * 100);
+
+  // Top customers by MTD revenue
+  const custRevMap: Record<string, number> = {};
+  mtdOrders.forEach((o: any) => {
+    const cid = String(o.customerId || o.customer_id || '');
+    custRevMap[cid] = (custRevMap[cid] || 0) + (Number(o.grandTotal || o.total) || 0);
+  });
+  const topCustomers = Object.entries(custRevMap)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([cid, rev]) => {
+      const c = customers.find((x: any) => String(x.id) === cid);
+      return {
+        name: c?.name || 'Customer',
+        revenue: rev,
+        isOverdue: rev < 0,
+      };
+    });
+
+  // Churn list — worst first
+  const churnList = customers
+    .map((c: any) => {
+      const lastOrder = salesOrders
+        .filter((o: any) => String(o.customerId || o.customer_id) === String(c.id))
+        .sort((a: any, b: any) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime())[0];
+      const daysSince = lastOrder
+        ? Math.floor((Date.now() - new Date(lastOrder.createdAt || lastOrder.date).getTime()) / 86400000)
+        : 999;
+      return { name: c.name, daysSince };
+    })
+    .filter(c => c.daysSince >= 60)
+    .sort((a, b) => b.daysSince - a.daysSince)
+    .slice(0, 3);
+
+  // Product velocity — top 3 by line-item appearance count
+  const prodCountMap: Record<string, number> = {};
+  salesOrders.forEach((o: any) => {
+    (o.items || o.orderItems || o.lineItems || o.lines || []).forEach((item: any) => {
+      const pid = String(item.productId || item.product_id || item.product || item.name || '');
+      prodCountMap[pid] = (prodCountMap[pid] || 0) + 1;
+    });
+  });
+  const topProducts = products
+    .map((p: any) => ({
+      name: p.name,
+      count: prodCountMap[String(p.id)] || prodCountMap[p.name] || 0,
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 3);
 
   return (
-    <div className="space-y-6 animate-fade-in max-w-[1500px] mx-auto pb-10">
-      {/* Revenue Control Hub */}
-      <div className="bg-white p-4 border border-redwood-border rounded-sm shadow-sm flex flex-wrap gap-4 justify-between items-center">
+    <div className="space-y-4 pb-10">
+      {/* Page header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-lg font-black text-redwood-text-main tracking-tight uppercase">Revenue Operations & Governance</h1>
-          <p className="text-[10px] text-redwood-brand font-black tracking-[0.2em] uppercase mt-0.5">Global Order Intake Matrix</p>
+          <h1 className="text-[20px] font-semibold flex items-center gap-2" style={{ fontFamily: "'Syne',sans-serif", color: '#22C55E' }}>
+            <TrendingUp size={20} style={{ color: '#22C55E' }} />
+            Sales & CRM
+          </h1>
+          <div className="text-[11px] text-redwood-text-muted mt-0.5">
+            Pipeline · Top customers · Churn alerts · Product velocity · Marketing
+          </div>
         </div>
-        <div className="flex gap-2">
-          <button className="px-4 py-2 bg-white border border-redwood-border rounded-sm text-[11px] font-black text-redwood-text-muted hover:bg-redwood-bg-light transition-all shadow-sm flex items-center gap-2 uppercase tracking-wide">
-            <Download size={14} /> Revenue Report
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => navigate('/marketing/campaigns')}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-semibold bg-[rgba(34,197,94,0.12)] text-[#86EFAC] border border-[rgba(34,197,94,0.22)] hover:bg-[rgba(34,197,94,0.18)] transition-colors"
+          >
+            <MessageCircle size={13} /> WhatsApp Blast
           </button>
           <button
-            onClick={() => navigate('/sales/orders/new')}
-            className="px-5 py-2 bg-redwood-brand border border-transparent rounded-sm text-white text-[11px] font-black hover:brightness-95 transition-all flex items-center gap-2 shadow-lg uppercase tracking-widest"
+            type="button"
+            onClick={() => navigate('/customers/new')}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-semibold bg-[#4F8EF7] text-white hover:brightness-110 transition-all shadow-sm"
           >
-            <Plus size={16} /> New Sales Execution
+            <Plus size={13} /> Add Customer
           </button>
         </div>
       </div>
 
-      {/* Sales Performance Tiles */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-6 rounded-sm border border-redwood-border shadow-sm flex flex-col justify-between group cursor-pointer hover:border-redwood-brand transition-all">
-          <div className="flex justify-between items-start mb-4">
-            <div className="text-redwood-text-muted text-[10px] font-black uppercase tracking-[0.2em]">Gross Sales (Period)</div>
-            <TrendingUp size={16} className="text-emerald-500" />
+      {/* KPI row */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {/* Total Customers */}
+        <div className="bg-redwood-bg-surface border border-[rgba(34,197,94,0.2)] rounded-[14px] px-[14px] py-[13px] relative overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-0.5 rounded-t-[14px]"
+            style={{ background: 'linear-gradient(90deg,#22C55E,#86EFAC)' }} />
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center gap-1.5 text-[10.5px] font-medium text-redwood-text-muted">
+              <Users size={13} style={{ color: '#22C55E' }} /> Total Customers
+            </div>
+            <span className="text-[9px] font-semibold px-[7px] py-[2px] rounded-full bg-[rgba(34,197,94,0.12)] text-[#86EFAC] border border-[rgba(34,197,94,0.2)]">Active</span>
           </div>
-          <div className="text-2xl font-black text-redwood-text-main tracking-tight">4,820,500.00</div>
-          <div className="mt-4 flex items-center gap-2 text-[10px] font-black text-emerald-600 bg-emerald-50 w-fit px-2 py-0.5 rounded-sm uppercase tracking-widest shadow-inner">+12.4% vs L-Period</div>
+          <div className="text-[22px] font-semibold leading-[1.1] tracking-[-0.5px] mb-[3px]"
+            style={{ fontFamily: "'Syne',sans-serif", color: '#22C55E' }}>
+            {totalCustomers}
+          </div>
+          <div className="text-[10px] text-[#3E5678]">+{newThisMonth} new this month</div>
         </div>
 
-        <div className="bg-white p-6 rounded-sm border border-redwood-border shadow-sm flex flex-col justify-between group cursor-pointer hover:border-redwood-primary transition-all">
-          <div className="flex justify-between items-start mb-4">
-            <div className="text-redwood-text-muted text-[10px] font-black uppercase tracking-[0.2em]">Closed Conversion</div>
-            <Target size={16} className="text-redwood-primary" />
+        {/* Churn Risk */}
+        <div className="bg-redwood-bg-surface border border-[rgba(239,68,68,0.2)] rounded-[14px] px-[14px] py-[13px] relative overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-0.5 rounded-t-[14px]"
+            style={{ background: 'linear-gradient(90deg,#EF4444,#FCA5A5)' }} />
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center gap-1.5 text-[10.5px] font-medium text-redwood-text-muted">
+              <UserX size={13} style={{ color: '#EF4444' }} /> Churn Risk
+            </div>
+            <span className="text-[9px] font-semibold px-[7px] py-[2px] rounded-full bg-[rgba(239,68,68,0.12)] text-[#FCA5A5] border border-[rgba(239,68,68,0.2)]">Alert</span>
           </div>
-          <div className="text-2xl font-black text-redwood-text-main tracking-tight">84.2% Rate</div>
-          <div className="mt-4 w-full h-1.5 bg-redwood-bg-light rounded-full overflow-hidden shadow-inner">
-            <div className="h-full bg-redwood-primary shadow-sm" style={{ width: '84.2%' }}></div>
+          <div className="text-[22px] font-semibold leading-[1.1] tracking-[-0.5px] mb-[3px]"
+            style={{ fontFamily: "'Syne',sans-serif", color: '#EF4444' }}>
+            {churnRisk}
+          </div>
+          <div className="text-[10px] text-[#FCA5A5]">No order in 60+ days</div>
+        </div>
+
+        {/* Orders MTD */}
+        <div className="bg-redwood-bg-surface border border-[rgba(79,142,247,0.28)] rounded-[14px] px-[14px] py-[13px] relative overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-0.5 rounded-t-[14px]"
+            style={{ background: 'linear-gradient(90deg,#4F8EF7,#93C5FD)' }} />
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center gap-1.5 text-[10.5px] font-medium text-redwood-text-muted">
+              <ShoppingCart size={13} style={{ color: '#4F8EF7' }} /> Orders MTD
+            </div>
+            <span className="text-[9px] font-semibold px-[7px] py-[2px] rounded-full bg-[rgba(79,142,247,0.14)] text-[#93C5FD] border border-[rgba(79,142,247,0.28)]">MTD</span>
+          </div>
+          <div className="text-[22px] font-semibold leading-[1.1] tracking-[-0.5px] mb-[3px]"
+            style={{ fontFamily: "'Syne',sans-serif", color: '#4F8EF7' }}>
+            {ordersMTD}
+          </div>
+          <div className="text-[10px] text-redwood-text-muted">
+            ${ordersTotalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} total value
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-sm border border-redwood-border shadow-sm flex flex-col justify-between group cursor-pointer hover:border-redwood-brand transition-all">
-          <div className="flex justify-between items-start mb-4">
-            <div className="text-redwood-text-muted text-[10px] font-black uppercase tracking-[0.2em]">Pending Order Audit</div>
-            <FileText size={16} className="text-orange-500" />
+        {/* Target Achievement */}
+        <div className="bg-redwood-bg-surface border border-[rgba(245,158,11,0.2)] rounded-[14px] px-[14px] py-[13px] relative overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-0.5 rounded-t-[14px]"
+            style={{ background: 'linear-gradient(90deg,#F59E0B,#FCD34D)' }} />
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center gap-1.5 text-[10.5px] font-medium text-redwood-text-muted">
+              <Target size={13} style={{ color: '#F59E0B' }} /> Target Achievement
+            </div>
+            <span className="text-[9px] font-semibold px-[7px] py-[2px] rounded-full bg-[rgba(245,158,11,0.12)] text-[#FCD34D] border border-[rgba(245,158,11,0.2)]">{targetPct}%</span>
           </div>
-          <div className="text-2xl font-black text-redwood-text-main tracking-tight">12 Documents</div>
-          <div className="mt-4 text-[10px] font-black text-redwood-brand uppercase tracking-widest italic opacity-80">Awaiting Compliance</div>
+          <div className="text-[22px] font-semibold leading-[1.1] tracking-[-0.5px] mb-[3px]"
+            style={{ fontFamily: "'Syne',sans-serif", color: '#F59E0B' }}>
+            {targetPct}%
+          </div>
+          <div className="text-[10px] text-[#FCA5A5]">
+            ${achieved.toLocaleString(undefined, { maximumFractionDigits: 0 })} of $280k target
+          </div>
         </div>
+      </div>
 
-        <div className="bg-redwood-midnight p-6 rounded-sm border border-white/5 shadow-2xl flex flex-col justify-between group">
-          <div className="flex justify-between items-start mb-4">
-            <div className="text-redwood-secondary text-[10px] font-black uppercase tracking-[0.2em]">Order Volume Grid</div>
-            <BarChart3 size={16} className="text-redwood-brand" />
+      {/* Two-column main content */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1.8fr_1fr] gap-[10px]">
+        {/* LEFT — Top Customers + progress bars */}
+        <div className="bg-redwood-bg-surface border border-redwood-border rounded-[14px] px-4 py-3.5">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-[13px] font-semibold text-redwood-text-main flex items-center gap-1.5">
+              <Trophy size={13} className="text-redwood-text-muted" />
+              Top Customers — Revenue MTD
+            </div>
+            <button onClick={() => navigate('/customers')} className="text-[10px] text-[#4F8EF7] hover:underline">
+              Full CRM →
+            </button>
           </div>
-          <div className="text-2xl font-black text-white tracking-tight">1,284 Units</div>
-          <div className="mt-4 flex gap-1 h-3 items-end">
-            {[40, 70, 45, 90, 65, 80, 55].map((h, i) => (
-              <div key={i} className="flex-1 bg-redwood-brand/40 group-hover:bg-redwood-brand rounded-t-sm transition-colors" style={{ height: `${h}% ` }}></div>
+          <div className="flex flex-col gap-[5px]">
+            {topCustomers.map((c, i) => (
+              <div key={i} className={`flex items-center justify-between px-2.5 py-1.5 bg-[#142540] rounded-[6px] border transition-colors hover:bg-[#1a2d4e] ${c.isOverdue ? 'border-[rgba(239,68,68,0.25)]' : 'border-redwood-border'}`}>
+                <div className="flex items-center gap-2">
+                  <User size={13} className="text-[#3E5678] flex-shrink-0" />
+                  <span className={`text-[11px] ${c.isOverdue ? 'text-[#FCA5A5]' : 'text-redwood-text-main'}`}>
+                    {c.name}
+                  </span>
+                </div>
+                <span className={`text-[13px] font-semibold ${c.isOverdue ? 'text-[#EF4444]' : 'text-[#22C55E]'}`}>
+                  ${Math.abs(c.revenue).toFixed(2)}
+                </span>
+              </div>
+            ))}
+            {topCustomers.length === 0 && (
+              <div className="text-[11px] text-redwood-text-muted text-center py-4">No orders this month</div>
+            )}
+          </div>
+          {/* Progress bars */}
+          <div className="mt-3 flex flex-col gap-2">
+            {[
+              { label: 'Monthly sales target', pct: targetPct, color: '#4F8EF7' },
+              { label: 'New customer target', pct: Math.min(Math.round((newThisMonth / 20) * 100), 100), color: '#22C55E' },
+              { label: 'Collection rate', pct: 12, color: '#EF4444' },
+            ].map((row, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="text-[10px] text-redwood-text-muted w-[140px] flex-shrink-0">{row.label}</span>
+                <div className="flex-1 h-[5px] bg-[#142540] rounded-full overflow-hidden">
+                  <div className="h-full rounded-full transition-all"
+                    style={{ width: `${row.pct}%`, background: row.color }} />
+                </div>
+                <span className="text-[10px] font-semibold w-8 text-right" style={{ color: row.color }}>{row.pct}%</span>
+              </div>
             ))}
           </div>
         </div>
-      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-12 bg-white border border-redwood-border rounded-sm shadow-sm overflow-hidden min-h-[500px] flex flex-col">
-          <div className="p-5 border-b border-redwood-bg-light bg-white flex flex-wrap gap-4 justify-between items-center">
-            <div className="flex items-center gap-4 flex-1 min-w-[350px]">
-              <div className="relative flex-1 group">
-                <input
-                  type="text"
-                  placeholder="Global Audit: Search by Customer Entity, Order Reference, or GL Code..."
-                  className="w-full pr-4 py-2.5 bg-redwood-bg-light border border-redwood-border rounded-sm text-[12px] font-semibold focus:bg-white focus:border-redwood-brand focus:ring-4 focus:ring-redwood-brand/5 outline-none transition-all"
-                />
+        {/* RIGHT — 3 stacked panels */}
+        <div className="flex flex-col gap-[10px]">
+          {/* Churn Alerts */}
+          <div className="bg-redwood-bg-surface border border-redwood-border rounded-[14px] px-4 py-3.5">
+            <div className="flex items-center justify-between mb-2.5">
+              <div className="text-[13px] font-semibold text-redwood-text-main flex items-center gap-1.5">
+                <UserX size={13} className="text-redwood-text-muted" /> Churn Alerts
               </div>
+              <button onClick={() => navigate('/customers')} className="text-[10px] text-[#4F8EF7] hover:underline">
+                Send reminders →
+              </button>
             </div>
-            <div className="flex gap-2">
-              <button className="px-5 py-2.5 border border-redwood-border rounded-sm text-redwood-text-muted text-[11px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-redwood-bg-light transition-all shadow-sm">
-                <Filter size={14} /> Hierarchy Filter
+            <div className="flex flex-col gap-[5px]">
+              {churnList.map((c, i) => (
+                <div key={i} className="flex items-center justify-between px-2.5 py-1.5 bg-[#142540] rounded-[6px] border border-redwood-border">
+                  <div className="flex items-center gap-2">
+                    <User size={13} className="text-[#3E5678]" />
+                    <span className="text-[11px] text-redwood-text-main">{c.name}</span>
+                  </div>
+                  <span className={`text-[9px] font-semibold ${c.daysSince >= 90 ? 'text-[#FCA5A5]' : 'text-[#FCD34D]'}`}>
+                    {c.daysSince}d silent
+                  </span>
+                </div>
+              ))}
+              {churnList.length === 0 && (
+                <div className="text-[11px] text-redwood-text-muted text-center py-3">No churn risk customers</div>
+              )}
+              <button
+                onClick={() => navigate('/customers')}
+                className="mt-1 flex items-center gap-2 px-2.5 py-1.5 w-full text-left text-[10px] text-[#4F8EF7] bg-[rgba(79,142,247,0.07)] rounded-[6px] border border-[rgba(79,142,247,0.14)] hover:bg-[rgba(79,142,247,0.12)] transition-colors">
+                <Send size={11} /> Send WhatsApp to all {churnRisk} at-risk →
               </button>
             </div>
           </div>
 
-          <div className="flex-1 bg-white p-6">
-            <SalesOrderList />
+          {/* Product Velocity */}
+          <div className="bg-redwood-bg-surface border border-redwood-border rounded-[14px] px-4 py-3.5">
+            <div className="text-[13px] font-semibold text-redwood-text-main flex items-center gap-1.5 mb-2.5">
+              <BarChart2 size={13} className="text-redwood-text-muted" /> Product Velocity
+            </div>
+            <div className="flex flex-col gap-[5px]">
+              {topProducts.map((p, i) => {
+                const isFast = i === 0;
+                const isMed = i === 1;
+                const color = isFast ? '#22C55E' : isMed ? '#F59E0B' : '#3E5678';
+                const label = isFast ? 'Fast' : isMed ? 'Med' : 'Slow';
+                return (
+                  <div key={i} className="flex items-center justify-between px-2.5 py-1.5 bg-[#142540] rounded-[6px] border border-redwood-border">
+                    <span className="text-[11px] text-redwood-text-main flex-1 truncate">{p.name}</span>
+                    <span className="text-[10px] font-semibold ml-2 flex-shrink-0" style={{ color }}>
+                      {label} — {p.count}/mo
+                    </span>
+                  </div>
+                );
+              })}
+              {topProducts.length === 0 && (
+                <div className="text-[11px] text-redwood-text-muted text-center py-3">No product data</div>
+              )}
+            </div>
+          </div>
+
+          {/* Active Campaigns (hardcoded — no campaigns API) */}
+          <div className="bg-redwood-bg-surface border border-redwood-border rounded-[14px] px-4 py-3.5">
+            <div className="text-[13px] font-semibold text-redwood-text-main flex items-center gap-1.5 mb-2.5">
+              <Megaphone size={13} className="text-redwood-text-muted" /> Active Campaigns
+            </div>
+            <div className="flex flex-col gap-[5px]">
+              {[
+                { label: 'Ramadan bulk discount', badge: 'Live' },
+                { label: 'New customer 10% off', badge: 'Paused' },
+                { label: 'Reactivation — 12 churned', badge: 'Scheduled' },
+              ].map((camp, i) => (
+                <div key={i} className="flex items-center justify-between px-2.5 py-1.5 bg-[#142540] rounded-[6px] border border-redwood-border">
+                  <span className="text-[11px] text-redwood-text-main">{camp.label}</span>
+                  <span className="text-[9px] font-semibold px-2 py-[2px] rounded-full bg-[rgba(79,142,247,0.12)] text-[#93C5FD] border border-[rgba(79,142,247,0.2)]">
+                    {camp.badge}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="md:col-span-2 bg-white border border-redwood-border p-8 rounded-sm flex items-center gap-10 shadow-sm group">
-          <div className="flex-1">
-            <h3 className="text-lg font-black text-redwood-text-main tracking-tight mb-2 uppercase">Global Revenue Strategy Portal</h3>
-            <p className="text-[13px] text-redwood-text-muted font-medium leading-relaxed mb-6">Manage multi-regional sales directives, target benchmarks, and strategic account distributions from the enterprise control matrix.</p>
-            <button className="flex items-center gap-2 px-8 py-3 bg-redwood-slate text-white text-[10px] font-black uppercase tracking-[0.2em] rounded-sm hover:bg-black transition-all shadow-lg">
-              Access Directives Hub <ChevronRight size={14} className="group-hover:translate-x-1 transition-transform" />
-            </button>
-          </div>
-          <div className="w-40 h-40 bg-redwood-bg-light rounded-sm flex items-center justify-center text-redwood-border border border-redwood-border transition-colors group-hover:text-redwood-brand">
-            <ShoppingCart size={64} strokeWidth={1} />
-          </div>
-        </div>
-
-        <div className="bg-redwood-brand p-8 rounded-sm text-white shadow-2xl flex flex-col justify-center relative overflow-hidden group">
-          <div className="relative z-10">
-            <h4 className="text-[11px] font-black uppercase tracking-[0.3em] mb-2 text-white/60">Intelligent Forecast</h4>
-            <div className="text-3xl font-black tracking-tighter mb-4">+18.5% Growth</div>
-            <p className="text-[12px] text-white/80 font-medium border-t border-white/20 pt-4 leading-relaxed">System-generated projection for the next fiscal period based on strategic sales pipelines.</p>
-          </div>
-          <TrendingUp size={120} className="absolute -right-4 -bottom-4 text-white/10 group-hover:scale-110 transition-transform duration-700" strokeWidth={1} />
-        </div>
-      </div>
-
-      {/* Sales Order List */}
-      <SalesOrderList />
     </div>
   );
 }

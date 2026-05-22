@@ -41,7 +41,7 @@ const ROLES = ['System Admin', 'Accountant', 'Sales Manager', 'Warehouse', 'Juni
 const ROLE_ROUTES: Record<typeof ROLES[number], string> = {
   'System Admin':  '/',
   'Accountant':    '/finance/accounting',
-  'Sales Manager': '/sales/orders',
+  'Sales Manager': '/sales/dashboard',
   'Warehouse':     '/products',
   'Junior':        '/',
 };
@@ -400,7 +400,7 @@ function App() {
             { key: 'warehouse', label: 'Warehouse',      route: '/products',           icon: Package,         prefix: ['/products', '/inventory'],                 badge: '25%', badgeColor: 'red' },
             { key: 'mobile',    label: 'Field & Mobile', route: '/logistics/pod',      icon: Smartphone,      prefix: ['/logistics', '/pod', '/van-sales'],        badge: '20%', badgeColor: 'amber' },
             { key: 'security',  label: 'Security',       route: '/access-management',  icon: Shield,          prefix: ['/access-management', '/users'],            badge: '40%', badgeColor: 'amber' },
-            { key: 'sales',     label: 'Sales & CRM',    route: '/sales/orders',       icon: TrendingUp,      prefix: ['/sales', '/customers', '/crm'],            badge: null,  badgeColor: null },
+            { key: 'sales',     label: 'Sales & CRM',    route: '/sales/dashboard',    icon: TrendingUp,      prefix: ['/sales', '/customers', '/crm'],            badge: null,  badgeColor: null },
           ].map((t) => {
             const Icon = t.icon;
             const isActive = t.key === 'overview'

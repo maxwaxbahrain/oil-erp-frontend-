@@ -8,6 +8,7 @@ import CustomerOverview from '../pages/Customers/CustomerOverview';
 import CustomerFormPage from '../pages/Customers/CustomerFormPage';
 import SalesOverview from '../pages/Sales/SalesOverview';
 import SalesOrdersWorkflow from '../pages/Sales/SalesOrdersWorkflow';
+import SalesDashboard from '../pages/Sales/SalesDashboard';
 import SalesOrderFormPage from '../pages/Sales/SalesOrderFormPage';
 import SalesOrderDetailPage from '../pages/Sales/SalesOrderDetailPage';
 import Quotations from '../pages/Sales/Quotations';
@@ -184,6 +185,7 @@ export const AppRoutes = () => {
 
             {/* Sales & Revenue */}
             <Route path="/sales" element={<SalesOverview />} />
+            <Route path="/sales/dashboard" element={<SalesDashboard />} />
             <Route path="/sales/orders" element={<SalesOrdersWorkflow />} />
             <Route path="/sales/orders/new" element={<SalesOrderFormPage />} />
             <Route path="/sales/orders/:id" element={<SalesOrderDetailPage />} />
