@@ -26,7 +26,7 @@ const ptStyle: CSSProperties = {
 };
 const paStyle: CSSProperties = {
   fontSize: '10px',
-  color: '#4F8EF7',
+  color: 'var(--color-brand-blue)',
   cursor: 'pointer',
   background: 'none',
   border: 'none',
@@ -147,7 +147,7 @@ export default function SalesDashboard() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
         <div>
           {/* .pgtit */}
-          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '20px', fontWeight: 600, letterSpacing: '-.5px', color: '#22C55E', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '20px', fontWeight: 600, letterSpacing: '-.5px', color: 'var(--color-brand-green)', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ verticalAlign: '-.15em' }}>
               <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
               <polyline points="17 6 23 6 23 12" />
@@ -165,7 +165,7 @@ export default function SalesDashboard() {
           <button
             type="button"
             onClick={() => navigate('/marketing/campaigns')}
-            style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 11px', borderRadius: '6px', fontSize: '10.5px', fontWeight: 500, cursor: 'pointer', border: '1px solid rgba(34,197,94,.3)', background: 'rgba(255,255,255,.04)', color: '#22C55E', fontFamily: "'DM Sans',sans-serif", transition: '.12s' }}
+            style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 11px', borderRadius: '6px', fontSize: '10.5px', fontWeight: 500, cursor: 'pointer', border: '1px solid rgba(34,197,94,.3)', background: 'rgba(255,255,255,.04)', color: 'var(--color-brand-green)', fontFamily: "'DM Sans',sans-serif", transition: '.12s' }}
           >
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <line x1="22" y1="2" x2="11" y2="13" />
@@ -205,10 +205,10 @@ export default function SalesDashboard() {
               </svg>
               Total Customers
             </div>
-            <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px', background: 'rgba(34,197,94,.12)', color: '#86EFAC', border: '1px solid rgba(34,197,94,.2)' }}>Active</span>
+            <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px', background: 'var(--color-badge-green-bg)', color: 'var(--color-brand-green-tint)', border: '1px solid rgba(34,197,94,.2)' }}>Active</span>
           </div>
-          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '22px', fontWeight: 600, letterSpacing: '-.5px', marginBottom: '3px', lineHeight: '1.1', color: '#22C55E' }}>{totalCustomers}</div>
-          <div style={{ fontSize: '10px', color: '#86EFAC', display: 'flex', alignItems: 'center', gap: '4px' }}>+{newThisMonth} new this month</div>
+          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '22px', fontWeight: 600, letterSpacing: '-.5px', marginBottom: '3px', lineHeight: '1.1', color: 'var(--color-brand-green)' }}>{totalCustomers}</div>
+          <div style={{ fontSize: '10px', color: 'var(--color-brand-green-tint)', display: 'flex', alignItems: 'center', gap: '4px' }}>+{newThisMonth} new this month</div>
         </div>
 
         {/* Card 2 — Churn Risk (.kpi.kr) */}
@@ -224,10 +224,10 @@ export default function SalesDashboard() {
               </svg>
               Churn Risk
             </div>
-            <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px', background: 'rgba(239,68,68,.12)', color: '#FCA5A5', border: '1px solid rgba(239,68,68,.2)' }}>Alert</span>
+            <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px', background: 'var(--color-badge-red-bg)', color: 'var(--color-brand-red-tint)', border: '1px solid rgba(239,68,68,.2)' }}>Alert</span>
           </div>
-          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '22px', fontWeight: 600, letterSpacing: '-.5px', marginBottom: '3px', lineHeight: '1.1', color: '#EF4444' }}>{churnRisk}</div>
-          <div style={{ fontSize: '10px', color: '#FCA5A5', display: 'flex', alignItems: 'center', gap: '4px' }}>No order in 60+ days</div>
+          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '22px', fontWeight: 600, letterSpacing: '-.5px', marginBottom: '3px', lineHeight: '1.1', color: 'var(--color-brand-red)' }}>{churnRisk}</div>
+          <div style={{ fontSize: '10px', color: 'var(--color-brand-red-tint)', display: 'flex', alignItems: 'center', gap: '4px' }}>No order in 60+ days</div>
         </div>
 
         {/* Card 3 — Orders MTD (.kpi.kb) — value color #EEF2FF white per spec */}
@@ -242,7 +242,7 @@ export default function SalesDashboard() {
               </svg>
               Orders MTD
             </div>
-            <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px', background: 'rgba(79,142,247,.14)', color: '#93C5FD', border: '1px solid rgba(79,142,247,.28)' }}>MTD</span>
+            <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px', background: 'rgba(79,142,247,.14)', color: 'var(--color-brand-blue-tint)', border: '1px solid rgba(79,142,247,.28)' }}>MTD</span>
           </div>
           <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '22px', fontWeight: 600, letterSpacing: '-.5px', marginBottom: '3px', lineHeight: '1.1', color: 'var(--color-redwood-text-main)' }}>{ordersMTD}</div>
           <div style={{ fontSize: '10px', color: 'var(--color-redwood-text-subtle)', display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -262,10 +262,10 @@ export default function SalesDashboard() {
               </svg>
               <span title="Target Achievement">Target Achievement</span>
             </div>
-            <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px', background: 'rgba(245,158,11,.12)', color: '#FCD34D', border: '1px solid rgba(245,158,11,.2)' }}>{targetPct}%</span>
+            <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px', background: 'var(--color-badge-amber-bg)', color: 'var(--color-brand-amber-tint)', border: '1px solid rgba(245,158,11,.2)' }}>{targetPct}%</span>
           </div>
-          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '22px', fontWeight: 600, letterSpacing: '-.5px', marginBottom: '3px', lineHeight: '1.1', color: '#F59E0B' }}>{targetPct}%</div>
-          <div style={{ fontSize: '10px', color: '#FCA5A5', display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '22px', fontWeight: 600, letterSpacing: '-.5px', marginBottom: '3px', lineHeight: '1.1', color: 'var(--color-brand-amber)' }}>{targetPct}%</div>
+          <div style={{ fontSize: '10px', color: 'var(--color-brand-red-tint)', display: 'flex', alignItems: 'center', gap: '4px' }}>
             ${achieved.toLocaleString(undefined, { maximumFractionDigits: 0 })} of ${(TARGET / 1000).toFixed(0)}k target
           </div>
         </div>
@@ -316,17 +316,17 @@ export default function SalesDashboard() {
                     <div style={{ color: 'var(--color-redwood-text-main)' }}>
                       {c.name}
                       {c.isOverLimit && (
-                        <span style={{ fontSize: '9px', color: '#EF4444', marginLeft: '6px' }}>⚠ Over limit</span>
+                        <span style={{ fontSize: '9px', color: 'var(--color-brand-red)', marginLeft: '6px' }}>⚠ Over limit</span>
                       )}
                     </div>
-                    <div style={{ fontSize: '9px', color: c.isOverdue ? '#EF4444' : 'var(--color-redwood-text-subtle)', marginTop: '1px' }}>
+                    <div style={{ fontSize: '9px', color: c.isOverdue ? 'var(--color-brand-red)' : 'var(--color-redwood-text-subtle)', marginTop: '1px' }}>
                       {c.isOverdue
                         ? `$${Math.abs(c.revenue).toFixed(2)} overdue — DO NOT EXTEND CREDIT`
                         : `Last order: ${c.lastOrderDate || 'Recent'} · ${c.orderCount} orders`}
                     </div>
                   </div>
                 </div>
-                <span style={{ fontSize: '13px', fontWeight: 600, color: c.isOverdue ? '#EF4444' : '#22C55E' }}>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: c.isOverdue ? 'var(--color-brand-red)' : 'var(--color-brand-green)' }}>
                   {c.isOverdue ? '-' : ''}${Math.abs(c.revenue).toFixed(2)}
                 </span>
               </div>
@@ -341,9 +341,9 @@ export default function SalesDashboard() {
           {/* Progress bars (.prog-row) */}
           <div style={{ marginTop: '12px' }}>
             {[
-              { label: 'Monthly sales target', pct: targetPct, color: '#4F8EF7' },
-              { label: 'New customer target', pct: Math.min(Math.round((newThisMonth / 20) * 100), 100), color: '#22C55E' },
-              { label: 'Collection rate', pct: 12, color: '#EF4444' },
+              { label: 'Monthly sales target', pct: targetPct, color: 'var(--color-brand-blue)' },
+              { label: 'New customer target', pct: Math.min(Math.round((newThisMonth / 20) * 100), 100), color: 'var(--color-brand-green)' },
+              { label: 'Collection rate', pct: 12, color: 'var(--color-brand-red)' },
             ].map((row, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '7px' }}>
                 <div style={{ fontSize: '10px', color: 'var(--color-redwood-text-muted)', width: '160px', flexShrink: 0 }}>{row.label}</div>
@@ -398,7 +398,7 @@ export default function SalesDashboard() {
                     </svg>
                     <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</span>
                   </div>
-                  <span style={{ fontSize: '9px', fontWeight: 500, color: c.daysSince >= 90 ? '#EF4444' : '#F59E0B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <span style={{ fontSize: '9px', fontWeight: 500, color: c.daysSince >= 90 ? 'var(--color-brand-red)' : 'var(--color-brand-amber)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {c.daysSince >= 999 ? '90+' : c.daysSince} days silent
                   </span>
                 </div>
@@ -430,7 +430,7 @@ export default function SalesDashboard() {
                     <line x1="22" y1="2" x2="11" y2="13" />
                     <polygon points="22 2 15 22 11 13 2 9 22 2" />
                   </svg>
-                  <span style={{ color: '#4F8EF7', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Send WhatsApp to all {churnRisk} at-risk →</span>
+                  <span style={{ color: 'var(--color-brand-blue)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Send WhatsApp to all {churnRisk} at-risk →</span>
                 </div>
               </div>
             </div>
@@ -453,7 +453,7 @@ export default function SalesDashboard() {
               {topProducts.map((p, i) => {
                 const isFast = i === 0;
                 const isMed = i === 1;
-                const color = isFast ? '#22C55E' : isMed ? '#F59E0B' : 'var(--color-redwood-text-subtle)';
+                const color = isFast ? 'var(--color-brand-green)' : isMed ? 'var(--color-brand-amber)' : 'var(--color-redwood-text-subtle)';
                 const label = isFast ? 'Fast' : isMed ? 'Med' : 'Slow';
                 return (
                   <div
@@ -546,7 +546,7 @@ export default function SalesDashboard() {
                     </svg>
                     <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{camp.label}</span>
                   </div>
-                  <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px', background: 'rgba(79,142,247,.14)', color: '#93C5FD', border: '1px solid rgba(79,142,247,.28)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px', background: 'rgba(79,142,247,.14)', color: 'var(--color-brand-blue-tint)', border: '1px solid rgba(79,142,247,.28)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {camp.badge}
                   </span>
                 </div>

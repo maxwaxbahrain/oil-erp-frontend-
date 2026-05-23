@@ -17,6 +17,28 @@
   --color-redwood-row-hover: #1a2d4e;
   --color-redwood-text-subtle: #3E5678;
 
+  /* Brand colour tokens — for inline-style + utility classes.
+     body.light overrides these to darker WCAG-AA-compliant shades. */
+  --color-brand-blue:        #4F8EF7;
+  --color-brand-green:       #22C55E;
+  --color-brand-red:         #EF4444;
+  --color-brand-amber:       #F59E0B;
+  --color-brand-teal:        #00D4AA;
+
+  /* Light-tint variants — readable on dark bg in dark mode;
+     body.light flips them to dark shades for white-bg readability. */
+  --color-brand-blue-tint:   #93C5FD;
+  --color-brand-green-tint:  #86EFAC;
+  --color-brand-red-tint:    #FCA5A5;
+  --color-brand-amber-tint:  #FCD34D;
+
+  /* Badge background tints — paired with brand text colours. */
+  --color-badge-green-bg:    rgba(34,197,94,.12);
+  --color-badge-red-bg:      rgba(239,68,68,.12);
+  --color-badge-amber-bg:    rgba(245,158,11,.12);
+  --color-badge-blue-bg:     rgba(79,142,247,.12);
+  --color-badge-teal-bg:     rgba(0,212,170,.12);
+
   --font-inter: "DM Sans", "Inter", sans-serif;
 }
 
@@ -87,6 +109,26 @@ body.light {
   --text-main:     #1E293B;
   --text-muted:    #475569;
   --border-subtle: rgba(0, 0, 0, 0.10);
+
+  /* Brand colours — darker for contrast on white backgrounds. */
+  --color-brand-blue:        #2563EB;
+  --color-brand-green:       #16A34A;
+  --color-brand-red:         #DC2626;
+  --color-brand-amber:       #B45309;
+  --color-brand-teal:        #0F766E;
+
+  /* Tints reversed — DARK shades on white, not light. */
+  --color-brand-blue-tint:   #1E40AF;
+  --color-brand-green-tint:  #14532D;
+  --color-brand-red-tint:    #7F1D1D;
+  --color-brand-amber-tint:  #78350F;
+
+  /* Badge backgrounds — slightly more opaque on white. */
+  --color-badge-green-bg:    rgba(22,163,74,.14);
+  --color-badge-red-bg:      rgba(220,38,38,.12);
+  --color-badge-amber-bg:    rgba(180,83,9,.12);
+  --color-badge-blue-bg:     rgba(37,99,235,.12);
+  --color-badge-teal-bg:     rgba(15,118,110,.12);
 
   background-color: var(--color-redwood-bg-light);
   color: var(--color-redwood-text-main);

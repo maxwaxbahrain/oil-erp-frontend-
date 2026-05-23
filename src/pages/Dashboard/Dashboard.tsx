@@ -53,8 +53,8 @@ type SparkKey = keyof typeof SPARKLINE_DATA;
 //   red   = critical / warn
 const PREDICTION_PALETTE = {
     teal:  { bg: 'rgba(0,212,170,0.10)', color: '#5EEAD4', border: 'rgba(0,212,170,0.2)' },
-    amber: { bg: 'rgba(245,158,11,0.12)', color: '#FCD34D', border: 'rgba(245,158,11,0.2)' },
-    red:   { bg: 'rgba(239,68,68,0.12)', color: '#FCA5A5', border: 'rgba(239,68,68,0.2)' },
+    amber: { bg: 'var(--color-badge-amber-bg)', color: 'var(--color-brand-amber-tint)', border: 'rgba(245,158,11,0.2)' },
+    red:   { bg: 'var(--color-badge-red-bg)', color: 'var(--color-brand-red-tint)', border: 'rgba(239,68,68,0.2)' },
 } as const;
 type PredictionVariant = keyof typeof PREDICTION_PALETTE;
 
@@ -463,9 +463,9 @@ export default function Dashboard() {
                         value: `$${metrics.totalIncome.toLocaleString()}`,
                         sub: 'From all invoices',
                         badge: 'MTD',
-                        color: '#22C55E',
-                        light: '#86EFAC',
-                        tint:  'rgba(34,197,94,0.12)',
+                        color: 'var(--color-brand-green)',
+                        light: 'var(--color-brand-green-tint)',
+                        tint:  'var(--color-badge-green-bg)',
                         border:'rgba(34,197,94,0.2)',
                         icon: TrendingUp,
                         isWarn: false,
@@ -477,9 +477,9 @@ export default function Dashboard() {
                         value: `$${metrics.unpaidAmount.toLocaleString()}`,
                         sub: `${metrics.overdueCount} overdue invoices`,
                         badge: 'Aging',
-                        color: '#EF4444',
-                        light: '#FCA5A5',
-                        tint:  'rgba(239,68,68,0.12)',
+                        color: 'var(--color-brand-red)',
+                        light: 'var(--color-brand-red-tint)',
+                        tint:  'var(--color-badge-red-bg)',
                         border:'rgba(239,68,68,0.2)',
                         icon: AlertTriangle,
                         isWarn: true,
@@ -491,9 +491,9 @@ export default function Dashboard() {
                         value: String(salesOrdersCount),
                         sub: 'Sales orders open',
                         badge: 'Open',
-                        color: '#F59E0B',
-                        light: '#FCD34D',
-                        tint:  'rgba(245,158,11,0.12)',
+                        color: 'var(--color-brand-amber)',
+                        light: 'var(--color-brand-amber-tint)',
+                        tint:  'var(--color-badge-amber-bg)',
                         border:'rgba(245,158,11,0.2)',
                         icon: ShoppingCart,
                         isWarn: false,
@@ -505,8 +505,8 @@ export default function Dashboard() {
                         value: `$${metrics.netProfit.toLocaleString()}`,
                         sub: 'Income − Expenses',
                         badge: 'MTD',
-                        color: '#4F8EF7',
-                        light: '#93C5FD',
+                        color: 'var(--color-brand-blue)',
+                        light: 'var(--color-brand-blue-tint)',
                         tint:  'rgba(79,142,247,0.14)',
                         border:'rgba(79,142,247,0.28)',
                         icon: Wallet,
@@ -519,7 +519,7 @@ export default function Dashboard() {
                         value: String(metrics.lowStock),
                         sub: 'Below reorder point',
                         badge: 'Critical',
-                        color: '#00D4AA',
+                        color: 'var(--color-brand-teal)',
                         light: '#5EEAD4',
                         tint:  'rgba(0,212,170,0.10)',
                         border:'rgba(0,212,170,0.2)',
@@ -570,7 +570,7 @@ export default function Dashboard() {
                             {/* Sub-label */}
                             <div
                                 className="text-[10px] flex items-center gap-1"
-                                style={{ color: k.isWarn ? '#FCA5A5' : '#3E5678' }}
+                                style={{ color: k.isWarn ? 'var(--color-brand-red-tint)' : '#3E5678' }}
                             >
                                 {k.sub}
                             </div>
@@ -643,13 +643,13 @@ export default function Dashboard() {
                 {/* Full content — visible only when expanded */}
                 {aiOpen && (
                     <div className="px-4 py-3 text-[12px] text-redwood-text-muted leading-[1.8] border-t border-redwood-border">
-                        <span style={{ color: '#FCA5A5', fontWeight: 500 }}>⚠ Critical:</span>{' '}
+                        <span style={{ color: 'var(--color-brand-red-tint)', fontWeight: 500 }}>⚠ Critical:</span>{' '}
                         <strong className="text-redwood-text-main">Qahir Enterprises</strong> is 32d overdue —{' '}
                         <strong className="text-redwood-text-main">$3,875</strong> at risk. Stop credit immediately and issue demand letter today. ·{' '}
-                        <span style={{ color: '#FCD34D', fontWeight: 500 }}>Cash alert:</span>{' '}
+                        <span style={{ color: 'var(--color-brand-amber-tint)', fontWeight: 500 }}>Cash alert:</span>{' '}
                         <strong className="text-redwood-text-main">$52,300</strong> AP outstanding with{' '}
                         <strong className="text-redwood-text-main">$18k</strong> due in 7 days. ·{' '}
-                        <span style={{ color: '#86EFAC', fontWeight: 500 }}>✓ Strong month:</span>{' '}
+                        <span style={{ color: 'var(--color-brand-green-tint)', fontWeight: 500 }}>✓ Strong month:</span>{' '}
                         MTD income <strong className="text-redwood-text-main">$411,832</strong> on track for projected{' '}
                         <strong className="text-redwood-text-main">$490k</strong>.
                     </div>
@@ -799,10 +799,10 @@ export default function Dashboard() {
                                     const s = String(order.status).toLowerCase();
                                     const pill =
                                         s === 'paid' || s === 'completed' ?
-                                            { bg: 'rgba(34,197,94,0.12)', color: '#22C55E', border: 'rgba(34,197,94,0.2)' } :
+                                            { bg: 'var(--color-badge-green-bg)', color: 'var(--color-brand-green)', border: 'rgba(34,197,94,0.2)' } :
                                         s === 'overdue' ?
-                                            { bg: 'rgba(239,68,68,0.12)', color: '#FCA5A5', border: 'rgba(239,68,68,0.2)' } :
-                                            { bg: 'rgba(245,158,11,0.12)', color: '#FCD34D', border: 'rgba(245,158,11,0.2)' };
+                                            { bg: 'var(--color-badge-red-bg)', color: 'var(--color-brand-red-tint)', border: 'rgba(239,68,68,0.2)' } :
+                                            { bg: 'var(--color-badge-amber-bg)', color: 'var(--color-brand-amber-tint)', border: 'rgba(245,158,11,0.2)' };
                                     return (
                                         <tr
                                             key={order.id}
@@ -810,7 +810,7 @@ export default function Dashboard() {
                                             className="cursor-pointer transition-colors hover:bg-[rgba(79,142,247,0.07)]"
                                         >
                                             <td className="px-2.5 py-2 border-b border-white/5">
-                                                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: '10px', color: '#93C5FD' }}>{order.id}</span>
+                                                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: '10px', color: 'var(--color-brand-blue-tint)' }}>{order.id}</span>
                                             </td>
                                             <td className="px-2.5 py-2 border-b border-white/5 text-redwood-text-main">{order.customer}</td>
                                             <td className="px-2.5 py-2 border-b border-white/5 text-redwood-text-muted">{order.date}</td>
@@ -829,7 +829,7 @@ export default function Dashboard() {
                                             </td>
 
                                             <td className="px-2.5 py-2 border-b border-white/5 text-right text-redwood-text-muted">${order.net.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                            <td className="px-2.5 py-2 border-b border-white/5 text-right" style={{ color: '#93C5FD' }}>${order.vat.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                            <td className="px-2.5 py-2 border-b border-white/5 text-right" style={{ color: 'var(--color-brand-blue-tint)' }}>${order.vat.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                             <td className="px-2.5 py-2 border-b border-white/5 text-right">
                                                 <strong className="text-redwood-text-main">${order.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
                                             </td>
@@ -837,8 +837,8 @@ export default function Dashboard() {
                                             {/* Lock — green padlock if paid, amber open padlock otherwise */}
                                             <td className="px-2.5 py-2 border-b border-white/5 text-center">
                                                 {String(order.status).toLowerCase() === 'paid'
-                                                    ? <Lock size={13} className="inline-block" style={{ color: '#22C55E' }} aria-label="Locked (paid)" />
-                                                    : <Unlock size={13} className="inline-block" style={{ color: '#F59E0B' }} aria-label="Unlocked (unpaid)" />}
+                                                    ? <Lock size={13} className="inline-block" style={{ color: 'var(--color-brand-green)' }} aria-label="Locked (paid)" />
+                                                    : <Unlock size={13} className="inline-block" style={{ color: 'var(--color-brand-amber)' }} aria-label="Unlocked (unpaid)" />}
                                             </td>
 
                                             {/* Tax Reg — static "Missing" until source field exists */}
@@ -884,7 +884,7 @@ export default function Dashboard() {
                     <div className="flex flex-col gap-[5px]">
                         {([
                             { icon: Users,        label: 'Total Customers',     value: customersCount,         color: undefined as string | undefined },
-                            { icon: UserPlus,     label: 'New This Month',      value: newCustomersThisMonth,  color: '#00D4AA' },
+                            { icon: UserPlus,     label: 'New This Month',      value: newCustomersThisMonth,  color: 'var(--color-brand-teal)' },
                             { icon: Truck,        label: 'Active Vans',         value: vansCount,              color: undefined },
                             { icon: Package,      label: 'Products in Catalog', value: metrics.productCount,   color: undefined },
                             { icon: ShoppingCart, label: 'Total Orders MTD',    value: salesOrdersCount,       color: undefined },
