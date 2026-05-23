@@ -13,6 +13,14 @@ import {
   Smartphone,
   Shield,
   TrendingUp,
+  ShoppingCart,
+  DollarSign,
+  BarChart2,
+  Box,
+  Truck,
+  Star,
+  Megaphone,
+  Mic,
   AlertTriangle,
   X,
   Calendar,
@@ -50,19 +58,21 @@ const ROLE_ROUTES: Record<typeof ROLES[number], string> = {
 function App() {
   const location = useLocation();
   const [aiCtx, setAiCtx] = useState<any>({ invoices: [], customers: [], products: [], payments: [], purchaseOrders: [] });
-  // sidebarOpen drives both the desktop static sidebar AND the mobile
-  // drawer. Desktop default: open. Mobile default: closed.
-  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return true;
-    return window.innerWidth >= 1024;
-  });
+  // sidebarOpen drives the full drawer overlay. A separate 54px icon
+  // rail (rendered below) is ALWAYS visible on lg+ and isn't affected
+  // by this state. Default closed on all viewports.
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
   // Sidebar group expand/collapse state is lifted here so it survives
-  // any future Sidebar remount (drawer mode, hot reload, etc.).
+  // any future Sidebar remount (drawer animations, hot reload, etc.).
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     home: true,
   });
   const toggleGroup = (key: string) =>
     setOpenGroups((p) => ({ ...p, [key]: !p[key] }));
+  // Open (not toggle) — rail-icon clicks expand the matching group
+  // when they open the drawer.
+  const openGroup = (key: string) =>
+    setOpenGroups((p) => ({ ...p, [key]: true }));
   const [notifsOpen, setNotifsOpen] = useState(false);
   // Light/dark mode toggle — flips `light` class on <body>, persists
   // to localStorage key `soltol-theme`. Cosmetic only — no business logic.
@@ -152,12 +162,12 @@ function App() {
     });
   }, []);
 
-  // Global keyboard shortcut: Escape — closes the mobile drawer first
-  // if it's open, otherwise falls back to "go back".
+  // Global keyboard shortcut: Escape closes the drawer overlay
+  // (any viewport) before falling back to history.back.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      if (sidebarOpen && window.innerWidth < 1024) {
+      if (sidebarOpen) {
         setSidebarOpen(false);
       } else {
         window.history.back();
@@ -172,24 +182,17 @@ function App() {
   // The Menu button (TC-02) remains the manual toggle either way.
   // Re-evaluated on every resize so flipping a tablet to landscape
   // restores the sidebar without a refresh.
+  // Close drawer on any viewport resize for a clean transition
+  // between layouts.
   useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth >= 1024) {
-        // Desktop: ensure sidebar visible as static column.
-        setSidebarOpen(true);
-      } else {
-        // Mobile: close drawer on shrink (start closed).
-        setSidebarOpen(false);
-      }
-    };
+    const handleResize = () => setSidebarOpen(false);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Body scroll lock while the mobile drawer is open.
+  // Body scroll lock while the drawer overlay is open (any viewport).
   useEffect(() => {
-    const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024;
-    if (sidebarOpen && isMobile) {
+    if (sidebarOpen) {
       document.body.classList.add('sidebar-open');
     } else {
       document.body.classList.remove('sidebar-open');
@@ -215,24 +218,99 @@ function App() {
 
   return (
     <div className="flex h-screen bg-redwood-bg-light overflow-hidden text-redwood-text-main font-inter">
-      {/* Sidebar — Precision Redwood SideNav. The Menu button in the
-          header toggles `sidebarOpen`. On mobile (< lg / 1024px) the
-          sidebar is a drawer: fixed overlay + tap-to-dismiss backdrop +
-          ESC key. On desktop (≥ lg) it's a static 224px flex column,
-          fully hidden via lg:hidden when `sidebarOpen` is false.
-          Sidebar.tsx stays prop-free. */}
-      {/* Mobile overlay — tap to close drawer. CSS controls opacity +
-          blur + pointer-events; lg:hidden removes it on desktop. */}
+      {/* ── 54px icon RAIL — always visible on lg+, hidden on mobile.
+          Click any rail icon to open the drawer with that group
+          pre-expanded. Rail itself is in the flex flow and reserves
+          54px of width; the drawer overlays on top of content. */}
+      <nav
+        className="hidden lg:flex"
+        style={{
+          width: '54px',
+          flexShrink: 0,
+          background: 'var(--color-redwood-midnight)',
+          borderRight: '1px solid var(--color-redwood-border)',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: '6px',
+          padding: '10px 0',
+          overflowY: 'auto',
+        }}
+        aria-label="Section rail"
+      >
+        {[
+          { key: 'home',        label: 'Home',         Icon: Home,         bg: 'rgba(0,212,170,.12)',   color: '#00D4AA' },
+          { key: 'sales',       label: 'Sales & CRM',  Icon: ShoppingCart, bg: 'rgba(34,197,94,.12)',   color: '#22C55E' },
+          { key: 'finance',     label: 'Finance',      Icon: DollarSign,   bg: 'rgba(245,158,11,.12)',  color: '#F59E0B' },
+          { key: 'reports',     label: 'Reports',      Icon: BarChart2,    bg: 'rgba(255,255,255,.06)', color: '#8BA3C7' },
+          { key: 'inventory',   label: 'Inventory',    Icon: Box,          bg: 'rgba(255,255,255,.06)', color: '#8BA3C7' },
+          { key: 'procurement', label: 'Procurement',  Icon: Package,      bg: 'rgba(255,255,255,.06)', color: '#8BA3C7' },
+          { key: 'logistics',   label: 'Delivery',     Icon: Truck,        bg: 'rgba(255,255,255,.06)', color: '#8BA3C7' },
+          { key: 'ai',          label: 'AI Tools',     Icon: Star,         bg: 'rgba(124,58,237,.14)',  color: '#A78BFA' },
+          { key: 'marketing',   label: 'Marketing',    Icon: Megaphone,    bg: 'rgba(255,255,255,.06)', color: '#8BA3C7' },
+          { key: 'voice',       label: 'Soltol Voice', Icon: Mic,          bg: 'rgba(0,212,170,.12)',   color: '#00D4AA' },
+          { key: 'system',      label: 'Settings',     Icon: Settings,     bg: 'rgba(255,255,255,.06)', color: '#8BA3C7' },
+        ].map((g) => {
+          const Icon = g.Icon;
+          return (
+            <button
+              key={g.key}
+              type="button"
+              title={g.label}
+              aria-label={g.label}
+              onClick={(e) => {
+                e.stopPropagation();
+                openGroup(g.key);
+                setSidebarOpen(true);
+              }}
+              style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '8px',
+                background: g.bg,
+                color: g.color,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                border: 'none',
+                padding: 0,
+                flexShrink: 0,
+                transition: 'transform 0.12s ease, filter 0.12s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'scale(1.06)';
+                e.currentTarget.style.filter = 'brightness(1.15)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'scale(1)';
+                e.currentTarget.style.filter = 'none';
+              }}
+            >
+              <Icon size={16} strokeWidth={2} />
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* Overlay backdrop behind the drawer — tap to close. Shown on
+          ALL viewports when the drawer is open (drawer is overlay
+          on desktop too now). */}
       <div
         onClick={() => setSidebarOpen(false)}
-        className={`sidebar-overlay lg:hidden ${sidebarOpen ? 'open' : ''}`}
+        className={`sidebar-overlay ${sidebarOpen ? 'open' : ''}`}
         aria-hidden="true"
       />
-      {/* Sidebar wrapper. Mobile: fixed drawer with transform via
-          .sidebar-drawer class. Desktop: lg:static so it joins the
-          flex row; lg:hidden when closed (full hide, no icon-only). */}
+      {/* Drawer — the existing Sidebar component, animated in from
+          the left edge. Position fixed on every viewport now (no
+          lg:static). Slide handled via inline transform so theme.css
+          stays untouched. */}
       <div
-        className={`sidebar-drawer fixed inset-y-0 left-0 z-[200] lg:static lg:z-auto lg:translate-x-0 ${sidebarOpen ? 'open' : ''}`}
+        className="fixed inset-y-0 left-0 z-[200]"
+        style={{
+          transform: sidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
+          transition: 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+          boxShadow: sidebarOpen ? '4px 0 24px rgba(0,0,0,0.6)' : 'none',
+        }}
       >
         <Sidebar openGroups={openGroups} onToggleGroup={toggleGroup} />
       </div>
@@ -241,9 +319,7 @@ function App() {
       <main
         className="flex-1 flex flex-col min-w-0 pb-[72px] lg:pb-0"
         onClick={() => {
-          if (window.innerWidth < 1024 && sidebarOpen) {
-            setSidebarOpen(false);
-          }
+          if (sidebarOpen) setSidebarOpen(false);
         }}
       >
         <header className="h-[64px] bg-redwood-midnight border-b border-redwood-border px-3 sm:px-8 flex items-center justify-between sticky top-0 z-30 shadow-sm print:hidden">
@@ -336,13 +412,13 @@ function App() {
             onClick={() => navigate('/sales/invoices/new')}
             title="Create a new invoice"
             style={{
+              background: '#4F8EF7',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '8px',
               display: 'flex',
               alignItems: 'center',
               gap: '5px',
-              background: 'transparent',
-              color: '#4F8EF7',
-              border: '1.5px solid #4F8EF7',
-              borderRadius: '8px',
               padding: '5px 12px',
               fontSize: '11px',
               fontWeight: 600,
@@ -350,12 +426,12 @@ function App() {
               flexShrink: 0,
               fontFamily: 'inherit',
               cursor: 'pointer',
-              transition: 'background-color 0.2s ease',
+              transition: 'filter 0.15s ease',
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(79,142,247,.1)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+            onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(1.1)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.filter = 'none'; }}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#4F8EF7" strokeWidth="2.5" strokeLinecap="round">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round">
               <line x1="12" y1="5" x2="12" y2="19" />
               <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
@@ -453,24 +529,22 @@ function App() {
                   aria-label="Open employee portal"
                   tabIndex={0}
                 >
-                  {/* AQ avatar — hardcoded gradient + white text inline so
-                      the light-mode theme can't override and make it invisible. */}
+                  {/* AQ avatar — solid blue + white text hardcoded inline
+                      (no Tailwind, no gradient, no border) so the light-mode
+                      theme can't override it. */}
                   <div style={{
+                    background: '#4F8EF7',
+                    color: '#fff',
+                    borderRadius: '50%',
                     width: '34px',
                     height: '34px',
-                    borderRadius: '50%',
-                    background: 'linear-gradient(135deg, #00D4AA, #4F8EF7)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     fontSize: '11px',
                     fontWeight: 700,
-                    color: '#fff',
                     flexShrink: 0,
-                    letterSpacing: '.3px',
                     cursor: 'pointer',
-                    border: '2px solid rgba(255,255,255,.6)',
-                    fontFamily: "'DM Mono','Syne',sans-serif",
                   }}>
                     AQ
                   </div>
