@@ -238,7 +238,7 @@ function App() {
               type="button"
               onClick={cycleRole}
               title="Click to switch role"
-              className="hidden sm:inline-flex items-center gap-1 bg-[rgba(79,142,247,0.14)] text-[#93C5FD] border border-[rgba(79,142,247,0.28)] rounded-full px-3 py-1 text-[11px] font-medium hover:bg-[rgba(79,142,247,0.22)] transition-colors whitespace-nowrap"
+              className="inline-flex items-center gap-1 bg-[rgba(79,142,247,0.14)] text-[#93C5FD] border border-[rgba(79,142,247,0.28)] rounded-full px-2 sm:px-3 py-0.5 sm:py-1 text-[10px] sm:text-[11px] font-medium hover:bg-[rgba(79,142,247,0.22)] transition-colors whitespace-nowrap"
             >
               {ROLES[roleIndex]}
               <ChevronDown size={12} />
@@ -271,7 +271,7 @@ function App() {
             <div className="flex items-center gap-2">
               {/* FIX 4 — Live badge with pulsing green dot. */}
               <div
-                className="hidden md:inline-flex items-center gap-[5px] rounded-full font-semibold"
+                className="inline-flex items-center gap-[5px] rounded-full font-semibold"
                 style={{
                   background: 'rgba(34,197,94,.12)',
                   border: '1px solid rgba(34,197,94,.2)',
@@ -370,7 +370,7 @@ function App() {
             via the `soltol:fill-cmd` window event (CommandBar listens).
             No navigation — the prompt is queued in the search bar and
             the user reviews / hits Enter to submit. */}
-        <div className="bg-redwood-midnight border-b border-redwood-border px-3 sm:px-8 py-1.5 flex items-center gap-1.5 overflow-x-auto print:hidden">
+        <div className="bg-redwood-midnight border-b border-redwood-border px-3 sm:px-8 py-1.5 flex items-center gap-1.5 overflow-x-auto hide-scrollbar print:hidden">
           <span className="text-[9px] text-redwood-text-muted whitespace-nowrap uppercase tracking-[0.06em] flex-shrink-0">RECENT:</span>
           {[
             { label: 'Ali Bettano 0W16',    text: 'Ali bought Bettano 0W16 SP 12x1 — 3 cases $56',          icon: FileText,    bg: 'rgba(79,142,247,0.14)',  color: '#93C5FD', border: 'rgba(79,142,247,0.22)' },
@@ -440,7 +440,7 @@ function App() {
         )}
 
         {/* Tab row — broad navigation categories with route mapping */}
-        <div className="bg-redwood-midnight border-b border-redwood-border px-3 sm:px-8 flex items-center overflow-x-auto print:hidden">
+        <div className="bg-redwood-midnight border-b border-redwood-border px-3 sm:px-8 flex items-center overflow-x-auto hide-scrollbar print:hidden">
           {[
             { key: 'overview',  label: 'Overview',       route: '/',                   icon: LayoutDashboard, prefix: ['/'],                                       badge: null,  badgeColor: null },
             { key: 'finance',   label: 'Finance & Tax',  route: '/finance/accounting', icon: Receipt,         prefix: ['/finance', '/tax'],                        badge: '30%', badgeColor: 'red' },

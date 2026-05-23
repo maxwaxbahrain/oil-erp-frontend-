@@ -89,6 +89,17 @@ body {
   background: rgba(255, 255, 255, 0.20);
 }
 
+/* Hide-scrollbar utility — applied to horizontal scroll containers
+   (top-nav tab row, RECENT chips bar) so the scrollbar doesn't
+   reserve space or interrupt the visual line. */
+.hide-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* Base UI Components - Oracle Redwood Style */
 .oracle-card {
   background: var(--redwood-bg-surface);

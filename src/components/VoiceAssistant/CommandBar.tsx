@@ -338,7 +338,7 @@ export function CommandBar() {
                     {/* ⌘K hint badge (idle only).  Visual only — actual focus
                         is handled by the global keydown listener above. */}
                     {state !== 'listening' && (
-                        <kbd className="hidden sm:inline-flex items-center text-[10px] font-mono text-redwood-text-muted bg-white/5 border border-redwood-border rounded px-1.5 py-[1px] flex-shrink-0">
+                        <kbd className="inline-flex items-center text-[10px] font-mono text-redwood-text-muted bg-white/5 border border-redwood-border rounded px-1.5 py-[1px] flex-shrink-0">
                             ⌘K
                         </kbd>
                     )}

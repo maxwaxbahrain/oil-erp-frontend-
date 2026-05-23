@@ -191,7 +191,7 @@ export default function SalesDashboard() {
       </div>
 
       {/* ═══════════ SECTION 2 — 4 KPI cards (.g4) ═══════════ */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '10px', marginBottom: '12px' }}>
+      <div className="grid grid-cols-2 lg:grid-cols-4" style={{ gap: '10px', marginBottom: '12px' }}>
         {/* Card 1 — Total Customers (.kpi.kg) */}
         <div style={{ background: '#0f1f33', border: '1px solid rgba(255,255,255,.12)', borderRadius: '14px', padding: '13px 14px', position: 'relative', overflow: 'hidden', transition: '.18s', cursor: 'default' }}>
           <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', borderRadius: '14px 14px 0 0', background: 'linear-gradient(90deg,#22C55E,#86EFAC)' }} />
@@ -254,13 +254,13 @@ export default function SalesDashboard() {
         <div style={{ background: '#0f1f33', border: '1px solid rgba(255,255,255,.12)', borderRadius: '14px', padding: '13px 14px', position: 'relative', overflow: 'hidden', transition: '.18s', cursor: 'default' }}>
           <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', borderRadius: '14px 14px 0 0', background: 'linear-gradient(90deg,#F59E0B,#FCD34D)' }} />
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10.5px', color: '#8BA3C7', fontWeight: 500 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '9.5px', color: '#8BA3C7', fontWeight: 500, whiteSpace: 'nowrap', letterSpacing: '-0.01em' }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round">
                 <circle cx="12" cy="12" r="10" />
                 <circle cx="12" cy="12" r="6" />
                 <circle cx="12" cy="12" r="2" />
               </svg>
-              Target Achievement
+              <span title="Target Achievement">Target Achievement</span>
             </div>
             <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px', background: 'rgba(245,158,11,.12)', color: '#FCD34D', border: '1px solid rgba(245,158,11,.2)' }}>{targetPct}%</span>
           </div>
@@ -507,7 +507,7 @@ export default function SalesDashboard() {
           </div>
 
           {/* ── Active Campaigns (hardcoded — no campaigns API) ── */}
-          <div style={panelStyle}>
+          <div style={{ ...panelStyle, maxHeight: '280px', overflowY: 'auto' }}>
             <div style={phStyle}>
               <div style={ptStyle}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
