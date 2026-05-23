@@ -159,7 +159,7 @@ export default function Sidebar() {
     );
 
     return (
-        <aside className="w-[260px] bg-redwood-midnight text-redwood-text-main flex flex-col z-40 border-r border-redwood-border shadow-2xl h-full print:hidden">
+        <aside className="w-[280px] lg:w-[224px] bg-redwood-midnight text-redwood-text-main flex flex-col z-40 border-r border-redwood-border shadow-2xl h-full print:hidden">
             {/* Sidebar search — the SOLTOL ONE/tenant logo lives in the
                 top nav header now (App.tsx). Mirrors preview.html .sbsearch. */}
             <div className="px-3 py-3 border-b border-redwood-border shrink-0">

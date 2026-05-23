@@ -19,6 +19,7 @@ import {
   Calendar,
   UserX,
   Plus,
+  User,
   Settings,
   Sun,
   Moon,
@@ -51,7 +52,12 @@ const ROLE_ROUTES: Record<typeof ROLES[number], string> = {
 function App() {
   const location = useLocation();
   const [aiCtx, setAiCtx] = useState<any>({ invoices: [], customers: [], products: [], payments: [], purchaseOrders: [] });
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // sidebarOpen drives both the desktop static sidebar AND the mobile
+  // drawer. Desktop default: open. Mobile default: closed.
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    return window.innerWidth >= 1024;
+  });
   const [notifsOpen, setNotifsOpen] = useState(false);
   // Light/dark mode toggle — flips `light` class on <body>, persists
   // to localStorage key `soltol-theme`. Cosmetic only — no business logic.
@@ -141,14 +147,20 @@ function App() {
     });
   }, []);
 
-  // Global keyboard shortcut: Escape key = go back
+  // Global keyboard shortcut: Escape — closes the mobile drawer first
+  // if it's open, otherwise falls back to "go back".
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') window.history.back();
+      if (e.key !== 'Escape') return;
+      if (sidebarOpen && window.innerWidth < 1024) {
+        setSidebarOpen(false);
+      } else {
+        window.history.back();
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [sidebarOpen]);
 
   // TC-06 — Auto-collapse the sidebar on narrow viewports (mobile /
   // portrait) so the 260px Sidebar.tsx doesn't eat half the screen.
@@ -156,11 +168,29 @@ function App() {
   // Re-evaluated on every resize so flipping a tablet to landscape
   // restores the sidebar without a refresh.
   useEffect(() => {
-    const apply = () => setSidebarCollapsed(window.innerWidth < 768);
-    apply();
-    window.addEventListener('resize', apply);
-    return () => window.removeEventListener('resize', apply);
+    const handleResize = () => {
+      if (window.innerWidth >= 1024) {
+        // Desktop: ensure sidebar visible as static column.
+        setSidebarOpen(true);
+      } else {
+        // Mobile: close drawer on shrink (start closed).
+        setSidebarOpen(false);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // Body scroll lock while the mobile drawer is open.
+  useEffect(() => {
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024;
+    if (sidebarOpen && isMobile) {
+      document.body.classList.add('sidebar-open');
+    } else {
+      document.body.classList.remove('sidebar-open');
+    }
+    return () => document.body.classList.remove('sidebar-open');
+  }, [sidebarOpen]);
 
   const navigate = useNavigate();
 
@@ -185,33 +215,43 @@ function App() {
 
   return (
     <div className="flex h-screen bg-redwood-bg-light overflow-hidden text-redwood-text-main font-inter">
-      {/* Sidebar - Precision Redwood SideNav.  The Menu button in the
-          header below toggles `sidebarCollapsed`.  On mobile (< md)
-          the sidebar becomes a drawer: fixed-positioned overlay with
-          a tap-to-dismiss backdrop.  On desktop (>= md) it returns to
-          a static flex child.  Sidebar.tsx stays prop-free. */}
-      {!sidebarCollapsed && (
-        <>
-          {/* Mobile-only backdrop — tap to close the drawer. */}
-          <div
-            onClick={() => setSidebarCollapsed(true)}
-            className="md:hidden fixed inset-0 bg-black/40 z-30"
-            aria-hidden="true"
-          />
-          <div className="fixed inset-y-0 left-0 z-40 md:static md:z-auto flex">
-            <Sidebar />
-          </div>
-        </>
-      )}
+      {/* Sidebar — Precision Redwood SideNav. The Menu button in the
+          header toggles `sidebarOpen`. On mobile (< lg / 1024px) the
+          sidebar is a drawer: fixed overlay + tap-to-dismiss backdrop +
+          ESC key. On desktop (≥ lg) it's a static 224px flex column,
+          fully hidden via lg:hidden when `sidebarOpen` is false.
+          Sidebar.tsx stays prop-free. */}
+      {/* Mobile overlay — tap to close drawer. CSS controls opacity +
+          blur + pointer-events; lg:hidden removes it on desktop. */}
+      <div
+        onClick={() => setSidebarOpen(false)}
+        className={`sidebar-overlay lg:hidden ${sidebarOpen ? 'open' : ''}`}
+        aria-hidden="true"
+      />
+      {/* Sidebar wrapper. Mobile: fixed drawer with transform via
+          .sidebar-drawer class. Desktop: lg:static so it joins the
+          flex row; lg:hidden when closed (full hide, no icon-only). */}
+      <div
+        className={`sidebar-drawer fixed inset-y-0 left-0 z-[200] lg:static lg:z-auto lg:translate-x-0 ${sidebarOpen ? 'open' : ''} ${!sidebarOpen ? 'lg:hidden' : ''}`}
+      >
+        <Sidebar />
+      </div>
 
       {/* Main Orchestration Area */}
-      <main className="flex-1 flex flex-col min-w-0">
+      <main
+        className="flex-1 flex flex-col min-w-0 pb-[72px] lg:pb-0"
+        onClick={() => {
+          if (window.innerWidth < 1024 && sidebarOpen) {
+            setSidebarOpen(false);
+          }
+        }}
+      >
         <header className="h-[64px] bg-redwood-midnight border-b border-redwood-border px-3 sm:px-8 flex items-center justify-between sticky top-0 z-30 shadow-sm print:hidden">
           <div className="flex items-center gap-2 sm:gap-6">
             <button
-              onClick={() => setSidebarCollapsed(v => !v)}
+              onClick={() => setSidebarOpen(v => !v)}
               aria-label="Toggle sidebar"
-              title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+              title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
               className="p-2 text-redwood-text-muted hover:bg-redwood-bg-light rounded-sm transition-all border border-transparent hover:border-redwood-border"
             >
               <Menu size={20} />
@@ -226,12 +266,13 @@ function App() {
               >
                 S1
               </div>
-              <div
-                className="whitespace-nowrap"
-                style={{ fontFamily: "'Syne',sans-serif", fontSize: '15px', fontWeight: 600, color: 'var(--color-redwood-text-main)', letterSpacing: '-0.3px' }}
-              >
-                Soltol
-                <sub style={{ fontSize: '9px', fontWeight: 400, color: '#3E5678', marginLeft: '2px' }}>ERP</sub>
+              <div className="flex flex-col leading-none whitespace-nowrap">
+                <span style={{ fontFamily: "'Syne',sans-serif", fontSize: '15px', fontWeight: 600, color: 'var(--color-redwood-text-main)', letterSpacing: '-0.3px' }}>
+                  Soltol
+                </span>
+                <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: '8.5px', fontWeight: 400, color: 'var(--color-redwood-text-muted)', marginTop: '1px' }}>
+                  ERP
+                </span>
               </div>
             </div>
             {/* Breadcrumb pill hidden on phones AND on /sales/dashboard
@@ -253,6 +294,7 @@ function App() {
               title="Click to switch role"
               className="inline-flex items-center gap-1 bg-[rgba(79,142,247,0.14)] text-[#93C5FD] border border-[rgba(79,142,247,0.28)] rounded-full px-2 sm:px-3 py-0.5 sm:py-1 text-[10px] sm:text-[11px] font-medium hover:bg-[rgba(79,142,247,0.22)] transition-colors whitespace-nowrap"
             >
+              <User size={11} strokeWidth={2.5} />
               {ROLES[roleIndex]}
               <ChevronDown size={12} />
             </button>
@@ -272,7 +314,7 @@ function App() {
             type="button"
             onClick={() => navigate('/sales/invoices/new')}
             title="Create a new invoice"
-            className="hidden md:inline-flex items-center gap-1.5 bg-[#4F8EF7] text-white hover:brightness-110 transition-all rounded-md px-3 h-9 text-[12px] font-semibold whitespace-nowrap shadow-sm"
+            className="inline-flex items-center gap-1.5 bg-[#4F8EF7] text-white hover:brightness-110 transition-all rounded-lg px-[13px] py-[7px] max-[379px]:px-[9px] max-[379px]:py-[5px] text-[11px] font-semibold whitespace-nowrap shadow-sm"
           >
             <Plus size={14} strokeWidth={2.5} />
             New Invoice
@@ -383,17 +425,17 @@ function App() {
             via the `soltol:fill-cmd` window event (CommandBar listens).
             No navigation — the prompt is queued in the search bar and
             the user reviews / hits Enter to submit. */}
-        <div className="bg-redwood-midnight border-b border-redwood-border px-3 sm:px-8 py-1.5 flex items-center gap-1.5 overflow-x-auto hide-scrollbar print:hidden">
-          <span className="text-[9px] text-redwood-text-muted whitespace-nowrap uppercase tracking-[0.06em] flex-shrink-0">RECENT:</span>
+        <div className="bg-redwood-midnight border-b border-[rgba(255,255,255,0.07)] px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto hide-scrollbar print:hidden">
+          <span className="text-[8.5px] font-semibold text-redwood-text-muted whitespace-nowrap uppercase tracking-[0.05em] flex-shrink-0">RECENT:</span>
           {[
-            { label: 'Ali Bettano 0W16',    text: 'Ali bought Bettano 0W16 SP 12x1 — 3 cases $56',          icon: FileText,    bg: 'rgba(79,142,247,0.14)',  color: '#93C5FD', border: 'rgba(79,142,247,0.22)' },
-            { label: 'Leo Tire paid $239',  text: 'Leo Tire Shop paid $239 today',                          icon: Wallet,      bg: 'rgba(34,197,94,0.12)',   color: '#86EFAC', border: 'rgba(34,197,94,0.22)' },
-            { label: 'Mobil 5W30 stock',    text: 'Check stock and reorder plan for Mobil 5W30',            icon: Package,     bg: 'rgba(245,158,11,0.12)',  color: '#FCD34D', border: 'rgba(245,158,11,0.22)' },
-            { label: 'Qahir demand letter', text: 'Qahir Enterprises 32 days overdue — draft demand letter', icon: AlertCircle, bg: 'rgba(239,68,68,0.12)',   color: '#FCA5A5', border: 'rgba(239,68,68,0.22)' },
-            { label: 'VAT return Q1',       text: 'Generate VAT return report for this quarter',            icon: Receipt,     bg: 'rgba(167,139,250,0.12)', color: '#C4B5FD', border: 'rgba(167,139,250,0.22)' },
-            { label: 'Today audit log',     text: 'Show full audit log for today — all user actions',       icon: Shield,      bg: 'rgba(0,212,170,0.10)',   color: '#5EEAD4', border: 'rgba(0,212,170,0.22)' },
-            { label: 'Churn risk',          text: 'Which customers are at risk of churning this month?',    icon: UserX,       bg: 'rgba(34,197,94,0.12)',   color: '#86EFAC', border: 'rgba(34,197,94,0.22)' },
-            { label: 'Payment run Fri',     text: 'AP $18k due in 7 days — schedule payment run',           icon: Calendar,    bg: 'rgba(255,255,255,0.05)', color: 'var(--color-redwood-text-muted)', border: 'rgba(255,255,255,0.12)' },
+            { label: 'Ali Bettano 0W16',    text: 'Ali bought Bettano 0W16 SP 12x1 — 3 cases $56',          icon: FileText,    bg: 'rgba(255,255,255,0.05)', color: 'var(--color-redwood-text-muted)', border: 'rgba(255,255,255,0.10)' },
+            { label: 'Leo Tire paid $239',  text: 'Leo Tire Shop paid $239 today',                          icon: Wallet,      bg: 'rgba(34,197,94,0.12)',   color: '#86EFAC', border: 'rgba(34,197,94,0.30)' },
+            { label: 'Mobil 5W30 stock',    text: 'Check stock and reorder plan for Mobil 5W30',            icon: Package,     bg: 'rgba(245,158,11,0.12)',  color: '#FCD34D', border: 'rgba(245,158,11,0.30)' },
+            { label: 'Qahir demand letter', text: 'Qahir Enterprises 32 days overdue — draft demand letter', icon: AlertCircle, bg: 'rgba(239,68,68,0.12)',   color: '#FCA5A5', border: 'rgba(239,68,68,0.30)' },
+            { label: 'VAT return Q1',       text: 'Generate VAT return report for this quarter',            icon: Receipt,     bg: 'rgba(255,255,255,0.05)', color: 'var(--color-redwood-text-muted)', border: 'rgba(255,255,255,0.10)' },
+            { label: 'Today audit log',     text: 'Show full audit log for today — all user actions',       icon: Shield,      bg: 'rgba(0,212,170,0.10)',   color: '#5EEAD4', border: 'rgba(0,212,170,0.30)' },
+            { label: 'Churn risk',          text: 'Which customers are at risk of churning this month?',    icon: UserX,       bg: 'rgba(245,158,11,0.12)',  color: '#FCD34D', border: 'rgba(245,158,11,0.30)' },
+            { label: 'Payment run Fri',     text: 'AP $18k due in 7 days — schedule payment run',           icon: Calendar,    bg: 'rgba(255,255,255,0.05)', color: 'var(--color-redwood-text-muted)', border: 'rgba(255,255,255,0.10)' },
           ].map((c, i) => {
             const Icon = c.icon;
             return (
@@ -404,7 +446,7 @@ function App() {
                   try { window.dispatchEvent(new CustomEvent('soltol:fill-cmd', { detail: { text: c.text } })); } catch { /* ignore */ }
                 }}
                 title={c.text}
-                className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-medium whitespace-nowrap transition-all hover:-translate-y-[1px] hover:brightness-110 flex-shrink-0 border"
+                className="flex items-center gap-1 px-2 h-[21px] rounded-full text-[9.5px] font-medium whitespace-nowrap transition-all hover:-translate-y-[1px] hover:brightness-110 flex-shrink-0 border"
                 style={{ background: c.bg, color: c.color, borderColor: c.border }}
               >
                 <Icon size={12} />
@@ -416,12 +458,12 @@ function App() {
 
         {/* Alert bar — shows only when there's something to alert about */}
         {showAlertBar && (alertCounts.unpaid > 0 || alertCounts.overdue > 0 || alertCounts.lowStock > 0) && (
-          <div className="bg-[rgba(245,158,11,0.07)] border-b border-[rgba(245,158,11,0.16)] px-4 sm:px-8 py-2 flex items-center gap-2 text-[11px] text-[#FDE68A] print:hidden">
+          <div className="bg-[rgba(245,158,11,0.07)] border-b border-[rgba(245,158,11,0.14)] px-3 py-1.5 flex items-center gap-2 overflow-hidden text-[10px] text-redwood-text-muted print:hidden">
             <AlertTriangle size={14} className="text-[#F59E0B] flex-shrink-0" />
-            <span className="flex-1 min-w-0">
+            <span className="flex-1 min-w-0 truncate">
               {alertCounts.unpaid > 0 && (
                 <>
-                  <strong>{alertCounts.unpaid} unpaid invoice{alertCounts.unpaid === 1 ? '' : 's'}</strong>
+                  <strong style={{ color: '#FCD34D', fontWeight: 600 }}>{alertCounts.unpaid} unpaid invoice{alertCounts.unpaid === 1 ? '' : 's'}</strong>
                   {alertCounts.unpaidTotal > 0 && ` totalling $${alertCounts.unpaidTotal.toLocaleString()}`}
                 </>
               )}
@@ -431,29 +473,29 @@ function App() {
               {alertCounts.lowStock > 0 && <>{alertCounts.lowStock} item{alertCounts.lowStock === 1 ? '' : 's'} low stock</>}
             </span>
             {alertCounts.unpaid > 0 && (
-              <button onClick={() => navigate('/sales/invoices')} className="text-[#F59E0B] font-semibold underline hover:no-underline flex-shrink-0">Invoices →</button>
+              <button onClick={() => navigate('/sales/invoices')} className="text-[9.5px] text-[#F59E0B] font-semibold underline hover:no-underline flex-shrink-0">Invoices →</button>
             )}
             {alertCounts.lowStock > 0 && (
-              <button onClick={() => navigate('/products')} className="text-[#F59E0B] font-semibold underline hover:no-underline flex-shrink-0">Stock →</button>
+              <button onClick={() => navigate('/products')} className="text-[9.5px] text-[#F59E0B] font-semibold underline hover:no-underline flex-shrink-0">Stock →</button>
             )}
             {alertCounts.overdue > 0 && (
-              <button onClick={() => navigate('/reports/aged-receivable')} className="text-[#F59E0B] font-semibold underline hover:no-underline flex-shrink-0">Aged AR →</button>
+              <button onClick={() => navigate('/reports/aged-receivable')} className="text-[9.5px] text-[#F59E0B] font-semibold underline hover:no-underline flex-shrink-0">Aged AR →</button>
             )}
             <button
               onClick={() => {
                 try { sessionStorage.setItem('soltol_alert_dismissed', '1'); } catch { /* ignore */ }
                 setShowAlertBar(false);
               }}
-              className="ml-2 w-5 h-5 rounded bg-white/5 flex items-center justify-center text-[#F59E0B] hover:bg-white/10 flex-shrink-0"
+              className="ml-2 w-5 h-5 rounded bg-white/5 flex items-center justify-center text-[#3E5678] hover:bg-white/10 flex-shrink-0"
               aria-label="Dismiss"
             >
-              <X size={11} />
+              <X size={12} />
             </button>
           </div>
         )}
 
         {/* Tab row — broad navigation categories with route mapping */}
-        <div className="bg-redwood-midnight border-b border-redwood-border px-3 sm:px-8 flex items-center overflow-x-auto hide-scrollbar print:hidden">
+        <div className="bg-redwood-midnight border-b border-[rgba(255,255,255,0.07)] px-3 flex items-end overflow-x-auto hide-scrollbar print:hidden">
           {[
             { key: 'overview',  label: 'Overview',       route: '/',                   icon: LayoutDashboard, prefix: ['/'],                                       badge: null,  badgeColor: null },
             { key: 'finance',   label: 'Finance & Tax',  route: '/finance/accounting', icon: Receipt,         prefix: ['/finance', '/tax'],                        badge: '30%', badgeColor: 'red' },
@@ -471,7 +513,7 @@ function App() {
                 key={t.key}
                 type="button"
                 onClick={() => navigate(t.route)}
-                className={`flex items-center gap-1.5 px-3 py-2.5 text-[11px] font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${
+                className={`flex items-center gap-[5px] px-[11px] h-[38px] text-[10.5px] font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${
                   isActive
                     ? 'text-redwood-text-main border-[#4F8EF7]'
                     : 'text-redwood-text-muted border-transparent hover:text-redwood-text-main'
@@ -481,11 +523,11 @@ function App() {
                 {t.label}
                 {t.badge && (
                   <span
-                    className="text-[8px] font-semibold px-1.5 py-[1px] rounded-full ml-0.5"
+                    className="text-[7.5px] font-semibold px-1.5 py-[1px] rounded-full ml-0.5"
                     style={
                       t.badgeColor === 'red'
-                        ? { background: 'rgba(239,68,68,0.12)', color: '#FCA5A5', border: '1px solid rgba(239,68,68,0.2)' }
-                        : { background: 'rgba(245,158,11,0.12)', color: '#FCD34D', border: '1px solid rgba(245,158,11,0.2)' }
+                        ? { background: 'rgba(239,68,68,0.18)', color: '#FCA5A5' }
+                        : { background: 'rgba(245,158,11,0.18)', color: '#FCD34D' }
                     }
                   >
                     {t.badge}
@@ -508,7 +550,7 @@ function App() {
         <VoiceAssistant />
 
         {/* Global Identity Footer */}
-        <footer className="h-10 bg-redwood-midnight border-t border-redwood-border px-3 sm:px-8 flex items-center justify-between text-[10px] font-bold text-redwood-text-muted uppercase tracking-[0.2em] shadow-[0_-1px_3px_rgba(0,0,0,0.02)] print:hidden">
+        <footer className="h-10 bg-redwood-midnight border-t border-redwood-border px-3 sm:px-8 hidden lg:flex items-center justify-between text-[10px] font-bold text-redwood-text-muted uppercase tracking-[0.2em] shadow-[0_-1px_3px_rgba(0,0,0,0.02)] print:hidden">
           <div className="flex items-center gap-4 flex-wrap min-w-0">
             <span className="text-redwood-brand whitespace-nowrap shrink-0">SOLTOL ONE</span>
             {/* Version + tagline hidden on phones to avoid footer overflow. */}
@@ -524,6 +566,46 @@ function App() {
           </div>
         </footer>
       </main>
+
+      {/* Mobile bottom nav — 5 quick-access routes. Hidden on lg+.
+          Fixed-positioned overlay; <main> uses pb-[72px] lg:pb-0 to
+          keep scrollable content above this bar. */}
+      <nav
+        className="lg:hidden fixed bottom-0 left-0 right-0 h-[56px] flex z-50 bg-redwood-midnight border-t border-[rgba(255,255,255,0.07)] print:hidden"
+        aria-label="Mobile navigation"
+      >
+        {[
+          { key: 'home',    label: 'Home',    icon: LayoutDashboard, route: '/',                   prefix: ['/']                       },
+          { key: 'finance', label: 'Finance', icon: Receipt,         route: '/finance/accounting', prefix: ['/finance', '/tax']        },
+          { key: 'invoice', label: 'Invoice', icon: FileText,        route: '/sales/invoices',     prefix: ['/sales/invoices']         },
+          { key: 'stock',   label: 'Stock',   icon: Package,         route: '/products',           prefix: ['/products', '/inventory'] },
+          { key: 'menu',    label: 'Menu',    icon: Menu,            route: null,                  prefix: []                          },
+        ].map((item) => {
+          const Icon = item.icon;
+          const isActive = item.key === 'home'
+            ? location.pathname === '/'
+            : item.prefix.some((p) => location.pathname.startsWith(p));
+          return (
+            <button
+              key={item.key}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (item.key === 'menu') setSidebarOpen(true);
+                else if (item.route) navigate(item.route);
+              }}
+              className="flex-1 flex flex-col items-center justify-center gap-[2px] text-[8.5px] py-1 cursor-pointer transition-colors"
+              style={{ color: isActive ? '#4F8EF7' : '#3E5678' }}
+            >
+              <Icon size={18} strokeWidth={2} />
+              {item.label}
+              {isActive && (
+                <div className="w-1 h-1 rounded-full bg-[#4F8EF7] mt-px" />
+              )}
+            </button>
+          );
+        })}
+      </nav>
     </div>
   );
 }
