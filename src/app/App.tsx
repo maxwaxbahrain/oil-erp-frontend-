@@ -232,7 +232,7 @@ function App() {
           .sidebar-drawer class. Desktop: lg:static so it joins the
           flex row; lg:hidden when closed (full hide, no icon-only). */}
       <div
-        className={`sidebar-drawer fixed inset-y-0 left-0 z-[200] lg:static lg:z-auto lg:translate-x-0 ${sidebarOpen ? 'open' : ''} ${!sidebarOpen ? 'lg:hidden' : ''}`}
+        className={`sidebar-drawer fixed inset-y-0 left-0 z-[200] lg:static lg:z-auto lg:translate-x-0 ${sidebarOpen ? 'open' : ''}`}
       >
         <Sidebar openGroups={openGroups} onToggleGroup={toggleGroup} />
       </div>
@@ -453,10 +453,37 @@ function App() {
                   aria-label="Open employee portal"
                   tabIndex={0}
                 >
-                  <div className="w-10 h-10 rounded-sm bg-redwood-slate flex items-center justify-center text-white text-xs font-black shadow-md group-hover:bg-redwood-brand transition-all overflow-hidden border-2 border-white">
+                  {/* AQ avatar — hardcoded gradient + white text inline so
+                      the light-mode theme can't override and make it invisible. */}
+                  <div style={{
+                    width: '34px',
+                    height: '34px',
+                    borderRadius: '50%',
+                    background: 'linear-gradient(135deg, #00D4AA, #4F8EF7)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    color: '#fff',
+                    flexShrink: 0,
+                    letterSpacing: '.3px',
+                    cursor: 'pointer',
+                    border: '2px solid rgba(255,255,255,.6)',
+                    fontFamily: "'DM Mono','Syne',sans-serif",
+                  }}>
                     AQ
                   </div>
-                  <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 rounded-full border-2 border-white shadow-sm"></div>
+                  <div style={{
+                    position: 'absolute',
+                    bottom: '-4px',
+                    right: '-4px',
+                    width: '12px',
+                    height: '12px',
+                    background: '#10B981',
+                    borderRadius: '50%',
+                    border: '2px solid rgba(255,255,255,.6)',
+                  }} />
                 </div>
               </div>
             </div>

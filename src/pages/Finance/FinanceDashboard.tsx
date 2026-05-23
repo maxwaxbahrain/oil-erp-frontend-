@@ -184,7 +184,19 @@ export default function FinanceDashboard() {
   const worstInvoice = unpaidInvoices
     .filter((i) => daysOverdue(i.dueDate) > 30)
     .sort((a, b) => outstandingAmount(b) - outstandingAmount(a))[0];
-  const worstName = worstInvoice?.customerName ?? 'Overdue account';
+  // Cast to any so the fallback chain can probe alternate field
+  // shapes (`customer.name`, `companyName`, `clientName`, `billTo.name`)
+  // that some payloads use even though Invoice type only declares
+  // `customerName`. Also handles empty-string case.
+  const _wi = worstInvoice as any;
+  const worstName =
+    (_wi?.customerName && String(_wi.customerName).trim()) ||
+    _wi?.customer?.name ||
+    _wi?.customer?.companyName ||
+    _wi?.companyName ||
+    _wi?.clientName ||
+    _wi?.billTo?.name ||
+    'Overdue account';
   const worstAmount = worstInvoice ? outstandingAmount(worstInvoice) : 0;
   const worstDays = worstInvoice ? daysOverdue(worstInvoice.dueDate) : 0;
 

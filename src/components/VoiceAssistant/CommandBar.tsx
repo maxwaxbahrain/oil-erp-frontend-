@@ -345,8 +345,10 @@ export function CommandBar() {
                     )}
 
                     {/* Send box — 42×38 blue arrow flush to right edge of
-                        the wrapper. Appears only when there's typed text. */}
-                    {state !== 'listening' && query.trim().length > 0 && (
+                        the wrapper. Always rendered (except while listening,
+                        where the waveform replaces the input). Submitting an
+                        empty query is a no-op handled by handleSubmit. */}
+                    {state !== 'listening' && (
                         <button
                             type="submit"
                             aria-label="Send command"
