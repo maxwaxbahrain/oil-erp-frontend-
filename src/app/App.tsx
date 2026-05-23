@@ -17,7 +17,6 @@ import {
   X,
   Calendar,
   UserX,
-  Plus,
   User,
   Settings,
   Sun,
@@ -282,18 +281,50 @@ function App() {
               type="button"
               onClick={cycleRole}
               title="Click to switch role"
-              className="inline-flex items-center gap-1 bg-[rgba(79,142,247,0.14)] text-[#93C5FD] border border-[rgba(79,142,247,0.28)] rounded-full px-2 sm:px-3 py-0.5 sm:py-1 text-[10px] sm:text-[11px] font-medium hover:bg-[rgba(79,142,247,0.22)] transition-colors whitespace-nowrap"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                background: 'rgba(79,142,247,.12)',
+                color: '#93C5FD',
+                border: '1px solid rgba(79,142,247,.3)',
+                borderRadius: '999px',
+                padding: '0 11px',
+                height: '38px',
+                fontSize: '10.5px',
+                fontWeight: 500,
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                transition: 'background-color 0.15s ease',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(79,142,247,.22)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(79,142,247,.12)'; }}
             >
               <User size={11} strokeWidth={2.5} />
               {ROLES[roleIndex]}
-              <ChevronDown size={12} />
+              <ChevronDown size={10} strokeWidth={2.5} />
             </button>
           </div>
 
           {/* Header-center command bar — search + voice.  Hidden on
               phones (the header is too narrow to host the pill plus
               the right-cluster icons). */}
-          <div className="flex flex-1 max-w-[520px] mx-4 justify-center">
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              height: '38px',
+              background: 'rgba(255,255,255,.05)',
+              border: '1.5px solid rgba(79,142,247,.4)',
+              borderRadius: '9px',
+              display: 'flex',
+              alignItems: 'center',
+              margin: '0 7px',
+              overflow: 'hidden',
+            }}
+          >
             <CommandBar />
           </div>
 
@@ -304,9 +335,30 @@ function App() {
             type="button"
             onClick={() => navigate('/sales/invoices/new')}
             title="Create a new invoice"
-            className="inline-flex items-center gap-1.5 bg-[#4F8EF7] text-white hover:brightness-110 transition-all rounded-lg px-[13px] py-[7px] max-[379px]:px-[9px] max-[379px]:py-[5px] text-[11px] font-semibold whitespace-nowrap shadow-sm"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+              background: 'transparent',
+              color: '#4F8EF7',
+              border: '1.5px solid #4F8EF7',
+              borderRadius: '8px',
+              padding: '5px 12px',
+              fontSize: '11px',
+              fontWeight: 600,
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+              fontFamily: 'inherit',
+              cursor: 'pointer',
+              transition: 'background-color 0.2s ease',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(79,142,247,.1)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
           >
-            <Plus size={14} strokeWidth={2.5} />
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#4F8EF7" strokeWidth="2.5" strokeLinecap="round">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
             New Invoice
           </button>
 

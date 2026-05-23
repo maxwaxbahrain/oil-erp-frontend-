@@ -287,11 +287,12 @@ export function CommandBar() {
                     </div>
                 )}
 
-                {/* Pill — 40px height, rounded-xl, blue 1.5px border per preview */}
+                {/* Outer chrome (background + border + radius + 38px height)
+                    lives on the parent wrapper in App.tsx now; the form is
+                    just an inner flex strip. */}
                 <form
                     onSubmit={handleSubmit}
-                    className="flex items-center gap-2 px-3 rounded-xl bg-[#0f1f33] text-white w-full h-10 focus-within:border-[#4F8EF7] focus-within:ring-2 focus-within:ring-[#4F8EF7]/10 transition-colors"
-                    style={{ border: '1.5px solid rgba(79,142,247,0.28)' }}
+                    className="flex items-center gap-2 px-3 text-white w-full h-full"
                 >
                     {/* Sparkle icon — decorative, blue */}
                     <Sparkles
@@ -343,41 +344,77 @@ export function CommandBar() {
                         </kbd>
                     )}
 
-                    {/* Send button — appears only when there's typed text and
-                        we're not listening / processing.  Submits the form. */}
+                    {/* Send box — 42×38 blue arrow flush to right edge of
+                        the wrapper. Appears only when there's typed text. */}
                     {state !== 'listening' && query.trim().length > 0 && (
                         <button
                             type="submit"
                             aria-label="Send command"
                             title="Send (Enter)"
                             disabled={inputDisabled}
-                            className="w-6 h-6 rounded-full flex items-center justify-center bg-[#4F8EF7] text-white hover:brightness-110 transition-colors disabled:opacity-40 flex-shrink-0"
+                            className="hover:brightness-110 transition-all disabled:opacity-40"
+                            style={{
+                                width: '42px',
+                                height: '38px',
+                                background: '#4F8EF7',
+                                borderRadius: '0 7px 7px 0',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                                border: 'none',
+                                cursor: 'pointer',
+                                marginLeft: '4px',
+                                marginRight: '-12px',
+                                padding: 0,
+                            }}
                         >
-                            <Send size={12} />
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round">
+                                <line x1="12" y1="19" x2="12" y2="5" />
+                                <polyline points="5 12 12 5 19 12" />
+                            </svg>
                         </button>
                     )}
 
-                    {/* Mic — toggle: click to start, click to stop+submit.
-                        Pulses brand red during listening. */}
+                    {/* Mic — 28px circle. Blue when idle, red ring + scale
+                        on hover, red pulse during listening. Logic unchanged. */}
                     <button
                         type="button"
                         onClick={handleMicToggle}
                         disabled={micDisabled}
-                        aria-label={
-                            state === 'listening'
-                                ? 'Stop and submit'
-                                : 'Speak a command'
-                        }
-                        title={
-                            state === 'listening'
-                                ? 'Stop and submit'
-                                : 'Click to speak'
-                        }
-                        className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors disabled:opacity-40 flex-shrink-0 ${
-                            state === 'listening'
-                                ? 'text-[#C74634] animate-pulse'
-                                : 'text-gray-300 hover:text-white'
-                        }`}
+                        aria-label={state === 'listening' ? 'Stop and submit' : 'Speak a command'}
+                        title={state === 'listening' ? 'Stop and submit' : 'Click to speak'}
+                        className={`flex-shrink-0 disabled:opacity-40 ${state === 'listening' ? 'animate-pulse' : ''}`}
+                        style={{
+                            width: '28px',
+                            height: '28px',
+                            borderRadius: '50%',
+                            background: state === 'listening' ? 'rgba(239,68,68,.15)' : 'rgba(79,142,247,.15)',
+                            color: state === 'listening' ? '#EF4444' : '#4F8EF7',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            border: 'none',
+                            padding: 0,
+                        }}
+                        onMouseEnter={(e) => {
+                            if (state === 'listening') return;
+                            const el = e.currentTarget;
+                            el.style.background = 'rgba(239,68,68,.15)';
+                            el.style.boxShadow = '0 0 0 3px rgba(239,68,68,.25)';
+                            el.style.transform = 'scale(1.15)';
+                            el.style.color = '#EF4444';
+                        }}
+                        onMouseLeave={(e) => {
+                            if (state === 'listening') return;
+                            const el = e.currentTarget;
+                            el.style.background = 'rgba(79,142,247,.15)';
+                            el.style.boxShadow = 'none';
+                            el.style.transform = 'scale(1)';
+                            el.style.color = '#4F8EF7';
+                        }}
                     >
                         <Mic size={14} />
                     </button>

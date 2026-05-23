@@ -180,16 +180,13 @@ export default function FinanceDashboard() {
   const arTotal = bucketRows.reduce((s, b) => s + b.total, 0);
   const maxBucket = Math.max(1, ...bucketRows.map((b) => b.total));
 
-  // Collection Health row 1 — worst overdue customer (real data).
-  const customerOverdue: Record<string, number> = {};
-  unpaidInvoices.forEach((i) => {
-    if (daysOverdue(i.dueDate) > 30) {
-      customerOverdue[i.customerName] =
-        (customerOverdue[i.customerName] || 0) + outstandingAmount(i);
-    }
-  });
-  const worstOverdue = Object.entries(customerOverdue)
-    .sort((a, b) => b[1] - a[1])[0];
+  // Collection Health row 1 — single worst overdue invoice (real data).
+  const worstInvoice = unpaidInvoices
+    .filter((i) => daysOverdue(i.dueDate) > 30)
+    .sort((a, b) => outstandingAmount(b) - outstandingAmount(a))[0];
+  const worstName = worstInvoice?.customerName ?? 'Overdue account';
+  const worstAmount = worstInvoice ? outstandingAmount(worstInvoice) : 0;
+  const worstDays = worstInvoice ? daysOverdue(worstInvoice.dueDate) : 0;
 
   // Collection Health row 3 — total collected MTD (payments only).
   const mtdCollected = mtdInvoices.reduce(
@@ -413,12 +410,12 @@ export default function FinanceDashboard() {
             Current within terms
           </div>
 
-          <div style={{ ...rowStyle, color: 'var(--color-redwood-text-muted)' }}>
+          <div style={rowStyle}>
             <span style={{ color: 'var(--color-brand-red)' }}>
-              {worstOverdue ? worstOverdue[0] : 'No overdue customers'}
+              ⚠ {worstInvoice ? worstName : 'No overdue accounts'}
             </span>
             <span style={{ color: 'var(--color-brand-red)', fontWeight: 600 }}>
-              {worstOverdue ? `$${fmt(worstOverdue[1])}` : '—'}
+              {worstInvoice ? `$${worstAmount.toLocaleString()} · ${worstDays}d` : '—'}
             </span>
           </div>
           <div style={rowStyle}>
