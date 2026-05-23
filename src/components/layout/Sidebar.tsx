@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
     Home,
@@ -65,18 +64,17 @@ function BadgePill({ text, tone }: Badge) {
     );
 }
 
-export default function Sidebar() {
-    const location = useLocation();
+type SidebarProps = {
+    // Lifted from App.tsx so group open/closed state survives any
+    // unmount of the Sidebar (e.g. when the mobile drawer animates
+    // closed or a hot reload swaps the component instance).
+    openGroups: Record<string, boolean>;
+    onToggleGroup: (key: string) => void;
+};
 
-    // Per-group open/closed state.  HOME defaults to open so the user
-    // always sees Dashboard.  Each entry is keyed by the group's `keyId`
-    // below; toggleGroup flips one key without affecting the others
-    // (multiple groups can be open at once — no accordion).
-    const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
-        home: true,
-    });
-    const toggleGroup = (key: string) =>
-        setOpenGroups(p => ({ ...p, [key]: !p[key] }));
+export default function Sidebar({ openGroups, onToggleGroup }: SidebarProps) {
+    const location = useLocation();
+    const toggleGroup = onToggleGroup;
 
     // ── NavItem — one row inside a group.  Active state: tinted blue
     //    background + blue text + 2px right border (Soltol pattern).

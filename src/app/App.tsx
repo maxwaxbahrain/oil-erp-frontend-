@@ -57,6 +57,13 @@ function App() {
     if (typeof window === 'undefined') return true;
     return window.innerWidth >= 1024;
   });
+  // Sidebar group expand/collapse state is lifted here so it survives
+  // any future Sidebar remount (drawer mode, hot reload, etc.).
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
+    home: true,
+  });
+  const toggleGroup = (key: string) =>
+    setOpenGroups((p) => ({ ...p, [key]: !p[key] }));
   const [notifsOpen, setNotifsOpen] = useState(false);
   // Light/dark mode toggle — flips `light` class on <body>, persists
   // to localStorage key `soltol-theme`. Cosmetic only — no business logic.
@@ -228,7 +235,7 @@ function App() {
       <div
         className={`sidebar-drawer fixed inset-y-0 left-0 z-[200] lg:static lg:z-auto lg:translate-x-0 ${sidebarOpen ? 'open' : ''} ${!sidebarOpen ? 'lg:hidden' : ''}`}
       >
-        <Sidebar />
+        <Sidebar openGroups={openGroups} onToggleGroup={toggleGroup} />
       </div>
 
       {/* Main Orchestration Area */}
@@ -286,7 +293,7 @@ function App() {
           {/* Header-center command bar — search + voice.  Hidden on
               phones (the header is too narrow to host the pill plus
               the right-cluster icons). */}
-          <div className="hidden md:flex flex-1 max-w-[520px] mx-4 justify-center">
+          <div className="flex flex-1 max-w-[520px] mx-4 justify-center">
             <CommandBar />
           </div>
 

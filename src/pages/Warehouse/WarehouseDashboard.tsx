@@ -138,7 +138,7 @@ export default function WarehouseDashboard() {
   };
 
   return (
-    <div style={{ paddingBottom: '40px' }}>
+    <div style={{ paddingBottom: '80px' }}>
       {/* ────────── A) Page header ────────── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', gap: '12px', flexWrap: 'wrap' }}>
         <div>
@@ -217,7 +217,7 @@ export default function WarehouseDashboard() {
           <div style={{
             display: 'grid',
             gridTemplateColumns: `repeat(${cols.bins}, 1fr)`,
-            gap: '8px',
+            gap: cols.bins === 2 ? '6px' : '8px',
           }}>
             {BINS.map((bin) => {
               const chip = expiryChip(bin.expiry);
@@ -228,7 +228,7 @@ export default function WarehouseDashboard() {
                     background: bin.qz ? 'rgba(239,68,68,.04)' : 'var(--color-redwood-row-bg)',
                     border: `1px solid ${bin.qz ? 'rgba(239,68,68,.4)' : 'var(--color-redwood-border)'}`,
                     borderRadius: '9px',
-                    padding: '9px 10px',
+                    padding: cols.bins === 2 ? '7px 8px' : '9px 10px',
                     overflow: 'hidden',
                   }}
                 >
