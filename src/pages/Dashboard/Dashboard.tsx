@@ -666,7 +666,7 @@ export default function Dashboard() {
                             <div className="text-[10px] text-redwood-text-muted">Sales vs Expenses</div>
                         </div>
                         <div className="flex items-center gap-1.5">
-                            <div className="flex bg-[#142540] rounded-md overflow-hidden border border-redwood-border">
+                            <div className="flex bg-redwood-row-bg rounded-md overflow-hidden border border-redwood-border">
                                 {(['3m', '6m', 'ytd', '1y'] as const).map((r) => (
                                     <button
                                         key={r}
@@ -689,10 +689,10 @@ export default function Dashboard() {
                     <div className="h-[160px]">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={monthlyPerformanceData}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                                <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#8BA3C7' }} stroke="rgba(255,255,255,0.12)" />
-                                <YAxis tick={{ fontSize: 11, fill: '#8BA3C7' }} stroke="rgba(255,255,255,0.12)" />
-                                <Tooltip contentStyle={{ backgroundColor: '#0f1f33', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', fontSize: '12px', fontWeight: 600, color: '#EEF2FF' }} />
+                                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-redwood-border)" />
+                                <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'var(--color-redwood-text-muted)' }} stroke="var(--color-redwood-border)" />
+                                <YAxis tick={{ fontSize: 11, fill: 'var(--color-redwood-text-muted)' }} stroke="var(--color-redwood-border)" />
+                                <Tooltip contentStyle={{ backgroundColor: 'var(--color-redwood-bg-surface)', border: '1px solid var(--color-redwood-border)', borderRadius: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--color-redwood-text-main)' }} />
                                 <Bar dataKey="sales" name="Total Sales" fill="#4F8EF7" radius={[4, 4, 0, 0]} />
                                 <Bar dataKey="expenses" name="Total Expenses" fill="rgba(79,142,247,0.3)" radius={[4, 4, 0, 0]} />
                             </BarChart>
@@ -739,7 +739,7 @@ export default function Dashboard() {
                                             <Cell key={`cell-${i}`} fill={d.color} stroke="none" />
                                         ))}
                                     </Pie>
-                                    <Tooltip contentStyle={{ backgroundColor: '#0f1f33', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '6px', fontSize: '12px', fontWeight: 600, color: '#EEF2FF' }} />
+                                    <Tooltip contentStyle={{ backgroundColor: 'var(--color-redwood-bg-surface)', border: '1px solid var(--color-redwood-border)', borderRadius: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--color-redwood-text-main)' }} />
                                 </PieChart>
                             </ResponsiveContainer>
                         </div>
@@ -891,12 +891,12 @@ export default function Dashboard() {
                         ]).map((row, i) => {
                             const Icon = row.icon;
                             return (
-                                <div key={i} className="flex items-center justify-between px-2.5 py-1.5 bg-[#142540] border border-redwood-border rounded-[6px] transition-colors hover:bg-[#1a2d4e]">
+                                <div key={i} className="flex items-center justify-between px-2.5 py-1.5 bg-redwood-row-bg border border-redwood-border rounded-[6px] transition-colors hover:bg-redwood-row-hover">
                                     <div className="flex items-center gap-1.5 text-[11px] text-redwood-text-muted">
                                         <Icon size={13} style={row.color ? { color: row.color } : { color: '#3E5678' }} />
                                         {row.label}
                                     </div>
-                                    <div className="text-[12px] font-semibold" style={row.color ? { color: row.color } : { color: '#EEF2FF' }}>
+                                    <div className="text-[12px] font-semibold" style={row.color ? { color: row.color } : { color: 'var(--color-redwood-text-main)' }}>
                                         {row.value}
                                     </div>
                                 </div>
@@ -931,7 +931,7 @@ export default function Dashboard() {
                             return (
                                 <div
                                     key={i}
-                                    className={`rounded-[8px] p-2.5 border bg-[#142540] ${isOnline ? 'border-[rgba(34,197,94,0.25)]' : 'border-[rgba(245,158,11,0.25)]'}`}
+                                    className={`rounded-[8px] p-2.5 border bg-redwood-row-bg ${isOnline ? 'border-[rgba(34,197,94,0.25)]' : 'border-[rgba(245,158,11,0.25)]'}`}
                                 >
                                     <div className="flex items-center justify-between mb-1.5">
                                         <span className="text-[11px] font-semibold text-redwood-text-main">
@@ -989,7 +989,7 @@ export default function Dashboard() {
                                 className={`flex items-center gap-2 px-2.5 py-1.5 rounded-[6px] border cursor-pointer transition-colors ${
                                     item.done
                                         ? 'bg-[rgba(34,197,94,0.07)] border-[rgba(34,197,94,0.15)]'
-                                        : 'bg-[#142540] border-redwood-border hover:bg-[#1a2d4e]'
+                                        : 'bg-redwood-row-bg border-redwood-border hover:bg-redwood-row-hover'
                                 }`}
                             >
                                 <div className={`w-3.5 h-3.5 rounded-[3px] border-[1.5px] flex items-center justify-center flex-shrink-0 transition-colors ${

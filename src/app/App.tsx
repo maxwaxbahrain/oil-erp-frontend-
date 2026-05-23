@@ -53,15 +53,28 @@ function App() {
   const [aiCtx, setAiCtx] = useState<any>({ invoices: [], customers: [], products: [], payments: [], purchaseOrders: [] });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [notifsOpen, setNotifsOpen] = useState(false);
-  // FIX 5 — Light/dark mode toggle. Cosmetic only — flips a
-  // `soltol-light` class on <body>; no business logic.
-  const [lightMode, setLightMode] = useState<boolean>(() => {
-    try { return document.body.classList.contains('soltol-light'); } catch { return false; }
+  // Light/dark mode toggle — flips `light` class on <body>, persists
+  // to localStorage key `soltol-theme`. Cosmetic only — no business logic.
+  const [isLight, setIsLight] = useState<boolean>(() => {
+    try { return localStorage.getItem('soltol-theme') === 'light'; } catch { return false; }
   });
-  const toggleMode = () => {
-    try { document.body.classList.toggle('soltol-light'); } catch { /* ignore */ }
-    setLightMode((v) => !v);
-  };
+  // On mount, apply saved preference immediately (defense-in-depth
+  // alongside the [isLight] effect below).
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('soltol-theme');
+      if (saved === 'light') document.body.classList.add('light');
+    } catch { /* ignore */ }
+  }, []);
+  // Sync body class + persist whenever isLight changes.
+  useEffect(() => {
+    if (isLight) {
+      document.body.classList.add('light');
+    } else {
+      document.body.classList.remove('light');
+    }
+    try { localStorage.setItem('soltol-theme', isLight ? 'light' : 'dark'); } catch { /* ignore */ }
+  }, [isLight]);
   const notifsRef = useRef<HTMLDivElement>(null);
 
   // Role pill — cycles through ROLES on click.  In-memory state only.
@@ -215,7 +228,7 @@ function App() {
               </div>
               <div
                 className="whitespace-nowrap"
-                style={{ fontFamily: "'Syne',sans-serif", fontSize: '15px', fontWeight: 600, color: '#EEF2FF', letterSpacing: '-0.3px' }}
+                style={{ fontFamily: "'Syne',sans-serif", fontSize: '15px', fontWeight: 600, color: 'var(--color-redwood-text-main)', letterSpacing: '-0.3px' }}
               >
                 Soltol
                 <sub style={{ fontSize: '9px', fontWeight: 400, color: '#3E5678', marginLeft: '2px' }}>ERP</sub>
@@ -286,12 +299,12 @@ function App() {
               {/* FIX 5 — Light/dark mode toggle. */}
               <button
                 type="button"
-                onClick={toggleMode}
+                onClick={() => setIsLight((v) => !v)}
                 aria-label="Toggle light/dark mode"
                 title="Toggle light/dark mode"
                 className="p-2.5 text-redwood-text-muted hover:bg-redwood-bg-light hover:text-redwood-text-main rounded-sm transition-all"
               >
-                {lightMode ? <Moon size={20} /> : <Sun size={20} />}
+                {isLight ? <Moon size={20} /> : <Sun size={20} />}
               </button>
               <div className="relative" ref={notifsRef}>
                 <button
@@ -380,7 +393,7 @@ function App() {
             { label: 'VAT return Q1',       text: 'Generate VAT return report for this quarter',            icon: Receipt,     bg: 'rgba(167,139,250,0.12)', color: '#C4B5FD', border: 'rgba(167,139,250,0.22)' },
             { label: 'Today audit log',     text: 'Show full audit log for today — all user actions',       icon: Shield,      bg: 'rgba(0,212,170,0.10)',   color: '#5EEAD4', border: 'rgba(0,212,170,0.22)' },
             { label: 'Churn risk',          text: 'Which customers are at risk of churning this month?',    icon: UserX,       bg: 'rgba(34,197,94,0.12)',   color: '#86EFAC', border: 'rgba(34,197,94,0.22)' },
-            { label: 'Payment run Fri',     text: 'AP $18k due in 7 days — schedule payment run',           icon: Calendar,    bg: 'rgba(255,255,255,0.05)', color: '#8BA3C7', border: 'rgba(255,255,255,0.12)' },
+            { label: 'Payment run Fri',     text: 'AP $18k due in 7 days — schedule payment run',           icon: Calendar,    bg: 'rgba(255,255,255,0.05)', color: 'var(--color-redwood-text-muted)', border: 'rgba(255,255,255,0.12)' },
           ].map((c, i) => {
             const Icon = c.icon;
             return (

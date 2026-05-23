@@ -5,8 +5,8 @@ import { getCustomers, getSalesOrders, getProducts } from '../../services/api';
 
 // ─── Shared style tokens (mirror public/preview.html tc-sales spec) ──────
 const panelStyle: CSSProperties = {
-  background: '#0f1f33',
-  border: '1px solid rgba(255,255,255,.12)',
+  background: 'var(--color-redwood-bg-surface)',
+  border: '1px solid var(--color-redwood-border)',
   borderRadius: '14px',
   padding: '14px 16px',
 };
@@ -22,7 +22,7 @@ const ptStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   gap: '6px',
-  color: '#EEF2FF',
+  color: 'var(--color-redwood-text-main)',
 };
 const paStyle: CSSProperties = {
   fontSize: '10px',
@@ -155,7 +155,7 @@ export default function SalesDashboard() {
             Sales &amp; CRM
           </div>
           {/* .pgsub */}
-          <div style={{ fontSize: '11px', color: '#3E5678', marginTop: '2px' }}>
+          <div style={{ fontSize: '11px', color: 'var(--color-redwood-text-subtle)', marginTop: '2px' }}>
             Pipeline · Top customers · Churn alerts · Product velocity · Marketing
           </div>
         </div>
@@ -177,7 +177,7 @@ export default function SalesDashboard() {
           <button
             type="button"
             onClick={() => navigate('/customers/new')}
-            style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 11px', borderRadius: '6px', fontSize: '10.5px', fontWeight: 500, cursor: 'pointer', border: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.04)', color: '#8BA3C7', fontFamily: "'DM Sans',sans-serif", transition: '.12s' }}
+            style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 11px', borderRadius: '6px', fontSize: '10.5px', fontWeight: 500, cursor: 'pointer', border: '1px solid var(--color-redwood-border)', background: 'rgba(255,255,255,.04)', color: 'var(--color-redwood-text-muted)', fontFamily: "'DM Sans',sans-serif", transition: '.12s' }}
           >
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
@@ -193,10 +193,10 @@ export default function SalesDashboard() {
       {/* ═══════════ SECTION 2 — 4 KPI cards (.g4) ═══════════ */}
       <div className="grid grid-cols-2 lg:grid-cols-4" style={{ gap: '10px', marginBottom: '12px' }}>
         {/* Card 1 — Total Customers (.kpi.kg) */}
-        <div style={{ background: '#0f1f33', border: '1px solid rgba(255,255,255,.12)', borderRadius: '14px', padding: '13px 14px', position: 'relative', overflow: 'hidden', transition: '.18s', cursor: 'default' }}>
+        <div style={{ background: 'var(--color-redwood-bg-surface)', border: '1px solid var(--color-redwood-border)', borderRadius: '14px', padding: '13px 14px', position: 'relative', overflow: 'hidden', transition: '.18s', cursor: 'default' }}>
           <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', borderRadius: '14px 14px 0 0', background: 'linear-gradient(90deg,#22C55E,#86EFAC)' }} />
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10.5px', color: '#8BA3C7', fontWeight: 500, position: 'relative' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10.5px', color: 'var(--color-redwood-text-muted)', fontWeight: 500, position: 'relative' }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#22C55E" strokeWidth="2" strokeLinecap="round">
                 <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
                 <circle cx="9" cy="7" r="4" />
@@ -212,10 +212,10 @@ export default function SalesDashboard() {
         </div>
 
         {/* Card 2 — Churn Risk (.kpi.kr) */}
-        <div style={{ background: '#0f1f33', border: '1px solid rgba(255,255,255,.12)', borderRadius: '14px', padding: '13px 14px', position: 'relative', overflow: 'hidden', transition: '.18s', cursor: 'default' }}>
+        <div style={{ background: 'var(--color-redwood-bg-surface)', border: '1px solid var(--color-redwood-border)', borderRadius: '14px', padding: '13px 14px', position: 'relative', overflow: 'hidden', transition: '.18s', cursor: 'default' }}>
           <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', borderRadius: '14px 14px 0 0', background: 'linear-gradient(90deg,#EF4444,#FCA5A5)' }} />
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10.5px', color: '#8BA3C7', fontWeight: 500 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10.5px', color: 'var(--color-redwood-text-muted)', fontWeight: 500 }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2" strokeLinecap="round">
                 <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
                 <circle cx="8.5" cy="7" r="4" />
@@ -231,10 +231,10 @@ export default function SalesDashboard() {
         </div>
 
         {/* Card 3 — Orders MTD (.kpi.kb) — value color #EEF2FF white per spec */}
-        <div style={{ background: '#0f1f33', border: '1px solid rgba(255,255,255,.12)', borderRadius: '14px', padding: '13px 14px', position: 'relative', overflow: 'hidden', transition: '.18s', cursor: 'default' }}>
+        <div style={{ background: 'var(--color-redwood-bg-surface)', border: '1px solid var(--color-redwood-border)', borderRadius: '14px', padding: '13px 14px', position: 'relative', overflow: 'hidden', transition: '.18s', cursor: 'default' }}>
           <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', borderRadius: '14px 14px 0 0', background: 'linear-gradient(90deg,#4F8EF7,#93C5FD)' }} />
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10.5px', color: '#8BA3C7', fontWeight: 500 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10.5px', color: 'var(--color-redwood-text-muted)', fontWeight: 500 }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4F8EF7" strokeWidth="2" strokeLinecap="round">
                 <circle cx="9" cy="21" r="1" />
                 <circle cx="20" cy="21" r="1" />
@@ -244,17 +244,17 @@ export default function SalesDashboard() {
             </div>
             <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px', background: 'rgba(79,142,247,.14)', color: '#93C5FD', border: '1px solid rgba(79,142,247,.28)' }}>MTD</span>
           </div>
-          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '22px', fontWeight: 600, letterSpacing: '-.5px', marginBottom: '3px', lineHeight: '1.1', color: '#EEF2FF' }}>{ordersMTD}</div>
-          <div style={{ fontSize: '10px', color: '#3E5678', display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '22px', fontWeight: 600, letterSpacing: '-.5px', marginBottom: '3px', lineHeight: '1.1', color: 'var(--color-redwood-text-main)' }}>{ordersMTD}</div>
+          <div style={{ fontSize: '10px', color: 'var(--color-redwood-text-subtle)', display: 'flex', alignItems: 'center', gap: '4px' }}>
             ${ordersTotalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} total value
           </div>
         </div>
 
         {/* Card 4 — Target Achievement (.kpi.ka) */}
-        <div style={{ background: '#0f1f33', border: '1px solid rgba(255,255,255,.12)', borderRadius: '14px', padding: '13px 14px', position: 'relative', overflow: 'hidden', transition: '.18s', cursor: 'default' }}>
+        <div style={{ background: 'var(--color-redwood-bg-surface)', border: '1px solid var(--color-redwood-border)', borderRadius: '14px', padding: '13px 14px', position: 'relative', overflow: 'hidden', transition: '.18s', cursor: 'default' }}>
           <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', borderRadius: '14px 14px 0 0', background: 'linear-gradient(90deg,#F59E0B,#FCD34D)' }} />
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '9.5px', color: '#8BA3C7', fontWeight: 500, whiteSpace: 'nowrap', letterSpacing: '-0.01em' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '9.5px', color: 'var(--color-redwood-text-muted)', fontWeight: 500, whiteSpace: 'nowrap', letterSpacing: '-0.01em' }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round">
                 <circle cx="12" cy="12" r="10" />
                 <circle cx="12" cy="12" r="6" />
@@ -298,28 +298,28 @@ export default function SalesDashboard() {
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   padding: '6px 10px',
-                  background: '#142540',
+                  background: 'var(--color-redwood-row-bg)',
                   borderRadius: '6px',
                   border: `1px solid ${c.isOverdue ? 'rgba(239,68,68,.2)' : 'rgba(255,255,255,.07)'}`,
                   transition: '.12s',
                   cursor: 'pointer',
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = '#1a2d4e'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = '#142540'; }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-redwood-row-hover)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--color-redwood-row-bg)'; }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', color: '#8BA3C7' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', color: 'var(--color-redwood-text-muted)' }}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                     <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
                     <circle cx="12" cy="7" r="4" />
                   </svg>
                   <div>
-                    <div style={{ color: '#EEF2FF' }}>
+                    <div style={{ color: 'var(--color-redwood-text-main)' }}>
                       {c.name}
                       {c.isOverLimit && (
                         <span style={{ fontSize: '9px', color: '#EF4444', marginLeft: '6px' }}>⚠ Over limit</span>
                       )}
                     </div>
-                    <div style={{ fontSize: '9px', color: c.isOverdue ? '#EF4444' : '#3E5678', marginTop: '1px' }}>
+                    <div style={{ fontSize: '9px', color: c.isOverdue ? '#EF4444' : 'var(--color-redwood-text-subtle)', marginTop: '1px' }}>
                       {c.isOverdue
                         ? `$${Math.abs(c.revenue).toFixed(2)} overdue — DO NOT EXTEND CREDIT`
                         : `Last order: ${c.lastOrderDate || 'Recent'} · ${c.orderCount} orders`}
@@ -332,7 +332,7 @@ export default function SalesDashboard() {
               </div>
             ))}
             {topCustomers.length === 0 && (
-              <div style={{ fontSize: '11px', color: '#8BA3C7', textAlign: 'center', padding: '16px 0' }}>
+              <div style={{ fontSize: '11px', color: 'var(--color-redwood-text-muted)', textAlign: 'center', padding: '16px 0' }}>
                 No orders this month
               </div>
             )}
@@ -346,7 +346,7 @@ export default function SalesDashboard() {
               { label: 'Collection rate', pct: 12, color: '#EF4444' },
             ].map((row, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '7px' }}>
-                <div style={{ fontSize: '10px', color: '#8BA3C7', width: '160px', flexShrink: 0 }}>{row.label}</div>
+                <div style={{ fontSize: '10px', color: 'var(--color-redwood-text-muted)', width: '160px', flexShrink: 0 }}>{row.label}</div>
                 <div style={{ flex: 1, height: '5px', background: 'rgba(255,255,255,.07)', borderRadius: '3px', overflow: 'hidden' }}>
                   <div style={{ height: '100%', borderRadius: '3px', width: `${Math.min(row.pct, 100)}%`, background: row.color, transition: 'width .8s ease' }} />
                 </div>
@@ -383,15 +383,15 @@ export default function SalesDashboard() {
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     padding: '6px 10px',
-                    background: '#142540',
+                    background: 'var(--color-redwood-row-bg)',
                     borderRadius: '6px',
-                    border: '1px solid rgba(255,255,255,.07)',
+                    border: '1px solid var(--color-redwood-border)',
                     transition: '.12s',
                   }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = '#1a2d4e'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = '#142540'; }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-redwood-row-hover)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--color-redwood-row-bg)'; }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', color: '#8BA3C7', minWidth: 0, overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', color: 'var(--color-redwood-text-muted)', minWidth: 0, overflow: 'hidden' }}>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                       <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
                       <circle cx="12" cy="7" r="4" />
@@ -404,7 +404,7 @@ export default function SalesDashboard() {
                 </div>
               ))}
               {churnList.length === 0 && (
-                <div style={{ fontSize: '11px', color: '#8BA3C7', textAlign: 'center', padding: '12px 0' }}>
+                <div style={{ fontSize: '11px', color: 'var(--color-redwood-text-muted)', textAlign: 'center', padding: '12px 0' }}>
                   No churn risk customers
                 </div>
               )}
@@ -415,15 +415,15 @@ export default function SalesDashboard() {
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   padding: '6px 10px',
-                  background: '#142540',
+                  background: 'var(--color-redwood-row-bg)',
                   borderRadius: '6px',
-                  border: '1px solid rgba(255,255,255,.07)',
+                  border: '1px solid var(--color-redwood-border)',
                   transition: '.12s',
                   cursor: 'pointer',
                 }}
                 onClick={() => navigate('/customers')}
-                onMouseEnter={(e) => { e.currentTarget.style.background = '#1a2d4e'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = '#142540'; }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-redwood-row-hover)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--color-redwood-row-bg)'; }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', minWidth: 0, overflow: 'hidden' }}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4F8EF7" strokeWidth="2" strokeLinecap="round">
@@ -453,7 +453,7 @@ export default function SalesDashboard() {
               {topProducts.map((p, i) => {
                 const isFast = i === 0;
                 const isMed = i === 1;
-                const color = isFast ? '#22C55E' : isMed ? '#F59E0B' : '#3E5678';
+                const color = isFast ? '#22C55E' : isMed ? '#F59E0B' : 'var(--color-redwood-text-subtle)';
                 const label = isFast ? 'Fast' : isMed ? 'Med' : 'Slow';
                 return (
                   <div
@@ -463,15 +463,15 @@ export default function SalesDashboard() {
                       alignItems: 'center',
                       justifyContent: 'space-between',
                       padding: '6px 10px',
-                      background: '#142540',
+                      background: 'var(--color-redwood-row-bg)',
                       borderRadius: '6px',
-                      border: '1px solid rgba(255,255,255,.07)',
+                      border: '1px solid var(--color-redwood-border)',
                       transition: '.12s',
                     }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = '#1a2d4e'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = '#142540'; }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-redwood-row-hover)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--color-redwood-row-bg)'; }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', color: '#8BA3C7', overflow: 'hidden' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', color: 'var(--color-redwood-text-muted)', overflow: 'hidden' }}>
                       {isFast ? (
                         // Flame — fast
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#22C55E" strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0 }}>
@@ -485,7 +485,7 @@ export default function SalesDashboard() {
                         </svg>
                       ) : (
                         // Trending-down — slow
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#3E5678" strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0 }}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--color-redwood-text-subtle)" strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0 }}>
                           <polyline points="23 18 13.5 8.5 8.5 13.5 1 6" />
                           <polyline points="17 18 23 18 23 12" />
                         </svg>
@@ -499,7 +499,7 @@ export default function SalesDashboard() {
                 );
               })}
               {topProducts.length === 0 && (
-                <div style={{ fontSize: '11px', color: '#8BA3C7', textAlign: 'center', padding: '12px 0' }}>
+                <div style={{ fontSize: '11px', color: 'var(--color-redwood-text-muted)', textAlign: 'center', padding: '12px 0' }}>
                   No product data
                 </div>
               )}
@@ -531,16 +531,16 @@ export default function SalesDashboard() {
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     padding: '6px 10px',
-                    background: '#142540',
+                    background: 'var(--color-redwood-row-bg)',
                     borderRadius: '6px',
-                    border: '1px solid rgba(255,255,255,.07)',
+                    border: '1px solid var(--color-redwood-border)',
                     transition: '.12s',
                   }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = '#1a2d4e'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = '#142540'; }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-redwood-row-hover)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--color-redwood-row-bg)'; }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', color: '#8BA3C7', minWidth: 0, overflow: 'hidden' }}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#3E5678" strokeWidth="2" strokeLinecap="round">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', color: 'var(--color-redwood-text-muted)', minWidth: 0, overflow: 'hidden' }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--color-redwood-text-subtle)" strokeWidth="2" strokeLinecap="round">
                       <path d="M18 8a6 6 0 0 1 0 8" />
                       <path d="M3 11v2a2 2 0 0 0 2 2h1l4 4V7L6 11H5a2 2 0 0 0-2 2z" />
                     </svg>

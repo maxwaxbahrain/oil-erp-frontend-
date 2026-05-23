@@ -100,10 +100,10 @@ export default function Sidebar() {
                     'flex items-center gap-2 pl-9 pr-3 py-1.5 transition-colors text-[12px] relative',
                     isActive
                         ? 'bg-[rgba(79,142,247,0.10)] text-[#93C5FD] border-r-2 border-r-[#4F8EF7]'
-                        : 'text-redwood-text-muted hover:bg-white/[0.03] hover:text-white'
+                        : 'text-redwood-text-muted hover:bg-redwood-row-bg hover:text-redwood-text-main'
                 )}
             >
-                <Icon size={13} className={isActive ? 'text-[#4F8EF7]' : 'text-[#3E5678]'} />
+                <Icon size={13} className={isActive ? 'text-[#4F8EF7]' : 'text-redwood-text-subtle'} />
                 <span className="flex-1 truncate">{label}</span>
                 {badge && <BadgePill text={badge.text} tone={badge.tone} />}
             </Link>
@@ -134,7 +134,7 @@ export default function Sidebar() {
                 }
             }}
             aria-expanded={!!openGroups[keyId]}
-            className="flex items-center gap-2 px-2 py-1.5 cursor-pointer select-none border-t border-redwood-border hover:bg-white/[0.03] transition-colors first:border-t-0"
+            className="flex items-center gap-2 px-2 py-1.5 cursor-pointer select-none border-t border-redwood-border hover:bg-redwood-row-bg transition-colors first:border-t-0"
         >
             <div
                 className="w-[22px] h-[22px] rounded-[5px] flex items-center justify-center flex-shrink-0"
@@ -142,14 +142,14 @@ export default function Sidebar() {
             >
                 <Icon size={12} style={{ color: iconColor }} />
             </div>
-            <span className="text-[10px] font-semibold text-white/40 flex-1 tracking-[0.04em] uppercase truncate">
+            <span className="text-[10px] font-semibold text-redwood-text-muted flex-1 tracking-[0.04em] uppercase truncate">
                 {label}
             </span>
             {badge && <BadgePill text={badge.text} tone={badge.tone} />}
             <ChevronRight
                 size={10}
                 strokeWidth={2.5}
-                className="text-[#3E5678] flex-shrink-0"
+                className="text-redwood-text-subtle flex-shrink-0"
                 style={{
                     transform: openGroups[keyId] ? 'rotate(90deg)' : 'rotate(0deg)',
                     transition: 'transform 0.2s',
@@ -159,16 +159,16 @@ export default function Sidebar() {
     );
 
     return (
-        <aside className="w-[260px] bg-redwood-midnight text-white flex flex-col z-40 border-r border-white/5 shadow-2xl h-full print:hidden">
+        <aside className="w-[260px] bg-redwood-midnight text-redwood-text-main flex flex-col z-40 border-r border-redwood-border shadow-2xl h-full print:hidden">
             {/* Sidebar search — the SOLTOL ONE/tenant logo lives in the
                 top nav header now (App.tsx). Mirrors preview.html .sbsearch. */}
-            <div className="px-3 py-3 border-b border-white/5 shrink-0">
+            <div className="px-3 py-3 border-b border-redwood-border shrink-0">
                 <div className="relative">
                     <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-redwood-text-muted pointer-events-none" />
                     <input
                         type="text"
                         placeholder="Search menu..."
-                        className="w-full pl-9 pr-3 py-2 bg-redwood-bg-light border border-white/10 rounded-md text-[12px] text-redwood-text-main placeholder:text-redwood-text-muted focus:border-redwood-brand focus:outline-none"
+                        className="w-full pl-9 pr-3 py-2 bg-redwood-bg-light border border-redwood-border rounded-md text-[12px] text-redwood-text-main placeholder:text-redwood-text-muted focus:border-redwood-brand focus:outline-none"
                     />
                 </div>
             </div>
@@ -390,10 +390,10 @@ export default function Sidebar() {
 
             {/* Footer — status + help shortcuts (spec layout) */}
             <div className="p-2 border-t border-redwood-border flex gap-1">
-                <button className="flex-1 flex items-center justify-center gap-1 p-1.5 bg-white/[0.04] border border-redwood-border rounded-[5px] text-[9px] text-redwood-text-muted hover:bg-white/[0.08]">
+                <button className="flex-1 flex items-center justify-center gap-1 p-1.5 bg-redwood-row-bg border border-redwood-border rounded-[5px] text-[9px] text-redwood-text-muted hover:bg-redwood-row-hover">
                     ● All systems OK
                 </button>
-                <button className="flex-1 flex items-center justify-center gap-1 p-1.5 bg-white/[0.04] border border-redwood-border rounded-[5px] text-[9px] text-redwood-text-muted hover:bg-white/[0.08]">
+                <button className="flex-1 flex items-center justify-center gap-1 p-1.5 bg-redwood-row-bg border border-redwood-border rounded-[5px] text-[9px] text-redwood-text-muted hover:bg-redwood-row-hover">
                     ? Help
                 </button>
             </div>

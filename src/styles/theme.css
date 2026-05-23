@@ -11,6 +11,11 @@
   --color-redwood-border: rgba(255, 255, 255, 0.12);
   --color-redwood-text-main: #EEF2FF;
   --color-redwood-text-muted: #8BA3C7;
+  /* Row backgrounds + subtle slate text — used in SalesDashboard list
+     rows; declared here so body.light can override them too. */
+  --color-redwood-row-bg: #142540;
+  --color-redwood-row-hover: #1a2d4e;
+  --color-redwood-text-subtle: #3E5678;
 
   --font-inter: "DM Sans", "Inter", sans-serif;
 }
@@ -27,9 +32,9 @@
 /* ── GLOBAL DARK FALLBACK — covers pages not yet migrated ──
    Remove each rule as pages get properly migrated.        */
 main .bg-white            { background: var(--color-redwood-bg-surface) !important; }
-main .bg-gray-50          { background: rgba(255,255,255,.04) !important; }
-main .bg-gray-100         { background: rgba(255,255,255,.07) !important; }
-main .bg-gray-200         { background: rgba(255,255,255,.10) !important; }
+body:not(.light) main .bg-gray-50  { background: rgba(255,255,255,.04) !important; }
+body:not(.light) main .bg-gray-100 { background: rgba(255,255,255,.07) !important; }
+body:not(.light) main .bg-gray-200 { background: rgba(255,255,255,.10) !important; }
 main .text-gray-900,
 main .text-gray-800,
 main .text-gray-700,
@@ -40,8 +45,8 @@ main .border-gray-100,
 main .border-gray-200,
 main .border-gray-300,
 main .border-gray-400     { border-color: var(--color-redwood-border) !important; }
-main .hover\:bg-gray-50:hover  { background: rgba(255,255,255,.04) !important; }
-main .hover\:bg-gray-100:hover { background: rgba(255,255,255,.07) !important; }
+body:not(.light) main .hover\:bg-gray-50:hover  { background: rgba(255,255,255,.04) !important; }
+body:not(.light) main .hover\:bg-gray-100:hover { background: rgba(255,255,255,.07) !important; }
 canvas                         { background: transparent !important; }
 
 * {
@@ -55,6 +60,56 @@ body {
   background-color: var(--bg-app);
   color: var(--text-main);
   -webkit-font-smoothing: antialiased;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   LIGHT MODE — toggled by body.light class
+   ══════════════════════════════════════════════════════════════
+   Override the Tailwind v4 @theme tokens so every utility that
+   reads them (bg-redwood-*, text-redwood-*, border-redwood-*)
+   adapts at runtime. Nav header, RECENT chips, tab row, and
+   footer keep their dark navy locally — matches preview.html.   */
+body.light {
+  --color-redwood-bg-light:    #F0F4F9;
+  --color-redwood-bg-surface:  #FFFFFF;
+  --color-redwood-midnight:    #FFFFFF;
+  --color-redwood-slate:       #FFFFFF;
+  --color-redwood-border:      rgba(0, 0, 0, 0.10);
+  --color-redwood-text-main:   #1E293B;
+  --color-redwood-text-muted:  #475569;
+  --color-redwood-text-subtle: #94A3B8;
+  --color-redwood-row-bg:      #F4F7FB;
+  --color-redwood-row-hover:   #EBF0F7;
+
+  /* :root-derived shortcuts */
+  --bg-app:        #F0F4F9;
+  --bg-sidebar:    #FFFFFF;
+  --text-main:     #1E293B;
+  --text-muted:    #475569;
+  --border-subtle: rgba(0, 0, 0, 0.10);
+
+  background-color: var(--color-redwood-bg-light);
+  color: var(--color-redwood-text-main);
+}
+
+/* Top nav header, RECENT chips bar, category tab row, and footer
+   keep their dark navy in light mode (preview.html behaviour).
+   They all use the bg-redwood-midnight utility, so we re-pin the
+   midnight var locally and restore the dark text/border vars so
+   icons + labels inside the nav remain readable. */
+body.light header,
+body.light main > .bg-redwood-midnight {
+  --color-redwood-midnight:    #1E3A5F;
+  --color-redwood-text-main:   rgba(255, 255, 255, 0.95);
+  --color-redwood-text-muted:  rgba(255, 255, 255, 0.6);
+  --color-redwood-border:      rgba(255, 255, 255, 0.12);
+  --color-redwood-bg-light:    #060f1c;
+}
+
+/* Smooth fade when toggling theme. Border excluded — animating
+   thin borders on hundreds of rows causes shimmer. */
+body, body * {
+  transition: background-color 0.18s ease, color 0.15s ease;
 }
 
 /* High-density layout adjustments */
