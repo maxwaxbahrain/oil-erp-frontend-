@@ -1,79 +1,37 @@
-import { useState, useEffect, type CSSProperties, type ReactNode } from 'react';
+import { useState, useEffect, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  Users, UserX, ShoppingCart, Target, TrendingUp,
-  User, Trophy, Send, BarChart2, Megaphone,
-  Plus, MessageCircle,
-} from 'lucide-react';
+// NOTE: no lucide-react — all icons are inline SVG copied verbatim from preview.html
 import { getCustomers, getSalesOrders, getProducts } from '../../services/api';
 
 // ─── Shared style tokens (mirror public/preview.html tc-sales spec) ──────
-const panel: CSSProperties = {
+const panelStyle: CSSProperties = {
   background: '#0f1f33',
   border: '1px solid rgba(255,255,255,.12)',
   borderRadius: '14px',
   padding: '14px 16px',
 };
-const ph: CSSProperties = {
+const phStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
   marginBottom: '12px',
 };
-const pt: CSSProperties = {
-  fontFamily: "'Syne',sans-serif",
+const ptStyle: CSSProperties = {
   fontSize: '13px',
   fontWeight: 600,
   display: 'flex',
   alignItems: 'center',
   gap: '6px',
+  color: '#EEF2FF',
 };
-const pa: CSSProperties = {
+const paStyle: CSSProperties = {
   fontSize: '10px',
   color: '#4F8EF7',
+  cursor: 'pointer',
   background: 'none',
   border: 'none',
-  cursor: 'pointer',
   padding: 0,
 };
-const pgBtn: CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: '5px',
-  padding: '6px 11px',
-  borderRadius: '6px',
-  fontSize: '10.5px',
-  fontWeight: 500,
-  cursor: 'pointer',
-  border: '1px solid rgba(255,255,255,.12)',
-  background: 'rgba(255,255,255,.04)',
-  color: '#8BA3C7',
-  fontFamily: "'DM Sans',sans-serif",
-  transition: '.12s',
-};
-
-// ─── .srow with hover transition (used for every list row on this page) ──
-function SRow({ children, overdue = false }: { children: ReactNode; overdue?: boolean }) {
-  return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '6px 10px',
-        background: '#142540',
-        borderRadius: '6px',
-        border: overdue ? '1px solid rgba(239,68,68,.25)' : '1px solid rgba(255,255,255,.07)',
-        transition: '.12s',
-        cursor: 'pointer',
-      }}
-      onMouseEnter={(e) => { e.currentTarget.style.background = '#1a2d4e'; }}
-      onMouseLeave={(e) => { e.currentTarget.style.background = '#142540'; }}
-    >
-      {children}
-    </div>
-  );
-}
 
 export default function SalesDashboard() {
   const navigate = useNavigate();
@@ -93,7 +51,7 @@ export default function SalesDashboard() {
     }).catch(console.error);
   }, []);
 
-  // ----- Computations (pure JS, no new APIs) -----
+  // ───────── Computations (pure JS, no new APIs) ─────────
   const totalCustomers = customers.length;
   const now = new Date();
   const newThisMonth = customers.filter((c: any) => {
@@ -121,7 +79,7 @@ export default function SalesDashboard() {
   const achieved = ordersTotalValue;
   const targetPct = Math.round((achieved / TARGET) * 100);
 
-  // Top customers by MTD revenue
+  // Top customers by MTD revenue (with last-order metadata for sub-label)
   const custRevMap: Record<string, number> = {};
   mtdOrders.forEach((o: any) => {
     const cid = String(o.customerId || o.customer_id || '');
@@ -132,10 +90,20 @@ export default function SalesDashboard() {
     .slice(0, 4)
     .map(([cid, rev]) => {
       const c = customers.find((x: any) => String(x.id) === cid);
+      const lastOrder = salesOrders
+        .filter((o: any) => String(o.customerId || o.customer_id) === cid)
+        .sort((a: any, b: any) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime())[0];
+      const lastOrderDate = lastOrder
+        ? new Date(lastOrder.createdAt || lastOrder.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+        : null;
+      const orderCount = salesOrders.filter((o: any) => String(o.customerId || o.customer_id) === cid).length;
       return {
         name: c?.name || 'Customer',
         revenue: rev,
         isOverdue: rev < 0,
+        isOverLimit: false, // extend later if credit-limit data is wired in
+        lastOrderDate,
+        orderCount,
       };
     });
 
@@ -171,128 +139,194 @@ export default function SalesDashboard() {
     .slice(0, 3);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', paddingBottom: '40px' }}>
-      {/* ─── PAGE HEADER (FIX 1, FIX 9) ─── */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+    <div style={{ paddingBottom: '40px' }}>
+      {/* ═══════════ SECTION 1 — Page header (.pgh) ═══════════ */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
         <div>
-          <h1 style={{
-            margin: 0,
-            fontFamily: "'Syne',sans-serif",
-            fontSize: '20px',
-            fontWeight: 600,
-            letterSpacing: '-0.5px',
-            color: '#22C55E',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}>
-            <TrendingUp size={20} style={{ color: '#22C55E' }} />
-            Sales & CRM
-          </h1>
+          {/* .pgtit */}
+          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '20px', fontWeight: 600, letterSpacing: '-.5px', color: '#22C55E', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ verticalAlign: '-.15em' }}>
+              <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+              <polyline points="17 6 23 6 23 12" />
+            </svg>
+            Sales &amp; CRM
+          </div>
+          {/* .pgsub */}
           <div style={{ fontSize: '11px', color: '#3E5678', marginTop: '2px' }}>
             Pipeline · Top customers · Churn alerts · Product velocity · Marketing
           </div>
         </div>
+        {/* .pgact */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {/* WhatsApp Blast — green color override */}
           <button
             type="button"
             onClick={() => navigate('/marketing/campaigns')}
-            style={{ ...pgBtn, color: '#22C55E', border: '1px solid rgba(34,197,94,.3)' }}
+            style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 11px', borderRadius: '6px', fontSize: '10.5px', fontWeight: 500, cursor: 'pointer', border: '1px solid rgba(34,197,94,.3)', background: 'rgba(255,255,255,.04)', color: '#22C55E', fontFamily: "'DM Sans',sans-serif", transition: '.12s' }}
           >
-            <MessageCircle size={13} /> WhatsApp Blast
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <line x1="22" y1="2" x2="11" y2="13" />
+              <polygon points="22 2 15 22 11 13 2 9 22 2" />
+            </svg>
+            WhatsApp Blast
           </button>
+          {/* Add Customer — default .pgbtn (subtle, NOT bright blue) */}
           <button
             type="button"
             onClick={() => navigate('/customers/new')}
-            style={{ ...pgBtn, color: '#93C5FD', border: '1px solid rgba(79,142,247,.28)' }}
+            style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 11px', borderRadius: '6px', fontSize: '10.5px', fontWeight: 500, cursor: 'pointer', border: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.04)', color: '#8BA3C7', fontFamily: "'DM Sans',sans-serif", transition: '.12s' }}
           >
-            <Plus size={13} /> Add Customer
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="8.5" cy="7" r="4" />
+              <line x1="20" y1="8" x2="20" y2="14" />
+              <line x1="17" y1="11" x2="23" y2="11" />
+            </svg>
+            Add Customer
           </button>
         </div>
       </div>
 
-      {/* ─── KPI ROW (FIX 2, FIX 3) ─── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '10px' }}>
-        {/* Total Customers */}
-        <div style={{ background: '#0f1f33', border: '1px solid rgba(255,255,255,.12)', borderRadius: '14px', padding: '13px 14px', position: 'relative', overflow: 'hidden', transition: '.18s' }}>
+      {/* ═══════════ SECTION 2 — 4 KPI cards (.g4) ═══════════ */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '10px', marginBottom: '12px' }}>
+        {/* Card 1 — Total Customers (.kpi.kg) */}
+        <div style={{ background: '#0f1f33', border: '1px solid rgba(255,255,255,.12)', borderRadius: '14px', padding: '13px 14px', position: 'relative', overflow: 'hidden', transition: '.18s', cursor: 'default' }}>
           <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', borderRadius: '14px 14px 0 0', background: 'linear-gradient(90deg,#22C55E,#86EFAC)' }} />
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10.5px', fontWeight: 500, color: '#8BA3C7' }}>
-              <Users size={13} style={{ color: '#22C55E' }} /> Total Customers
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10.5px', color: '#8BA3C7', fontWeight: 500, position: 'relative' }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#22C55E" strokeWidth="2" strokeLinecap="round">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
+              Total Customers
             </div>
             <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px', background: 'rgba(34,197,94,.12)', color: '#86EFAC', border: '1px solid rgba(34,197,94,.2)' }}>Active</span>
           </div>
-          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '22px', fontWeight: 600, letterSpacing: '-0.5px', marginBottom: '3px', lineHeight: '1.1', color: '#22C55E' }}>{totalCustomers}</div>
-          <div style={{ fontSize: '10px', color: '#86EFAC' }}>+{newThisMonth} new this month</div>
+          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '22px', fontWeight: 600, letterSpacing: '-.5px', marginBottom: '3px', lineHeight: '1.1', color: '#22C55E' }}>{totalCustomers}</div>
+          <div style={{ fontSize: '10px', color: '#86EFAC', display: 'flex', alignItems: 'center', gap: '4px' }}>+{newThisMonth} new this month</div>
         </div>
 
-        {/* Churn Risk */}
-        <div style={{ background: '#0f1f33', border: '1px solid rgba(255,255,255,.12)', borderRadius: '14px', padding: '13px 14px', position: 'relative', overflow: 'hidden', transition: '.18s' }}>
+        {/* Card 2 — Churn Risk (.kpi.kr) */}
+        <div style={{ background: '#0f1f33', border: '1px solid rgba(255,255,255,.12)', borderRadius: '14px', padding: '13px 14px', position: 'relative', overflow: 'hidden', transition: '.18s', cursor: 'default' }}>
           <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', borderRadius: '14px 14px 0 0', background: 'linear-gradient(90deg,#EF4444,#FCA5A5)' }} />
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10.5px', fontWeight: 500, color: '#8BA3C7' }}>
-              <UserX size={13} style={{ color: '#EF4444' }} /> Churn Risk
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10.5px', color: '#8BA3C7', fontWeight: 500 }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2" strokeLinecap="round">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                <circle cx="8.5" cy="7" r="4" />
+                <line x1="18" y1="8" x2="23" y2="13" />
+                <line x1="23" y1="8" x2="18" y2="13" />
+              </svg>
+              Churn Risk
             </div>
             <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px', background: 'rgba(239,68,68,.12)', color: '#FCA5A5', border: '1px solid rgba(239,68,68,.2)' }}>Alert</span>
           </div>
-          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '22px', fontWeight: 600, letterSpacing: '-0.5px', marginBottom: '3px', lineHeight: '1.1', color: '#EF4444' }}>{churnRisk}</div>
-          <div style={{ fontSize: '10px', color: '#FCA5A5' }}>No order in 60+ days</div>
+          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '22px', fontWeight: 600, letterSpacing: '-.5px', marginBottom: '3px', lineHeight: '1.1', color: '#EF4444' }}>{churnRisk}</div>
+          <div style={{ fontSize: '10px', color: '#FCA5A5', display: 'flex', alignItems: 'center', gap: '4px' }}>No order in 60+ days</div>
         </div>
 
-        {/* Orders MTD */}
-        <div style={{ background: '#0f1f33', border: '1px solid rgba(255,255,255,.12)', borderRadius: '14px', padding: '13px 14px', position: 'relative', overflow: 'hidden', transition: '.18s' }}>
+        {/* Card 3 — Orders MTD (.kpi.kb) — value color #EEF2FF white per spec */}
+        <div style={{ background: '#0f1f33', border: '1px solid rgba(255,255,255,.12)', borderRadius: '14px', padding: '13px 14px', position: 'relative', overflow: 'hidden', transition: '.18s', cursor: 'default' }}>
           <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', borderRadius: '14px 14px 0 0', background: 'linear-gradient(90deg,#4F8EF7,#93C5FD)' }} />
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10.5px', fontWeight: 500, color: '#8BA3C7' }}>
-              <ShoppingCart size={13} style={{ color: '#4F8EF7' }} /> Orders MTD
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10.5px', color: '#8BA3C7', fontWeight: 500 }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4F8EF7" strokeWidth="2" strokeLinecap="round">
+                <circle cx="9" cy="21" r="1" />
+                <circle cx="20" cy="21" r="1" />
+                <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+              </svg>
+              Orders MTD
             </div>
             <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px', background: 'rgba(79,142,247,.14)', color: '#93C5FD', border: '1px solid rgba(79,142,247,.28)' }}>MTD</span>
           </div>
-          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '22px', fontWeight: 600, letterSpacing: '-0.5px', marginBottom: '3px', lineHeight: '1.1', color: '#4F8EF7' }}>{ordersMTD}</div>
-          <div style={{ fontSize: '10px', color: '#8BA3C7' }}>
+          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '22px', fontWeight: 600, letterSpacing: '-.5px', marginBottom: '3px', lineHeight: '1.1', color: '#EEF2FF' }}>{ordersMTD}</div>
+          <div style={{ fontSize: '10px', color: '#3E5678', display: 'flex', alignItems: 'center', gap: '4px' }}>
             ${ordersTotalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} total value
           </div>
         </div>
 
-        {/* Target Achievement */}
-        <div style={{ background: '#0f1f33', border: '1px solid rgba(255,255,255,.12)', borderRadius: '14px', padding: '13px 14px', position: 'relative', overflow: 'hidden', transition: '.18s' }}>
+        {/* Card 4 — Target Achievement (.kpi.ka) */}
+        <div style={{ background: '#0f1f33', border: '1px solid rgba(255,255,255,.12)', borderRadius: '14px', padding: '13px 14px', position: 'relative', overflow: 'hidden', transition: '.18s', cursor: 'default' }}>
           <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', borderRadius: '14px 14px 0 0', background: 'linear-gradient(90deg,#F59E0B,#FCD34D)' }} />
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10.5px', fontWeight: 500, color: '#8BA3C7' }}>
-              <Target size={13} style={{ color: '#F59E0B' }} /> Target Achievement
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10.5px', color: '#8BA3C7', fontWeight: 500 }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round">
+                <circle cx="12" cy="12" r="10" />
+                <circle cx="12" cy="12" r="6" />
+                <circle cx="12" cy="12" r="2" />
+              </svg>
+              Target Achievement
             </div>
             <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px', background: 'rgba(245,158,11,.12)', color: '#FCD34D', border: '1px solid rgba(245,158,11,.2)' }}>{targetPct}%</span>
           </div>
-          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '22px', fontWeight: 600, letterSpacing: '-0.5px', marginBottom: '3px', lineHeight: '1.1', color: '#F59E0B' }}>{targetPct}%</div>
-          <div style={{ fontSize: '10px', color: '#FCA5A5' }}>
+          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '22px', fontWeight: 600, letterSpacing: '-.5px', marginBottom: '3px', lineHeight: '1.1', color: '#F59E0B' }}>{targetPct}%</div>
+          <div style={{ fontSize: '10px', color: '#FCA5A5', display: 'flex', alignItems: 'center', gap: '4px' }}>
             ${achieved.toLocaleString(undefined, { maximumFractionDigits: 0 })} of $280k target
           </div>
         </div>
       </div>
 
-      {/* ─── TWO-COLUMN MAIN (FIX 6) ─── */}
+      {/* ═══════════ SECTION 3 — Two-column main content (.g2) ═══════════ */}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2fr) minmax(0,1fr)', gap: '12px' }}>
-        {/* LEFT — Top Customers + progress bars (FIX 4, FIX 5, FIX 7, FIX 8) */}
-        <div style={panel}>
-          <div style={ph}>
-            <div style={pt}>
-              <Trophy size={13} style={{ color: '#8BA3C7' }} />
+        {/* ───── LEFT PANEL — Top Customers + Progress bars ───── */}
+        <div style={panelStyle}>
+          <div style={phStyle}>
+            <div style={ptStyle}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <polyline points="14.5 17.5 14.5 14 12 14 9.5 14 9.5 17.5" />
+                <line x1="8" y1="21" x2="16" y2="21" />
+                <line x1="12" y1="21" x2="12" y2="14" />
+                <path d="M7 4H4v7a5 5 0 0 0 10 0V4h-3" />
+                <path d="M17 4h3v7a5 5 0 0 1-10 0V4h3" />
+              </svg>
               Top Customers — Revenue MTD
             </div>
-            <button onClick={() => navigate('/customers')} style={pa}>Full CRM →</button>
+            <button onClick={() => navigate('/customers')} style={paStyle}>Full CRM →</button>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
             {topCustomers.map((c, i) => (
-              <SRow key={i} overdue={c.isOverdue}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-                  <User size={13} style={{ color: '#3E5678', flexShrink: 0 }} />
-                  <span style={{ fontSize: '11px', color: c.isOverdue ? '#FCA5A5' : '#EEF2FF' }}>{c.name}</span>
+              <div
+                key={i}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '6px 10px',
+                  background: '#142540',
+                  borderRadius: '6px',
+                  border: `1px solid ${c.isOverdue ? 'rgba(239,68,68,.2)' : 'rgba(255,255,255,.07)'}`,
+                  transition: '.12s',
+                  cursor: 'pointer',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = '#1a2d4e'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = '#142540'; }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', color: '#8BA3C7' }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                    <circle cx="12" cy="7" r="4" />
+                  </svg>
+                  <div>
+                    <div style={{ color: '#EEF2FF' }}>
+                      {c.name}
+                      {c.isOverLimit && (
+                        <span style={{ fontSize: '9px', color: '#EF4444', marginLeft: '6px' }}>⚠ Over limit</span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: '9px', color: c.isOverdue ? '#EF4444' : '#3E5678', marginTop: '1px' }}>
+                      {c.isOverdue
+                        ? `$${Math.abs(c.revenue).toFixed(2)} overdue — DO NOT EXTEND CREDIT`
+                        : `Last order: ${c.lastOrderDate || 'Recent'} · ${c.orderCount} orders`}
+                    </div>
+                  </div>
                 </div>
                 <span style={{ fontSize: '13px', fontWeight: 600, color: c.isOverdue ? '#EF4444' : '#22C55E' }}>
-                  ${Math.abs(c.revenue).toFixed(2)}
+                  {c.isOverdue ? '-' : ''}${Math.abs(c.revenue).toFixed(2)}
                 </span>
-              </SRow>
+              </div>
             ))}
             {topCustomers.length === 0 && (
               <div style={{ fontSize: '11px', color: '#8BA3C7', textAlign: 'center', padding: '16px 0' }}>
@@ -301,85 +335,114 @@ export default function SalesDashboard() {
             )}
           </div>
 
-          {/* Progress bars (FIX 8) */}
-          <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column' }}>
+          {/* Progress bars (.prog-row) */}
+          <div style={{ marginTop: '12px' }}>
             {[
               { label: 'Monthly sales target', pct: targetPct, color: '#4F8EF7' },
               { label: 'New customer target', pct: Math.min(Math.round((newThisMonth / 20) * 100), 100), color: '#22C55E' },
               { label: 'Collection rate', pct: 12, color: '#EF4444' },
             ].map((row, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '7px' }}>
-                <span style={{ fontSize: '10px', color: '#8BA3C7', minWidth: '160px', flexShrink: 0 }}>{row.label}</span>
+                <div style={{ fontSize: '10px', color: '#8BA3C7', width: '160px', flexShrink: 0 }}>{row.label}</div>
                 <div style={{ flex: 1, height: '5px', background: 'rgba(255,255,255,.07)', borderRadius: '3px', overflow: 'hidden' }}>
-                  <div style={{ height: '100%', borderRadius: '3px', width: `${row.pct}%`, background: row.color, transition: 'width .8s ease' }} />
+                  <div style={{ height: '100%', borderRadius: '3px', width: `${Math.min(row.pct, 100)}%`, background: row.color, transition: 'width .8s ease' }} />
                 </div>
-                <span style={{ fontSize: '10px', fontWeight: 500, width: '32px', textAlign: 'right', color: row.color }}>
+                <div style={{ fontSize: '10px', fontWeight: 500, width: '32px', textAlign: 'right', color: row.color }}>
                   {row.pct}%
-                </span>
+                </div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* RIGHT — 3 stacked panels (FIX 10) */}
+        {/* ───── RIGHT COLUMN — 3 stacked panels (.gcol gap:10) ───── */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {/* Churn Alerts */}
-          <div style={panel}>
-            <div style={ph}>
-              <div style={pt}>
-                <UserX size={13} style={{ color: '#8BA3C7' }} />
+          {/* ── Churn Alerts ── */}
+          <div style={panelStyle}>
+            <div style={phStyle}>
+              <div style={ptStyle}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                  <circle cx="8.5" cy="7" r="4" />
+                  <line x1="18" y1="8" x2="23" y2="13" />
+                  <line x1="23" y1="8" x2="18" y2="13" />
+                </svg>
                 Churn Alerts
               </div>
-              <button onClick={() => navigate('/customers')} style={pa}>Send reminders →</button>
+              <button onClick={() => navigate('/customers')} style={paStyle}>Send reminders →</button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
               {churnList.map((c, i) => (
-                <SRow key={i}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-                    <User size={13} style={{ color: '#3E5678' }} />
-                    <span style={{ fontSize: '11px', color: '#EEF2FF' }}>{c.name}</span>
+                <div
+                  key={i}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '6px 10px',
+                    background: '#142540',
+                    borderRadius: '6px',
+                    border: '1px solid rgba(255,255,255,.07)',
+                    transition: '.12s',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = '#1a2d4e'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = '#142540'; }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', color: '#8BA3C7' }}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                      <circle cx="12" cy="7" r="4" />
+                    </svg>
+                    {c.name}
                   </div>
-                  <span style={{ fontSize: '9px', fontWeight: 600, color: c.daysSince >= 90 ? '#FCA5A5' : '#FCD34D' }}>
-                    {c.daysSince}d silent
+                  <span style={{ fontSize: '9px', fontWeight: 500, color: c.daysSince >= 90 ? '#EF4444' : '#F59E0B' }}>
+                    {c.daysSince >= 999 ? '90+' : c.daysSince} days silent
                   </span>
-                </SRow>
+                </div>
               ))}
               {churnList.length === 0 && (
                 <div style={{ fontSize: '11px', color: '#8BA3C7', textAlign: 'center', padding: '12px 0' }}>
                   No churn risk customers
                 </div>
               )}
-              <button
-                onClick={() => navigate('/customers')}
+              {/* Send WhatsApp — a regular .srow with send SVG + blue text */}
+              <div
                 style={{
-                  marginTop: '4px',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px',
+                  justifyContent: 'space-between',
                   padding: '6px 10px',
-                  width: '100%',
-                  textAlign: 'left',
-                  fontSize: '10px',
-                  color: '#4F8EF7',
-                  background: 'rgba(79,142,247,.07)',
+                  background: '#142540',
                   borderRadius: '6px',
-                  border: '1px solid rgba(79,142,247,.14)',
-                  cursor: 'pointer',
+                  border: '1px solid rgba(255,255,255,.07)',
                   transition: '.12s',
+                  cursor: 'pointer',
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(79,142,247,.12)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(79,142,247,.07)'; }}
+                onClick={() => navigate('/customers')}
+                onMouseEnter={(e) => { e.currentTarget.style.background = '#1a2d4e'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = '#142540'; }}
               >
-                <Send size={11} /> Send WhatsApp to all {churnRisk} at-risk →
-              </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px' }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4F8EF7" strokeWidth="2" strokeLinecap="round">
+                    <line x1="22" y1="2" x2="11" y2="13" />
+                    <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                  </svg>
+                  <span style={{ color: '#4F8EF7' }}>Send WhatsApp to all {churnRisk} at-risk →</span>
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Product Velocity */}
-          <div style={panel}>
-            <div style={ph}>
-              <div style={pt}>
-                <BarChart2 size={13} style={{ color: '#8BA3C7' }} />
+          {/* ── Product Velocity ── */}
+          <div style={panelStyle}>
+            <div style={phStyle}>
+              <div style={ptStyle}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <line x1="18" y1="20" x2="18" y2="10" />
+                  <line x1="12" y1="20" x2="12" y2="4" />
+                  <line x1="6" y1="20" x2="6" y2="14" />
+                  <line x1="2" y1="20" x2="22" y2="20" />
+                </svg>
                 Product Velocity
               </div>
             </div>
@@ -390,14 +453,46 @@ export default function SalesDashboard() {
                 const color = isFast ? '#22C55E' : isMed ? '#F59E0B' : '#3E5678';
                 const label = isFast ? 'Fast' : isMed ? 'Med' : 'Slow';
                 return (
-                  <SRow key={i}>
-                    <span style={{ fontSize: '11px', color: '#EEF2FF', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {p.name}
-                    </span>
-                    <span style={{ fontSize: '10px', fontWeight: 600, marginLeft: '8px', flexShrink: 0, color }}>
+                  <div
+                    key={i}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '6px 10px',
+                      background: '#142540',
+                      borderRadius: '6px',
+                      border: '1px solid rgba(255,255,255,.07)',
+                      transition: '.12s',
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = '#1a2d4e'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = '#142540'; }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', color: '#8BA3C7', overflow: 'hidden' }}>
+                      {isFast ? (
+                        // Flame — fast
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#22C55E" strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0 }}>
+                          <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" />
+                        </svg>
+                      ) : isMed ? (
+                        // Trending-up — medium
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0 }}>
+                          <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+                          <polyline points="17 6 23 6 23 12" />
+                        </svg>
+                      ) : (
+                        // Trending-down — slow
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#3E5678" strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0 }}>
+                          <polyline points="23 18 13.5 8.5 8.5 13.5 1 6" />
+                          <polyline points="17 18 23 18 23 12" />
+                        </svg>
+                      )}
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                    </div>
+                    <span style={{ fontSize: '10px', fontWeight: 600, color, flexShrink: 0, marginLeft: '8px' }}>
                       {label} — {p.count}/mo
                     </span>
-                  </SRow>
+                  </div>
                 );
               })}
               {topProducts.length === 0 && (
@@ -408,11 +503,15 @@ export default function SalesDashboard() {
             </div>
           </div>
 
-          {/* Active Campaigns (hardcoded — no campaigns API) */}
-          <div style={panel}>
-            <div style={ph}>
-              <div style={pt}>
-                <Megaphone size={13} style={{ color: '#8BA3C7' }} />
+          {/* ── Active Campaigns (hardcoded — no campaigns API) ── */}
+          <div style={panelStyle}>
+            <div style={phStyle}>
+              <div style={ptStyle}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M18 8a6 6 0 0 1 0 8" />
+                  <path d="M22 6a10 10 0 0 1 0 12" />
+                  <path d="M3 11v2a2 2 0 0 0 2 2h1l4 4V7L6 11H5a2 2 0 0 0-2 2z" />
+                </svg>
                 Active Campaigns
               </div>
             </div>
@@ -422,12 +521,32 @@ export default function SalesDashboard() {
                 { label: 'New customer 10% off', badge: 'Paused' },
                 { label: 'Reactivation — 12 churned', badge: 'Scheduled' },
               ].map((camp, i) => (
-                <SRow key={i}>
-                  <span style={{ fontSize: '11px', color: '#EEF2FF' }}>{camp.label}</span>
-                  <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 8px', borderRadius: '20px', background: 'rgba(79,142,247,.12)', color: '#93C5FD', border: '1px solid rgba(79,142,247,.2)' }}>
+                <div
+                  key={i}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '6px 10px',
+                    background: '#142540',
+                    borderRadius: '6px',
+                    border: '1px solid rgba(255,255,255,.07)',
+                    transition: '.12s',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = '#1a2d4e'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = '#142540'; }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', color: '#8BA3C7' }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#3E5678" strokeWidth="2" strokeLinecap="round">
+                      <path d="M18 8a6 6 0 0 1 0 8" />
+                      <path d="M3 11v2a2 2 0 0 0 2 2h1l4 4V7L6 11H5a2 2 0 0 0-2 2z" />
+                    </svg>
+                    {camp.label}
+                  </div>
+                  <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px', background: 'rgba(79,142,247,.14)', color: '#93C5FD', border: '1px solid rgba(79,142,247,.28)' }}>
                     {camp.badge}
                   </span>
-                </SRow>
+                </div>
               ))}
             </div>
           </div>
