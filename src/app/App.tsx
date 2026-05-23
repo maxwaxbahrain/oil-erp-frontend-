@@ -308,7 +308,7 @@ function App() {
         className="fixed inset-y-0 left-0 z-[200]"
         style={{
           transform: sidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
-          transition: 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+          transition: 'transform 0.08s ease-out',
           boxShadow: sidebarOpen ? '4px 0 24px rgba(0,0,0,0.6)' : 'none',
         }}
       >
