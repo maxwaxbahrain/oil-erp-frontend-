@@ -299,6 +299,14 @@ function App() {
         onClick={() => setSidebarOpen(false)}
         className={`sidebar-overlay ${sidebarOpen ? 'open' : ''}`}
         aria-hidden="true"
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.4)',
+          zIndex: 40,
+          backdropFilter: 'none',
+          WebkitBackdropFilter: 'none',
+        }}
       />
       {/* Drawer — the existing Sidebar component, animated in from
           the left edge. Position fixed on every viewport now (no
