@@ -26,6 +26,7 @@ import SalesReturns from '../pages/Sales/SalesReturns';
 import SalesReturnFormPage from '../pages/Sales/SalesReturnFormPage';
 import SalesReturnDetailPage from '../pages/Sales/SalesReturnDetailPage';
 import VanSalesDashboard from '../pages/VanSales/VanSalesDashboard';
+import WarehouseDashboard from '../pages/Warehouse/WarehouseDashboard';
 import VanSalesForm from '../pages/VanSales/VanSalesForm';
 import VanSalesHistory from '../pages/VanSales/VanSalesHistory';
 import VanManagement from '../pages/VanSales/VanManagement';
@@ -167,6 +168,7 @@ export const AppRoutes = () => {
             <Route path="/products/import" element={<InvoiceImport />} />
             <Route path="/products/reports" element={<InventoryReports />} />
 
+            <Route path="/warehouse/dashboard" element={<WarehouseDashboard />} />
             <Route path="/inventory" element={<Navigate to="/products" replace />} />
             <Route path="/inventory/transfer" element={<StockTransfer />} />
             <Route path="/inventory/adjustments" element={<InventoryAdjustment />} />
