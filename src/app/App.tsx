@@ -488,7 +488,7 @@ function App() {
         <div className="bg-redwood-midnight border-b border-[rgba(255,255,255,0.07)] px-3 flex items-end overflow-x-auto hide-scrollbar print:hidden">
           {[
             { key: 'overview',  label: 'Overview',       route: '/',                   icon: LayoutDashboard, prefix: ['/'],                                       badge: null,  badgeColor: null },
-            { key: 'finance',   label: 'Finance & Tax',  route: '/finance/accounting', icon: Receipt,         prefix: ['/finance', '/tax'],                        badge: '30%', badgeColor: 'red' },
+            { key: 'finance',   label: 'Finance & Tax',  route: '/finance/dashboard',  icon: Receipt,         prefix: ['/finance', '/tax'],                        badge: '30%', badgeColor: 'red' },
             { key: 'warehouse', label: 'Warehouse',      route: '/warehouse/dashboard',icon: Package,         prefix: ['/warehouse', '/products', '/inventory'],   badge: '25%', badgeColor: 'red' },
             { key: 'mobile',    label: 'Field & Mobile', route: '/logistics/pod',      icon: Smartphone,      prefix: ['/logistics', '/pod', '/van-sales'],        badge: '20%', badgeColor: 'amber' },
             { key: 'security',  label: 'Security',       route: '/access-management',  icon: Shield,          prefix: ['/access-management', '/users'],            badge: '40%', badgeColor: 'amber' },
@@ -566,7 +566,7 @@ function App() {
       >
         {[
           { key: 'home',    label: 'Home',    icon: Home,            route: '/',                   prefix: ['/']                                      },
-          { key: 'finance', label: 'Finance', icon: Receipt,         route: '/finance/accounting', prefix: ['/finance', '/tax']                       },
+          { key: 'finance', label: 'Finance', icon: Receipt,         route: '/finance/dashboard',  prefix: ['/finance', '/tax']                       },
           { key: 'invoice', label: 'Invoice', icon: FileText,        route: '/sales/invoices',     prefix: ['/sales/invoices']                        },
           { key: 'stock',   label: 'Stock',   icon: Package,         route: '/products',           prefix: ['/products', '/inventory', '/warehouse']  },
           { key: 'menu',    label: 'Menu',    icon: Menu,            route: null,                  prefix: []                          },
