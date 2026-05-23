@@ -41,7 +41,7 @@ import { getPurchaseOrders } from '../services/purchasesService';
 
 // Available roles for the cycling role pill in the top nav.  Cosmetic
 // only — does not affect permissions, just the displayed label.
-const ROLES = ['System Admin', 'Accountant', 'Sales Manager', 'Warehouse', 'Junior'] as const;
+const ROLES = ['System Admin', 'Accountant', 'Sales Manager', 'Warehouse', 'Van Driver', 'Junior'] as const;
 
 // Route to navigate to when cycling INTO each role.  Pure UX affordance —
 // the role label is the user-facing "context" they're switching to; the
@@ -52,6 +52,7 @@ const ROLE_ROUTES: Record<typeof ROLES[number], string> = {
   'Accountant':    '/finance/dashboard',
   'Sales Manager': '/sales/dashboard',
   'Warehouse':     '/warehouse/dashboard',
+  'Van Driver':    '/van/dashboard',
   'Junior':        '/',
 };
 
