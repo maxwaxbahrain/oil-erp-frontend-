@@ -31,6 +31,7 @@ import VanSalesForm from '../pages/VanSales/VanSalesForm';
 import VanSalesHistory from '../pages/VanSales/VanSalesHistory';
 import VanManagement from '../pages/VanSales/VanManagement';
 import AccountsDashboard from '../pages/Accounts/AccountsDashboard';
+import FinanceDashboard from '../pages/Finance/FinanceDashboard';
 import ExpenseManagement from '../pages/Accounts/ExpenseManagement';
 // STEP 6 — AI Bulk Upload for expenses (new route).
 import ExpensesBulkUpload from '../pages/Accounts/ExpensesBulkUpload';
@@ -234,6 +235,7 @@ export const AppRoutes = () => {
             <Route path="/finance/expenses/reports" element={<ExpenseReports />} />
             <Route path="/finance/expenses/settings" element={<ExpenseSettingsPage />} />
             <Route path="/finance/payroll" element={<PayrollManagement />} />
+            <Route path="/finance/dashboard" element={<FinanceDashboard />} />
             <Route path="/finance/accounting" element={<AccountsDashboard />} />
             <Route path="/finance/banking" element={<Banking />} />
             <Route path="/finance/chart-of-accounts" element={<ChartOfAccounts />} />

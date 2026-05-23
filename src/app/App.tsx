@@ -42,7 +42,7 @@ const ROLES = ['System Admin', 'Accountant', 'Sales Manager', 'Warehouse', 'Juni
 // permissions logic — the route is the only side effect.
 const ROLE_ROUTES: Record<typeof ROLES[number], string> = {
   'System Admin':  '/',
-  'Accountant':    '/finance/accounting',
+  'Accountant':    '/finance/dashboard',
   'Sales Manager': '/sales/dashboard',
   'Warehouse':     '/warehouse/dashboard',
   'Junior':        '/',
