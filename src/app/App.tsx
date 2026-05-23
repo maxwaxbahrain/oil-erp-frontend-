@@ -3,7 +3,6 @@ import {
   Menu,
   ChevronRight,
   ChevronDown,
-  HelpCircle,
   Bell,
   Globe,
   FileText,
@@ -20,6 +19,9 @@ import {
   Calendar,
   UserX,
   Plus,
+  Settings,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { AppRoutes } from './routes';
 import Sidebar from '../components/layout/Sidebar';
@@ -51,6 +53,15 @@ function App() {
   const [aiCtx, setAiCtx] = useState<any>({ invoices: [], customers: [], products: [], payments: [], purchaseOrders: [] });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [notifsOpen, setNotifsOpen] = useState(false);
+  // FIX 5 — Light/dark mode toggle. Cosmetic only — flips a
+  // `soltol-light` class on <body>; no business logic.
+  const [lightMode, setLightMode] = useState<boolean>(() => {
+    try { return document.body.classList.contains('soltol-light'); } catch { return false; }
+  });
+  const toggleMode = () => {
+    try { document.body.classList.toggle('soltol-light'); } catch { /* ignore */ }
+    setLightMode((v) => !v);
+  };
   const notifsRef = useRef<HTMLDivElement>(null);
 
   // Role pill — cycles through ROLES on click.  In-memory state only.
@@ -192,8 +203,30 @@ function App() {
             >
               <Menu size={20} />
             </button>
-            {/* Breadcrumb pill hidden on phones — header would overflow. */}
-            <div className="hidden md:flex items-center gap-3 py-1 px-3 bg-redwood-bg-light rounded-sm border border-redwood-border/50">
+            {/* FIX 1 — Compact single-line "Soltol ERP" logo matching
+                preview.html .logo-w. Hidden on phones so the header
+                doesn't overflow next to the breadcrumb + role pill. */}
+            <div className="hidden sm:flex items-center gap-[7px] flex-shrink-0">
+              <div
+                className="w-[30px] h-[30px] rounded-lg flex items-center justify-center text-white text-[12px] font-bold flex-shrink-0"
+                style={{ background: '#4F8EF7', fontFamily: "'Syne',sans-serif" }}
+              >
+                S1
+              </div>
+              <div
+                className="whitespace-nowrap"
+                style={{ fontFamily: "'Syne',sans-serif", fontSize: '15px', fontWeight: 600, color: '#EEF2FF', letterSpacing: '-0.3px' }}
+              >
+                Soltol
+                <sub style={{ fontSize: '9px', fontWeight: 400, color: '#3E5678', marginLeft: '2px' }}>ERP</sub>
+              </div>
+            </div>
+            {/* Breadcrumb pill hidden on phones AND on /sales/dashboard
+                (FIX 3 — that dashboard's search bar is space-constrained). */}
+            <div
+              className="hidden md:flex items-center gap-3 py-1 px-3 bg-redwood-bg-light rounded-sm border border-redwood-border/50"
+              style={location.pathname === '/sales/dashboard' ? { display: 'none' } : undefined}
+            >
               <span className="text-[11px] font-black text-redwood-secondary tracking-widest uppercase">Global</span>
               <ChevronRight size={14} className="text-redwood-border" />
               <div className="flex items-center gap-2">
@@ -236,6 +269,30 @@ function App() {
             {/* BUG #1 FIX: Removed Query ERP Records search bar */}
 
             <div className="flex items-center gap-2">
+              {/* FIX 4 — Live badge with pulsing green dot. */}
+              <div
+                className="hidden md:inline-flex items-center gap-[5px] rounded-full font-semibold"
+                style={{
+                  background: 'rgba(34,197,94,.12)',
+                  border: '1px solid rgba(34,197,94,.2)',
+                  color: '#86EFAC',
+                  padding: '3px 9px',
+                  fontSize: '9px',
+                }}
+              >
+                <span className="w-[5px] h-[5px] rounded-full animate-pulse" style={{ background: '#22C55E' }} />
+                Live
+              </div>
+              {/* FIX 5 — Light/dark mode toggle. */}
+              <button
+                type="button"
+                onClick={toggleMode}
+                aria-label="Toggle light/dark mode"
+                title="Toggle light/dark mode"
+                className="p-2.5 text-redwood-text-muted hover:bg-redwood-bg-light hover:text-redwood-text-main rounded-sm transition-all"
+              >
+                {lightMode ? <Moon size={20} /> : <Sun size={20} />}
+              </button>
               <div className="relative" ref={notifsRef}>
                 <button
                   onClick={() => setNotifsOpen(v => !v)}
@@ -270,18 +327,14 @@ function App() {
                   </div>
                 )}
               </div>
+              {/* FIX 6 — "?" Help replaced with ⚙ Settings gear. */}
               <button
-                onClick={() => alert(
-                  'SOLTOL ONE · Business Platform v1.0.0\n\n' +
-                  'Keyboard shortcuts:\n' +
-                  '  Esc  — Go back to the previous screen\n\n' +
-                  'For support, contact your administrator.'
-                )}
-                aria-label="Help"
-                title="Help & shortcuts"
-                className="p-2.5 text-redwood-text-muted hover:bg-redwood-bg-light hover:text-redwood-primary rounded-sm transition-all"
+                onClick={() => navigate('/settings')}
+                aria-label="Settings"
+                title="Settings"
+                className="p-2.5 text-redwood-text-muted hover:bg-redwood-bg-light hover:text-redwood-text-main rounded-sm transition-all"
               >
-                <HelpCircle size={20} />
+                <Settings size={20} />
               </button>
 
               <div className="hidden sm:block h-8 w-[1px] bg-redwood-border mx-3"></div>
@@ -290,13 +343,7 @@ function App() {
                 onClick={() => navigate('/settings')}
                 className="flex items-center gap-3 pl-2 cursor-pointer group"
               >
-                {/* Name + status block hidden on phones; avatar stays visible. */}
-                <div className="hidden sm:flex text-right flex-col justify-center">
-                  <div className="flex items-center gap-1.5 justify-end">
-                    <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
-                    <span className="text-[9px] text-redwood-secondary font-black uppercase tracking-widest">Master Control</span>
-                  </div>
-                </div>
+                {/* FIX 7 — "MASTER CONTROL" label removed from nav. */}
                 <div
                   // TC-07 — Stop the click from bubbling up to the outer
                   // wrapper (which navigates to /settings). Without this,
