@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type CSSProperties, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Users, UserX, ShoppingCart, Target, TrendingUp,
@@ -6,6 +6,74 @@ import {
   Plus, MessageCircle,
 } from 'lucide-react';
 import { getCustomers, getSalesOrders, getProducts } from '../../services/api';
+
+// ─── Shared style tokens (mirror public/preview.html tc-sales spec) ──────
+const panel: CSSProperties = {
+  background: '#0f1f33',
+  border: '1px solid rgba(255,255,255,.12)',
+  borderRadius: '14px',
+  padding: '14px 16px',
+};
+const ph: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  marginBottom: '12px',
+};
+const pt: CSSProperties = {
+  fontFamily: "'Syne',sans-serif",
+  fontSize: '13px',
+  fontWeight: 600,
+  display: 'flex',
+  alignItems: 'center',
+  gap: '6px',
+};
+const pa: CSSProperties = {
+  fontSize: '10px',
+  color: '#4F8EF7',
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+  padding: 0,
+};
+const pgBtn: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '5px',
+  padding: '6px 11px',
+  borderRadius: '6px',
+  fontSize: '10.5px',
+  fontWeight: 500,
+  cursor: 'pointer',
+  border: '1px solid rgba(255,255,255,.12)',
+  background: 'rgba(255,255,255,.04)',
+  color: '#8BA3C7',
+  fontFamily: "'DM Sans',sans-serif",
+  transition: '.12s',
+};
+
+// ─── .srow with hover transition (used for every list row on this page) ──
+function SRow({ children, overdue = false }: { children: ReactNode; overdue?: boolean }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '6px 10px',
+        background: '#142540',
+        borderRadius: '6px',
+        border: overdue ? '1px solid rgba(239,68,68,.25)' : '1px solid rgba(255,255,255,.07)',
+        transition: '.12s',
+        cursor: 'pointer',
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = '#1a2d4e'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = '#142540'; }}
+    >
+      {children}
+    </div>
+  );
+}
 
 export default function SalesDashboard() {
   const navigate = useNavigate();
@@ -103,239 +171,263 @@ export default function SalesDashboard() {
     .slice(0, 3);
 
   return (
-    <div className="space-y-4 pb-10">
-      {/* Page header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', paddingBottom: '40px' }}>
+      {/* ─── PAGE HEADER (FIX 1, FIX 9) ─── */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
         <div>
-          <h1 className="text-[20px] font-semibold flex items-center gap-2" style={{ fontFamily: "'Syne',sans-serif", color: '#22C55E' }}>
+          <h1 style={{
+            margin: 0,
+            fontFamily: "'Syne',sans-serif",
+            fontSize: '20px',
+            fontWeight: 600,
+            letterSpacing: '-0.5px',
+            color: '#22C55E',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}>
             <TrendingUp size={20} style={{ color: '#22C55E' }} />
             Sales & CRM
           </h1>
-          <div className="text-[11px] text-redwood-text-muted mt-0.5">
+          <div style={{ fontSize: '11px', color: '#3E5678', marginTop: '2px' }}>
             Pipeline · Top customers · Churn alerts · Product velocity · Marketing
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <button
             type="button"
             onClick={() => navigate('/marketing/campaigns')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-semibold bg-[rgba(34,197,94,0.12)] text-[#86EFAC] border border-[rgba(34,197,94,0.22)] hover:bg-[rgba(34,197,94,0.18)] transition-colors"
+            style={{ ...pgBtn, color: '#22C55E', border: '1px solid rgba(34,197,94,.3)' }}
           >
             <MessageCircle size={13} /> WhatsApp Blast
           </button>
           <button
             type="button"
             onClick={() => navigate('/customers/new')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-semibold bg-[#4F8EF7] text-white hover:brightness-110 transition-all shadow-sm"
+            style={{ ...pgBtn, color: '#93C5FD', border: '1px solid rgba(79,142,247,.28)' }}
           >
             <Plus size={13} /> Add Customer
           </button>
         </div>
       </div>
 
-      {/* KPI row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* ─── KPI ROW (FIX 2, FIX 3) ─── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '10px' }}>
         {/* Total Customers */}
-        <div className="bg-redwood-bg-surface border border-[rgba(34,197,94,0.2)] rounded-[14px] px-[14px] py-[13px] relative overflow-hidden">
-          <div className="absolute top-0 left-0 right-0 h-0.5 rounded-t-[14px]"
-            style={{ background: 'linear-gradient(90deg,#22C55E,#86EFAC)' }} />
-          <div className="flex items-center justify-between mb-1.5">
-            <div className="flex items-center gap-1.5 text-[10.5px] font-medium text-redwood-text-muted">
+        <div style={{ background: '#0f1f33', border: '1px solid rgba(255,255,255,.12)', borderRadius: '14px', padding: '13px 14px', position: 'relative', overflow: 'hidden', transition: '.18s' }}>
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', borderRadius: '14px 14px 0 0', background: 'linear-gradient(90deg,#22C55E,#86EFAC)' }} />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10.5px', fontWeight: 500, color: '#8BA3C7' }}>
               <Users size={13} style={{ color: '#22C55E' }} /> Total Customers
             </div>
-            <span className="text-[9px] font-semibold px-[7px] py-[2px] rounded-full bg-[rgba(34,197,94,0.12)] text-[#86EFAC] border border-[rgba(34,197,94,0.2)]">Active</span>
+            <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px', background: 'rgba(34,197,94,.12)', color: '#86EFAC', border: '1px solid rgba(34,197,94,.2)' }}>Active</span>
           </div>
-          <div className="text-[22px] font-semibold leading-[1.1] tracking-[-0.5px] mb-[3px]"
-            style={{ fontFamily: "'Syne',sans-serif", color: '#22C55E' }}>
-            {totalCustomers}
-          </div>
-          <div className="text-[10px] text-[#3E5678]">+{newThisMonth} new this month</div>
+          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '22px', fontWeight: 600, letterSpacing: '-0.5px', marginBottom: '3px', lineHeight: '1.1', color: '#22C55E' }}>{totalCustomers}</div>
+          <div style={{ fontSize: '10px', color: '#86EFAC' }}>+{newThisMonth} new this month</div>
         </div>
 
         {/* Churn Risk */}
-        <div className="bg-redwood-bg-surface border border-[rgba(239,68,68,0.2)] rounded-[14px] px-[14px] py-[13px] relative overflow-hidden">
-          <div className="absolute top-0 left-0 right-0 h-0.5 rounded-t-[14px]"
-            style={{ background: 'linear-gradient(90deg,#EF4444,#FCA5A5)' }} />
-          <div className="flex items-center justify-between mb-1.5">
-            <div className="flex items-center gap-1.5 text-[10.5px] font-medium text-redwood-text-muted">
+        <div style={{ background: '#0f1f33', border: '1px solid rgba(255,255,255,.12)', borderRadius: '14px', padding: '13px 14px', position: 'relative', overflow: 'hidden', transition: '.18s' }}>
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', borderRadius: '14px 14px 0 0', background: 'linear-gradient(90deg,#EF4444,#FCA5A5)' }} />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10.5px', fontWeight: 500, color: '#8BA3C7' }}>
               <UserX size={13} style={{ color: '#EF4444' }} /> Churn Risk
             </div>
-            <span className="text-[9px] font-semibold px-[7px] py-[2px] rounded-full bg-[rgba(239,68,68,0.12)] text-[#FCA5A5] border border-[rgba(239,68,68,0.2)]">Alert</span>
+            <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px', background: 'rgba(239,68,68,.12)', color: '#FCA5A5', border: '1px solid rgba(239,68,68,.2)' }}>Alert</span>
           </div>
-          <div className="text-[22px] font-semibold leading-[1.1] tracking-[-0.5px] mb-[3px]"
-            style={{ fontFamily: "'Syne',sans-serif", color: '#EF4444' }}>
-            {churnRisk}
-          </div>
-          <div className="text-[10px] text-[#FCA5A5]">No order in 60+ days</div>
+          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '22px', fontWeight: 600, letterSpacing: '-0.5px', marginBottom: '3px', lineHeight: '1.1', color: '#EF4444' }}>{churnRisk}</div>
+          <div style={{ fontSize: '10px', color: '#FCA5A5' }}>No order in 60+ days</div>
         </div>
 
         {/* Orders MTD */}
-        <div className="bg-redwood-bg-surface border border-[rgba(79,142,247,0.28)] rounded-[14px] px-[14px] py-[13px] relative overflow-hidden">
-          <div className="absolute top-0 left-0 right-0 h-0.5 rounded-t-[14px]"
-            style={{ background: 'linear-gradient(90deg,#4F8EF7,#93C5FD)' }} />
-          <div className="flex items-center justify-between mb-1.5">
-            <div className="flex items-center gap-1.5 text-[10.5px] font-medium text-redwood-text-muted">
+        <div style={{ background: '#0f1f33', border: '1px solid rgba(255,255,255,.12)', borderRadius: '14px', padding: '13px 14px', position: 'relative', overflow: 'hidden', transition: '.18s' }}>
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', borderRadius: '14px 14px 0 0', background: 'linear-gradient(90deg,#4F8EF7,#93C5FD)' }} />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10.5px', fontWeight: 500, color: '#8BA3C7' }}>
               <ShoppingCart size={13} style={{ color: '#4F8EF7' }} /> Orders MTD
             </div>
-            <span className="text-[9px] font-semibold px-[7px] py-[2px] rounded-full bg-[rgba(79,142,247,0.14)] text-[#93C5FD] border border-[rgba(79,142,247,0.28)]">MTD</span>
+            <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px', background: 'rgba(79,142,247,.14)', color: '#93C5FD', border: '1px solid rgba(79,142,247,.28)' }}>MTD</span>
           </div>
-          <div className="text-[22px] font-semibold leading-[1.1] tracking-[-0.5px] mb-[3px]"
-            style={{ fontFamily: "'Syne',sans-serif", color: '#4F8EF7' }}>
-            {ordersMTD}
-          </div>
-          <div className="text-[10px] text-redwood-text-muted">
+          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '22px', fontWeight: 600, letterSpacing: '-0.5px', marginBottom: '3px', lineHeight: '1.1', color: '#4F8EF7' }}>{ordersMTD}</div>
+          <div style={{ fontSize: '10px', color: '#8BA3C7' }}>
             ${ordersTotalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} total value
           </div>
         </div>
 
         {/* Target Achievement */}
-        <div className="bg-redwood-bg-surface border border-[rgba(245,158,11,0.2)] rounded-[14px] px-[14px] py-[13px] relative overflow-hidden">
-          <div className="absolute top-0 left-0 right-0 h-0.5 rounded-t-[14px]"
-            style={{ background: 'linear-gradient(90deg,#F59E0B,#FCD34D)' }} />
-          <div className="flex items-center justify-between mb-1.5">
-            <div className="flex items-center gap-1.5 text-[10.5px] font-medium text-redwood-text-muted">
+        <div style={{ background: '#0f1f33', border: '1px solid rgba(255,255,255,.12)', borderRadius: '14px', padding: '13px 14px', position: 'relative', overflow: 'hidden', transition: '.18s' }}>
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', borderRadius: '14px 14px 0 0', background: 'linear-gradient(90deg,#F59E0B,#FCD34D)' }} />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10.5px', fontWeight: 500, color: '#8BA3C7' }}>
               <Target size={13} style={{ color: '#F59E0B' }} /> Target Achievement
             </div>
-            <span className="text-[9px] font-semibold px-[7px] py-[2px] rounded-full bg-[rgba(245,158,11,0.12)] text-[#FCD34D] border border-[rgba(245,158,11,0.2)]">{targetPct}%</span>
+            <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px', background: 'rgba(245,158,11,.12)', color: '#FCD34D', border: '1px solid rgba(245,158,11,.2)' }}>{targetPct}%</span>
           </div>
-          <div className="text-[22px] font-semibold leading-[1.1] tracking-[-0.5px] mb-[3px]"
-            style={{ fontFamily: "'Syne',sans-serif", color: '#F59E0B' }}>
-            {targetPct}%
-          </div>
-          <div className="text-[10px] text-[#FCA5A5]">
+          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '22px', fontWeight: 600, letterSpacing: '-0.5px', marginBottom: '3px', lineHeight: '1.1', color: '#F59E0B' }}>{targetPct}%</div>
+          <div style={{ fontSize: '10px', color: '#FCA5A5' }}>
             ${achieved.toLocaleString(undefined, { maximumFractionDigits: 0 })} of $280k target
           </div>
         </div>
       </div>
 
-      {/* Two-column main content */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1.8fr_1fr] gap-[10px]">
-        {/* LEFT — Top Customers + progress bars */}
-        <div className="bg-redwood-bg-surface border border-redwood-border rounded-[14px] px-4 py-3.5">
-          <div className="flex items-center justify-between mb-3">
-            <div className="text-[13px] font-semibold text-redwood-text-main flex items-center gap-1.5">
-              <Trophy size={13} className="text-redwood-text-muted" />
+      {/* ─── TWO-COLUMN MAIN (FIX 6) ─── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2fr) minmax(0,1fr)', gap: '12px' }}>
+        {/* LEFT — Top Customers + progress bars (FIX 4, FIX 5, FIX 7, FIX 8) */}
+        <div style={panel}>
+          <div style={ph}>
+            <div style={pt}>
+              <Trophy size={13} style={{ color: '#8BA3C7' }} />
               Top Customers — Revenue MTD
             </div>
-            <button onClick={() => navigate('/customers')} className="text-[10px] text-[#4F8EF7] hover:underline">
-              Full CRM →
-            </button>
+            <button onClick={() => navigate('/customers')} style={pa}>Full CRM →</button>
           </div>
-          <div className="flex flex-col gap-[5px]">
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
             {topCustomers.map((c, i) => (
-              <div key={i} className={`flex items-center justify-between px-2.5 py-1.5 bg-[#142540] rounded-[6px] border transition-colors hover:bg-[#1a2d4e] ${c.isOverdue ? 'border-[rgba(239,68,68,0.25)]' : 'border-redwood-border'}`}>
-                <div className="flex items-center gap-2">
-                  <User size={13} className="text-[#3E5678] flex-shrink-0" />
-                  <span className={`text-[11px] ${c.isOverdue ? 'text-[#FCA5A5]' : 'text-redwood-text-main'}`}>
-                    {c.name}
-                  </span>
+              <SRow key={i} overdue={c.isOverdue}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+                  <User size={13} style={{ color: '#3E5678', flexShrink: 0 }} />
+                  <span style={{ fontSize: '11px', color: c.isOverdue ? '#FCA5A5' : '#EEF2FF' }}>{c.name}</span>
                 </div>
-                <span className={`text-[13px] font-semibold ${c.isOverdue ? 'text-[#EF4444]' : 'text-[#22C55E]'}`}>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: c.isOverdue ? '#EF4444' : '#22C55E' }}>
                   ${Math.abs(c.revenue).toFixed(2)}
                 </span>
-              </div>
+              </SRow>
             ))}
             {topCustomers.length === 0 && (
-              <div className="text-[11px] text-redwood-text-muted text-center py-4">No orders this month</div>
+              <div style={{ fontSize: '11px', color: '#8BA3C7', textAlign: 'center', padding: '16px 0' }}>
+                No orders this month
+              </div>
             )}
           </div>
-          {/* Progress bars */}
-          <div className="mt-3 flex flex-col gap-2">
+
+          {/* Progress bars (FIX 8) */}
+          <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column' }}>
             {[
               { label: 'Monthly sales target', pct: targetPct, color: '#4F8EF7' },
               { label: 'New customer target', pct: Math.min(Math.round((newThisMonth / 20) * 100), 100), color: '#22C55E' },
               { label: 'Collection rate', pct: 12, color: '#EF4444' },
             ].map((row, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <span className="text-[10px] text-redwood-text-muted w-[140px] flex-shrink-0">{row.label}</span>
-                <div className="flex-1 h-[5px] bg-[#142540] rounded-full overflow-hidden">
-                  <div className="h-full rounded-full transition-all"
-                    style={{ width: `${row.pct}%`, background: row.color }} />
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '7px' }}>
+                <span style={{ fontSize: '10px', color: '#8BA3C7', minWidth: '160px', flexShrink: 0 }}>{row.label}</span>
+                <div style={{ flex: 1, height: '5px', background: 'rgba(255,255,255,.07)', borderRadius: '3px', overflow: 'hidden' }}>
+                  <div style={{ height: '100%', borderRadius: '3px', width: `${row.pct}%`, background: row.color, transition: 'width .8s ease' }} />
                 </div>
-                <span className="text-[10px] font-semibold w-8 text-right" style={{ color: row.color }}>{row.pct}%</span>
+                <span style={{ fontSize: '10px', fontWeight: 500, width: '32px', textAlign: 'right', color: row.color }}>
+                  {row.pct}%
+                </span>
               </div>
             ))}
           </div>
         </div>
 
-        {/* RIGHT — 3 stacked panels */}
-        <div className="flex flex-col gap-[10px]">
+        {/* RIGHT — 3 stacked panels (FIX 10) */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           {/* Churn Alerts */}
-          <div className="bg-redwood-bg-surface border border-redwood-border rounded-[14px] px-4 py-3.5">
-            <div className="flex items-center justify-between mb-2.5">
-              <div className="text-[13px] font-semibold text-redwood-text-main flex items-center gap-1.5">
-                <UserX size={13} className="text-redwood-text-muted" /> Churn Alerts
+          <div style={panel}>
+            <div style={ph}>
+              <div style={pt}>
+                <UserX size={13} style={{ color: '#8BA3C7' }} />
+                Churn Alerts
               </div>
-              <button onClick={() => navigate('/customers')} className="text-[10px] text-[#4F8EF7] hover:underline">
-                Send reminders →
-              </button>
+              <button onClick={() => navigate('/customers')} style={pa}>Send reminders →</button>
             </div>
-            <div className="flex flex-col gap-[5px]">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
               {churnList.map((c, i) => (
-                <div key={i} className="flex items-center justify-between px-2.5 py-1.5 bg-[#142540] rounded-[6px] border border-redwood-border">
-                  <div className="flex items-center gap-2">
-                    <User size={13} className="text-[#3E5678]" />
-                    <span className="text-[11px] text-redwood-text-main">{c.name}</span>
+                <SRow key={i}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+                    <User size={13} style={{ color: '#3E5678' }} />
+                    <span style={{ fontSize: '11px', color: '#EEF2FF' }}>{c.name}</span>
                   </div>
-                  <span className={`text-[9px] font-semibold ${c.daysSince >= 90 ? 'text-[#FCA5A5]' : 'text-[#FCD34D]'}`}>
+                  <span style={{ fontSize: '9px', fontWeight: 600, color: c.daysSince >= 90 ? '#FCA5A5' : '#FCD34D' }}>
                     {c.daysSince}d silent
                   </span>
-                </div>
+                </SRow>
               ))}
               {churnList.length === 0 && (
-                <div className="text-[11px] text-redwood-text-muted text-center py-3">No churn risk customers</div>
+                <div style={{ fontSize: '11px', color: '#8BA3C7', textAlign: 'center', padding: '12px 0' }}>
+                  No churn risk customers
+                </div>
               )}
               <button
                 onClick={() => navigate('/customers')}
-                className="mt-1 flex items-center gap-2 px-2.5 py-1.5 w-full text-left text-[10px] text-[#4F8EF7] bg-[rgba(79,142,247,0.07)] rounded-[6px] border border-[rgba(79,142,247,0.14)] hover:bg-[rgba(79,142,247,0.12)] transition-colors">
+                style={{
+                  marginTop: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '6px 10px',
+                  width: '100%',
+                  textAlign: 'left',
+                  fontSize: '10px',
+                  color: '#4F8EF7',
+                  background: 'rgba(79,142,247,.07)',
+                  borderRadius: '6px',
+                  border: '1px solid rgba(79,142,247,.14)',
+                  cursor: 'pointer',
+                  transition: '.12s',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(79,142,247,.12)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(79,142,247,.07)'; }}
+              >
                 <Send size={11} /> Send WhatsApp to all {churnRisk} at-risk →
               </button>
             </div>
           </div>
 
           {/* Product Velocity */}
-          <div className="bg-redwood-bg-surface border border-redwood-border rounded-[14px] px-4 py-3.5">
-            <div className="text-[13px] font-semibold text-redwood-text-main flex items-center gap-1.5 mb-2.5">
-              <BarChart2 size={13} className="text-redwood-text-muted" /> Product Velocity
+          <div style={panel}>
+            <div style={ph}>
+              <div style={pt}>
+                <BarChart2 size={13} style={{ color: '#8BA3C7' }} />
+                Product Velocity
+              </div>
             </div>
-            <div className="flex flex-col gap-[5px]">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
               {topProducts.map((p, i) => {
                 const isFast = i === 0;
                 const isMed = i === 1;
                 const color = isFast ? '#22C55E' : isMed ? '#F59E0B' : '#3E5678';
                 const label = isFast ? 'Fast' : isMed ? 'Med' : 'Slow';
                 return (
-                  <div key={i} className="flex items-center justify-between px-2.5 py-1.5 bg-[#142540] rounded-[6px] border border-redwood-border">
-                    <span className="text-[11px] text-redwood-text-main flex-1 truncate">{p.name}</span>
-                    <span className="text-[10px] font-semibold ml-2 flex-shrink-0" style={{ color }}>
+                  <SRow key={i}>
+                    <span style={{ fontSize: '11px', color: '#EEF2FF', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {p.name}
+                    </span>
+                    <span style={{ fontSize: '10px', fontWeight: 600, marginLeft: '8px', flexShrink: 0, color }}>
                       {label} — {p.count}/mo
                     </span>
-                  </div>
+                  </SRow>
                 );
               })}
               {topProducts.length === 0 && (
-                <div className="text-[11px] text-redwood-text-muted text-center py-3">No product data</div>
+                <div style={{ fontSize: '11px', color: '#8BA3C7', textAlign: 'center', padding: '12px 0' }}>
+                  No product data
+                </div>
               )}
             </div>
           </div>
 
           {/* Active Campaigns (hardcoded — no campaigns API) */}
-          <div className="bg-redwood-bg-surface border border-redwood-border rounded-[14px] px-4 py-3.5">
-            <div className="text-[13px] font-semibold text-redwood-text-main flex items-center gap-1.5 mb-2.5">
-              <Megaphone size={13} className="text-redwood-text-muted" /> Active Campaigns
+          <div style={panel}>
+            <div style={ph}>
+              <div style={pt}>
+                <Megaphone size={13} style={{ color: '#8BA3C7' }} />
+                Active Campaigns
+              </div>
             </div>
-            <div className="flex flex-col gap-[5px]">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
               {[
                 { label: 'Ramadan bulk discount', badge: 'Live' },
                 { label: 'New customer 10% off', badge: 'Paused' },
                 { label: 'Reactivation — 12 churned', badge: 'Scheduled' },
               ].map((camp, i) => (
-                <div key={i} className="flex items-center justify-between px-2.5 py-1.5 bg-[#142540] rounded-[6px] border border-redwood-border">
-                  <span className="text-[11px] text-redwood-text-main">{camp.label}</span>
-                  <span className="text-[9px] font-semibold px-2 py-[2px] rounded-full bg-[rgba(79,142,247,0.12)] text-[#93C5FD] border border-[rgba(79,142,247,0.2)]">
+                <SRow key={i}>
+                  <span style={{ fontSize: '11px', color: '#EEF2FF' }}>{camp.label}</span>
+                  <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 8px', borderRadius: '20px', background: 'rgba(79,142,247,.12)', color: '#93C5FD', border: '1px solid rgba(79,142,247,.2)' }}>
                     {camp.badge}
                   </span>
-                </div>
+                </SRow>
               ))}
             </div>
           </div>
