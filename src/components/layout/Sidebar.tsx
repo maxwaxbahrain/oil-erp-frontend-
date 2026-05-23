@@ -83,16 +83,21 @@ export default function Sidebar() {
     //    The `to !== '/'` guard prevents '/' from matching every route
     //    via startsWith.
     const NavItem = ({
-        to, icon: Icon, label, badge,
+        to, icon: Icon, label, badge, activeExtra,
     }: {
         to: string;
         icon: any;
         label: string;
         badge?: Badge;
+        // Extra path prefixes that also mark this item active. Lets a
+        // `to="/"` Dashboard item own routes like `/warehouse/dashboard`
+        // without breaking the `to !== '/'` guard below.
+        activeExtra?: string[];
     }) => {
         const isActive =
             location.pathname === to ||
-            (to !== '/' && location.pathname.startsWith(to));
+            (to !== '/' && location.pathname.startsWith(to)) ||
+            !!(activeExtra && activeExtra.some(p => location.pathname.startsWith(p)));
         return (
             <Link
                 to={to}
@@ -186,7 +191,7 @@ export default function Sidebar() {
                 />
                 {openGroups.home && (
                     <div className="pb-1">
-                        <NavItem to="/" icon={LayoutDashboard} label="Dashboard" />
+                        <NavItem to="/" icon={LayoutDashboard} label="Dashboard" activeExtra={['/warehouse']} />
                         <NavItem to="/pulse" icon={Send} label="PULSE — Team Chat" />
                         <NavItem to="/pulse/notes" icon={FileText} label="Meeting Notes" />
                         <NavItem to="/portal" icon={User} label="Employee Portal" />

@@ -87,6 +87,21 @@ export default function WarehouseDashboard() {
   const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>([]);
 
+  // Responsive column counts. Updated on window resize so the grid
+  // tracks viewport changes (orientation flips, browser-window resize)
+  // — not just first render.
+  const [cols, setCols] = useState({ kpi: 4, bins: 3, twoCol: true });
+  useEffect(() => {
+    const update = () => setCols({
+      kpi: window.innerWidth >= 1024 ? 4 : 2,
+      bins: window.innerWidth >= 768 ? 3 : 2,
+      twoCol: window.innerWidth >= 1024,
+    });
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+
   useEffect(() => {
     getProducts().then(setProducts).catch(console.error);
   }, []);
@@ -144,7 +159,7 @@ export default function WarehouseDashboard() {
       {/* ────────── B) 4 KPI cards ────────── */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: window.innerWidth >= 1024 ? 'repeat(4,1fr)' : 'repeat(2,1fr)',
+        gridTemplateColumns: `repeat(${cols.kpi}, 1fr)`,
         gap: '9px',
         marginBottom: '12px',
       }}>
@@ -185,7 +200,7 @@ export default function WarehouseDashboard() {
       {/* ────────── C) Two-column main ────────── */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: window.innerWidth >= 1024 ? '1fr minmax(250px,0.7fr)' : '1fr',
+        gridTemplateColumns: cols.twoCol ? '1fr minmax(250px,0.7fr)' : '1fr',
         gap: '10px',
       }}>
         {/* LEFT — Bin Locations */}
@@ -201,7 +216,7 @@ export default function WarehouseDashboard() {
           </div>
           <div style={{
             display: 'grid',
-            gridTemplateColumns: window.innerWidth >= 768 ? 'repeat(3,1fr)' : 'repeat(2,1fr)',
+            gridTemplateColumns: `repeat(${cols.bins}, 1fr)`,
             gap: '8px',
           }}>
             {BINS.map((bin) => {

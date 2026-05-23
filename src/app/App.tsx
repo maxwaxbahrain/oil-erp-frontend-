@@ -9,6 +9,7 @@ import {
   AlertCircle,
   Wallet,
   LayoutDashboard,
+  Home,
   Smartphone,
   Shield,
   TrendingUp,
@@ -557,10 +558,10 @@ function App() {
         aria-label="Mobile navigation"
       >
         {[
-          { key: 'home',    label: 'Home',    icon: LayoutDashboard, route: '/',                   prefix: ['/']                       },
-          { key: 'finance', label: 'Finance', icon: Receipt,         route: '/finance/accounting', prefix: ['/finance', '/tax']        },
-          { key: 'invoice', label: 'Invoice', icon: FileText,        route: '/sales/invoices',     prefix: ['/sales/invoices']         },
-          { key: 'stock',   label: 'Stock',   icon: Package,         route: '/products',           prefix: ['/products', '/inventory'] },
+          { key: 'home',    label: 'Home',    icon: Home,            route: '/',                   prefix: ['/']                                      },
+          { key: 'finance', label: 'Finance', icon: Receipt,         route: '/finance/accounting', prefix: ['/finance', '/tax']                       },
+          { key: 'invoice', label: 'Invoice', icon: FileText,        route: '/sales/invoices',     prefix: ['/sales/invoices']                        },
+          { key: 'stock',   label: 'Stock',   icon: Package,         route: '/products',           prefix: ['/products', '/inventory', '/warehouse']  },
           { key: 'menu',    label: 'Menu',    icon: Menu,            route: null,                  prefix: []                          },
         ].map((item) => {
           const Icon = item.icon;
