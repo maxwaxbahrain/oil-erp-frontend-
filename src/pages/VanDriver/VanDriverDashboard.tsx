@@ -390,7 +390,7 @@ export default function VanDriverDashboard() {
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
                 <XAxis dataKey="hour" tick={{ fill: '#8BA3C7', fontSize: 10 }} stroke="rgba(255,255,255,0.12)" />
                 <YAxis tick={{ fill: '#8BA3C7', fontSize: 10 }} stroke="rgba(255,255,255,0.12)" />
-                <Tooltip contentStyle={tooltipContentStyle} formatter={(v: number) => `$${fmt0(v)}`} />
+                <Tooltip contentStyle={tooltipContentStyle} formatter={(v: number | undefined) => `$${fmt0(v ?? 0)}`} />
                 <Area type="monotone" dataKey="collected" name="Collected" stroke="#22C55E" fill="rgba(34,197,94,0.2)" strokeWidth={2} isAnimationActive={false} />
                 <Area type="monotone" dataKey="target" name="Target pace" stroke="rgba(79,142,247,0.5)" strokeDasharray="4 4" strokeWidth={2} fill="none" isAnimationActive={false} />
               </AreaChart>
@@ -556,7 +556,7 @@ export default function VanDriverDashboard() {
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
                 <XAxis dataKey="day" tick={{ fill: '#8BA3C7', fontSize: 9 }} stroke="rgba(255,255,255,0.12)" />
                 <YAxis tick={{ fill: '#8BA3C7', fontSize: 9 }} stroke="rgba(255,255,255,0.12)" />
-                <Tooltip contentStyle={tooltipContentStyle} formatter={(v: number) => `$${fmt0(v)}`} />
+                <Tooltip contentStyle={tooltipContentStyle} formatter={(v: number | undefined) => `$${fmt0(v ?? 0)}`} />
                 <Bar dataKey="cash" isAnimationActive={false}>
                   {WEEK.map((d, i) => (
                     <Cell key={i} fill={d.isToday ? '#22C55E' : '#4F8EF7'} fillOpacity={d.isToday ? 1 : 0.8} />
