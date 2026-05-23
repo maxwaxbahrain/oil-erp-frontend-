@@ -1,10 +1,8 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Menu,
-  ChevronRight,
   ChevronDown,
   Bell,
-  Globe,
   FileText,
   Package,
   Receipt,
@@ -208,11 +206,6 @@ function App() {
     return <AppRoutes />;
   }
 
-  const paths = location.pathname.split('/').filter(p => p);
-  const breadcrumb = paths.length > 0
-    ? paths.map(p => p.charAt(0).toUpperCase() + p.slice(1).replace('-', ' '))
-    : ['Dashboard Overview'];
-
   return (
     <div className="flex h-screen bg-redwood-bg-light overflow-hidden text-redwood-text-main font-inter">
       {/* Sidebar — Precision Redwood SideNav. The Menu button in the
@@ -275,19 +268,8 @@ function App() {
                 </span>
               </div>
             </div>
-            {/* Breadcrumb pill hidden on phones AND on /sales/dashboard
-                (FIX 3 — that dashboard's search bar is space-constrained). */}
-            <div
-              className="hidden md:flex items-center gap-3 py-1 px-3 bg-redwood-bg-light rounded-sm border border-redwood-border/50"
-              style={location.pathname === '/sales/dashboard' ? { display: 'none' } : undefined}
-            >
-              <span className="text-[11px] font-black text-redwood-secondary tracking-widest uppercase">Global</span>
-              <ChevronRight size={14} className="text-redwood-border" />
-              <div className="flex items-center gap-2">
-                <Globe size={12} className="text-redwood-primary" />
-                <span className="text-[11px] font-bold text-redwood-text-main">{breadcrumb.join(' / ')}</span>
-              </div>
-            </div>
+            {/* Breadcrumb pill removed — nav goes logo → role pill →
+                search directly per latest mockup. */}
             <button
               type="button"
               onClick={cycleRole}

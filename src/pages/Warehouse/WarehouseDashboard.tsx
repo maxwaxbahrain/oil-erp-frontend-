@@ -99,17 +99,21 @@ export default function WarehouseDashboard() {
   }).length;
 
   const expiryChip = (expiry: string) => {
-    const days = Math.floor((new Date(expiry).getTime() - Date.now()) / 86400000);
+    const expiryDate = new Date(expiry);
+    const days = Math.floor((expiryDate.getTime() - Date.now()) / 86400000);
+    const label = days < 0
+      ? '⛔ EXPIRED — Do not sell'
+      : `📅 Exp: ${expiryDate.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}`;
     if (days < 0) {
-      return { text: '⛔ EXPIRED — Do not sell', bg: 'var(--color-badge-red-bg)', color: 'var(--color-brand-red)' };
+      return { text: label, bg: 'var(--color-badge-red-bg)', color: 'var(--color-brand-red)' };
     }
     if (days > 90) {
-      return { text: `${days} days`, bg: 'var(--color-badge-green-bg)', color: 'var(--color-brand-green)' };
+      return { text: label, bg: 'var(--color-badge-green-bg)', color: 'var(--color-brand-green)' };
     }
     if (days > 30) {
-      return { text: `${days} days`, bg: 'var(--color-badge-amber-bg)', color: 'var(--color-brand-amber)' };
+      return { text: label, bg: 'var(--color-badge-amber-bg)', color: 'var(--color-brand-amber)' };
     }
-    return { text: `${days} days`, bg: 'rgba(239,68,68,.14)', color: 'var(--color-brand-red)' };
+    return { text: label, bg: 'rgba(239,68,68,.14)', color: 'var(--color-brand-red)' };
   };
 
   const stockColor = (units: number) => {
@@ -138,7 +142,12 @@ export default function WarehouseDashboard() {
       </div>
 
       {/* ────────── B) 4 KPI cards ────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-[9px] mb-[12px]">
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: window.innerWidth >= 1024 ? 'repeat(4,1fr)' : 'repeat(2,1fr)',
+        gap: '9px',
+        marginBottom: '12px',
+      }}>
         {kpiCard({
           stripe: 'linear-gradient(90deg,#F59E0B,#FCD34D)',
           label: 'Low Stock Items',
@@ -174,7 +183,11 @@ export default function WarehouseDashboard() {
       </div>
 
       {/* ────────── C) Two-column main ────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(250px,0.7fr)] gap-[10px]">
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: window.innerWidth >= 1024 ? '1fr minmax(250px,0.7fr)' : '1fr',
+        gap: '10px',
+      }}>
         {/* LEFT — Bin Locations */}
         <div style={panel}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
@@ -186,7 +199,11 @@ export default function WarehouseDashboard() {
               Edit locations →
             </button>
           </div>
-          <div className="grid grid-cols-3 gap-[8px]">
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: window.innerWidth >= 768 ? 'repeat(3,1fr)' : 'repeat(2,1fr)',
+            gap: '8px',
+          }}>
             {BINS.map((bin) => {
               const chip = expiryChip(bin.expiry);
               return (
