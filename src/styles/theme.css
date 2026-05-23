@@ -114,19 +114,19 @@ body.light {
   --color-brand-blue:        #2563EB;
   --color-brand-green:       #16A34A;
   --color-brand-red:         #DC2626;
-  --color-brand-amber:       #B45309;
+  --color-brand-amber:       #7C3AED;
   --color-brand-teal:        #0F766E;
 
   /* Tints reversed — DARK shades on white, not light. */
   --color-brand-blue-tint:   #1E40AF;
   --color-brand-green-tint:  #14532D;
   --color-brand-red-tint:    #7F1D1D;
-  --color-brand-amber-tint:  #78350F;
+  --color-brand-amber-tint:  #4C1D95;
 
   /* Badge backgrounds — slightly more opaque on white. */
   --color-badge-green-bg:    rgba(22,163,74,.14);
   --color-badge-red-bg:      rgba(220,38,38,.12);
-  --color-badge-amber-bg:    rgba(180,83,9,.12);
+  --color-badge-amber-bg:    rgba(124,58,237,.14);
   --color-badge-blue-bg:     rgba(37,99,235,.12);
   --color-badge-teal-bg:     rgba(15,118,110,.12);
 
