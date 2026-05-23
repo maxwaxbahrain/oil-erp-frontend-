@@ -140,7 +140,6 @@ export default function FinanceDashboard() {
 
   // ───────── Computations (pure JS, no new APIs) ─────────
   const now = new Date();
-  const today = now.getTime();
 
   // Cash position = sum of payments received. (No payables service
   // exists, so the "minus payables" half of the formula resolves
