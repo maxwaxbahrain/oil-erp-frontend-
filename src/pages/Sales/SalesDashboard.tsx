@@ -59,13 +59,16 @@ export default function SalesDashboard() {
     return created.getMonth() === now.getMonth() && created.getFullYear() === now.getFullYear();
   }).length;
 
-  const churnThreshold = 60 * 24 * 60 * 60 * 1000;
+  // Churn = customer's most-recent order is between 60 and 365 days ago.
+  // Customers with no order at all (null/invalid date) are excluded — they
+  // were previously bucketed at daysSince=999 and skewed the count.
   const churnRisk = customers.filter((c: any) => {
     const lastOrder = salesOrders
       .filter((o: any) => String(o.customerId || o.customer_id) === String(c.id))
       .sort((a: any, b: any) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime())[0];
-    if (!lastOrder) return true;
-    return Date.now() - new Date(lastOrder.createdAt || lastOrder.date).getTime() > churnThreshold;
+    if (!lastOrder) return false;
+    const daysSince = Math.floor((Date.now() - new Date(lastOrder.createdAt || lastOrder.date).getTime()) / 86400000);
+    return daysSince >= 60 && daysSince <= 365;
   }).length;
 
   const mtdOrders = salesOrders.filter((o: any) => {
@@ -75,7 +78,7 @@ export default function SalesDashboard() {
   const ordersMTD = mtdOrders.length;
   const ordersTotalValue = mtdOrders.reduce((sum: number, o: any) => sum + (Number(o.grandTotal || o.total) || 0), 0);
 
-  const TARGET = 280000;
+  const TARGET = 10000;
   const achieved = ordersTotalValue;
   const targetPct = Math.round((achieved / TARGET) * 100);
 
@@ -118,7 +121,7 @@ export default function SalesDashboard() {
         : 999;
       return { name: c.name, daysSince };
     })
-    .filter(c => c.daysSince >= 60)
+    .filter(c => c.daysSince >= 60 && c.daysSince <= 365)
     .sort((a, b) => b.daysSince - a.daysSince)
     .slice(0, 3);
 
@@ -263,13 +266,13 @@ export default function SalesDashboard() {
           </div>
           <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '22px', fontWeight: 600, letterSpacing: '-.5px', marginBottom: '3px', lineHeight: '1.1', color: '#F59E0B' }}>{targetPct}%</div>
           <div style={{ fontSize: '10px', color: '#FCA5A5', display: 'flex', alignItems: 'center', gap: '4px' }}>
-            ${achieved.toLocaleString(undefined, { maximumFractionDigits: 0 })} of $280k target
+            ${achieved.toLocaleString(undefined, { maximumFractionDigits: 0 })} of ${(TARGET / 1000).toFixed(0)}k target
           </div>
         </div>
       </div>
 
       {/* ═══════════ SECTION 3 — Two-column main content (.g2) ═══════════ */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2fr) minmax(0,1fr)', gap: '12px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2fr) minmax(300px,1fr)', gap: '12px' }}>
         {/* ───── LEFT PANEL — Top Customers + Progress bars ───── */}
         <div style={panelStyle}>
           <div style={phStyle}>
@@ -388,14 +391,14 @@ export default function SalesDashboard() {
                   onMouseEnter={(e) => { e.currentTarget.style.background = '#1a2d4e'; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = '#142540'; }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', color: '#8BA3C7' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', color: '#8BA3C7', minWidth: 0, overflow: 'hidden' }}>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                       <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
                       <circle cx="12" cy="7" r="4" />
                     </svg>
-                    {c.name}
+                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</span>
                   </div>
-                  <span style={{ fontSize: '9px', fontWeight: 500, color: c.daysSince >= 90 ? '#EF4444' : '#F59E0B' }}>
+                  <span style={{ fontSize: '9px', fontWeight: 500, color: c.daysSince >= 90 ? '#EF4444' : '#F59E0B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {c.daysSince >= 999 ? '90+' : c.daysSince} days silent
                   </span>
                 </div>
@@ -422,12 +425,12 @@ export default function SalesDashboard() {
                 onMouseEnter={(e) => { e.currentTarget.style.background = '#1a2d4e'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = '#142540'; }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', minWidth: 0, overflow: 'hidden' }}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4F8EF7" strokeWidth="2" strokeLinecap="round">
                     <line x1="22" y1="2" x2="11" y2="13" />
                     <polygon points="22 2 15 22 11 13 2 9 22 2" />
                   </svg>
-                  <span style={{ color: '#4F8EF7' }}>Send WhatsApp to all {churnRisk} at-risk →</span>
+                  <span style={{ color: '#4F8EF7', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Send WhatsApp to all {churnRisk} at-risk →</span>
                 </div>
               </div>
             </div>
@@ -489,7 +492,7 @@ export default function SalesDashboard() {
                       )}
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
                     </div>
-                    <span style={{ fontSize: '10px', fontWeight: 600, color, flexShrink: 0, marginLeft: '8px' }}>
+                    <span style={{ fontSize: '10px', fontWeight: 600, color, flexShrink: 0, marginLeft: '8px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {label} — {p.count}/mo
                     </span>
                   </div>
@@ -536,14 +539,14 @@ export default function SalesDashboard() {
                   onMouseEnter={(e) => { e.currentTarget.style.background = '#1a2d4e'; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = '#142540'; }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', color: '#8BA3C7' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', color: '#8BA3C7', minWidth: 0, overflow: 'hidden' }}>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#3E5678" strokeWidth="2" strokeLinecap="round">
                       <path d="M18 8a6 6 0 0 1 0 8" />
                       <path d="M3 11v2a2 2 0 0 0 2 2h1l4 4V7L6 11H5a2 2 0 0 0-2 2z" />
                     </svg>
-                    {camp.label}
+                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{camp.label}</span>
                   </div>
-                  <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px', background: 'rgba(79,142,247,.14)', color: '#93C5FD', border: '1px solid rgba(79,142,247,.28)' }}>
+                  <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px', background: 'rgba(79,142,247,.14)', color: '#93C5FD', border: '1px solid rgba(79,142,247,.28)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {camp.badge}
                   </span>
                 </div>

@@ -42,9 +42,9 @@ import {
     ChevronRight,
     Lock,
     Activity,
+    Search,
 } from 'lucide-react';
 import clsx from 'clsx';
-import { getCompanyProfile } from '../../services/settingsService';
 
 // ── Badge tone palette (shared by NavItem + GroupHeader).  Three
 //    tones — red / amber / teal — matching the rest of the Soltol UI.
@@ -160,20 +160,16 @@ export default function Sidebar() {
 
     return (
         <aside className="w-[260px] bg-redwood-midnight text-white flex flex-col z-40 border-r border-white/5 shadow-2xl h-full print:hidden">
-            {/* Sidebar Header — logo + tenant name (unchanged) */}
-            <div className="h-[64px] flex items-center px-4 border-b border-white/5 bg-redwood-midnight/50 backdrop-blur-md shrink-0">
-                <div className="flex items-center gap-3 w-full">
-                    <div className="w-9 h-9 bg-redwood-brand rounded-sm flex items-center justify-center text-white font-black text-sm shadow-lg rotate-3 flex-shrink-0">
-                        <span className="drop-shadow-sm">S1</span>
-                    </div>
-                    <div className="flex flex-col min-w-0">
-                        <span className="text-[11px] font-black tracking-widest leading-none text-redwood-brand uppercase">
-                            SOLTOL ONE
-                        </span>
-                        <span className="text-[13px] font-black tracking-tight leading-tight text-white uppercase truncate mt-0.5">
-                            {getCompanyProfile().name || 'Your Company'}
-                        </span>
-                    </div>
+            {/* Sidebar search — the SOLTOL ONE/tenant logo lives in the
+                top nav header now (App.tsx). Mirrors preview.html .sbsearch. */}
+            <div className="px-3 py-3 border-b border-white/5 shrink-0">
+                <div className="relative">
+                    <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-redwood-text-muted pointer-events-none" />
+                    <input
+                        type="text"
+                        placeholder="Search menu..."
+                        className="w-full pl-9 pr-3 py-2 bg-redwood-bg-light border border-white/10 rounded-md text-[12px] text-redwood-text-main placeholder:text-redwood-text-muted focus:border-redwood-brand focus:outline-none"
+                    />
                 </div>
             </div>
 
