@@ -81,6 +81,7 @@ import FinancialStatement from '../pages/Reports/FinancialStatement';
 import PaymentEdit from '../pages/Accounts/PaymentEdit';
 import BadDebtsJV from '../pages/Accounts/BadDebtsJV';
 import AIHub from '../pages/AI/AIHub';
+import AIHubDashboard from '../pages/AIHub/AIHubDashboard';
 import AutoPOGeneration from '../pages/AI/AutoPOGeneration';
 import AnomalyDetection from '../pages/AI/AnomalyDetection';
 import CustomerForecast from '../pages/AI/CustomerForecast';
@@ -249,6 +250,7 @@ export const AppRoutes = () => {
             <Route path="/finance/payment-edit" element={<PaymentEdit />} />
             <Route path="/finance/bad-debts" element={<BadDebtsJV />} />
             <Route path="/ai" element={<AIHub />} />
+            <Route path="/ai/hub" element={<AIHubDashboard />} />
             <Route path="/ai/auto-po" element={<AutoPOGeneration />} />
             <Route path="/ai/anomaly" element={<AnomalyDetection />} />
             <Route path="/ai/customer-forecast" element={<CustomerForecast />} />

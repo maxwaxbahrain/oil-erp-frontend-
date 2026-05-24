@@ -27,6 +27,7 @@ import {
   UserX,
   User,
   Settings,
+  Sparkles,
   Sun,
   Moon,
 } from 'lucide-react';
@@ -41,7 +42,7 @@ import { getPurchaseOrders } from '../services/purchasesService';
 
 // Available roles for the cycling role pill in the top nav.  Cosmetic
 // only — does not affect permissions, just the displayed label.
-const ROLES = ['System Admin', 'Accountant', 'Sales Manager', 'Warehouse', 'Van Driver', 'Junior'] as const;
+const ROLES = ['System Admin', 'Accountant', 'Sales Manager', 'Warehouse', 'Van Driver', 'AI Hub', 'Junior'] as const;
 
 // Route to navigate to when cycling INTO each role.  Pure UX affordance —
 // the role label is the user-facing "context" they're switching to; the
@@ -53,6 +54,7 @@ const ROLE_ROUTES: Record<typeof ROLES[number], string> = {
   'Sales Manager': '/sales/dashboard',
   'Warehouse':     '/warehouse/dashboard',
   'Van Driver':    '/van/dashboard',
+  'AI Hub':        '/ai/hub',
   'Junior':        '/',
 };
 
@@ -655,6 +657,7 @@ function App() {
             { key: 'mobile',    label: 'Field & Mobile', route: '/logistics/pod',      icon: Smartphone,      prefix: ['/logistics', '/pod', '/van-sales'],        badge: '20%', badgeColor: 'amber' },
             { key: 'security',  label: 'Security',       route: '/access-management',  icon: Shield,          prefix: ['/access-management', '/users'],            badge: '40%', badgeColor: 'amber' },
             { key: 'sales',     label: 'Sales & CRM',    route: '/sales/dashboard',    icon: TrendingUp,      prefix: ['/sales', '/customers', '/crm'],            badge: null,  badgeColor: null },
+            { key: 'ai',        label: 'AI Hub',         route: '/ai/hub',             icon: Sparkles,        prefix: ['/ai'],                                     badge: null,  badgeColor: null },
           ].map((t) => {
             const Icon = t.icon;
             const isActive = t.key === 'overview'
