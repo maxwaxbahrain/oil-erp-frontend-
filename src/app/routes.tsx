@@ -116,7 +116,7 @@ import TaxAdvisor from '../pages/TaxSystem/TaxAdvisor';
 // Session 3C — live Tax Dashboard.
 import TaxDashboard from '../pages/TaxSystem/TaxDashboard';
 import AmazonIntegration from '../pages/Amazon/AmazonIntegration';
-import Pulse from '../pages/Pulse/Pulse';
+import PulseDashboard from '../pages/Pulse/PulseDashboard';
 import MeetingNotes from '../pages/Pulse/MeetingNotes';
 import DataMigration from '../pages/Migration/DataMigration'; // CRM exports as 'CRM'
 import AIContentStudio from '../pages/Marketing/AIContentStudio';
@@ -289,7 +289,7 @@ export const AppRoutes = () => {
             {/* Session 3C — live Tax Dashboard */}
             <Route path="/tax/dashboard" element={<TaxDashboard />} />
             <Route path="/amazon" element={<AmazonIntegration />} />
-            <Route path="/pulse" element={<Pulse />} />
+            <Route path="/pulse" element={<PulseDashboard />} />
             <Route path="/pulse/notes" element={<MeetingNotes />} />
             <Route path="/migrate" element={<DataMigration />} />
             <Route path="/marketing" element={<MarketingHub />} />
