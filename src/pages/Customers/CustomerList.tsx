@@ -178,7 +178,7 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
     if (c.status === 'Suspended')
       return { label: 'Suspended', style: { background: 'rgba(239,68,68,.12)', color: '#B91C1C' } };
     if (c.status === 'Inactive')
-      return { label: 'Inactive', style: { background: 'rgba(255,255,255,.06)', color: '#8BA3C7' } };
+      return { label: 'Inactive', style: { background: 'rgba(255,255,255,.06)', color: 'var(--color-text-secondary)' } };
     if (bal < 0)
       return { label: 'Credit', style: { background: 'rgba(74,143,245,.12)', color: '#4A8FF5' } };
     if (bal === 0)
@@ -189,22 +189,22 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
   // Helper — balance display (accounting correct)
   const _balDisplay = (bal: number): { text: string; color: string } => {
     if (bal < 0) return { text: `CR $${Math.abs(bal).toLocaleString()}`, color: '#4A8FF5' };
-    if (bal === 0) return { text: '$0.00', color: 'var(--t2,#8BA3C7)' };
+    if (bal === 0) return { text: '$0.00', color: 'var(--color-text-secondary)' };
     return { text: `$${bal.toLocaleString()}`, color: '#F59E0B' };
   };
   // ──────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ background: 'var(--bg0,#060f1c)', minHeight: '100%', color: 'var(--t,#EEF2FF)', fontFamily: 'inherit' }}>
+    <div style={{ background: 'var(--color-background-tertiary)', minHeight: '100%', color: 'var(--color-text-primary)', fontFamily: 'inherit' }}>
 
       {/* ── PAGE HEADER ── */}
-      <div style={{ padding: '14px 20px 12px', borderBottom: '1px solid rgba(255,255,255,.07)', background: 'var(--bg2,#0a1726)' }}>
+      <div style={{ padding: '14px 20px 12px', borderBottom: '0.5px solid var(--color-border-tertiary)', background: 'var(--color-background-secondary)' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
           <div>
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--t,#EEF2FF)', display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
+            <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--color-text-primary)', display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
               👥 Customers
             </h1>
-            <p style={{ fontSize: 12, color: 'var(--t2,#8BA3C7)', margin: 0, marginTop: 4 }}>
+            <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', margin: 0, marginTop: 4 }}>
               {_totalCount} customers · {_overdueCount} with outstanding balance · {_creditCount} with credit
             </p>
           </div>
@@ -218,7 +218,7 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
 
         {/* Filter row */}
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <div style={{ flex: 1, minWidth: 180, height: 32, background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 8, display: 'flex', alignItems: 'center', padding: '0 10px', gap: 6, fontSize: 11, color: 'var(--t2,#8BA3C7)' }}>
+          <div style={{ flex: 1, minWidth: 180, height: 32, background: 'var(--color-background-primary)', border: '0.5px solid var(--color-border-tertiary)', borderRadius: 8, display: 'flex', alignItems: 'center', padding: '0 10px', gap: 6, fontSize: 11, color: 'var(--color-text-secondary)' }}>
             🔍
             <input
               type="text"
@@ -226,26 +226,26 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
               onChange={e => setSearchTerm(e.target.value)}
               placeholder="Search by name, ID, or city…"
               autoComplete="off"
-              style={{ background: 'transparent', border: 'none', outline: 'none', color: 'var(--t,#EEF2FF)', fontSize: 11, width: '100%', fontFamily: 'inherit' }}
+              style={{ background: 'transparent', border: 'none', outline: 'none', color: 'var(--color-text-primary)', fontSize: 11, width: '100%', fontFamily: 'inherit' }}
             />
             {searchTerm && (
               <span
                 onClick={() => setSearchTerm('')}
-                style={{ cursor: 'pointer', color: 'var(--t2,#8BA3C7)', fontSize: 13 }}
+                style={{ cursor: 'pointer', color: 'var(--color-text-secondary)', fontSize: 13 }}
               >×</span>
             )}
           </div>
-          <div style={{ background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 8, padding: '5px 11px', fontSize: 11, color: 'var(--t2,#8BA3C7)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+          <div style={{ background: 'var(--color-background-primary)', border: '0.5px solid var(--color-border-tertiary)', borderRadius: 8, padding: '5px 11px', fontSize: 11, color: 'var(--color-text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
             ↓ Balance
           </div>
-          <div style={{ background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 8, padding: '5px 11px', fontSize: 11, color: 'var(--t2,#8BA3C7)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+          <div style={{ background: 'var(--color-background-primary)', border: '0.5px solid var(--color-border-tertiary)', borderRadius: 8, padding: '5px 11px', fontSize: 11, color: 'var(--color-text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
             ⚙ Filter
           </div>
         </div>
       </div>
 
       {/* ── STATS STRIP ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', background: 'var(--bg2,#0a1726)', borderBottom: '1px solid rgba(255,255,255,.07)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', background: 'var(--color-background-secondary)', borderBottom: '0.5px solid var(--color-border-tertiary)' }}>
         {[
           { label: 'Total customers',  value: String(_totalCount),
             color: '#4F8EF7', sub: 'in database' },
@@ -259,21 +259,21 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
             value: String(customers.filter(c => c.status !== 'Inactive' && c.status !== 'Suspended').length),
             color: '#22C55E', sub: 'not inactive' },
         ].map((s, i) => (
-          <div key={s.label} style={{ padding: '10px 14px', borderRight: i < 3 ? '1px solid rgba(255,255,255,.07)' : 'none' }}>
-            <div style={{ fontSize: 9, color: 'var(--t3,#3E5678)', fontWeight: 700, letterSpacing: '.5px', marginBottom: 3, textTransform: 'uppercase' }}>
+          <div key={s.label} style={{ padding: '10px 14px', borderRight: i < 3 ? '0.5px solid var(--color-border-tertiary)' : 'none' }}>
+            <div style={{ fontSize: 9, color: 'var(--color-text-tertiary)', fontWeight: 700, letterSpacing: '.5px', marginBottom: 3, textTransform: 'uppercase' }}>
               {s.label}
             </div>
             <div style={{ fontSize: 16, fontWeight: 700, lineHeight: 1, marginBottom: 2, color: s.color }}>
               {s.value}
             </div>
-            <div style={{ fontSize: 10, color: 'var(--t2,#8BA3C7)' }}>{s.sub}</div>
+            <div style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>{s.sub}</div>
           </div>
         ))}
       </div>
 
       {/* ── LOADING STATE ── */}
       {loading && (
-        <div style={{ padding: 40, textAlign: 'center', color: 'var(--t2,#8BA3C7)', fontSize: 13 }}>
+        <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-secondary)', fontSize: 13 }}>
           Loading customers…
         </div>
       )}
@@ -293,9 +293,9 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
 
       {/* ── EMPTY STATE (no customers at all) ── */}
       {!loading && !error && customers.length === 0 && (
-        <div style={{ padding: 40, textAlign: 'center', color: 'var(--t2,#8BA3C7)', fontSize: 13 }}>
+        <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-secondary)', fontSize: 13 }}>
           <div style={{ fontSize: 36, marginBottom: 8 }}>👥</div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--t,#EEF2FF)', marginBottom: 4 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-text-primary)', marginBottom: 4 }}>
             No customers yet
           </div>
           <div style={{ marginBottom: 14 }}>Start by adding your first customer</div>
@@ -310,7 +310,7 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
 
       {/* ── NO SEARCH RESULTS ── */}
       {!loading && !error && customers.length > 0 && _sorted.length === 0 && (
-        <div style={{ padding: 30, textAlign: 'center', color: 'var(--t2,#8BA3C7)', fontSize: 12 }}>
+        <div style={{ padding: 30, textAlign: 'center', color: 'var(--color-text-secondary)', fontSize: 12 }}>
           No customers match "{searchTerm}" —{' '}
           <span
             onClick={() => setSearchTerm('')}
@@ -326,16 +326,16 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
             <thead>
-              <tr style={{ background: 'var(--bg2,#0a1726)' }}>
+              <tr style={{ background: 'var(--color-background-secondary)' }}>
                 {['Customer', 'Phone', 'City', 'Added', 'Outstanding', 'Status', ''].map((h, i) => (
                   <th
                     key={i}
                     style={{
                       padding: '8px 12px',
                       textAlign: i >= 5 ? 'right' : 'left',
-                      fontSize: 10, color: 'var(--t3,#3E5678)', fontWeight: 700,
+                      fontSize: 10, color: 'var(--color-text-tertiary)', fontWeight: 700,
                       letterSpacing: '.4px', textTransform: 'uppercase',
-                      borderBottom: '1px solid rgba(255,255,255,.07)',
+                      borderBottom: '0.5px solid var(--color-border-tertiary)',
                       whiteSpace: 'nowrap',
                     }}
                   >
@@ -356,9 +356,9 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
                   <tr
                     key={c.id}
                     onClick={() => navigate(`/customers/${c.id}`)}
-                    style={{ cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,.04)' }}
+                    style={{ cursor: 'pointer', borderBottom: '0.5px solid var(--color-border-tertiary)' }}
                     onMouseEnter={(e: React.MouseEvent<HTMLTableRowElement>) => {
-                      e.currentTarget.style.background = 'rgba(255,255,255,.025)';
+                      e.currentTarget.style.background = 'var(--color-background-secondary)';
                     }}
                     onMouseLeave={(e: React.MouseEvent<HTMLTableRowElement>) => {
                       e.currentTarget.style.background = 'transparent';
@@ -376,10 +376,10 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
                           {_initials(c.name)}
                         </div>
                         <div>
-                          <div style={{ fontWeight: 600, color: 'var(--t,#EEF2FF)', fontSize: 12, marginBottom: 1 }}>
+                          <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', fontSize: 12, marginBottom: 1 }}>
                             {c.name}
                           </div>
-                          <div style={{ fontSize: 10, color: 'var(--t2,#8BA3C7)' }}>
+                          <div style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>
                             {c.code ?? `CUST-${String(c.id).slice(-3)}`}
                           </div>
                         </div>
@@ -387,17 +387,17 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
                     </td>
 
                     {/* Phone */}
-                    <td style={{ padding: '9px 12px', color: 'var(--t2,#8BA3C7)' }}>
+                    <td style={{ padding: '9px 12px', color: 'var(--color-text-secondary)' }}>
                       {c.phone ?? '—'}
                     </td>
 
                     {/* City */}
-                    <td style={{ padding: '9px 12px', color: 'var(--t2,#8BA3C7)' }}>
+                    <td style={{ padding: '9px 12px', color: 'var(--color-text-secondary)' }}>
                       {city}
                     </td>
 
                     {/* Added date */}
-                    <td style={{ padding: '9px 12px', color: 'var(--t2,#8BA3C7)' }}>
+                    <td style={{ padding: '9px 12px', color: 'var(--color-text-secondary)' }}>
                       {_fmtDate(c.created_at)}
                     </td>
 
@@ -431,9 +431,9 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
                           title="Edit customer"
                           style={{
                             width: 26, height: 26, borderRadius: 6, cursor: 'pointer',
-                            border: '1px solid rgba(255,255,255,.07)',
-                            background: 'rgba(255,255,255,.04)',
-                            color: 'var(--t2,#8BA3C7)', fontSize: 13,
+                            border: '0.5px solid var(--color-border-tertiary)',
+                            background: 'var(--color-background-secondary)',
+                            color: 'var(--color-text-secondary)', fontSize: 13,
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                             fontFamily: 'inherit',
                           }}
@@ -466,16 +466,16 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
           {/* Row count footer */}
           <div style={{
             padding: '10px 14px',
-            borderTop: '1px solid rgba(255,255,255,.07)',
-            background: 'var(--bg2,#0a1726)',
-            fontSize: 11, color: 'var(--t2,#8BA3C7)',
+            borderTop: '0.5px solid var(--color-border-tertiary)',
+            background: 'var(--color-background-secondary)',
+            fontSize: 11, color: 'var(--color-text-secondary)',
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           }}>
             <span>
               Showing {_sorted.length} of {customers.length} customers
               {searchTerm ? ` matching "${searchTerm}"` : ''}
             </span>
-            <span style={{ color: 'var(--t3,#3E5678)' }}>
+            <span style={{ color: 'var(--color-text-tertiary)' }}>
               Click any row to open customer overview
             </span>
           </div>
