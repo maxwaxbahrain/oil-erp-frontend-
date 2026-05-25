@@ -656,7 +656,7 @@ export default function PulseDashboard() {
 
   // ── Render ─────────────────────────────────────────────────
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: C.bg, color: C.t }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: C.bg, color: C.t }}>
       {/* Page header */}
       <div style={{ padding: '16px 20px 12px', borderBottom: `1px solid ${C.br2}` }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
@@ -837,8 +837,19 @@ export default function PulseDashboard() {
             </div>
           )}
 
-          {/* Main chat area */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, position: 'relative' }}>
+          {/* Main chat area — bounded flex column. minHeight:0 +
+              overflow:hidden are critical so the inner messages
+              area scrolls and the input bar (flexShrink:0) stays
+              pinned at the bottom without position:sticky (which
+              breaks under overflow:hidden ancestors). */}
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            flex: 1,
+            minWidth: 0,
+            minHeight: 0,
+            overflow: 'hidden',
+          }}>
             {/* Channel header */}
             <div style={{
               padding: '10px 14px',
@@ -929,13 +940,16 @@ export default function PulseDashboard() {
               </div>
             )}
 
-            {/* Messages area. paddingBottom on mobile clears 56px bottom
-                nav + 56px sticky input bar + 28px buffer so the last
-                message is never hidden behind either. */}
+            {/* Messages area. minHeight:0 is the critical flex fix —
+                without it, flex items ignore overflow and push children
+                out of view. Bottom-nav clearance is now handled by the
+                bounded flex column above + always-visible input bar
+                below, so we only need a small breathing-room padding. */}
             <div style={{
-              flex: 1, overflowY: 'auto', padding: '8px 0',
-              paddingBottom: isMobile ? '140px' : '20px',
+              flex: 1,
+              overflowY: 'auto',
               minHeight: 0,
+              paddingBottom: isMobile ? '16px' : '8px',
             }}>
               <SectionDivider label="— TODAY —" />
               {activeRoom.messages.map(msg => {
@@ -1176,19 +1190,24 @@ export default function PulseDashboard() {
               </div>
             )}
 
-            {/* Input bar — sticky bottom:0 keeps it visible above the
-                mobile bottom-nav. zIndex sits above the messages list.
-                env(safe-area-inset-bottom) handles iOS notch devices. */}
+            {/* Input bar — flexShrink:0 keeps it visible at the bottom
+                of the bounded flex column. No sticky/absolute needed:
+                the parent's overflow:hidden + minHeight:0 caps the
+                column height so this row naturally sits above the
+                mobile bottom nav. env(safe-area-inset-bottom) on
+                mobile handles iOS notch devices. */}
             <div style={{
               flexShrink: 0,
-              position: 'sticky',
-              bottom: 0,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
               padding: '8px 12px',
-              paddingBottom: 'calc(8px + env(safe-area-inset-bottom))',
+              paddingBottom: isMobile
+                ? 'calc(8px + env(safe-area-inset-bottom))'
+                : '8px',
               borderTop: `1px solid ${C.br2}`,
               background: C.bg,
-              zIndex: 20,
-              display: 'flex', alignItems: 'center', gap: 7,
+              zIndex: 10,
             }}>
               {/* Hidden file input */}
               <input
