@@ -750,7 +750,7 @@ export default function InvoiceFormPage() {
                         <button
                             onClick={() => navigate(-1)}
                             style={{
-                                padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                                padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 600,
                                 background: 'transparent',
                                 border: '1px solid rgba(255,255,255,.12)',
                                 color: 'var(--color-text-secondary)',
@@ -765,7 +765,7 @@ export default function InvoiceFormPage() {
                             disabled={saving}
                             title="Download a PDF copy of this invoice"
                             style={{
-                                padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                                padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 600,
                                 background: 'transparent',
                                 border: '1px solid #4F8EF7', color: '#4F8EF7',
                                 cursor: saving ? 'not-allowed' : 'pointer',
@@ -774,7 +774,7 @@ export default function InvoiceFormPage() {
                                 fontFamily: 'inherit',
                             }}
                         >
-                            <Download size={14} />
+                            <Download size={13} />
                             Download PDF
                         </button>
                         <button
@@ -782,7 +782,7 @@ export default function InvoiceFormPage() {
                             disabled={saving || !!savedNotice}
                             title="Save without submitting — fewer required fields"
                             style={{
-                                padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                                padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 600,
                                 background: 'transparent',
                                 border: '1px solid rgba(255,255,255,.18)',
                                 color: 'var(--color-text-secondary)',
@@ -792,14 +792,14 @@ export default function InvoiceFormPage() {
                                 fontFamily: 'inherit',
                             }}
                         >
-                            <Save size={14} />
+                            <Save size={13} />
                             {saving ? 'Saving…' : 'Save as Draft'}
                         </button>
                         <button
                             onClick={handleSave}
                             disabled={saving || !!savedNotice}
                             style={{
-                                padding: '7px 18px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                                padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700,
                                 background: '#4F8EF7', color: '#fff', border: 'none',
                                 cursor: (saving || !!savedNotice) ? 'not-allowed' : 'pointer',
                                 opacity: (saving || !!savedNotice) ? 0.5 : 1,
@@ -808,7 +808,7 @@ export default function InvoiceFormPage() {
                                 fontFamily: 'inherit',
                             }}
                         >
-                            <Save size={14} />
+                            <Save size={13} />
                             {saving ? 'Saving...' : 'Confirm & Save'}
                         </button>
                     </div>
@@ -854,7 +854,10 @@ export default function InvoiceFormPage() {
             })()}
 
             {/* Form */}
-            <div className="bg-white border-2 border-gray-200 rounded-xl shadow-md p-8 space-y-8">
+            <div
+                className="bg-white rounded-xl shadow-md p-8 space-y-8"
+                style={{ border: '0.5px solid var(--color-border-tertiary)' }}
+            >
                 {/* New: Salesman and Van Fields */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-6 border-b-2 border-gray-200">
                     <div>
@@ -1299,9 +1302,20 @@ export default function InvoiceFormPage() {
                         </div>
 
                         {/* Totals Card */}
-                        <div className="w-full md:w-5/12 bg-white rounded-2xl border-2 border-gray-900 overflow-hidden shadow-2xl skew-y-0 translate-z-0">
-                            <div className="bg-gray-900 px-6 py-4">
-                                <h4 className="text-xs font-semibold text-white">Summary &amp; totals</h4>
+                        <div
+                            className="w-full md:w-5/12 bg-white rounded-2xl overflow-hidden shadow-2xl skew-y-0 translate-z-0"
+                            style={{ border: '0.5px solid var(--color-border-tertiary)' }}
+                        >
+                            <div
+                                className="px-6 py-4"
+                                style={{ background: 'var(--color-background-secondary)' }}
+                            >
+                                <h4
+                                    className="text-xs font-semibold"
+                                    style={{ color: 'var(--color-text-primary)' }}
+                                >
+                                    Summary &amp; totals
+                                </h4>
                             </div>
                             <div className="p-6 space-y-4">
                                 <div className="flex justify-between items-center group">
@@ -1355,7 +1369,10 @@ export default function InvoiceFormPage() {
                                     />
                                 </div>
 
-                                <div className="pt-4 border-t-2 border-gray-900 space-y-3">
+                                <div
+                                    className="pt-4 space-y-3"
+                                    style={{ borderTop: '0.5px solid var(--color-border-tertiary)' }}
+                                >
                                     <div className="flex justify-between items-center">
                                         <span className="text-sm font-semibold text-gray-900">Grand total</span>
                                         <span className="text-3xl font-mono font-black text-[#4F8EF7]">{formData.grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
