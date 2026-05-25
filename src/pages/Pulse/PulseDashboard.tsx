@@ -656,7 +656,17 @@ export default function PulseDashboard() {
 
   // ── Render ─────────────────────────────────────────────────
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: C.bg, color: C.t }}>
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      // Subtract the 56px fixed mobile bottom-nav from the page so
+      // the input bar (last row of the bounded flex column) lands
+      // just above it instead of behind it. Desktop keeps full height.
+      height: isMobile ? 'calc(100% - 56px)' : '100%',
+      overflow: 'hidden',
+      background: C.bg,
+      color: C.t,
+    }}>
       {/* Page header */}
       <div style={{ padding: '16px 20px 12px', borderBottom: `1px solid ${C.br2}` }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
