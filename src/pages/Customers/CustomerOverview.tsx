@@ -684,8 +684,9 @@ export default function CustomerOverview() {
 
     const _totalSalesYTD: number = (invoices ?? [])
       .filter((inv: any) => {
-        const d = new Date(inv.date ?? inv.createdAt ?? 0);
-        return d.getFullYear() === _CY;
+        const dateVal = inv.invoiceDate ?? inv.invoice_date ?? inv.date ?? inv.createdAt;
+        if (!dateVal) return false;
+        try { return new Date(dateVal).getFullYear() === _CY; } catch { return false; }
       })
       .reduce((sum: number, inv: any) => sum + (Number(inv.amount ?? (inv as any).grandTotal) || 0), 0);
 
@@ -703,15 +704,16 @@ export default function CustomerOverview() {
         : '#4F8EF7';
 
     const _sortedPayments = [...(payments ?? [])].sort((a: any, b: any) => {
-      const da = new Date(a.date ?? a.createdAt ?? 0).getTime();
-      const db = new Date(b.date ?? b.createdAt ?? 0).getTime();
+      const da = new Date(a.payment_date ?? a.date ?? a.createdAt ?? 0).getTime();
+      const db = new Date(b.payment_date ?? b.date ?? b.createdAt ?? 0).getTime();
       return db - da; // newest first
     });
     const _lastPayment: any = _sortedPayments[0] ?? null;
 
     const _paymentsYTD = _sortedPayments.filter((p: any) => {
-      const d = new Date(p.date ?? p.createdAt ?? 0);
-      return d.getFullYear() === _CY;
+      const dateVal = p.payment_date ?? p.date ?? p.createdAt;
+      if (!dateVal) return false;
+      try { return new Date(dateVal).getFullYear() === _CY; } catch { return false; }
     });
     const _collectedYTD: number = _paymentsYTD.reduce(
       (sum: number, p: any) => sum + (Number(p.amount) || 0), 0
@@ -921,7 +923,7 @@ export default function CustomerOverview() {
                         value: _lastPayment ? `$${Number(_lastPayment.amount).toFixed(2)}` : '—',
                         color: '#4F8EF7',
                         sub: _lastPayment
-                            ? new Date(_lastPayment.date ?? _lastPayment.createdAt ?? '').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                            ? new Date(_lastPayment.payment_date ?? _lastPayment.date ?? _lastPayment.createdAt ?? '').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                             : '—',
                     },
                     {
@@ -1111,10 +1113,10 @@ export default function CustomerOverview() {
                     {[
                         { key: 'overview', label: 'Overview' },
                         { key: 'ledger', label: 'Ledger' },
-                        { key: 'sales', label: 'Sales' },
+                        { key: 'sales', label: 'Sales history' },
                         { key: 'payments', label: 'Payments' },
                         { key: 'credits', label: 'Credits' },
-                        { key: 'unbilled', label: 'Unbilled Expenses' }
+                        { key: 'unbilled', label: 'Unbilled' }
                     ].map(tab => {
                         const active = activeTab === tab.key;
                         return (
@@ -1122,11 +1124,10 @@ export default function CustomerOverview() {
                                 key={tab.key}
                                 onClick={() => setActiveTab(tab.key as any)}
                                 style={{
-                                    fontSize: 11, fontWeight: 600, padding: '10px 16px',
+                                    fontSize: 12, fontWeight: 600, padding: '10px 16px',
                                     cursor: 'pointer', border: 'none', background: 'transparent',
                                     color: active ? '#4F8EF7' : 'var(--t3,#3E5678)',
                                     borderBottom: active ? '2px solid #4F8EF7' : '2px solid transparent',
-                                    textTransform: 'uppercase', letterSpacing: '.5px',
                                     fontFamily: 'inherit', whiteSpace: 'nowrap',
                                     transition: 'color .15s',
                                 }}
@@ -1143,29 +1144,64 @@ export default function CustomerOverview() {
                     {/* Overview Tab */}
                     {activeTab === 'overview' && (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div>
-                                <h3 className="text-sm font-black text-gray-700 uppercase mb-4">Customer Information</h3>
-                                <div className="space-y-3">
-                                    <div>
-                                        <div className="text-xs font-bold text-gray-500 uppercase">Company</div>
-                                        <div className="text-sm text-gray-900">{customer.name}</div>
-                                    </div>
-                                    <div>
-                                        <div className="text-xs font-bold text-gray-500 uppercase">Email</div>
-                                        <div className="text-sm text-blue-600">{(customer as any).email || 'N/A'}</div>
-                                    </div>
-                                    <div>
-                                        <div className="text-xs font-bold text-gray-500 uppercase">Phone</div>
-                                        <div className="text-sm text-gray-900">{(customer as any).phone || 'N/A'}</div>
-                                    </div>
+                            {/* ── V3 Fix 5 — Customer Information card (replaces plain ALL CAPS block) ── */}
+                            <div style={{
+                                gridColumn: '1 / -1',
+                                background: 'var(--bg3,#0f1f33)',
+                                border: '1px solid rgba(255,255,255,.12)',
+                                borderRadius: 12,
+                                padding: 14,
+                            }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                                    <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        <span aria-hidden>👤</span> Customer information
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => navigate(`/customers/edit/${customer.id}`)}
+                                        style={{
+                                            background: 'rgba(79,142,247,.12)',
+                                            border: '1px solid rgba(79,142,247,.3)',
+                                            color: '#4F8EF7',
+                                            borderRadius: 7, padding: '4px 10px',
+                                            fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                                            fontFamily: 'inherit',
+                                            display: 'flex', alignItems: 'center', gap: 5,
+                                        }}
+                                    >
+                                        ✏ Edit
+                                    </button>
                                 </div>
-                            </div>
-
-                            <div>
-                                <h3 className="text-sm font-black text-gray-700 uppercase mb-4">Address</h3>
-                                <div className="text-sm text-gray-900">
-                                    {(customer as any).address || 'N/A'}
-                                </div>
+                                {[
+                                    { label: 'Company',       value: customer.name },
+                                    { label: 'Email',         value: (customer as any).email   || 'N/A', isBlue: true },
+                                    { label: 'Phone',         value: (customer as any).phone   || 'N/A' },
+                                    { label: 'Address',       value: (customer as any).address || 'N/A' },
+                                    { label: 'Payment terms', value: (customer as any).paymentTerms ?? (customer as any).payment_terms ?? 'COD' },
+                                    { label: 'Currency',      value: (customer as any).currency ?? 'USD' },
+                                    { label: 'Tax reg no.',   value: (customer as any).taxRegNumber ?? (customer as any).tax_reg_number ?? 'Not on file' },
+                                ].map((row, i, arr) => (
+                                    <div
+                                        key={row.label}
+                                        style={{
+                                            display: 'flex', justifyContent: 'space-between',
+                                            padding: '6px 0',
+                                            borderBottom: i < arr.length - 1 ? '1px solid rgba(255,255,255,.04)' : 'none',
+                                            fontSize: 11,
+                                        }}
+                                    >
+                                        <span style={{ color: 'var(--t2,#8BA3C7)' }}>{row.label}</span>
+                                        <span style={{
+                                            color: row.isBlue ? '#4F8EF7' : 'var(--t,#EEF2FF)',
+                                            fontWeight: 500,
+                                            textAlign: 'right',
+                                            maxWidth: '60%',
+                                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                        }}>
+                                            {row.value}
+                                        </span>
+                                    </div>
+                                ))}
                             </div>
 
                             {/* ── V3 4A — Section divider ── */}
@@ -1219,7 +1255,10 @@ export default function CustomerOverview() {
                                 {((): Array<{ label: string; value: string; color: string }> => [
                                     { label: 'Credit limit',     value: _creditLimitDisplay > 0 ? `$${_creditLimitDisplay.toFixed(2)}` : 'No limit',                                                color: '#4F8EF7' },
                                     { label: 'Used',             value: `$${_balanceDisplay.toFixed(2)}`,                                                                                          color: 'var(--t,#EEF2FF)' },
-                                    { label: 'Available',        value: `$${Math.max(0, _creditLimitDisplay - _balanceDisplay).toFixed(2)}`,                                                       color: '#22C55E' },
+                                    { label: 'Available',        value: _creditLimitDisplay > 0
+                                                                      ? `$${Math.max(0, _creditLimitDisplay - _balanceDisplay).toFixed(2)}`
+                                                                      : 'Unlimited',
+                                                                  color: _creditLimitDisplay > 0 ? '#22C55E' : '#4F8EF7' },
                                     { label: 'Overdue',          value: _overdueAmount > 0 ? `$${_overdueAmount.toFixed(2)}` : 'None ✓',                                                          color: _overdueAmount > 0 ? '#EF4444' : '#22C55E' },
                                     { label: 'Avg payment days', value: '8 days ✓',                                                                                                                color: '#22C55E' },
                                 ])().map(row => (
@@ -1250,12 +1289,12 @@ export default function CustomerOverview() {
                                     ...(payments ?? []).slice(0, 3).map((p: any) => ({
                                         icon: '💵', bg: 'rgba(34,197,94,.1)',
                                         text: `Payment received — $${Number(p.amount ?? 0).toFixed(2)}`,
-                                        sub: [p.reference ?? p.ref, p.date ?? p.createdAt].filter(Boolean).join(' · '),
+                                        sub: [p.reference ?? p.ref, _fmtMonthYear(p.payment_date ?? p.date ?? p.createdAt)].filter(Boolean).join(' · '),
                                     })),
                                     ...(invoices ?? []).slice(0, 2).map((inv: any) => ({
                                         icon: '📄', bg: 'rgba(74,143,245,.1)',
                                         text: `Invoice — $${Number(inv.amount ?? inv.grandTotal ?? 0).toFixed(2)}`,
-                                        sub: [inv.number ?? inv.id, inv.date ?? inv.createdAt].filter(Boolean).join(' · '),
+                                        sub: [inv.number ?? inv.id, _fmtMonthYear(inv.invoiceDate ?? inv.invoice_date ?? inv.date ?? inv.createdAt)].filter(Boolean).join(' · '),
                                     })),
                                 ].slice(0, 5).map((item, i) => (
                                     <div
@@ -1290,7 +1329,7 @@ export default function CustomerOverview() {
                                     {_sortedPayments.slice(0, 5).map((p: any, i: number) => {
                                         const amt = Number(p.amount ?? 0);
                                         const pct = _paymentMaxAmt > 0 ? Math.round((amt / _paymentMaxAmt) * 100) : 0;
-                                        const dateStr = p.date ?? p.createdAt;
+                                        const dateStr = p.payment_date ?? p.date ?? p.createdAt;
                                         const label = dateStr
                                             ? new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
                                             : '—';
