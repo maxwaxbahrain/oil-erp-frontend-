@@ -1,955 +1,809 @@
-import { useState, useEffect, useCallback } from 'react';
-import {
-    Calendar, DollarSign, FileText, Clock,
-    ChevronRight, Download, Plus, CheckCircle,
-    AlertCircle, Bell, X, Users, Timer, Trash2
-} from 'lucide-react';
-import clsx from 'clsx';
-// ITEM 3 — reuse the W2-5 service for Add + Delete so we stay
-// consistent with the Payroll → Employees tab.
-import { getEmployees, saveEmployee, deleteEmployee, type Employee } from '../../services/payrollService';
-import {
-    getEmployeeLeaveBalance, submitLeaveRequest, getLeaveRequests,
-    getUpcomingHolidays, type LeaveType, type LeaveRequest
-} from '../../services/leaveService';
-import {
-    PORTAL_TEAM_MAX,
-    ensurePortalRoles,
-    setPortalRole,
-    getMonthlyHours,
-    saveMonthlyHours,
-    getDocuments,
-    addPortalDocument,
-    currentPeriod,
-    type PortalRole,
-    type PortalDocument
-} from '../../services/employeePortalService';
+// ──────────────────────────────────────────────────────────────
+// Field & Mobile — Employee Self Service
+// Pure presentational ESS dashboard matching the Soltol One ERP
+// design system. All data hardcoded — no services, hooks, or
+// fetches per spec (~/Downloads/FIELD_MOBILE_MASTER_PROMPT.md).
+//
+// This page is mounted at /portal and is the destination of the
+// AQ avatar click in the top nav. Real data persistence (payroll,
+// leave requests, document upload) has been intentionally dropped
+// per spec — the page is now a self-contained visual mockup.
+// ──────────────────────────────────────────────────────────────
+import { useState, useEffect } from 'react';
+import { Download, Plus, ChevronRight, Users, Clock, Calendar, Megaphone } from 'lucide-react';
 
-const SELECTED_ID_KEY = 'ess_portal_selected_id';
-
-function estimatedNetPay(emp: Employee): number {
-    if (emp.salaryType === 'Hourly') {
-        return Math.round(emp.salaryAmount * 160 * 0.75);
-    }
-    return Math.round(emp.salaryAmount * 0.75);
+// ── Types ─────────────────────────────────────────────────────
+interface Employee {
+  id: string;
+  name: string;
+  role: 'Office' | 'Van Driver' | 'Salesman' | 'Warehouse' | 'Admin';
+  netPay: string;
+  regularHours: number;
+  overtimeHours: number;
+  ptoDays: number;
+  status: 'Active' | 'On route' | 'On leave' | 'Off today';
 }
 
-function greeting(): string {
-    const h = new Date().getHours();
-    if (h < 12) return 'Good Morning';
-    if (h < 17) return 'Good Afternoon';
-    return 'Good Evening';
+interface Payslip {
+  month: string;
+  hours: number;
+  ot: number;
+  amount: string;
+  colorBg: string;
 }
 
+interface LeaveType {
+  name: string;
+  used: number;
+  total: number;
+  color: string;
+}
+
+interface Announcement {
+  title: string;
+  description: string;
+  time: string;
+  isNew: boolean;
+  iconBg: string;
+  icon: string;
+}
+
+interface Holiday {
+  month: string;
+  day: string;
+  name: string;
+  status: 'Confirmed' | 'Upcoming';
+}
+
+interface ESSState {
+  regularHours: number;
+  overtimeHours: number;
+  savedMessage: boolean;
+  activeTab: 'profile' | 'team' | 'payslips' | 'leave';
+}
+
+// ── Spec colour tokens (fallback hex so theme.css stays untouched) ─
+const C = {
+  bg:     'var(--bg, #060f1c)',
+  bg3:    'var(--bg3, #0f1f33)',
+  bg4:    'var(--bg4, #142540)',
+  blue:   'var(--blue, #4F8EF7)',
+  green:  'var(--green, #22C55E)',
+  amber:  'var(--amber, #F59E0B)',
+  t:      'var(--t, #EEF2FF)',
+  t2:     'var(--t2, #8BA3C7)',
+  t3:     'var(--t3, #3E5678)',
+  br2:    'var(--br2, rgba(255,255,255,.12))',
+  bd2:    'var(--bd2, rgba(255,255,255,.04))',
+} as const;
+
+// ── Role badge styles ─────────────────────────────────────────
+const ROLE_STYLES = {
+  'Office':     { bg: 'rgba(79,142,247,.12)',  text: '#4F8EF7' },
+  'Van Driver': { bg: 'rgba(34,197,94,.12)',   text: '#22C55E' },
+  'Salesman':   { bg: 'rgba(124,58,237,.12)',  text: '#7C3AED' },
+  'Warehouse':  { bg: 'rgba(245,158,11,.12)',  text: '#F59E0B' },
+  'Admin':      { bg: 'rgba(79,142,247,.12)',  text: '#4F8EF7' },
+  'Finance':    { bg: 'rgba(245,158,11,.12)',  text: '#F59E0B' },
+  'Manager':    { bg: 'rgba(155,111,228,.12)', text: '#9B6FE4' },
+} as const;
+
+const STATUS_COLORS: Record<string, string> = {
+  'Active':   '#22C55E',
+  'On route': '#F59E0B',
+  'On leave': '#F59E0B',
+  'Off today':'#EF4444',
+};
+
+// ── Hardcoded data ────────────────────────────────────────────
+const EMPLOYEES: Employee[] = [
+  { id: 'e1',  name: 'John Smith',       role: 'Office',     netPay: '$3,750', regularHours: 165, overtimeHours: 1,  ptoDays: 16, status: 'Active' },
+  { id: 'e2',  name: 'Sarah Lee',        role: 'Van Driver', netPay: '$3,375', regularHours: 166, overtimeHours: 2,  ptoDays: 16, status: 'On route' },
+  { id: 'e3',  name: 'Mike Johnson',     role: 'Salesman',   netPay: '$3,000', regularHours: 175, overtimeHours: 13, ptoDays: 16, status: 'Active' },
+  { id: 'e4',  name: 'James Okonkwo',    role: 'Office',     netPay: '$2,640', regularHours: 156, overtimeHours: 4,  ptoDays: 16, status: 'Active' },
+  { id: 'e5',  name: 'Priya Nair',       role: 'Van Driver', netPay: '$2,850', regularHours: 149, overtimeHours: 11, ptoDays: 12, status: 'On leave' },
+  { id: 'e6',  name: 'Carlos Mendez',    role: 'Salesman',   netPay: '$3,150', regularHours: 146, overtimeHours: 6,  ptoDays: 16, status: 'Active' },
+  { id: 'e7',  name: 'David Chen',       role: 'Office',     netPay: '$2,400', regularHours: 161, overtimeHours: 9,  ptoDays: 16, status: 'Active' },
+  { id: 'e8',  name: 'Fatima Al-Hassan', role: 'Van Driver', netPay: '$3,600', regularHours: 144, overtimeHours: 6,  ptoDays: 16, status: 'Off today' },
+  { id: 'e9',  name: 'Tom Reed',         role: 'Salesman',   netPay: '$2,520', regularHours: 151, overtimeHours: 11, ptoDays: 16, status: 'Active' },
+  { id: 'e10', name: 'Anna Petrov',      role: 'Office',     netPay: '$2,700', regularHours: 163, overtimeHours: 5,  ptoDays: 16, status: 'Active' },
+];
+
+const PAYSLIPS: Payslip[] = [
+  { month: 'May 2026',   hours: 165, ot: 1, amount: '$3,750', colorBg: 'rgba(34,197,94,.1)' },
+  { month: 'April 2026', hours: 172, ot: 3, amount: '$3,890', colorBg: 'rgba(74,143,245,.1)' },
+  { month: 'March 2026', hours: 168, ot: 0, amount: '$3,600', colorBg: 'rgba(124,58,237,.1)' },
+];
+
+const LEAVE_TYPES: LeaveType[] = [
+  { name: 'Annual Leave (PTO)', used: 4, total: 20, color: '#22C55E' },
+  { name: 'Sick Leave',         used: 2, total: 7,  color: '#F59E0B' },
+  { name: 'Emergency Leave',    used: 0, total: 3,  color: '#4F8EF7' },
+];
+
+const ANNOUNCEMENTS: Announcement[] = [
+  { title: 'Open enrollment for benefits',
+    description: 'Review health and dental options and submit choices before the deadline.',
+    isNew: true,  time: '2 hours ago',  iconBg: 'rgba(239,68,68,.1)',  icon: '📌' },
+  { title: 'Quarterly town hall',
+    description: 'Join the all-hands meeting this Friday afternoon at 3pm.',
+    isNew: false, time: 'Yesterday',    iconBg: 'rgba(34,197,94,.1)',  icon: '✅' },
+  { title: 'New expense policy — June 1',
+    description: 'All expenses over $50 require manager approval before submission.',
+    isNew: false, time: '3 days ago',   iconBg: 'rgba(74,143,245,.1)', icon: '📋' },
+];
+
+const HOLIDAYS: Holiday[] = [
+  { month: 'Dec', day: '31', name: "New Year's Day",   status: 'Confirmed' },
+  { month: 'Jan', day: '19', name: 'MLK Jr. Day',       status: 'Confirmed' },
+  { month: 'May', day: '25', name: 'Memorial Day',      status: 'Confirmed' },
+  { month: 'Jul', day: '4',  name: 'Independence Day',  status: 'Upcoming' },
+];
+
+// ── Section divider ───────────────────────────────────────────
+function SectionDivider({ label }: { label: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '14px 0 10px' }}>
+      <div style={{ flex: 1, height: 1, background: 'linear-gradient(90deg,transparent,rgba(255,255,255,.07),transparent)' }} />
+      <span style={{ fontSize: 9, color: C.t3, fontWeight: 700, letterSpacing: '.8px' }}>
+        {label}
+      </span>
+      <div style={{ flex: 1, height: 1, background: 'linear-gradient(90deg,rgba(255,255,255,.07),transparent)' }} />
+    </div>
+  );
+}
+
+// ── Main component ───────────────────────────────────────────
 export default function EmployeePortal() {
-    const [activeTab, setActiveTab] = useState<'overview' | 'payslips' | 'leave' | 'documents'>('overview');
-    const [team, setTeam] = useState<Employee[]>([]);
-    const [portalRoles, setPortalRoles] = useState<Record<string, PortalRole>>({});
-    const [currentUser, setCurrentUser] = useState<Employee | null>(null);
-    const [leaveBalances, setLeaveBalances] = useState<Record<string, { total: number; used: number; available: number }> | null>(null);
-    const [myRequests, setMyRequests] = useState<LeaveRequest[]>([]);
-    const [period] = useState(() => currentPeriod());
-    const [hoursDraft, setHoursDraft] = useState({ regularHours: 0, overtimeHours: 0 });
-    const [documents, setDocuments] = useState<PortalDocument[]>([]);
-    const [newDocName, setNewDocName] = useState('');
-    const [newDocCategory, setNewDocCategory] = useState('General');
+  const [state, setState] = useState<ESSState>({
+    regularHours: 165,
+    overtimeHours: 1,
+    savedMessage: false,
+    activeTab: 'profile',
+  });
 
-    // ITEM 3 — Quick-add Employee modal state. Mirrors the W2-5 form shape
-    // so the same EMPLOYEES_KEY localStorage row is created either way.
-    const [showAddEmployee, setShowAddEmployee] = useState(false);
-    const [newEmpForm, setNewEmpForm] = useState({
-        name: '', email: '', jobTitle: '', department: 'Sales',
-        salaryType: 'Monthly' as 'Hourly' | 'Monthly' | 'Annual',
-        salaryAmount: 0,
-    });
-    const [savingNewEmp, setSavingNewEmp] = useState(false);
-    const [deletingEmpId, setDeletingEmpId] = useState<string | null>(null);
+  const [cols, setCols] = useState({
+    kpi: typeof window !== 'undefined' && window.innerWidth >= 1024 ? 4 : 2,
+    twoCol: typeof window !== 'undefined' ? window.innerWidth >= 768 : true,
+  });
 
-    const [showLeaveModal, setShowLeaveModal] = useState(false);
-    const [leaveType, setLeaveType] = useState<LeaveType>('Paid Time Off');
-    const [startDate, setStartDate] = useState('');
-    const [endDate, setEndDate] = useState('');
-    const [reason, setReason] = useState('');
+  useEffect(() => {
+    const update = () =>
+      setCols({
+        kpi: window.innerWidth >= 1024 ? 4 : 2,
+        twoCol: window.innerWidth >= 768,
+      });
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
 
-    const refreshForEmployee = useCallback((me: Employee) => {
-        const balances = getEmployeeLeaveBalance(me.id);
-        setLeaveBalances(balances);
+  function handleSave() {
+    setState(s => ({ ...s, savedMessage: true }));
+    setTimeout(() => {
+      setState(s => ({ ...s, savedMessage: false }));
+    }, 2000);
+  }
 
-        const allRequests = getLeaveRequests();
-        setMyRequests(allRequests.filter(r => r.employeeId === me.id));
+  const card = {
+    background: C.bg3,
+    border: `1px solid ${C.br2}`,
+    borderRadius: 12,
+    padding: 16,
+  } as const;
 
-        const h = getMonthlyHours(me.id, period);
-        setHoursDraft({ regularHours: h.regularHours, overtimeHours: h.overtimeHours });
-        setDocuments(getDocuments(me.id));
-    }, [period]);
+  // KPI cards — coloured top stripe + lucide icon + badge
+  const KPIS = [
+    { stripe: '#4F8EF7', value: '10',     label: 'Total Employees',           sub: '3 roles · all active',  badge: 'Active',     badgeBg: 'rgba(79,142,247,.12)',  badgeColor: '#4F8EF7', Icon: Users },
+    { stripe: '#22C55E', value: '1,536',  label: 'Hours Logged (this month)', sub: 'avg 153.6 per person', badge: 'This month', badgeBg: 'rgba(34,197,94,.12)',   badgeColor: '#22C55E', Icon: Clock },
+    { stripe: '#F59E0B', value: '2',      label: 'Leave Requests',            sub: 'awaiting approval',     badge: 'Pending',    badgeBg: 'rgba(245,158,11,.12)',  badgeColor: '#F59E0B', Icon: Calendar },
+    { stripe: '#7C3AED', value: '$29.8k', label: 'Total Payroll Est.',        sub: 'salary + overtime',     badge: 'May 2026',   badgeBg: 'rgba(124,58,237,.12)',  badgeColor: '#7C3AED', Icon: Download },
+  ];
 
-    const loadUserData = useCallback(async () => {
-        const employees = await getEmployees();
-        const active = employees.filter(e => e.status === 'Active').slice(0, PORTAL_TEAM_MAX);
-        const roles = ensurePortalRoles(active);
-        setTeam(active);
-        setPortalRoles(roles);
-
-        const stored = localStorage.getItem(SELECTED_ID_KEY);
-        const pick = active.find(e => e.id === stored) || active[0];
-
-        if (pick) {
-            setCurrentUser(pick);
-            localStorage.setItem(SELECTED_ID_KEY, pick.id);
-            refreshForEmployee(pick);
-        }
-    }, [refreshForEmployee]);
-
-    useEffect(() => {
-        void loadUserData();
-    }, [loadUserData]);
-
-    const selectEmployee = (id: string) => {
-        const me = team.find(e => e.id === id);
-        if (!me) return;
-        setCurrentUser(me);
-        localStorage.setItem(SELECTED_ID_KEY, id);
-        refreshForEmployee(me);
-    };
-
-    const handleRoleChange = (employeeId: string, role: PortalRole) => {
-        setPortalRole(employeeId, role);
-        setPortalRoles(prev => ({ ...prev, [employeeId]: role }));
-    };
-
-    const handleSaveHours = () => {
-        if (!currentUser) return;
-        saveMonthlyHours(currentUser.id, period, hoursDraft);
-        alert('Hours saved for ' + period);
-    };
-
-    const handleApplyLeave = async () => {
-        if (!currentUser) return;
-        // TC-20 — previously silent-returned when dates were missing,
-        // making the Apply button look broken.  Surface the validation
-        // so the user knows what to fix.
-        if (!startDate || !endDate) {
-            alert('Pick a start date AND an end date before applying for leave.');
-            return;
-        }
-
-        try {
-            await submitLeaveRequest({
-                employeeId: currentUser.id,
-                employeeName: currentUser.name,
-                leaveType,
-                startDate,
-                endDate,
-                reason
-            });
-
-            setShowLeaveModal(false);
-            setStartDate('');
-            setEndDate('');
-            setReason('');
-            refreshForEmployee(currentUser);
-            alert('Leave request submitted successfully!');
-        } catch (error: unknown) {
-            alert(error instanceof Error ? error.message : 'Request failed');
-        }
-    };
-
-    const handleAddDocument = () => {
-        if (!currentUser || !newDocName.trim()) return;
-        addPortalDocument(currentUser.id, newDocName, newDocCategory);
-        setNewDocName('');
-        setDocuments(getDocuments(currentUser.id));
-    };
-
-    // ITEM 3A — Quick-add Employee handler. Defaults sensibly so a user
-    // can land an active employee in 4 fields. The full edit (insurance,
-    // retirement, withholding) lives on the Payroll → Employees tab.
-    const handleSaveNewEmployee = async () => {
-        if (!newEmpForm.name.trim() || !newEmpForm.email.trim()) {
-            alert('Name and email are required.');
-            return;
-        }
-        setSavingNewEmp(true);
-        try {
-            await saveEmployee({
-                name: newEmpForm.name.trim(),
-                email: newEmpForm.email.trim(),
-                jobTitle: newEmpForm.jobTitle.trim() || 'Staff',
-                department: newEmpForm.department,
-                salaryType: newEmpForm.salaryType,
-                salaryAmount: Number(newEmpForm.salaryAmount) || 0,
-                currency: 'USD',
-                filingStatus: 'Single',
-                allowances: 1,
-                additionalWithholding: 0,
-                healthInsurance: true,
-                retirement401k: true,
-                retirement401kPercent: 5,
-                lifeInsurance: true,
-                dentalInsurance: false,
-            });
-            await loadUserData();
-            setShowAddEmployee(false);
-            setNewEmpForm({ name: '', email: '', jobTitle: '', department: 'Sales', salaryType: 'Monthly', salaryAmount: 0 });
-        } catch (e) {
-            alert('Could not save: ' + (e instanceof Error ? e.message : String(e)));
-        } finally {
-            setSavingNewEmp(false);
-        }
-    };
-
-    // ITEM 3B — Per-row Delete. Refuses to delete the currently-selected
-    // user (would orphan the Portal session). Friendly named confirm.
-    const handleDeleteEmployee = async (emp: Employee, e: React.MouseEvent) => {
-        e.stopPropagation(); // row click selects; don't trigger that
-        if (currentUser && emp.id === currentUser.id) {
-            alert('You are currently viewing this employee\'s portal. Switch to a different employee before deleting.');
-            return;
-        }
-        if (!window.confirm(`Delete employee ${emp.name}? This cannot be undone.`)) return;
-        setDeletingEmpId(emp.id);
-        try {
-            await deleteEmployee(emp.id);
-            await loadUserData();
-        } catch (err) {
-            alert('Could not delete: ' + (err instanceof Error ? err.message : String(err)));
-        } finally {
-            setDeletingEmpId(null);
-        }
-    };
-
-    if (!currentUser) return <div className="p-20 text-center">Loading Portal...</div>;
-
-    const nextPayDate = new Date();
-    nextPayDate.setDate(28);
-
-    const ptoDays = leaveBalances?.['Paid Time Off']?.available ?? 0;
-    const roleOptions: PortalRole[] = ['Office', 'Van Driver', 'Salesman'];
-
-    const tabLabels: Record<string, string> = {
-        overview: 'Overview',
-        payslips: 'Payslips',
-        leave: 'Leave',
-        documents: 'Documents'
-    };
-
-    return (
-        <div className="min-h-screen bg-gray-50 pb-20">
-            <div className="bg-white border-b border-gray-200 sticky top-0 z-30">
-                <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 bg-gradient-to-br from-emerald-600 to-emerald-800 rounded-lg flex items-center justify-center text-white font-black text-xs">
-                            ESS
-                        </div>
-                        <span className="font-black text-gray-900 tracking-tight uppercase">Employee Self Service</span>
-                    </div>
-                    <div className="flex items-center gap-6">
-                        <button type="button" className="p-2 text-gray-400 hover:text-gray-900 relative">
-                            <Bell size={20} />
-                            <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white" />
-                        </button>
-                        <div className="flex items-center gap-3 pl-6 border-l border-gray-100">
-                            <div className="text-right hidden md:block">
-                                <p className="text-xs font-black text-gray-900">{currentUser.name}</p>
-                                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">{currentUser.jobTitle}</p>
-                            </div>
-                            <div className="w-9 h-9 bg-gray-900 rounded-full flex items-center justify-center text-white font-bold text-sm">
-                                {currentUser.name.charAt(0)}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div className="max-w-7xl mx-auto px-6 py-8">
-                {/* Monitor bar — switch between up to 10 team members */}
-                <div className="mb-6 flex flex-col lg:flex-row lg:items-center gap-4 bg-white rounded-2xl border border-emerald-200 p-4 shadow-sm ring-2 ring-emerald-100">
-                    <div className="flex items-center gap-2 text-gray-700 shrink-0">
-                        <Users size={18} className="text-emerald-600" />
-                        <span className="text-xs font-black uppercase tracking-wider text-gray-500">Monitor team</span>
-                        <span className="text-xs font-bold text-gray-400">({team.length}/{PORTAL_TEAM_MAX})</span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3 flex-1">
-                        <label className="sr-only" htmlFor="ess-employee-select">Employee</label>
-                        <select
-                            id="ess-employee-select"
-                            value={currentUser.id}
-                            onChange={(e) => selectEmployee(e.target.value)}
-                            className="flex-1 min-w-[200px] bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-bold text-gray-900"
-                        >
-                            {team.map((e) => (
-                                <option key={e.id} value={e.id}>
-                                    {e.name} — {e.jobTitle}
-                                </option>
-                            ))}
-                        </select>
-                        <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-black text-gray-400 uppercase">Role</span>
-                            <select
-                                value={portalRoles[currentUser.id] || 'Office'}
-                                onChange={(e) => handleRoleChange(currentUser.id, e.target.value as PortalRole)}
-                                className="bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 text-xs font-black text-emerald-900 uppercase tracking-wide"
-                            >
-                                {roleOptions.map((r) => (
-                                    <option key={r} value={r}>{r}</option>
-                                ))}
-                            </select>
-                        </div>
-                    </div>
-                    <p className="text-[11px] text-gray-500 max-w-md lg:text-right">
-                        Switch people to review pay, hours, leave, and documents. Roles help you sort office, van, and sales staff.
-                    </p>
-                </div>
-
-                <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
-                    <div>
-                        <h1 className="text-3xl font-black text-gray-900 tracking-tight mb-2">
-                            {greeting()}, {currentUser.name.split(' ')[0]} 👋
-                        </h1>
-                        <p className="text-gray-500 font-medium">Here&apos;s what&apos;s happening with this employment record today.</p>
-                    </div>
-                    <div className="flex bg-white p-1 rounded-xl shadow-sm border border-gray-200 flex-wrap">
-                        {(['overview', 'payslips', 'leave', 'documents'] as const).map((tab) => (
-                            <button
-                                key={tab}
-                                type="button"
-                                onClick={() => setActiveTab(tab)}
-                                className={clsx(
-                                    'px-5 py-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all',
-                                    activeTab === tab
-                                        ? 'bg-gray-900 text-white shadow-md'
-                                        : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
-                                )}
-                            >
-                                {tabLabels[tab]}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
-                {activeTab === 'overview' && (
-                    <div className="space-y-8 animate-in fade-in duration-500">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
-                            <div className="bg-gradient-to-br from-indigo-600 to-indigo-700 text-white p-4 sm:p-6 rounded-3xl relative overflow-hidden group hover:scale-[1.02] transition-transform duration-300">
-                                <div className="hidden sm:block absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><DollarSign size={80} /></div>
-                                <p className="text-[10px] font-bold text-indigo-200 uppercase tracking-widest mb-1">Estimated Net Pay</p>
-                                <h3 className="text-3xl font-black tracking-tight mb-4">${estimatedNetPay(currentUser).toLocaleString()}</h3>
-                                <div className="flex items-center gap-2 text-xs font-medium bg-white/10 w-fit px-3 py-1.5 rounded-full backdrop-blur-sm">
-                                    <Calendar size={12} /> Next payday: {nextPayDate.toLocaleDateString()}
-                                </div>
-                            </div>
-
-                            <div className="bg-white p-4 sm:p-6 rounded-3xl border border-gray-100 shadow-sm relative overflow-hidden group hover:border-gray-300 transition-colors">
-                                <div className="hidden sm:block absolute top-0 right-0 p-4 text-gray-50 opacity-50"><Clock size={80} /></div>
-                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Leave balance (PTO)</p>
-                                <h3 className="text-3xl font-black text-gray-900 mb-4">
-                                    {ptoDays} <span className="text-lg text-gray-400 font-bold">days</span>
-                                </h3>
-                                <button
-                                    type="button"
-                                    onClick={() => setActiveTab('leave')}
-                                    className="text-xs font-black text-indigo-600 uppercase tracking-wider flex items-center gap-1 hover:gap-2 transition-all"
-                                >
-                                    Review balances <ChevronRight size={12} />
-                                </button>
-                            </div>
-
-                            <div className="bg-white p-4 sm:p-6 rounded-3xl border border-gray-100 shadow-sm relative overflow-hidden group hover:border-gray-300 transition-colors">
-                                <div className="hidden sm:block absolute top-0 right-0 p-4 text-gray-50 opacity-50"><Timer size={80} /></div>
-                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Hours this month</p>
-                                <p className="text-[10px] font-bold text-gray-400 mb-2">{period}</p>
-                                <div className="grid grid-cols-2 gap-2 mb-3">
-                                    <div>
-                                        <label className="text-[9px] font-black text-gray-400 uppercase">Regular</label>
-                                        <input
-                                            type="number"
-                                            min={0}
-                                            value={hoursDraft.regularHours}
-                                            onChange={(e) => setHoursDraft((d) => ({ ...d, regularHours: Number(e.target.value) }))}
-                                            className="w-full mt-1 bg-gray-50 rounded-lg px-2 py-1.5 text-sm font-bold border border-gray-200"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="text-[9px] font-black text-gray-400 uppercase">Overtime</label>
-                                        <input
-                                            type="number"
-                                            min={0}
-                                            value={hoursDraft.overtimeHours}
-                                            onChange={(e) => setHoursDraft((d) => ({ ...d, overtimeHours: Number(e.target.value) }))}
-                                            className="w-full mt-1 bg-gray-50 rounded-lg px-2 py-1.5 text-sm font-bold border border-gray-200"
-                                        />
-                                    </div>
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={handleSaveHours}
-                                    className="text-xs font-black text-gray-900 uppercase tracking-wider bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-lg w-full"
-                                >
-                                    Save hours
-                                </button>
-                            </div>
-
-                            <div className="bg-white p-4 sm:p-6 rounded-3xl border border-gray-100 shadow-sm relative overflow-hidden group hover:border-gray-300 transition-colors">
-                                <div className="hidden sm:block absolute top-0 right-0 p-4 text-gray-50 opacity-50"><FileText size={80} /></div>
-                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Latest slip</p>
-                                <h3 className="text-3xl font-black text-gray-900 mb-4">Nov 2024</h3>
-                                <button
-                                    type="button"
-                                    onClick={() => setActiveTab('payslips')}
-                                    className="text-xs font-black text-gray-900 uppercase tracking-wider flex items-center gap-1 hover:gap-2 transition-all underline decoration-gray-200 underline-offset-4"
-                                >
-                                    <Download size={12} /> View payslips
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Team snapshot */}
-                        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-                            <div className="p-6 border-b border-gray-50 flex items-center justify-between">
-                                <div>
-                                    <h3 className="text-sm font-black text-gray-900 uppercase tracking-wider">Team snapshot</h3>
-                                    <span className="text-[10px] font-bold text-gray-400">Salaries · hours · leave</span>
-                                </div>
-                                {/* ITEM 3A — prominent New Employee button at the top of the list. */}
-                                <button
-                                    type="button"
-                                    onClick={() => setShowAddEmployee(true)}
-                                    className="flex items-center gap-2 px-4 py-2 bg-gray-900 hover:bg-black text-white text-xs font-black uppercase tracking-widest rounded-xl shadow-sm transition-all"
-                                >
-                                    <Plus size={14} /> New Employee
-                                </button>
-                            </div>
-                            <div className="overflow-x-auto">
-                                {/* ITEM 3 — Empty state for when no employees exist. */}
-                                {team.length === 0 ? (
-                                    <div className="px-6 py-16 text-center">
-                                        <Users size={32} className="mx-auto text-gray-300 mb-3" />
-                                        <p className="text-sm font-black text-gray-500 uppercase tracking-widest">No employees yet</p>
-                                        <p className="text-xs text-gray-400 mt-2">Click "New Employee" above to add your first one.</p>
-                                    </div>
-                                ) : (
-                                <table className="w-full text-sm">
-                                    <thead className="bg-gray-50 border-b border-gray-100">
-                                        <tr>
-                                            <th className="px-4 py-3 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Name</th>
-                                            <th className="px-4 py-3 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Role</th>
-                                            <th className="px-4 py-3 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Est. net</th>
-                                            <th className="px-4 py-3 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Hours ({period})</th>
-                                            <th className="px-4 py-3 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">PTO days</th>
-                                            {/* ITEM 3B — Actions column for per-row Delete */}
-                                            <th className="px-4 py-3 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-50">
-                                        {team.map((e) => {
-                                            const hb = getEmployeeLeaveBalance(e.id);
-                                            const ho = getMonthlyHours(e.id, period);
-                                            const isSel = e.id === currentUser.id;
-                                            return (
-                                                <tr
-                                                    key={e.id}
-                                                    className={clsx('hover:bg-gray-50 cursor-pointer group', isSel && 'bg-indigo-50/60')}
-                                                    onClick={() => selectEmployee(e.id)}
-                                                >
-                                                    <td className="px-4 py-3 font-bold text-gray-900">{e.name}</td>
-                                                    <td className="px-4 py-3">
-                                                        <span className="text-[10px] font-black uppercase text-emerald-800 bg-emerald-100 px-2 py-1 rounded-md">
-                                                            {portalRoles[e.id] || 'Office'}
-                                                        </span>
-                                                    </td>
-                                                    <td className="px-4 py-3 text-right font-mono text-gray-800">${estimatedNetPay(e).toLocaleString()}</td>
-                                                    <td className="px-4 py-3 text-right text-gray-600">
-                                                        {ho.regularHours} reg + {ho.overtimeHours} OT
-                                                    </td>
-                                                    <td className="px-4 py-3 text-right font-bold text-gray-900">
-                                                        {hb['Paid Time Off']?.available ?? 0}
-                                                    </td>
-                                                    <td className="px-4 py-3 text-right">
-                                                        {/* ITEM 3B — Per-row Delete (Trash2). Refuses to delete
-                                                            the currently-selected user; tooltip explains why. */}
-                                                        <button
-                                                            type="button"
-                                                            onClick={(ev) => handleDeleteEmployee(e, ev)}
-                                                            disabled={deletingEmpId === e.id}
-                                                            title={isSel ? 'Switch to another employee before deleting this one' : 'Delete employee'}
-                                                            className={clsx(
-                                                                'p-1.5 rounded-lg transition-all opacity-0 group-hover:opacity-100',
-                                                                isSel
-                                                                    ? 'text-gray-300 cursor-not-allowed'
-                                                                    : 'text-rose-400 hover:text-rose-700 hover:bg-rose-50',
-                                                                deletingEmpId === e.id && 'opacity-100 animate-pulse'
-                                                            )}
-                                                        >
-                                                            <Trash2 size={14} />
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                            <div className="lg:col-span-2 bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-                                <div className="p-6 border-b border-gray-50 flex items-center justify-between">
-                                    <h3 className="text-sm font-black text-gray-900 uppercase tracking-wider">Company announcements</h3>
-                                    <span className="bg-red-100 text-red-600 px-2 py-1 rounded text-[10px] font-black uppercase">1 New</span>
-                                </div>
-                                <div className="divide-y divide-gray-50">
-                                    <div
-                                        onClick={() => alert(
-                                            'Open enrollment for benefits\n\n' +
-                                            'Review health and dental options and submit choices before the deadline.\n\n' +
-                                            'Posted: 2 hours ago'
-                                        )}
-                                        className="p-6 hover:bg-gray-50 transition-colors cursor-pointer"
-                                    >
-                                        <div className="flex items-start gap-4">
-                                            <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center shrink-0">
-                                                <AlertCircle size={20} />
-                                            </div>
-                                            <div>
-                                                <h4 className="font-bold text-gray-900 mb-1">Open enrollment for benefits</h4>
-                                                <p className="text-sm text-gray-500 leading-relaxed">
-                                                    Review health and dental options and submit choices before the deadline.
-                                                </p>
-                                                <p className="text-[10px] font-bold text-gray-400 mt-2 uppercase">2 hours ago</p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div
-                                        onClick={() => alert(
-                                            'Quarterly town hall\n\n' +
-                                            'Join the all-hands meeting this Friday afternoon.\n\n' +
-                                            'Posted: Yesterday'
-                                        )}
-                                        className="p-6 hover:bg-gray-50 transition-colors cursor-pointer"
-                                    >
-                                        <div className="flex items-start gap-4">
-                                            <div className="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center shrink-0">
-                                                <CheckCircle size={20} />
-                                            </div>
-                                            <div>
-                                                <h4 className="font-bold text-gray-900 mb-1">Quarterly town hall</h4>
-                                                <p className="text-sm text-gray-500 leading-relaxed">
-                                                    Join the all-hands meeting this Friday afternoon.
-                                                </p>
-                                                <p className="text-[10px] font-bold text-gray-400 mt-2 uppercase">Yesterday</p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-3xl shadow-lg text-white overflow-hidden">
-                                <div className="p-6 border-b border-gray-700">
-                                    <h3 className="text-sm font-black text-gray-200 uppercase tracking-wider">Upcoming holidays</h3>
-                                </div>
-                                <div className="p-6 space-y-6">
-                                    {getUpcomingHolidays().slice(0, 4).map((holiday, i) => (
-                                        <div key={i} className="flex items-center gap-4">
-                                            <div className="bg-gray-700/50 p-3 rounded-xl text-center min-w-[60px]">
-                                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider">
-                                                    {new Date(holiday.date).toLocaleString('default', { month: 'short' })}
-                                                </p>
-                                                <p className="text-xl font-black">{new Date(holiday.date).getDate()}</p>
-                                            </div>
-                                            <div>
-                                                <p className="font-bold text-white">{holiday.name}</p>
-                                                <p className="text-xs text-gray-400">Company closed</p>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {activeTab === 'payslips' && (
-                    <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden animate-in slide-in-from-bottom-4 duration-500">
-                        <div className="p-8 border-b border-gray-100 flex items-center justify-between">
-                            <h3 className="text-xl font-black text-gray-900 uppercase tracking-tighter">Payslips — {currentUser.name}</h3>
-                            <div className="flex gap-2">
-                                <select className="bg-gray-50 border-none rounded-xl text-sm font-bold text-gray-600 px-4 py-2">
-                                    <option>2026</option>
-                                    <option>2025</option>
-                                    <option>2024</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div className="overflow-x-auto">
-                            <table className="w-full">
-                                <thead className="bg-gray-50 border-b border-gray-100">
-                                    <tr>
-                                        <th className="px-6 py-4 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Period</th>
-                                        <th className="px-6 py-4 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Pay date</th>
-                                        <th className="px-6 py-4 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Gross pay</th>
-                                        <th className="px-6 py-4 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Tax &amp; ded.</th>
-                                        <th className="px-6 py-4 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Net pay</th>
-                                        <th className="px-6 py-4 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest">Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-50">
-                                    {[1, 2, 3].map((month) => {
-                                        const gross =
-                                            currentUser.salaryType === 'Hourly'
-                                                ? currentUser.salaryAmount * 160
-                                                : currentUser.salaryAmount;
-                                        const net = gross * 0.75;
-                                        return (
-                                            <tr key={month} className="hover:bg-gray-50 transition-colors group">
-                                                <td className="px-6 py-5 font-bold text-gray-900">Recent period {month}</td>
-                                                <td className="px-6 py-5 text-gray-600 font-medium text-sm">—</td>
-                                                <td className="px-6 py-5 text-right font-mono text-gray-600">${gross.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
-                                                <td className="px-6 py-5 text-right font-mono text-red-400">
-                                                    -${(gross * 0.25).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                                                </td>
-                                                <td className="px-6 py-5 text-right font-mono font-black text-emerald-700 text-lg">
-                                                    ${net.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                                                </td>
-                                                <td className="px-6 py-5 text-center">
-                                                    <button type="button" className="p-2 text-gray-400 hover:text-indigo-600 transition-colors">
-                                                        <Download size={18} />
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                )}
-
-                {activeTab === 'leave' && (
-                    <div className="animate-in slide-in-from-bottom-4 duration-500 space-y-8">
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                            {(Object.keys(leaveBalances || {}) as LeaveType[]).slice(0, 4).map((type) => (
-                                <div key={type} className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between h-32">
-                                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{type}</p>
-                                    <div>
-                                        <p className="text-3xl font-black text-gray-900">{leaveBalances![type].available}</p>
-                                        <p className="text-xs text-gray-500 font-medium mt-1">days available</p>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-
-                        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-                            <div className="p-8 border-b border-gray-100 flex items-center justify-between">
-                                <h3 className="text-xl font-black text-gray-900 uppercase tracking-tighter">Leave requests — {currentUser.name}</h3>
-                                <button
-                                    type="button"
-                                    onClick={() => setShowLeaveModal(true)}
-                                    className="px-6 py-3 bg-gray-900 text-white text-[11px] font-black uppercase tracking-widest rounded-xl hover:bg-black transition-all flex items-center gap-2"
-                                >
-                                    <Plus size={16} /> New request
-                                </button>
-                            </div>
-                            {myRequests.length === 0 ? (
-                                <div className="p-12 text-center text-gray-500">
-                                    <Calendar size={48} className="mx-auto text-gray-300 mb-4" />
-                                    No leave requests for this person yet.
-                                </div>
-                            ) : (
-                                <div className="divide-y divide-gray-50">
-                                    {myRequests.map((req) => (
-                                        <div key={req.id} className="p-6 hover:bg-gray-50 transition-colors flex items-center justify-between">
-                                            <div className="flex items-center gap-4">
-                                                <div
-                                                    className={clsx(
-                                                        'w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl shrink-0',
-                                                        req.status === 'Approved'
-                                                            ? 'bg-emerald-100 text-emerald-600'
-                                                            : req.status === 'Pending'
-                                                                ? 'bg-amber-100 text-amber-600'
-                                                                : 'bg-red-100 text-red-600'
-                                                    )}
-                                                >
-                                                    {req.daysCount}
-                                                </div>
-                                                <div>
-                                                    <h4 className="font-bold text-gray-900">{req.leaveType}</h4>
-                                                    <p className="text-xs text-gray-500 font-medium">
-                                                        {new Date(req.startDate).toLocaleDateString()} — {new Date(req.endDate).toLocaleDateString()}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            <span
-                                                className={clsx(
-                                                    'px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest',
-                                                    req.status === 'Approved'
-                                                        ? 'bg-emerald-100 text-emerald-700'
-                                                        : req.status === 'Pending'
-                                                            ? 'bg-amber-100 text-amber-700'
-                                                            : 'bg-red-100 text-red-700'
-                                                )}
-                                            >
-                                                {req.status}
-                                            </span>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                )}
-
-                {activeTab === 'documents' && (
-                    <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
-                        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6">
-                            <h3 className="text-lg font-black text-gray-900 uppercase tracking-tight mb-4">Add a document record</h3>
-                            <p className="text-sm text-gray-500 mb-4">
-                                Track contracts, licenses, and training for <strong>{currentUser.name}</strong>. Files are listed here for your records (upload can be wired to your server later).
-                            </p>
-                            <div className="flex flex-col sm:flex-row gap-3">
-                                <input
-                                    type="text"
-                                    value={newDocName}
-                                    onChange={(e) => setNewDocName(e.target.value)}
-                                    placeholder="Document name"
-                                    className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold"
-                                />
-                                <input
-                                    type="text"
-                                    value={newDocCategory}
-                                    onChange={(e) => setNewDocCategory(e.target.value)}
-                                    placeholder="Category"
-                                    className="sm:w-40 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold"
-                                />
-                                <button
-                                    type="button"
-                                    onClick={handleAddDocument}
-                                    className="px-6 py-3 bg-gray-900 text-white text-xs font-black uppercase tracking-wider rounded-xl hover:bg-black"
-                                >
-                                    Add
-                                </button>
-                            </div>
-                        </div>
-
-                        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-                            <div className="p-6 border-b border-gray-100">
-                                <h3 className="text-xl font-black text-gray-900 uppercase tracking-tighter">Documents — {currentUser.name}</h3>
-                            </div>
-                            <div className="divide-y divide-gray-50">
-                                {documents.map((doc) => (
-                                    <div key={doc.id} className="p-6 flex items-center justify-between hover:bg-gray-50">
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-12 h-12 bg-gray-100 rounded-2xl flex items-center justify-center text-gray-600">
-                                                <FileText size={22} />
-                                            </div>
-                                            <div>
-                                                <p className="font-bold text-gray-900">{doc.name}</p>
-                                                <p className="text-xs text-gray-500">{doc.category} · added {doc.addedAt}</p>
-                                            </div>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            className="text-xs font-black text-indigo-600 uppercase tracking-wider flex items-center gap-1"
-                                        >
-                                            <Download size={14} /> PDF placeholder
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-                )}
-            </div>
-
-            {showLeaveModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-6 backdrop-blur-md bg-black/40 animate-in fade-in duration-200">
-                    <div className="bg-white w-full max-w-lg rounded-[32px] shadow-2xl overflow-hidden">
-                        <div className="p-8 border-b border-gray-100 bg-gray-900 text-white flex items-center justify-between">
-                            <h3 className="text-xl font-black uppercase tracking-tight">Request time off</h3>
-                            <button type="button" onClick={() => setShowLeaveModal(false)} className="hover:bg-white/20 p-2 rounded-xl transition-all">
-                                <X size={20} />
-                            </button>
-                        </div>
-                        <div className="p-8 space-y-6">
-                            <div>
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Leave type</label>
-                                <select
-                                    value={leaveType}
-                                    onChange={(e) => setLeaveType(e.target.value as LeaveType)}
-                                    className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-xl px-4 py-3 text-sm font-bold outline-none"
-                                >
-                                    {(Object.keys(leaveBalances || {}) as LeaveType[]).map((type) => (
-                                        <option key={type} value={type}>
-                                            {type}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Start date</label>
-                                    <input
-                                        type="date"
-                                        value={startDate}
-                                        onChange={(e) => setStartDate(e.target.value)}
-                                        className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-xl px-4 py-3 text-sm font-bold outline-none"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">End date</label>
-                                    <input
-                                        type="date"
-                                        value={endDate}
-                                        onChange={(e) => setEndDate(e.target.value)}
-                                        className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-xl px-4 py-3 text-sm font-bold outline-none"
-                                    />
-                                </div>
-                            </div>
-                            <div>
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Reason (optional)</label>
-                                <textarea
-                                    rows={3}
-                                    value={reason}
-                                    onChange={(e) => setReason(e.target.value)}
-                                    placeholder="Details..."
-                                    className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-xl px-4 py-3 text-sm font-medium outline-none resize-none"
-                                />
-                            </div>
-                        </div>
-                        <div className="p-8 border-t border-gray-100 bg-gray-50 flex gap-3">
-                            <button
-                                type="button"
-                                onClick={() => setShowLeaveModal(false)}
-                                className="flex-1 py-4 bg-white border border-gray-200 text-gray-600 font-bold rounded-xl text-xs uppercase tracking-wider hover:bg-gray-100"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                type="button"
-                                onClick={handleApplyLeave}
-                                className="flex-[2] py-4 bg-gray-900 text-white font-bold rounded-xl text-xs uppercase tracking-wider hover:bg-black shadow-lg"
-                            >
-                                Submit request
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* ITEM 3A — Quick-add Employee modal. Minimal field set
-                (name, email, job title, department, pay type, salary).
-                Full edit (insurance/retirement/withholding) lives on the
-                Payroll → Employees tab via W2-5's bigger modal. */}
-            {showAddEmployee && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-                    <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden">
-                        <div className="p-6 border-b border-gray-100 bg-gray-900 text-white flex items-center justify-between">
-                            <h3 className="text-lg font-black uppercase tracking-tight">Add New Employee</h3>
-                            <button
-                                type="button"
-                                onClick={() => setShowAddEmployee(false)}
-                                disabled={savingNewEmp}
-                                className="p-2 hover:bg-white/10 rounded-lg disabled:opacity-40"
-                            >
-                                <X size={18} />
-                            </button>
-                        </div>
-                        <div className="p-6 space-y-4">
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1">Full Name *</label>
-                                    <input
-                                        type="text"
-                                        value={newEmpForm.name}
-                                        onChange={(ev) => setNewEmpForm(p => ({ ...p, name: ev.target.value }))}
-                                        placeholder="Jane Doe"
-                                        className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1">Email *</label>
-                                    <input
-                                        type="email"
-                                        value={newEmpForm.email}
-                                        onChange={(ev) => setNewEmpForm(p => ({ ...p, email: ev.target.value }))}
-                                        placeholder="jane@company.com"
-                                        className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1">Job Title</label>
-                                    <input
-                                        type="text"
-                                        value={newEmpForm.jobTitle}
-                                        onChange={(ev) => setNewEmpForm(p => ({ ...p, jobTitle: ev.target.value }))}
-                                        placeholder="Sales Associate"
-                                        className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1">Department</label>
-                                    <select
-                                        value={newEmpForm.department}
-                                        onChange={(ev) => setNewEmpForm(p => ({ ...p, department: ev.target.value }))}
-                                        className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"
-                                    >
-                                        <option value="Sales">Sales</option>
-                                        <option value="Marketing">Marketing</option>
-                                        <option value="IT">IT</option>
-                                        <option value="HR">HR</option>
-                                        <option value="Finance">Finance</option>
-                                        <option value="Operations">Operations</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1">Pay Type</label>
-                                    <select
-                                        value={newEmpForm.salaryType}
-                                        onChange={(ev) => setNewEmpForm(p => ({ ...p, salaryType: ev.target.value as 'Hourly' | 'Monthly' | 'Annual' }))}
-                                        className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"
-                                    >
-                                        <option value="Monthly">Monthly</option>
-                                        <option value="Hourly">Hourly</option>
-                                        <option value="Annual">Annual</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1">Salary Amount</label>
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        value={newEmpForm.salaryAmount}
-                                        onChange={(ev) => setNewEmpForm(p => ({ ...p, salaryAmount: parseFloat(ev.target.value) || 0 }))}
-                                        placeholder="5000"
-                                        className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-xl px-3 py-2.5 text-sm font-mono font-bold outline-none"
-                                    />
-                                </div>
-                            </div>
-                            <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-                                ℹ️ Insurance, retirement, and withholding default to standard values. Edit them later via Payroll → Employees.
-                            </p>
-                        </div>
-                        <div className="p-6 border-t border-gray-100 bg-gray-50 flex gap-3">
-                            <button
-                                type="button"
-                                onClick={() => setShowAddEmployee(false)}
-                                disabled={savingNewEmp}
-                                className="flex-1 py-3 bg-white border border-gray-200 text-gray-600 text-xs font-black uppercase tracking-widest rounded-xl hover:bg-gray-100 disabled:opacity-40"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                type="button"
-                                onClick={handleSaveNewEmployee}
-                                disabled={savingNewEmp}
-                                className="flex-[2] py-3 bg-gray-900 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:bg-black shadow-lg disabled:opacity-40"
-                            >
-                                {savingNewEmp ? 'Saving…' : 'Add Employee'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+  return (
+    <div style={{ background: C.bg, color: C.t, minHeight: '100%' }}>
+      {/* Page header */}
+      <div style={{ padding: '16px 20px 12px', borderBottom: `1px solid ${C.br2}` }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <h1 style={{
+              fontSize: 22, fontWeight: 700, color: C.t,
+              display: 'flex', alignItems: 'center', gap: 8,
+              margin: 0,
+            }}>
+              <span aria-hidden>📱</span> Field &amp; Mobile — Employee Self Service
+            </h1>
+            <p style={{ fontSize: 12, color: C.t2, marginTop: 4 }}>
+              My profile · Hours · Payslips · Leave · Team snapshot · Announcements
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+            <button
+              type="button"
+              style={{
+                background: 'transparent',
+                border: `1px solid ${C.br2}`,
+                borderRadius: 8, padding: '6px 13px', fontSize: 11,
+                color: C.t2, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 5,
+                fontFamily: 'inherit',
+              }}
+            >
+              <Download size={12} /> View Payslips
+            </button>
+            <button
+              type="button"
+              style={{
+                background: '#4F8EF7', color: '#fff', border: 'none',
+                borderRadius: 8, padding: '6px 13px', fontSize: 11,
+                fontWeight: 600, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 5,
+                fontFamily: 'inherit',
+              }}
+            >
+              <Plus size={12} /> New Employee
+            </button>
+          </div>
         </div>
-    );
+      </div>
+
+      <div style={{ padding: '14px 20px 20px' }}>
+        {/* SECTION 1 — KPI row */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: `repeat(${cols.kpi},1fr)`,
+          gap: 10,
+        }}>
+          {KPIS.map((k, i) => {
+            const Icon = k.Icon;
+            return (
+              <div
+                key={i}
+                style={{
+                  background: C.bg3,
+                  border: `1px solid ${C.br2}`,
+                  borderRadius: 10,
+                  padding: '11px 13px',
+                  position: 'relative',
+                  overflow: 'hidden',
+                  cursor: 'pointer',
+                  transition: 'transform .2s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; }}
+                onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; }}
+              >
+                <div style={{
+                  position: 'absolute', top: 0, left: 0, right: 0,
+                  height: 2.5, background: k.stripe,
+                }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: k.stripe, lineHeight: 1.15 }}>
+                      {k.value}
+                    </div>
+                    <div style={{ fontSize: 10.5, color: C.t2, marginTop: 2, lineHeight: 1.3 }}>
+                      {k.label}
+                    </div>
+                    <div style={{ fontSize: 9, color: C.t3, marginTop: 2 }}>{k.sub}</div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5, flexShrink: 0 }}>
+                    <Icon size={14} color={k.stripe} />
+                    <span style={{
+                      fontSize: 8.5, fontWeight: 700,
+                      background: k.badgeBg, color: k.badgeColor,
+                      padding: '1px 6px', borderRadius: 10, whiteSpace: 'nowrap',
+                    }}>
+                      {k.badge}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* SECTION 2 — Profile + Hours */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: cols.twoCol ? '1fr 1fr' : '1fr',
+          gap: 12,
+          marginTop: 12,
+        }}>
+          {/* Profile */}
+          <div style={card}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+              <div style={{
+                width: 52, height: 52, borderRadius: '50%',
+                background: 'linear-gradient(135deg,#4F8EF7,#7C3AED)',
+                color: '#fff', fontSize: 16, fontWeight: 700,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0,
+              }}>
+                AQ
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: C.t }}>Abdul Qadeer</div>
+                <span style={{
+                  fontSize: 10, fontWeight: 700,
+                  background: ROLE_STYLES.Office.bg, color: ROLE_STYLES.Office.text,
+                  padding: '2px 8px', borderRadius: 10,
+                  display: 'inline-block', marginTop: 4,
+                }}>
+                  Office
+                </span>
+              </div>
+            </div>
+            <InfoRow label="Employee ID" value="EMP-001" />
+            <InfoRow label="Department"  value="Management" />
+            <InfoRow label="Start date"  value="Jan 2023" />
+            <InfoRow label="PTO balance" value="16 days" valueColor={C.green} />
+            <InfoRow label="Sick leave"  value="5 days"  valueColor={C.amber} />
+            <InfoRow
+              label="Status"
+              value={
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22C55E' }} />
+                  Active
+                </span>
+              }
+              valueColor={C.green}
+              isLast
+            />
+          </div>
+
+          {/* Hours card */}
+          <div style={card}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: C.t }}>Hours — May 2026</span>
+              <button
+                type="button"
+                style={{
+                  background: 'transparent', border: 'none',
+                  color: C.blue, fontSize: 11, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 3,
+                  fontFamily: 'inherit',
+                }}
+              >
+                View all <ChevronRight size={11} />
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
+              <MetricBox label="Regular hours" value="165" valueColor={C.blue}  sub="of 176 target"   pct={93} barColor={C.blue} />
+              <MetricBox label="Overtime"      value="1"   valueColor={C.amber} sub="hours this month" pct={10} barColor={C.amber} />
+            </div>
+
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: C.t2, marginBottom: 6 }}>Update hours</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <input
+                  type="number"
+                  value={state.regularHours}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                    const val = parseInt(e.target.value, 10);
+                    if (!isNaN(val)) setState(s => ({ ...s, regularHours: val }));
+                  }}
+                  style={{
+                    background: C.bg4, border: `1px solid ${C.br2}`,
+                    borderRadius: 7, padding: '6px 10px', fontSize: 12,
+                    color: C.t, textAlign: 'center', fontWeight: 600,
+                    outline: 'none', fontFamily: 'inherit',
+                  }}
+                />
+                <input
+                  type="number"
+                  value={state.overtimeHours}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                    const val = parseInt(e.target.value, 10);
+                    if (!isNaN(val)) setState(s => ({ ...s, overtimeHours: val }));
+                  }}
+                  style={{
+                    background: C.bg4, border: `1px solid ${C.br2}`,
+                    borderRadius: 7, padding: '6px 10px', fontSize: 12,
+                    color: C.t, textAlign: 'center', fontWeight: 600,
+                    outline: 'none', fontFamily: 'inherit',
+                  }}
+                />
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleSave}
+              style={{
+                width: '100%',
+                background: state.savedMessage ? C.green : '#4F8EF7',
+                color: '#fff', border: 'none',
+                borderRadius: 8, padding: '8px', fontSize: 12,
+                fontWeight: 700, cursor: 'pointer',
+                transition: 'background .15s',
+                fontFamily: 'inherit',
+              }}
+            >
+              {state.savedMessage ? '✓ Saved!' : 'Save Hours'}
+            </button>
+          </div>
+        </div>
+
+        {/* SECTION 3 — Team snapshot */}
+        <SectionDivider label="TEAM SNAPSHOT — PAYROLL & HOURS" />
+        <div style={{
+          background: C.bg3,
+          border: `1px solid ${C.br2}`,
+          borderRadius: 12,
+          overflow: 'hidden',
+        }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  {['Name', 'Role', 'Est. Net', 'Hours (May 2026)', 'PTO Days', 'Status'].map(h => (
+                    <th key={h} style={{
+                      fontSize: 10, color: C.t3, fontWeight: 700,
+                      letterSpacing: '.5px', padding: '8px 10px',
+                      borderBottom: `1px solid ${C.br2}`,
+                      textTransform: 'uppercase',
+                      textAlign: 'left',
+                      whiteSpace: 'nowrap',
+                    }}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {EMPLOYEES.map(emp => {
+                  const roleStyle = ROLE_STYLES[emp.role as keyof typeof ROLE_STYLES];
+                  const roleBg = roleStyle?.bg ?? 'rgba(255,255,255,.06)';
+                  const roleText = roleStyle?.text ?? C.t2;
+                  const ptoColor = emp.ptoDays < 14 ? C.amber : C.t;
+                  const statusColor = STATUS_COLORS[emp.status] ?? '#3E5678';
+                  return (
+                    <tr
+                      key={emp.id}
+                      style={{ fontSize: 12, color: C.t, transition: 'background .15s' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,.025)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                    >
+                      <td style={{ padding: '9px 10px', borderBottom: `1px solid ${C.bd2}`, whiteSpace: 'nowrap' }}>
+                        {emp.name}
+                      </td>
+                      <td style={{ padding: '9px 10px', borderBottom: `1px solid ${C.bd2}` }}>
+                        <span style={{
+                          fontSize: 10, fontWeight: 700,
+                          background: roleBg, color: roleText,
+                          padding: '2px 7px', borderRadius: 8,
+                          whiteSpace: 'nowrap',
+                        }}>
+                          {emp.role}
+                        </span>
+                      </td>
+                      <td style={{
+                        padding: '9px 10px', borderBottom: `1px solid ${C.bd2}`,
+                        color: C.green, fontWeight: 600, whiteSpace: 'nowrap',
+                      }}>
+                        {emp.netPay}
+                      </td>
+                      <td style={{
+                        padding: '9px 10px', borderBottom: `1px solid ${C.bd2}`,
+                        color: C.t2, whiteSpace: 'nowrap',
+                      }}>
+                        {emp.regularHours} reg + {emp.overtimeHours} OT
+                      </td>
+                      <td style={{
+                        padding: '9px 10px', borderBottom: `1px solid ${C.bd2}`,
+                        color: ptoColor, fontWeight: 600,
+                      }}>
+                        {emp.ptoDays}
+                      </td>
+                      <td style={{
+                        padding: '9px 10px', borderBottom: `1px solid ${C.bd2}`,
+                        whiteSpace: 'nowrap',
+                      }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: C.t }}>
+                          <span style={{
+                            width: 6, height: 6, borderRadius: '50%',
+                            background: statusColor,
+                          }} />
+                          {emp.status}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* SECTION 4 — Payslips + Leave */}
+        <SectionDivider label="PAYSLIPS · LEAVE · ANNOUNCEMENTS · HOLIDAYS" />
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: cols.twoCol ? '1fr 1fr' : '1fr',
+          gap: 12,
+        }}>
+          {/* Payslips */}
+          <div style={card}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: C.t, display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span aria-hidden>📄</span> My Payslips
+              </span>
+              <span style={{ fontSize: 10, color: C.t3 }}>last 3 months</span>
+            </div>
+            {PAYSLIPS.map((p, i) => (
+              <div
+                key={i}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '9px 0',
+                  borderBottom: i < PAYSLIPS.length - 1 ? `1px solid ${C.bd2}` : 'none',
+                  cursor: 'pointer',
+                  transition: 'background .15s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,.025)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+              >
+                <div style={{
+                  width: 32, height: 32, borderRadius: 8,
+                  background: p.colorBg,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 16, flexShrink: 0,
+                }}>
+                  📋
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: C.t }}>{p.month}</div>
+                  <div style={{ fontSize: 10, color: C.t2 }}>
+                    {p.hours} hrs · {p.ot} OT · {p.amount} est.
+                  </div>
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.green, flexShrink: 0 }}>
+                  {p.amount}
+                </div>
+                <button
+                  type="button"
+                  style={{
+                    fontSize: 9, padding: '2px 8px', borderRadius: 8,
+                    background: 'rgba(74,143,245,.12)',
+                    border: '1px solid rgba(74,143,245,.25)',
+                    color: '#4F8EF7', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', gap: 3,
+                    whiteSpace: 'nowrap', fontFamily: 'inherit',
+                  }}
+                >
+                  <Download size={9} /> PDF
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* Leave Balance */}
+          <div style={card}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: C.t, display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span aria-hidden>🌴</span> Leave Balance
+              </span>
+              <span style={{ fontSize: 10, color: C.t3 }}>2026 allocation</span>
+            </div>
+            {LEAVE_TYPES.map((lt, i) => {
+              const remaining = lt.total - lt.used;
+              const pct = lt.total === 0 ? 0 : Math.min(100, Math.round((remaining / lt.total) * 100));
+              return (
+                <div
+                  key={i}
+                  style={{
+                    padding: '8px 0',
+                    borderBottom: i < LEAVE_TYPES.length - 1 ? `1px solid ${C.bd2}` : 'none',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: C.t }}>{lt.name}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: lt.color }}>
+                      {remaining} days left
+                    </span>
+                  </div>
+                  <div style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    marginBottom: 4, gap: 8,
+                  }}>
+                    <span style={{ fontSize: 10, color: C.t3 }}>
+                      Used: {lt.used} of {lt.total} days
+                    </span>
+                    <button
+                      type="button"
+                      style={{
+                        fontSize: 9, padding: '2px 8px', borderRadius: 8,
+                        background: 'rgba(74,143,245,.12)',
+                        border: '1px solid rgba(74,143,245,.25)',
+                        color: '#4F8EF7', cursor: 'pointer',
+                        fontFamily: 'inherit',
+                      }}
+                    >
+                      Request
+                    </button>
+                  </div>
+                  <div style={{ background: 'rgba(255,255,255,.05)', borderRadius: 6, height: 7, overflow: 'hidden' }}>
+                    <div style={{
+                      width: `${pct}%`, height: 7, borderRadius: 6,
+                      background: lt.color, transition: 'width .8s',
+                    }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* SECTION 5 — Announcements + Holidays */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: cols.twoCol ? '1fr 1fr' : '1fr',
+          gap: 12,
+          marginTop: 12,
+        }}>
+          {/* Announcements */}
+          <div style={card}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: C.t, display: 'flex', alignItems: 'center', gap: 5 }}>
+                <Megaphone size={13} /> Company Announcements
+              </span>
+              <span style={{
+                fontSize: 9, fontWeight: 700,
+                background: 'rgba(239,68,68,.15)', color: '#EF4444',
+                padding: '2px 7px', borderRadius: 10,
+              }}>
+                1 NEW
+              </span>
+            </div>
+            {ANNOUNCEMENTS.map((a, i) => (
+              <div key={i} style={{
+                display: 'flex', gap: 10, padding: '10px 0',
+                borderBottom: i < ANNOUNCEMENTS.length - 1 ? `1px solid ${C.bd2}` : 'none',
+              }}>
+                <div style={{
+                  width: 36, height: 36, borderRadius: 10,
+                  background: a.iconBg,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 18, flexShrink: 0,
+                }}>
+                  {a.icon}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: C.t }}>{a.title}</span>
+                    {a.isNew && (
+                      <span style={{
+                        fontSize: 9, fontWeight: 700,
+                        background: 'rgba(239,68,68,.15)', color: '#EF4444',
+                        padding: '1px 6px', borderRadius: 8,
+                      }}>
+                        NEW
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 11, color: C.t2, lineHeight: 1.4, marginTop: 2 }}>
+                    {a.description}
+                  </div>
+                  <div style={{ fontSize: 10, color: C.t3, marginTop: 4 }}>{a.time}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Holidays */}
+          <div style={card}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: C.t, display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span aria-hidden>🗓</span> Upcoming Holidays
+              </span>
+              <span style={{ fontSize: 10, color: C.t3 }}>company closed</span>
+            </div>
+            {HOLIDAYS.map((h, i) => {
+              const isConfirmed = h.status === 'Confirmed';
+              return (
+                <div key={i} style={{
+                  display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0',
+                  borderBottom: i < HOLIDAYS.length - 1 ? `1px solid ${C.bd2}` : 'none',
+                }}>
+                  <div style={{
+                    width: 44, height: 44, borderRadius: 8,
+                    background: C.bg3, border: `1px solid ${C.br2}`,
+                    display: 'flex', flexDirection: 'column',
+                    alignItems: 'center', justifyContent: 'center',
+                    flexShrink: 0,
+                  }}>
+                    <div style={{
+                      fontSize: 9, fontWeight: 700, color: C.t3,
+                      textTransform: 'uppercase', lineHeight: 1,
+                    }}>
+                      {h.month}
+                    </div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: C.t, lineHeight: 1.05 }}>
+                      {h.day}
+                    </div>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: C.t }}>{h.name}</div>
+                    <div style={{ fontSize: 10, color: C.t2 }}>Company closed</div>
+                  </div>
+                  <span style={{
+                    fontSize: 9, fontWeight: 700,
+                    background: isConfirmed ? 'rgba(34,197,94,.1)' : 'rgba(74,143,245,.1)',
+                    color: isConfirmed ? '#22C55E' : '#4F8EF7',
+                    padding: '3px 8px', borderRadius: 10,
+                    flexShrink: 0,
+                  }}>
+                    {h.status}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Small helpers ────────────────────────────────────────────
+function InfoRow({
+  label, value, valueColor, isLast,
+}: {
+  label: string;
+  value: React.ReactNode;
+  valueColor?: string;
+  isLast?: boolean;
+}) {
+  return (
+    <div style={{
+      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+      padding: '6px 0',
+      borderBottom: isLast ? 'none' : `1px solid ${C.bd2}`,
+      fontSize: 12,
+    }}>
+      <span style={{ color: C.t3 }}>{label}</span>
+      <span style={{ color: valueColor ?? C.t, fontWeight: 600 }}>{value}</span>
+    </div>
+  );
+}
+
+function MetricBox({
+  label, value, valueColor, sub, pct, barColor,
+}: {
+  label: string;
+  value: string;
+  valueColor: string;
+  sub: string;
+  pct: number;
+  barColor: string;
+}) {
+  return (
+    <div style={{
+      background: C.bg4,
+      border: `1px solid ${C.br2}`,
+      borderRadius: 8,
+      padding: '9px 10px',
+    }}>
+      <div style={{
+        fontSize: 10, color: C.t3,
+        textTransform: 'uppercase', letterSpacing: '.4px',
+      }}>
+        {label}
+      </div>
+      <div style={{
+        fontSize: 22, fontWeight: 700, color: valueColor,
+        lineHeight: 1.1, marginTop: 2,
+      }}>
+        {value}
+      </div>
+      <div style={{ fontSize: 10, color: C.t2, marginBottom: 6 }}>{sub}</div>
+      <div style={{ background: 'rgba(255,255,255,.05)', borderRadius: 6, height: 7, overflow: 'hidden' }}>
+        <div style={{
+          width: `${pct}%`, height: 7, borderRadius: 6,
+          background: barColor, transition: 'width .8s',
+        }} />
+      </div>
+    </div>
+  );
 }
