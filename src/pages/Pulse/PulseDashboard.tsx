@@ -543,7 +543,7 @@ function SectionDivider({ label }: { label: string }) {
 export default function PulseDashboard() {
   const [state, dispatch] = useReducer(pulseReducer, initialState);
   const [isMobile, setIsMobile] = useState<boolean>(() =>
-    typeof window !== 'undefined' ? window.innerWidth < 768 : false
+    typeof window !== 'undefined' ? window.innerWidth < 900 : false
   );
   const [mobileChatNavOpen, setMobileChatNavOpen] = useState<boolean>(false);
   const [hoveredMsgId, setHoveredMsgId] = useState<string | null>(null);
@@ -556,7 +556,7 @@ export default function PulseDashboard() {
 
   // Resize listener
   useEffect(() => {
-    const update = () => setIsMobile(window.innerWidth < 768);
+    const update = () => setIsMobile(window.innerWidth < 900);
     update();
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);
@@ -929,8 +929,14 @@ export default function PulseDashboard() {
               </div>
             )}
 
-            {/* Messages area */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0', minHeight: 0 }}>
+            {/* Messages area. paddingBottom on mobile clears 56px bottom
+                nav + 56px sticky input bar + 28px buffer so the last
+                message is never hidden behind either. */}
+            <div style={{
+              flex: 1, overflowY: 'auto', padding: '8px 0',
+              paddingBottom: isMobile ? '140px' : '20px',
+              minHeight: 0,
+            }}>
               <SectionDivider label="— TODAY —" />
               {activeRoom.messages.map(msg => {
                 const isHovered = hoveredMsgId === msg.id;
@@ -1170,12 +1176,19 @@ export default function PulseDashboard() {
               </div>
             )}
 
-            {/* Input bar */}
+            {/* Input bar — sticky bottom:0 keeps it visible above the
+                mobile bottom-nav. zIndex sits above the messages list.
+                env(safe-area-inset-bottom) handles iOS notch devices. */}
             <div style={{
-              padding: '8px 12px',
-              borderTop: `1px solid ${C.br2}`,
-              display: 'flex', alignItems: 'center', gap: 7,
               flexShrink: 0,
+              position: 'sticky',
+              bottom: 0,
+              padding: '8px 12px',
+              paddingBottom: 'calc(8px + env(safe-area-inset-bottom))',
+              borderTop: `1px solid ${C.br2}`,
+              background: C.bg,
+              zIndex: 20,
+              display: 'flex', alignItems: 'center', gap: 7,
             }}>
               {/* Hidden file input */}
               <input
