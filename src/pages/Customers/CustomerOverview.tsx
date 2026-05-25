@@ -228,7 +228,7 @@ export default function CustomerOverview() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const location = useLocation();
-    const [activeTab, setActiveTab] = useState<'overview' | 'ledger' | 'sales' | 'payments' | 'credits' | 'unbilled'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'ledger' | 'sales' | 'payments' | 'credits' | 'unbilled' | 'expenses'>('overview');
     const [customer, setCustomer] = useState<Customer | null>(null);
     const [loading, setLoading] = useState(true);
 
@@ -1116,7 +1116,8 @@ export default function CustomerOverview() {
                         { key: 'sales', label: 'Sales history' },
                         { key: 'payments', label: 'Payments' },
                         { key: 'credits', label: 'Credits' },
-                        { key: 'unbilled', label: 'Unbilled' }
+                        { key: 'unbilled', label: 'Unbilled' },
+                        { key: 'expenses', label: 'Expenses' }
                     ].map(tab => {
                         const active = activeTab === tab.key;
                         return (
@@ -1143,10 +1144,16 @@ export default function CustomerOverview() {
                 <div className="p-6">
                     {/* Overview Tab */}
                     {activeTab === 'overview' && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            {/* ─── ROW 1 — 3-col: Customer info · Credit health · Recent activity ─── */}
+                            <div style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(3, 1fr)',
+                                gap: 10,
+                                marginBottom: 10,
+                            }}>
                             {/* ── V3 Fix 5 — Customer Information card (replaces plain ALL CAPS block) ── */}
                             <div style={{
-                                gridColumn: '1 / -1',
                                 background: 'var(--bg3,#0f1f33)',
                                 border: '1px solid rgba(255,255,255,.12)',
                                 borderRadius: 12,
@@ -1204,20 +1211,10 @@ export default function CustomerOverview() {
                                 ))}
                             </div>
 
-                            {/* ── V3 4A — Section divider ── */}
-                            <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0' }}>
-                                <div style={{ flex: 1, height: 1, background: 'linear-gradient(90deg,transparent,rgba(255,255,255,.07),transparent)' }} />
-                                <span style={{ fontSize: 9, color: 'var(--t3,#3E5678)', fontWeight: 700, letterSpacing: '.8px' }}>
-                                    CREDIT HEALTH & ACTIVITY
-                                </span>
-                                <div style={{ flex: 1, height: 1, background: 'linear-gradient(90deg,rgba(255,255,255,.07),transparent)' }} />
-                            </div>
-
                             {/* ── V3 4B — Credit health card ── */}
                             <div style={{
-                                gridColumn: '1 / -1',
                                 background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.12)',
-                                borderRadius: 12, padding: 14, marginBottom: 10,
+                                borderRadius: 12, padding: 14,
                             }}>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                                     <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>💳 Credit health</span>
@@ -1277,9 +1274,8 @@ export default function CustomerOverview() {
 
                             {/* ── V3 4C — Recent activity feed ── */}
                             <div style={{
-                                gridColumn: '1 / -1',
                                 background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.12)',
-                                borderRadius: 12, padding: 14, marginBottom: 10,
+                                borderRadius: 12, padding: 14,
                             }}>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                                     <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>⚡ Recent activity</span>
@@ -1316,9 +1312,188 @@ export default function CustomerOverview() {
                                     </div>
                                 ))}
                             </div>
+                            </div>
+                            {/* ─── END ROW 1 ─── */}
 
-                            {/* ── V3 4D — Payment history bars + Marcus AI insights ── */}
-                            <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 0 }}>
+                            {/* ─── ROW 2 — 2-col: Sales trend chart + Open invoices ─── */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+
+                                {/* LEFT — Sales trend bar chart */}
+                                <div style={{
+                                    background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.12)',
+                                    borderRadius: 12, padding: 14,
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                                        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                            📈 Sales trend — last 6 months
+                                        </span>
+                                        <span style={{ fontSize: 10, color: 'var(--t3,#3E5678)' }}>vs same period last year</span>
+                                    </div>
+                                    {(() => {
+                                        const now = new Date();
+                                        const months: Array<{ label: string; total: number }> = [];
+                                        for (let i = 5; i >= 0; i--) {
+                                            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                                            const label = d.toLocaleDateString('en-US', { month: 'short' });
+                                            const total = (invoices ?? []).filter((inv: any) => {
+                                                const invDate = new Date(inv.invoiceDate ?? inv.date ?? inv.createdAt ?? 0);
+                                                return invDate.getMonth() === d.getMonth()
+                                                    && invDate.getFullYear() === d.getFullYear();
+                                            }).reduce((s: number, inv: any) => s + (Number(inv.grandTotal ?? inv.amount ?? 0)), 0);
+                                            months.push({ label, total });
+                                        }
+                                        const maxVal = Math.max(...months.map(m => m.total), 1);
+                                        const ytdSales = (invoices ?? [])
+                                            .filter((inv: any) => {
+                                                const d = new Date(inv.invoiceDate ?? inv.date ?? inv.createdAt ?? 0);
+                                                return d.getFullYear() === now.getFullYear();
+                                            })
+                                            .reduce((s: number, inv: any) => s + (Number(inv.grandTotal ?? inv.amount ?? 0)), 0);
+                                        const invCount = (invoices ?? []).length;
+                                        const totalAmt = (invoices ?? []).reduce((s: number, inv: any) =>
+                                            s + (Number(inv.grandTotal ?? inv.amount ?? 0)), 0);
+                                        const avgInv = invCount > 0 ? Math.round(totalAmt / invCount) : 0;
+
+                                        return (
+                                            <>
+                                                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 60, marginBottom: 6 }}>
+                                                    {months.map((m, i) => {
+                                                        const pct = Math.max(8, Math.round((m.total / maxVal) * 100));
+                                                        const isLatest = i === months.length - 1;
+                                                        return (
+                                                            <div key={i} style={{
+                                                                flex: 1, display: 'flex', flexDirection: 'column',
+                                                                alignItems: 'center', gap: 2, height: '100%',
+                                                            }}>
+                                                                <div style={{
+                                                                    width: '100%', height: `${pct}%`, alignSelf: 'flex-end',
+                                                                    background: isLatest ? '#22C55E' : '#4A8FF5',
+                                                                    opacity: isLatest ? 1 : 0.4 + i * 0.1,
+                                                                    borderRadius: '2px 2px 0 0',
+                                                                }} />
+                                                                <div style={{ fontSize: 8, color: 'var(--t3,#3E5678)' }}>
+                                                                    {m.label}{isLatest ? ' ↑' : ''}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6, marginTop: 6 }}>
+                                                    {[
+                                                        { val: `$${ytdSales.toLocaleString()}`,        lbl: 'YTD sales',   color: '#22C55E' },
+                                                        { val: String(invCount),                       lbl: 'Invoices',    color: '#4A8FF5' },
+                                                        { val: `$${avgInv.toLocaleString()}`,           lbl: 'Avg invoice', color: '#9B6FE4' },
+                                                    ].map(s => (
+                                                        <div key={s.lbl} style={{
+                                                            background: 'var(--bg4,#142540)', borderRadius: 8,
+                                                            padding: 8, textAlign: 'center',
+                                                            border: '1px solid rgba(255,255,255,.04)',
+                                                        }}>
+                                                            <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1, marginBottom: 1, color: s.color }}>
+                                                                {s.val}
+                                                            </div>
+                                                            <div style={{ fontSize: 9, color: 'var(--t3,#3E5678)' }}>{s.lbl}</div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </>
+                                        );
+                                    })()}
+                                </div>
+
+                                {/* RIGHT — Open invoices table */}
+                                <div style={{
+                                    background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.12)',
+                                    borderRadius: 12, padding: 0, overflow: 'hidden',
+                                }}>
+                                    <div style={{
+                                        padding: '12px 14px', borderBottom: '1px solid rgba(255,255,255,.07)',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                    }}>
+                                        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>
+                                            🧾 Open invoices
+                                        </span>
+                                        <span style={{ fontSize: 10, color: '#4A8FF5', cursor: 'pointer' }}>View all →</span>
+                                    </div>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                        <thead>
+                                            <tr>
+                                                {['Invoice', 'Date', 'Amount', 'Due', 'Status'].map(h => (
+                                                    <th key={h} style={{
+                                                        fontSize: 10, color: 'var(--t3,#3E5678)', fontWeight: 700,
+                                                        letterSpacing: '.5px', padding: '8px 10px',
+                                                        borderBottom: '1px solid rgba(255,255,255,.07)',
+                                                        textAlign: 'left', textTransform: 'uppercase',
+                                                        background: 'var(--bg2,#0a1726)',
+                                                    }}>
+                                                        {h}
+                                                    </th>
+                                                ))}
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {(invoices ?? [])
+                                                .filter((inv: any) => {
+                                                    const s = String(inv.status ?? '').toLowerCase();
+                                                    return s !== 'paid' && s !== 'void' && s !== 'cancelled';
+                                                })
+                                                .slice(0, 5)
+                                                .map((inv: any, i: number) => {
+                                                    const isOverdue = inv.isOverdue
+                                                        || String(inv.status ?? '').toLowerCase() === 'overdue';
+                                                    const dueDateStr = inv.dueDate ?? inv.due_date ?? inv.invoiceDate ?? '';
+                                                    const dueFmt = dueDateStr
+                                                        ? new Date(dueDateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                                                        : '—';
+                                                    return (
+                                                        <tr
+                                                            key={i}
+                                                            style={{ cursor: 'pointer' }}
+                                                            onMouseEnter={(e: React.MouseEvent<HTMLTableRowElement>) => {
+                                                                e.currentTarget.style.background = 'rgba(255,255,255,.025)';
+                                                            }}
+                                                            onMouseLeave={(e: React.MouseEvent<HTMLTableRowElement>) => {
+                                                                e.currentTarget.style.background = 'transparent';
+                                                            }}
+                                                        >
+                                                            <td style={{ fontSize: 11, color: '#4A8FF5', padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,.04)' }}>
+                                                                {inv.invoiceNumber ?? inv.number ?? inv.id ?? '—'}
+                                                            </td>
+                                                            <td style={{ fontSize: 11, color: 'var(--t2,#8BA3C7)', padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,.04)' }}>
+                                                                {inv.invoiceDate
+                                                                    ? new Date(inv.invoiceDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                                                                    : '—'}
+                                                            </td>
+                                                            <td style={{ fontSize: 11, color: 'var(--t,#EEF2FF)', padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,.04)' }}>
+                                                                ${Number(inv.grandTotal ?? inv.amount ?? 0).toFixed(2)}
+                                                            </td>
+                                                            <td style={{
+                                                                fontSize: 11, padding: '8px 10px',
+                                                                borderBottom: '1px solid rgba(255,255,255,.04)',
+                                                                color: isOverdue ? '#EF4444' : '#F59E0B',
+                                                            }}>
+                                                                {dueFmt}{isOverdue ? ' ⚠' : ''}
+                                                            </td>
+                                                            <td style={{ padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,.04)' }}>
+                                                                <span style={{
+                                                                    fontSize: 9, padding: '2px 7px', borderRadius: 8, fontWeight: 600,
+                                                                    background: isOverdue ? 'rgba(239,68,68,.12)' : 'rgba(245,158,11,.12)',
+                                                                    color: isOverdue ? '#B91C1C' : '#B45309',
+                                                                }}>
+                                                                    {isOverdue ? 'Overdue' : 'Pending'}
+                                                                </span>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            {/* ─── END ROW 2 ─── */}
+
+                            {/* ── V3 4D — Payment history bars + Top products (Row 3) ── */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 0 }}>
                                 <div style={{
                                     background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.12)',
                                     borderRadius: 12, padding: 14,
@@ -1365,36 +1540,90 @@ export default function CustomerOverview() {
                                     </div>
                                 </div>
 
+                                {/* RIGHT — Top products ordered + Marcus tip */}
                                 <div style={{
                                     background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.12)',
                                     borderRadius: 12, padding: 14,
                                 }}>
-                                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)', marginBottom: 10 }}>
-                                        ✦ Marcus AI insights
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                                        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>
+                                            📦 Top products ordered
+                                        </span>
+                                        <span style={{ fontSize: 10, color: 'var(--t3,#3E5678)' }}>by revenue</span>
                                     </div>
-                                    {((): Array<{ bg: string; bd: string; text: string; conf: number }> => [
-                                        { bg: 'rgba(79,142,247,.1)', bd: 'rgba(79,142,247,.25)', conf: 94,
-                                          text: 'Customer pays within 8 days on average — excellent behaviour. Safe to extend credit limit.' },
-                                        { bg: 'rgba(34,197,94,.1)',  bd: 'rgba(34,197,94,.25)',  conf: 87,
-                                          text: 'Repeat buyer of OW16 SP. A bulk discount offer could increase order volume by 3×.' },
-                                        { bg: 'rgba(239,68,68,.1)',  bd: 'rgba(239,68,68,.25)',  conf: 99,
-                                          text: 'Tax registration number missing on customer record — required for VAT invoicing compliance.' },
-                                    ])().map((ins, i) => (
-                                        <div
-                                            key={i}
-                                            style={{
-                                                background: ins.bg, border: `1px solid ${ins.bd}`, borderRadius: 8,
-                                                padding: '7px 10px', marginBottom: 6, fontSize: 10, lineHeight: 1.5,
-                                            }}
-                                        >
-                                            <span style={{ color: 'var(--t,#EEF2FF)' }}>{ins.text}</span>
-                                            <span style={{ fontSize: 9, color: 'var(--t3,#3E5678)', marginLeft: 6 }}>
-                                                {ins.conf}% confidence
-                                            </span>
-                                        </div>
-                                    ))}
+
+                                    {(() => {
+                                        const pmap: Record<string, number> = {};
+                                        (invoices ?? []).forEach((inv: any) => {
+                                            const items = (inv.items ?? inv.lineItems ?? inv.invoice_items ?? []);
+                                            items.forEach((item: any) => {
+                                                const name = item.productName ?? item.name ?? item.product_name ?? 'Unknown';
+                                                pmap[name] = (pmap[name] ?? 0)
+                                                    + Number(item.total ?? item.amount ?? item.subtotal
+                                                            ?? (Number(item.price ?? 0) * Number(item.quantity ?? 1)));
+                                            });
+                                        });
+                                        const sorted = Object.entries(pmap).sort((a, b) => b[1] - a[1]).slice(0, 4);
+                                        const maxVal = sorted.length ? sorted[0][1] : 1;
+                                        const colours = ['#22C55E', '#4A8FF5', '#F59E0B', '#9B6FE4'];
+
+                                        const rows: Array<{ name: string; pct: number; color: string; val: string }> =
+                                            sorted.length > 0
+                                                ? sorted.map(([name, val], i) => ({
+                                                    name,
+                                                    pct: Math.round((val / maxVal) * 100),
+                                                    color: colours[i] ?? '#4A8FF5',
+                                                    val: `$${Number(val).toLocaleString()}`,
+                                                }))
+                                                : [{ name: '— No product data —', pct: 0, color: '#3E5678', val: '$0' }];
+
+                                        return rows.map((p, i) => (
+                                            <div
+                                                key={i}
+                                                style={{
+                                                    display: 'flex', alignItems: 'center', gap: 8,
+                                                    padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,.04)',
+                                                    fontSize: 11,
+                                                }}
+                                            >
+                                                <span style={{
+                                                    width: 120, color: 'var(--t2,#8BA3C7)', fontSize: 10,
+                                                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                                    flexShrink: 0,
+                                                }}>
+                                                    {p.name}
+                                                </span>
+                                                <div style={{ flex: 1, background: 'rgba(255,255,255,.05)', borderRadius: 3, height: 5 }}>
+                                                    <div style={{
+                                                        height: 5, borderRadius: 3, width: `${p.pct}%`,
+                                                        background: p.color,
+                                                    }} />
+                                                </div>
+                                                <span style={{
+                                                    color: p.color, fontWeight: 600,
+                                                    width: 72, textAlign: 'right', flexShrink: 0,
+                                                }}>
+                                                    {p.val}
+                                                </span>
+                                            </div>
+                                        ));
+                                    })()}
+
+                                    {/* Marcus AI tip box — small, at bottom of card */}
+                                    <div style={{
+                                        marginTop: 10, padding: '7px 10px',
+                                        background: 'rgba(74,143,245,.07)',
+                                        border: '1px solid rgba(74,143,245,.2)',
+                                        borderRadius: 8, fontSize: 10,
+                                        color: 'var(--t2,#8BA3C7)', lineHeight: 1.5,
+                                    }}>
+                                        ✦ <strong style={{ color: '#9B6FE4' }}>Marcus:</strong>{' '}
+                                        {customer?.name ?? 'Customer'} purchase history analysis —
+                                        consider bulk discount on top products to increase order volume.
+                                    </div>
                                 </div>
                             </div>
+                            {/* ─── END ROW 3 ─── */}
                         </div>
                     )}
 
@@ -2125,6 +2354,33 @@ export default function CustomerOverview() {
                                     <p style={{ fontSize: 10, color: 'var(--t3,#3E5678)', fontStyle: 'italic' }}>Marking as billed is a placeholder — real invoice line-item creation is a future integration step.</p>
                                 </>
                             )}
+                        </div>
+                    )}
+
+                    {/* ── V3 Fix 4 — Expenses tab (7th tab, hardcoded empty state) ── */}
+                    {activeTab === 'expenses' && (
+                        <div style={{
+                            background: 'var(--bg3,#0f1f33)',
+                            border: '1px solid rgba(255,255,255,.12)',
+                            borderRadius: 12,
+                            padding: 40,
+                            textAlign: 'center',
+                        }}>
+                            <div style={{ fontSize: 32, marginBottom: 8 }}>💰</div>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--t,#EEF2FF)', marginBottom: 4 }}>
+                                No expenses recorded
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--t2,#8BA3C7)', marginBottom: 16 }}>
+                                No expenses are linked to this customer yet
+                            </div>
+                            <button style={{
+                                background: '#4F8EF7', color: '#fff', border: 'none',
+                                borderRadius: 8, padding: '8px 16px',
+                                fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                                fontFamily: 'inherit',
+                            }}>
+                                + Add expense
+                            </button>
                         </div>
                     )}
                 </div>
