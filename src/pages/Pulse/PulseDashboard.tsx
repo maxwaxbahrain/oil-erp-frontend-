@@ -659,10 +659,7 @@ export default function PulseDashboard() {
     <div style={{
       display: 'flex',
       flexDirection: 'column',
-      // Subtract the 56px fixed mobile bottom-nav from the page so
-      // the input bar (last row of the bounded flex column) lands
-      // just above it instead of behind it. Desktop keeps full height.
-      height: isMobile ? 'calc(100% - 56px)' : '100%',
+      height: '100%',
       overflow: 'hidden',
       background: C.bg,
       color: C.t,
@@ -952,14 +949,15 @@ export default function PulseDashboard() {
 
             {/* Messages area. minHeight:0 is the critical flex fix —
                 without it, flex items ignore overflow and push children
-                out of view. Bottom-nav clearance is now handled by the
-                bounded flex column above + always-visible input bar
-                below, so we only need a small breathing-room padding. */}
+                out of view. On mobile, the input bar is position:fixed
+                above the 56px bottom nav, so we add 80px of bottom
+                padding (56px nav + input bar height buffer) so the last
+                message never hides under it. */}
             <div style={{
               flex: 1,
               overflowY: 'auto',
               minHeight: 0,
-              paddingBottom: isMobile ? '16px' : '8px',
+              paddingBottom: isMobile ? '80px' : '8px',
             }}>
               <SectionDivider label="— TODAY —" />
               {activeRoom.messages.map(msg => {
@@ -1200,21 +1198,29 @@ export default function PulseDashboard() {
               </div>
             )}
 
-            {/* Input bar — flexShrink:0 keeps it visible at the bottom
-                of the bounded flex column. No sticky/absolute needed:
-                the parent's overflow:hidden + minHeight:0 caps the
-                column height so this row naturally sits above the
-                mobile bottom nav. env(safe-area-inset-bottom) on
-                mobile handles iOS notch devices. */}
-            <div style={{
+            {/* Input bar. On mobile, position:fixed bottom:56 pins it
+                directly above the 56px mobile bottom nav — bulletproof
+                regardless of ancestor overflow/height. On desktop, it
+                stays as a normal flexShrink:0 row at the bottom of the
+                bounded flex column. */}
+            <div style={isMobile ? {
+              position: 'fixed',
+              bottom: 56,
+              left: 0,
+              right: 0,
+              zIndex: 100,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '8px 12px',
+              borderTop: '1px solid rgba(255,255,255,.12)',
+              background: '#060f1c',
+            } : {
               flexShrink: 0,
               display: 'flex',
               alignItems: 'center',
               gap: 8,
               padding: '8px 12px',
-              paddingBottom: isMobile
-                ? 'calc(8px + env(safe-area-inset-bottom))'
-                : '8px',
               borderTop: `1px solid ${C.br2}`,
               background: C.bg,
               zIndex: 10,
