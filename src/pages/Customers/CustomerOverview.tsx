@@ -1356,24 +1356,34 @@ export default function CustomerOverview() {
 
                                         return (
                                             <>
-                                                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 60, marginBottom: 6 }}>
+                                                {/* Bars row — flex-row with alignItems:flex-end so each bar grows
+                                                    upward from the bottom edge. Bars are direct children (no inner
+                                                    column wrapper, no alignSelf) so the parent alignment applies. */}
+                                                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 52, marginBottom: 4 }}>
                                                     {months.map((m, i) => {
                                                         const pct = Math.max(8, Math.round((m.total / maxVal) * 100));
                                                         const isLatest = i === months.length - 1;
                                                         return (
                                                             <div key={i} style={{
-                                                                flex: 1, display: 'flex', flexDirection: 'column',
-                                                                alignItems: 'center', gap: 2, height: '100%',
+                                                                flex: 1,
+                                                                height: `${pct}%`,
+                                                                background: isLatest ? '#22C55E' : '#4A8FF5',
+                                                                opacity: isLatest ? 1 : 0.4 + i * 0.1,
+                                                                borderRadius: '2px 2px 0 0',
+                                                            }} />
+                                                        );
+                                                    })}
+                                                </div>
+                                                {/* Labels row — separate flex row below the bars */}
+                                                <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+                                                    {months.map((m, i) => {
+                                                        const isLatest = i === months.length - 1;
+                                                        return (
+                                                            <div key={i} style={{
+                                                                flex: 1, textAlign: 'center',
+                                                                fontSize: 8, color: 'var(--t3,#3E5678)',
                                                             }}>
-                                                                <div style={{
-                                                                    width: '100%', height: `${pct}%`, alignSelf: 'flex-end',
-                                                                    background: isLatest ? '#22C55E' : '#4A8FF5',
-                                                                    opacity: isLatest ? 1 : 0.4 + i * 0.1,
-                                                                    borderRadius: '2px 2px 0 0',
-                                                                }} />
-                                                                <div style={{ fontSize: 8, color: 'var(--t3,#3E5678)' }}>
-                                                                    {m.label}{isLatest ? ' ↑' : ''}
-                                                                </div>
+                                                                {m.label}{isLatest ? ' ↑' : ''}
                                                             </div>
                                                         );
                                                     })}
