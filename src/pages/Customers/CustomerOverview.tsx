@@ -6,7 +6,6 @@ import {
     FileText,
     DollarSign,
     ShoppingCart,
-    Edit,
     Download,
     FileDown,
     X,
