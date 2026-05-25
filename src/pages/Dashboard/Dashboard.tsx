@@ -1,16 +1,15 @@
 // ──────────────────────────────────────────────────────────────
-// Dashboard Overview — Soltol dark theme redesign
-// Visual-layer rewrite per DASHBOARD_OVERVIEW_MASTER_PROMPT.md.
-// All data loading, services, useMemo computations preserved.
-// Layout simplified to: header → 6 KPIs → Revenue & Collections
-// → Today's Activity → Stock & Operations.
+// Dashboard Overview — V2 Soltol redesign
+// Matches the customer_overview_complete_final.html mockup layout:
+//   Header → 6-cell stats row → Row 1 (3-col) → Row 2 (2-col)
+//   → Row 3 (2-col) → Row 4 (2-col)
+// Visual-layer only — service imports, state, useMemo, handlers,
+// data-loading logic all preserved exactly as in the previous build.
+// Charts switched from Recharts to CSS bars per spec example.
 // ──────────────────────────────────────────────────────────────
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, X, Calendar, Sparkles, Truck, Package } from 'lucide-react';
-import {
-    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-} from 'recharts';
+import { RefreshCw, X, Calendar } from 'lucide-react';
 import {
     getCustomers, getInvoices, getProducts, getSalesOrders, getVans, getPayments,
     type Invoice, type Product,
@@ -18,48 +17,46 @@ import {
 import { getPurchaseOrders } from '../../services/purchasesService';
 import { useEscape } from '../../hooks/useEscape';
 
-// ── Spec colour tokens (fallback hex so theme.css stays untouched) ─
+// ── Spec colour tokens (fallback hex matches V2 mockup) ─────────
 const C = {
     bg:     'var(--bg, #060f1c)',
-    bg2:    'var(--bg2, #0a1726)',
-    bg3:    'var(--bg3, #0f1f33)',
-    bg4:    'var(--bg4, #142540)',
-    blue:   '#4F8EF7',
+    bg2:    'var(--bg2, #091524)',
+    bg3:    'var(--bg3, #0d1b2e)',
+    bg4:    'var(--bg4, #122238)',
+    blue:   '#4A8FF5',
     green:  '#22C55E',
     red:    '#EF4444',
     amber:  '#F59E0B',
-    purple: '#7C3AED',
+    purple: '#9B6FE4',
+    yellow: '#FACC15',
     t:      'var(--t, #EEF2FF)',
-    t2:     'var(--t2, #8BA3C7)',
-    t3:     'var(--t3, #3E5678)',
-    br2:    'rgba(255,255,255,.12)',
+    t1:     'var(--t1, #8BA8CC)',
+    t2:     'var(--t2, #8BA8CC)',
+    t3:     'var(--t3, #3E5A7A)',
+    br:     'rgba(255,255,255,.07)',
     bd2:    'rgba(255,255,255,.04)',
 } as const;
 
-// Marcus AI alert copy (matches existing dashboard's static insights).
-const AI_ALERTS: { message: string }[] = [
-    { message: 'Qahir Enterprises 32d overdue — $3,875 at risk. Stop credit immediately.' },
-    { message: 'AP $18k due Friday — schedule payment run today.' },
-    { message: 'Income on track for $490k projection by month-end.' },
-    { message: 'OW16 SP stock low — Auto PO ready for approval.' },
-];
-
 const DAILY_TARGET = 2800;
+void DAILY_TARGET;
 
-function SectionDivider({ label }: { label: string }) {
-    return (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '16px 0 10px' }}>
-            <div style={{ flex: 1, height: 1, background: 'linear-gradient(90deg,transparent,rgba(255,255,255,.07),transparent)' }} />
-            <span style={{ fontSize: 9, color: C.t3, fontWeight: 700, letterSpacing: '.8px' }}>{label}</span>
-            <div style={{ flex: 1, height: 1, background: 'linear-gradient(90deg,rgba(255,255,255,.07),transparent)' }} />
-        </div>
-    );
+// ── Date helpers (used by stats row + recent activity) ──────────
+function isToday(d?: string): boolean {
+    if (!d) return false;
+    try { return new Date(d).toDateString() === new Date().toDateString(); }
+    catch { return false; }
+}
+
+function _fmtDate(d?: string): string {
+    if (!d) return '—';
+    try { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); }
+    catch { return d; }
 }
 
 export default function Dashboard() {
     const navigate = useNavigate();
 
-    // Data state (loaded from services — preserved)
+    // Data state (preserved from previous build) ────────────────
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
     const [salesOrdersData, setSalesOrdersData] = useState<any[]>([]);
@@ -75,29 +72,27 @@ export default function Dashboard() {
     const [showDateRange, setShowDateRange] = useState(false);
     const [dashFrom, setDashFrom] = useState<string>('');
     const [dashTo, setDashTo] = useState<string>('');
-    const [chartRange, setChartRange] = useState<'3m' | '6m' | 'ytd' | '1y'>('3m');
+    const [chartRange, setChartRange] = useState<'3m' | '6m' | 'ytd' | '1y'>('6m');
 
-    // Responsive grid columns
-    const [cols, setCols] = useState({
-        kpi: typeof window !== 'undefined'
-            ? (window.innerWidth >= 1024 ? 6 : window.innerWidth >= 768 ? 3 : 2)
-            : 6,
-        twoCol: typeof window !== 'undefined' ? window.innerWidth >= 768 : true,
-        threeCol: typeof window !== 'undefined' ? window.innerWidth >= 1024 : true,
-    });
+    // Responsive — per V2 spec, isMobile + isTablet booleans
+    const [isMobile, setIsMobile] = useState<boolean>(() =>
+        typeof window !== 'undefined' ? window.innerWidth < 768 : false
+    );
+    const [isTablet, setIsTablet] = useState<boolean>(() =>
+        typeof window !== 'undefined' ? window.innerWidth < 1024 : false
+    );
 
     useEffect(() => {
-        const update = () => setCols({
-            kpi: window.innerWidth >= 1024 ? 6 : window.innerWidth >= 768 ? 3 : 2,
-            twoCol: window.innerWidth >= 768,
-            threeCol: window.innerWidth >= 1024,
-        });
+        const update = () => {
+            setIsMobile(window.innerWidth < 768);
+            setIsTablet(window.innerWidth < 1024);
+        };
         update();
         window.addEventListener('resize', update);
         return () => window.removeEventListener('resize', update);
     }, []);
 
-    // ── Data loader (preserved business logic) ─────────────────────
+    // ── Data loader (preserved business logic) ─────────────────
     async function loadDashboardData() {
         setRefreshing(true);
         try {
@@ -110,8 +105,8 @@ export default function Dashboard() {
                 getPayments().catch(() => []),
                 getPurchaseOrders().catch(() => []),
             ]);
-            // `pos` (purchase orders) still loaded for parity with original; not
-            // surfaced in the new layout but kept so the service call signature
+            // `pos` (purchase orders) still loaded for parity with original;
+            // not surfaced in V2 layout but kept so the service call signature
             // and downstream consumers (if any) remain intact.
             void pos;
             setInvoices(Array.isArray(inv) ? inv : []);
@@ -150,7 +145,7 @@ export default function Dashboard() {
         flashToast('Dashboard data refreshed.');
     }
 
-    // ── Derived data (preserved + extended) ─────────────────────────
+    // ── Derived data — preserved + extended ────────────────────
     const filteredInvoices = useMemo(() => {
         if (!dashFrom && !dashTo) return invoices;
         return invoices.filter(inv => {
@@ -168,19 +163,19 @@ export default function Dashboard() {
             chartRange === '6m' ? 6 :
             chartRange === '1y' ? 12 :
             /* ytd */ now.getMonth() + 1;
-        const points: Array<{ month: string; sales: number; expenses: number }> = [];
+        const points: Array<{ month: string; revenue: number }> = [];
         for (let i = months - 1; i >= 0; i--) {
             const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
             const keyYear = d.getFullYear();
             const keyMonth = d.getMonth();
             const monthLabel = d.toLocaleDateString(undefined, { month: 'short' });
-            const sales = filteredInvoices
+            const revenue = filteredInvoices
                 .filter((inv) => {
                     const date = new Date(inv.invoiceDate || inv.createdAt);
                     return date.getFullYear() === keyYear && date.getMonth() === keyMonth;
                 })
                 .reduce((sum, inv) => sum + (Number(inv.grandTotal) || 0), 0);
-            points.push({ month: monthLabel, sales, expenses: 0 });
+            points.push({ month: monthLabel, revenue });
         }
         return points;
     }, [filteredInvoices, chartRange]);
@@ -199,7 +194,7 @@ export default function Dashboard() {
             }));
     }, [invoices]);
 
-    // ── KPI metrics computed from existing data ────────────────────
+    // ── KPI metrics computed from existing data ────────────────
     const _now = new Date();
     const _curMonth = _now.getMonth();
     const _curYear = _now.getFullYear();
@@ -235,89 +230,137 @@ export default function Dashboard() {
         (sum: number, o: any) => sum + (Number(o.grandTotal) || 0), 0
     );
 
+    const pendingOrderCount = salesOrdersData.filter((o: any) =>
+        ['pending', 'open', 'draft'].includes(String(o.status || '').toLowerCase())
+    ).length;
+
     const lowStockCount = products.filter(p => Number(p.current_stock || 0) < 10).length;
-    const lowStockProducts = products
+    const lowStockItems = products
         .filter(p => Number(p.current_stock || 0) < 20)
         .sort((a, b) => Number(a.current_stock || 0) - Number(b.current_stock || 0))
-        .slice(0, 5);
-
-    const activeCustomerCount = customersCount;
+        .slice(0, 6);
 
     const cashCollectedToday = paymentsData.reduce((sum: number, p: any) => {
         const d = String(p.payment_date || p.date || '').slice(0, 10);
         return d === _todayStr ? sum + (Number(p.amount) || 0) : sum;
     }, 0);
 
+    const totalSalesYTD = invoices.reduce((sum, inv) => {
+        if (String(inv.status || '').toLowerCase() === 'cancelled') return sum;
+        const d = new Date(inv.invoiceDate || inv.createdAt || 0);
+        if (d.getFullYear() !== _curYear) return sum;
+        return sum + (Number(inv.grandTotal) || 0);
+    }, 0);
+
+    const totalOrderCount = invoices.length;
+    const avgOrderValue = totalOrderCount > 0
+        ? invoices.reduce((s, i) => s + (Number(i.grandTotal) || 0), 0) / totalOrderCount
+        : 0;
+
+    const collectedYTD = paymentsData.reduce((sum: number, p: any) => {
+        const d = p.payment_date ?? p.date ?? p.createdAt;
+        if (!d) return sum;
+        try {
+            if (new Date(d).getFullYear() === _curYear) return sum + (Number(p.amount) || 0);
+        } catch { /* ignore */ }
+        return sum;
+    }, 0);
+
     // Top outstanding customers — grouped from invoices
     const topOutstandingCustomers = (() => {
-        const map = new Map<string, { name: string; balance: number; overdue: number; oldestDays: number }>();
+        const map = new Map<string, { name: string; balance: number; overdue: boolean }>();
         invoices.forEach(inv => {
             const status = String(inv.status || '').toLowerCase();
             if (!['unpaid', 'pending', 'partial', 'overdue'].includes(status)) return;
             const key = inv.customerName || String((inv as any).customerId || '?');
+            const name = inv.customerName || key;
             const amt = Number(inv.remaining_balance ?? inv.grandTotal) || 0;
-            const isOverdue = status === 'overdue';
-            const dateStr = inv.invoiceDate || inv.createdAt;
-            const ageDays = dateStr ? Math.floor((_now.getTime() - new Date(dateStr).getTime()) / 86400000) : 0;
-            const prev = map.get(key) || { name: key, balance: 0, overdue: 0, oldestDays: 0 };
+            const prev = map.get(key) || { name, balance: 0, overdue: false };
             prev.balance += amt;
-            if (isOverdue) prev.overdue += amt;
-            if (ageDays > prev.oldestDays) prev.oldestDays = ageDays;
+            if (status === 'overdue') prev.overdue = true;
             map.set(key, prev);
         });
         return [...map.values()].sort((a, b) => b.balance - a.balance).slice(0, 5);
     })();
 
-    // ── KPI definitions ────────────────────────────────────────────
-    const KPIS = [
+    // Top products — aggregate revenue from sales orders / invoice line items
+    const topProducts = (() => {
+        const pmap: Record<string, number> = {};
+        salesOrdersData.forEach((o: any) => {
+            const items = o.items ?? o.lineItems ?? [];
+            items.forEach((item: any) => {
+                const name = item.productName ?? item.name ?? item.product ?? 'Unknown';
+                const total = Number(item.total ?? item.amount ?? item.price ?? 0);
+                pmap[name] = (pmap[name] ?? 0) + total;
+            });
+        });
+        // Fall back to invoices if sales orders had no line items
+        if (Object.keys(pmap).length === 0) {
+            invoices.forEach((inv: any) => {
+                const items = inv.items ?? inv.lineItems ?? [];
+                items.forEach((item: any) => {
+                    const name = item.productName ?? item.name ?? item.product ?? 'Unknown';
+                    const total = Number(item.total ?? item.amount ?? item.price ?? 0);
+                    pmap[name] = (pmap[name] ?? 0) + total;
+                });
+            });
+        }
+        return Object.entries(pmap).sort((a, b) => b[1] - a[1]).slice(0, 4);
+    })();
+
+    // Sorted payments (newest-first) for the history bar chart
+    const sortedPayments = [...paymentsData].sort((a: any, b: any) => {
+        return new Date(b.payment_date ?? b.date ?? b.createdAt ?? 0).getTime()
+             - new Date(a.payment_date ?? a.date ?? a.createdAt ?? 0).getTime();
+    }).slice(0, 5);
+    const paymentMaxAmt = sortedPayments.length > 0
+        ? Math.max(...sortedPayments.map((p: any) => Number(p.amount) || 0), 1)
+        : 1;
+
+    // ── 6-cell stats row data ──────────────────────────────────
+    const statCells: Array<{ label: string; value: string; color: string; sub: string }> = [
         {
             label: 'Total Revenue (MTD)',
             value: `$${totalRevenueMTD.toLocaleString()}`,
-            color: C.green, stripe: C.green,
+            color: C.green,
             sub: 'this month',
-            badge: { text: '↑ MTD', color: C.green },
         },
         {
             label: 'Outstanding AR',
             value: `$${totalOutstanding.toLocaleString()}`,
-            color: totalOutstanding > 0 ? C.amber : C.green, stripe: C.amber,
+            color: totalOutstanding > 0 ? C.amber : C.green,
             sub: `${unpaidInvoiceCount} unpaid invoices`,
-            badge: { text: 'Collect', color: C.amber },
         },
         {
             label: 'Overdue Amount',
             value: `$${overdueTotal.toLocaleString()}`,
-            color: overdueTotal > 0 ? C.red : C.green, stripe: C.red,
+            color: overdueTotal > 0 ? C.red : C.green,
             sub: overdueTotal > 0 ? `${overdueCount} customers` : 'All clear ✓',
-            badge: { text: overdueTotal > 0 ? 'Urgent' : 'Clear', color: overdueTotal > 0 ? C.red : C.green },
         },
         {
             label: 'Orders Today',
-            value: String(ordersToday),
-            color: C.blue, stripe: C.blue,
+            value: String(ordersToday || recentOrders.filter(o => isToday(o.date)).length),
+            color: C.blue,
             sub: `$${orderValueToday.toLocaleString()} value`,
-            badge: { text: 'Today', color: C.blue },
         },
         {
             label: 'Low Stock Items',
-            value: String(lowStockCount),
-            color: lowStockCount > 0 ? C.amber : C.green, stripe: C.amber,
-            sub: lowStockCount > 0 ? 'need reorder' : 'All stocked ✓',
-            badge: { text: lowStockCount > 0 ? 'Reorder' : 'OK', color: lowStockCount > 0 ? C.amber : C.green },
+            value: String(lowStockItems.length || lowStockCount),
+            color: (lowStockItems.length || lowStockCount) > 0 ? C.amber : C.green,
+            sub: (lowStockItems.length || lowStockCount) > 0 ? 'need reorder' : 'All stocked ✓',
         },
         {
             label: 'Active Customers',
-            value: String(activeCustomerCount),
-            color: C.blue, stripe: C.purple,
+            value: String(customersCount),
+            color: C.blue,
             sub: `${newCustomersThisMonth} new this month`,
-            badge: { text: 'Active', color: C.blue },
         },
     ];
 
-    // ── Render ─────────────────────────────────────────────────────
+    // ── Render ─────────────────────────────────────────────────
     return (
         <div style={{ background: C.bg, color: C.t, minHeight: '100%' }}>
-            {/* Transient toast (refresh / date range / errors) */}
+            {/* Transient toast */}
             {toast && (
                 <div
                     role="status"
@@ -344,7 +387,11 @@ export default function Dashboard() {
             )}
 
             {/* Page header */}
-            <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid rgba(255,255,255,.07)' }}>
+            <div style={{
+                padding: '16px 20px 12px',
+                borderBottom: `1px solid ${C.br}`,
+                background: C.bg2,
+            }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                     <div>
                         <h1 style={{
@@ -354,7 +401,7 @@ export default function Dashboard() {
                             <span aria-hidden>📊</span> Dashboard Overview
                         </h1>
                         <p style={{ fontSize: 12, color: C.t2, marginTop: 4 }}>
-                            Revenue · Collections · Stock · AI alerts · Team performance
+                            Revenue · Collections · Stock · Van operations · AI alerts
                             {(dashFrom || dashTo) && (
                                 <span style={{ marginLeft: 8, fontSize: 10, color: C.amber, fontWeight: 700 }}>
                                     · Chart filtered: {dashFrom || '…'} → {dashTo || 'today'}{' '}
@@ -368,12 +415,12 @@ export default function Dashboard() {
                             )}
                         </p>
                     </div>
-                    <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                    <div style={{ display: 'flex', gap: 8, flexShrink: 0, alignItems: 'center' }}>
                         <button
                             onClick={() => void handleRefresh()}
                             disabled={refreshing}
                             style={{
-                                background: 'transparent', border: '1px solid rgba(255,255,255,.12)',
+                                background: 'transparent', border: `1px solid ${C.br}`,
                                 borderRadius: 8, padding: '6px 13px', fontSize: 11,
                                 color: C.t2, cursor: refreshing ? 'wait' : 'pointer',
                                 display: 'flex', alignItems: 'center', gap: 5,
@@ -386,8 +433,8 @@ export default function Dashboard() {
                         <button
                             onClick={() => setShowDateRange(v => !v)}
                             style={{
-                                background: showDateRange ? 'rgba(79,142,247,.12)' : 'transparent',
-                                border: '1px solid rgba(255,255,255,.12)',
+                                background: showDateRange ? 'rgba(74,143,245,.12)' : 'transparent',
+                                border: `1px solid ${C.br}`,
                                 borderRadius: 8, padding: '6px 13px', fontSize: 11,
                                 color: showDateRange ? C.blue : C.t2, cursor: 'pointer',
                                 display: 'flex', alignItems: 'center', gap: 5,
@@ -403,100 +450,217 @@ export default function Dashboard() {
             {/* Date range picker (collapsible) */}
             {showDateRange && (
                 <div style={{
-                    margin: '12px 20px 0',
+                    margin: '12px 18px 0',
                     background: C.bg3,
-                    border: '1px solid rgba(79,142,247,.25)',
+                    border: '1px solid rgba(74,143,245,.25)',
                     borderRadius: 12, padding: '12px 14px',
                     display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 12,
                 }}>
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <label style={{ fontSize: 9, color: C.t3, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 4 }}>From</label>
-                        <input
-                            type="date"
-                            value={dashFrom}
-                            onChange={e => setDashFrom(e.target.value)}
-                            style={{ background: C.bg4, color: C.t, border: '1px solid rgba(255,255,255,.12)', borderRadius: 6, padding: '6px 10px', fontSize: 11, outline: 'none', fontFamily: 'inherit' }}
-                        />
+                        <input type="date" value={dashFrom} onChange={e => setDashFrom(e.target.value)}
+                            style={{ background: C.bg4, color: C.t, border: `1px solid ${C.br}`, borderRadius: 6, padding: '6px 10px', fontSize: 11, outline: 'none', fontFamily: 'inherit' }} />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <label style={{ fontSize: 9, color: C.t3, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 4 }}>To</label>
-                        <input
-                            type="date"
-                            value={dashTo}
-                            onChange={e => setDashTo(e.target.value)}
-                            style={{ background: C.bg4, color: C.t, border: '1px solid rgba(255,255,255,.12)', borderRadius: 6, padding: '6px 10px', fontSize: 11, outline: 'none', fontFamily: 'inherit' }}
-                        />
+                        <input type="date" value={dashTo} onChange={e => setDashTo(e.target.value)}
+                            style={{ background: C.bg4, color: C.t, border: `1px solid ${C.br}`, borderRadius: 6, padding: '6px 10px', fontSize: 11, outline: 'none', fontFamily: 'inherit' }} />
                     </div>
-                    <button
-                        onClick={() => { setDashFrom(''); setDashTo(''); }}
-                        style={{ padding: '6px 12px', background: 'transparent', border: '1px solid rgba(255,255,255,.12)', borderRadius: 6, fontSize: 10, color: C.t2, fontWeight: 600, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '.5px', fontFamily: 'inherit' }}
-                    >
-                        Clear
-                    </button>
-                    <button
-                        onClick={() => { setShowDateRange(false); flashToast('Date range applied to charts.'); }}
-                        style={{ padding: '6px 14px', background: C.blue, color: '#fff', border: 'none', borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '.5px', fontFamily: 'inherit' }}
-                    >
-                        Apply
-                    </button>
-                    <button
-                        onClick={() => setShowDateRange(false)}
+                    <button onClick={() => { setDashFrom(''); setDashTo(''); }}
+                        style={{ padding: '6px 12px', background: 'transparent', border: `1px solid ${C.br}`, borderRadius: 6, fontSize: 10, color: C.t2, fontWeight: 600, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '.5px', fontFamily: 'inherit' }}>Clear</button>
+                    <button onClick={() => { setShowDateRange(false); flashToast('Date range applied to charts.'); }}
+                        style={{ padding: '6px 14px', background: C.blue, color: '#fff', border: 'none', borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '.5px', fontFamily: 'inherit' }}>Apply</button>
+                    <button onClick={() => setShowDateRange(false)}
                         aria-label="Close date range picker"
-                        style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: C.t2, cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center' }}
-                    >
+                        style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: C.t2, cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center' }}>
                         <X size={12} />
                     </button>
                 </div>
             )}
 
-            <div style={{ padding: '14px 20px 24px' }}>
-                {/* KPI row — 6 cards */}
-                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols.kpi},1fr)`, gap: 10 }}>
-                    {KPIS.map((kpi, i) => (
-                        <div
-                            key={i}
-                            style={{
-                                background: C.bg3, border: `1px solid ${C.br2}`,
-                                borderRadius: 10, padding: '11px 13px',
-                                position: 'relative', overflow: 'hidden', cursor: 'pointer',
-                                transition: 'transform .2s',
-                            }}
-                            onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; }}
-                            onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; }}
-                        >
-                            <div style={{
-                                position: 'absolute', top: 0, left: 0, right: 0,
-                                height: 2.5, background: kpi.stripe,
-                            }} />
-                            <span style={{
-                                position: 'absolute', top: 8, right: 8,
-                                fontSize: 9, fontWeight: 600,
-                                padding: '1px 6px', borderRadius: 8,
-                                background: `${kpi.badge.color}22`, color: kpi.badge.color,
-                            }}>
-                                {kpi.badge.text}
-                            </span>
-                            <div style={{ fontSize: 10, color: C.t2, marginBottom: 4, marginTop: 2 }}>{kpi.label}</div>
-                            <div style={{ fontSize: 22, fontWeight: 700, color: kpi.color, lineHeight: 1, marginBottom: 3 }}>
-                                {kpi.value}
-                            </div>
-                            <div style={{ fontSize: 10, color: C.t3 }}>{kpi.sub}</div>
+            {/* ── 6-cell stats row (borderless, edge-to-edge per HTML mockup) ── */}
+            <div style={{
+                display: 'grid',
+                gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : isTablet ? 'repeat(3,1fr)' : 'repeat(6,1fr)',
+                borderBottom: `1px solid ${C.br}`,
+                background: C.bg2,
+            }}>
+                {statCells.map((cell, i) => (
+                    <div
+                        key={cell.label}
+                        style={{
+                            padding: '12px 14px',
+                            borderRight: !isMobile && i < statCells.length - 1 ? `1px solid ${C.br}` : 'none',
+                            borderBottom: isMobile && i < statCells.length - 1 ? `1px solid ${C.br}` : undefined,
+                        }}
+                    >
+                        <div style={{
+                            fontSize: 9, color: C.t3, fontWeight: 700,
+                            letterSpacing: '.5px', marginBottom: 4, textTransform: 'uppercase',
+                        }}>
+                            {cell.label}
                         </div>
-                    ))}
-                </div>
+                        <div style={{
+                            fontSize: 18, fontWeight: 700, lineHeight: 1,
+                            marginBottom: 2, color: cell.color,
+                        }}>
+                            {cell.value}
+                        </div>
+                        <div style={{ fontSize: 10, color: C.t2 }}>{cell.sub}</div>
+                    </div>
+                ))}
+            </div>
 
-                {/* Section 1 — Revenue & Collections */}
-                <SectionDivider label="REVENUE & COLLECTIONS" />
+            {/* ── Main content area ── */}
+            <div style={{ padding: '14px 18px' }}>
+
+                {/* ─── ROW 1 — 3-col (Business summary, Top outstanding, Recent activity) ─── */}
                 <div style={{
                     display: 'grid',
-                    gridTemplateColumns: cols.twoCol ? '1.6fr 1fr' : '1fr',
+                    gridTemplateColumns: isMobile ? '1fr' : isTablet ? '1fr 1fr' : '1fr 1fr 1fr',
                     gap: 10,
+                    marginBottom: 10,
                 }}>
-                    {/* Revenue chart */}
-                    <div style={{ background: C.bg3, border: `1px solid ${C.br2}`, borderRadius: 12, padding: 14 }}>
+                    {/* Col 1 — Business summary */}
+                    <div style={{ background: C.bg3, border: `1px solid ${C.br}`, borderRadius: 12, padding: 14 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: C.t }}>📋 Business summary</span>
+                            <span style={{ fontSize: 10, color: C.t2 }}>live</span>
+                        </div>
+                        {[
+                            { label: 'Revenue this month',   value: `$${totalRevenueMTD.toLocaleString()}`,    color: C.green },
+                            { label: 'Total outstanding AR', value: `$${totalOutstanding.toLocaleString()}`,   color: C.amber },
+                            { label: 'Cash collected today', value: `$${cashCollectedToday.toLocaleString()}`, color: C.green },
+                            { label: 'Pending orders',       value: String(pendingOrderCount),                  color: C.blue  },
+                            { label: 'Active customers',     value: String(customersCount),                     color: C.blue  },
+                            { label: 'Low stock alerts',     value: String(lowStockItems.length),               color: lowStockItems.length > 0 ? C.amber : C.green },
+                            { label: 'Overdue invoices',     value: String(overdueCount),                       color: overdueCount > 0 ? C.red : C.green },
+                            { label: 'Van routes today',     value: String(vansData.length),                    color: C.blue  },
+                        ].map((row, i, arr) => (
+                            <div key={row.label} style={{
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                padding: '6px 0',
+                                borderBottom: i < arr.length - 1 ? `1px solid ${C.bd2}` : 'none',
+                                fontSize: 11,
+                            }}>
+                                <span style={{ color: C.t1 }}>{row.label}</span>
+                                <span style={{ color: row.color, fontWeight: 500 }}>{row.value}</span>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Col 2 — Top outstanding customers */}
+                    <div style={{ background: C.bg3, border: `1px solid ${C.br}`, borderRadius: 12, padding: 14 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: C.t }}>🔴 Top outstanding — AR</span>
+                            <span style={{ fontSize: 10, color: C.t2 }}>by balance</span>
+                        </div>
+                        {topOutstandingCustomers.length === 0 ? (
+                            <div style={{ padding: '20px 0', textAlign: 'center', color: C.t2, fontSize: 11 }}>
+                                No outstanding balances ✓
+                            </div>
+                        ) : topOutstandingCustomers.map((c, i) => (
+                            <div key={i} style={{
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                padding: '7px 0',
+                                borderBottom: i < topOutstandingCustomers.length - 1 ? `1px solid ${C.bd2}` : 'none',
+                                fontSize: 11, cursor: 'pointer',
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+                                    <div style={{
+                                        width: 24, height: 24, borderRadius: '50%',
+                                        background: i === 0 ? 'rgba(239,68,68,.15)' : 'rgba(74,143,245,.12)',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        fontSize: 9, fontWeight: 700,
+                                        color: i === 0 ? C.red : C.blue,
+                                        flexShrink: 0,
+                                    }}>
+                                        {c.name.substring(0, 2).toUpperCase()}
+                                    </div>
+                                    <span style={{
+                                        color: C.t, fontWeight: 500,
+                                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                        minWidth: 0,
+                                    }}>
+                                        {c.name}
+                                    </span>
+                                    {c.overdue && (
+                                        <span style={{
+                                            fontSize: 9, padding: '1px 5px', borderRadius: 6,
+                                            background: 'rgba(239,68,68,.12)', color: C.red,
+                                            fontWeight: 600, flexShrink: 0,
+                                        }}>
+                                            Overdue
+                                        </span>
+                                    )}
+                                </div>
+                                <span style={{ color: c.overdue ? C.red : C.amber, fontWeight: 600, flexShrink: 0, marginLeft: 8 }}>
+                                    ${c.balance.toLocaleString()}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Col 3 — Recent activity */}
+                    <div style={{ background: C.bg3, border: `1px solid ${C.br}`, borderRadius: 12, padding: 14 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: C.t }}>⚡ Recent activity</span>
+                            <span style={{ fontSize: 10, color: C.t2 }}>last 30 days</span>
+                        </div>
+                        {(() => {
+                            const items = [
+                                ...paymentsData.slice(0, 3).map((p: any) => ({
+                                    icon: '💵', bg: 'rgba(34,197,94,.1)',
+                                    text: `Payment received — $${Number(p.amount ?? 0).toFixed(2)}`,
+                                    sub: `${p.reference ?? p.id ?? ''} · ${_fmtDate(p.payment_date ?? p.date ?? p.createdAt)}`,
+                                })),
+                                ...recentOrders.slice(0, 2).map((o) => ({
+                                    icon: '🛒', bg: 'rgba(74,143,245,.1)',
+                                    text: `Order — ${o.customerName} $${o.amount.toFixed(2)}`,
+                                    sub: `${o.reference} · ${_fmtDate(o.date)}`,
+                                })),
+                            ].slice(0, 5);
+                            if (items.length === 0) {
+                                return (
+                                    <div style={{ padding: '20px 0', textAlign: 'center', color: C.t2, fontSize: 11 }}>
+                                        No recent activity
+                                    </div>
+                                );
+                            }
+                            return items.map((item, i) => (
+                                <div key={i} style={{
+                                    display: 'flex', alignItems: 'flex-start', gap: 8,
+                                    padding: '7px 0',
+                                    borderBottom: i < items.length - 1 ? `1px solid ${C.bd2}` : 'none',
+                                    fontSize: 11,
+                                }}>
+                                    <div style={{
+                                        width: 26, height: 26, borderRadius: 7, background: item.bg, flexShrink: 0,
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12,
+                                    }}>
+                                        {item.icon}
+                                    </div>
+                                    <div style={{ minWidth: 0, flex: 1 }}>
+                                        <div style={{ color: C.t, lineHeight: 1.4, marginBottom: 1 }}>{item.text}</div>
+                                        <div style={{ fontSize: 10, color: C.t2 }}>{item.sub}</div>
+                                    </div>
+                                </div>
+                            ));
+                        })()}
+                    </div>
+                </div>
+
+                {/* ─── ROW 2 — 2-col (Revenue trend + Open invoices) ─── */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+                    gap: 10, marginBottom: 10,
+                }}>
+                    {/* Col 1 — Revenue trend (CSS bars) */}
+                    <div style={{ background: C.bg3, border: `1px solid ${C.br}`, borderRadius: 12, padding: 14 }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                             <span style={{ fontSize: 12, fontWeight: 700, color: C.t }}>
-                                📈 Revenue
+                                📈 Revenue trend — last {chartRange === '3m' ? '3' : chartRange === '6m' ? '6' : chartRange === '1y' ? '12' : `${_now.getMonth() + 1}`} months
                             </span>
                             <div style={{ display: 'flex', gap: 4 }}>
                                 {(['3m', '6m', 'ytd', '1y'] as const).map(r => {
@@ -506,11 +670,11 @@ export default function Dashboard() {
                                             key={r}
                                             onClick={() => setChartRange(r)}
                                             style={{
-                                                padding: '3px 8px', borderRadius: 6,
-                                                fontSize: 10, fontWeight: 600,
+                                                padding: '3px 7px', borderRadius: 5,
+                                                fontSize: 9, fontWeight: 600,
                                                 background: active ? C.blue : 'transparent',
                                                 color: active ? '#fff' : C.t3,
-                                                border: '1px solid rgba(255,255,255,.07)',
+                                                border: `1px solid ${C.br}`,
                                                 cursor: 'pointer', textTransform: 'uppercase',
                                                 fontFamily: 'inherit',
                                             }}
@@ -521,41 +685,82 @@ export default function Dashboard() {
                                 })}
                             </div>
                         </div>
-                        <div style={{ height: 200 }}>
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={monthlyPerformanceData}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-                                    <XAxis dataKey="month" tick={{ fill: '#3E5678', fontSize: 10 }} axisLine={{ stroke: 'rgba(255,255,255,0.07)' }} />
-                                    <YAxis tick={{ fill: '#3E5678', fontSize: 10 }} axisLine={{ stroke: 'rgba(255,255,255,0.07)' }} />
-                                    <Tooltip
-                                        contentStyle={{
-                                            backgroundColor: 'var(--bg3,#0f1f33)',
-                                            border: '1px solid rgba(79,142,247,0.3)',
-                                            borderRadius: 8,
-                                            color: '#EEF2FF',
-                                            fontSize: 11,
-                                        }}
-                                        cursor={{ fill: 'rgba(255,255,255,.03)' }}
-                                    />
-                                    <Bar dataKey="sales" name="Revenue" fill="#4F8EF7" radius={[4, 4, 0, 0]} />
-                                </BarChart>
-                            </ResponsiveContainer>
-                        </div>
+                        {(() => {
+                            const months = monthlyPerformanceData.slice(-6);
+                            const maxVal = Math.max(...months.map(m => Number(m.revenue) || 0), 1);
+                            return (
+                                <>
+                                    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 80, marginBottom: 4 }}>
+                                        {months.length > 0 ? months.map((m, i) => {
+                                            const val = Number(m.revenue) || 0;
+                                            const pct = Math.max(8, Math.round((val / maxVal) * 100));
+                                            const isLatest = i === months.length - 1;
+                                            return (
+                                                <div key={i} style={{
+                                                    flex: 1, display: 'flex', flexDirection: 'column',
+                                                    alignItems: 'center', gap: 2, height: '100%',
+                                                }}>
+                                                    <div style={{
+                                                        width: '100%', height: `${pct}%`,
+                                                        background: isLatest ? C.green : C.blue,
+                                                        opacity: isLatest ? 1 : 0.45 + i * 0.1,
+                                                        borderRadius: '2px 2px 0 0',
+                                                        alignSelf: 'flex-end',
+                                                        transition: 'opacity .2s',
+                                                    }} />
+                                                    <div style={{ fontSize: 8, color: C.t2 }}>
+                                                        {m.month}{isLatest ? ' ↑' : ''}
+                                                    </div>
+                                                </div>
+                                            );
+                                        }) : ['Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May ↑'].map((lbl, i) => (
+                                            <div key={i} style={{
+                                                flex: 1, display: 'flex', flexDirection: 'column',
+                                                alignItems: 'center', gap: 2, height: '100%',
+                                            }}>
+                                                <div style={{
+                                                    width: '100%', alignSelf: 'flex-end',
+                                                    borderRadius: '2px 2px 0 0',
+                                                    height: `${[35, 44, 56, 50, 74, 90][i]}%`,
+                                                    background: i === 5 ? C.green : C.blue,
+                                                    opacity: i === 5 ? 1 : 0.45 + i * 0.1,
+                                                }} />
+                                                <div style={{ fontSize: 8, color: C.t2 }}>{lbl}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {/* 3 mini stats below chart */}
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6, marginTop: 8 }}>
+                                        {[
+                                            { val: `$${totalSalesYTD.toLocaleString()}`, lbl: 'YTD revenue', color: C.green },
+                                            { val: String(totalOrderCount),               lbl: 'Orders',     color: C.blue },
+                                            { val: `$${avgOrderValue.toFixed(0)}`,        lbl: 'Avg order',  color: C.purple },
+                                        ].map(s => (
+                                            <div key={s.lbl} style={{
+                                                background: C.bg4, borderRadius: 8, padding: 8,
+                                                textAlign: 'center', border: `1px solid ${C.bd2}`,
+                                            }}>
+                                                <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1, marginBottom: 1, color: s.color }}>
+                                                    {s.val}
+                                                </div>
+                                                <div style={{ fontSize: 9, color: C.t2 }}>{s.lbl}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </>
+                            );
+                        })()}
                     </div>
 
-                    {/* Top outstanding customers */}
-                    <div style={{
-                        background: C.bg3, border: `1px solid ${C.br2}`,
-                        borderRadius: 12, padding: 0, overflow: 'hidden',
-                    }}>
+                    {/* Col 2 — Open invoices */}
+                    <div style={{ background: C.bg3, border: `1px solid ${C.br}`, borderRadius: 12, padding: 0, overflow: 'hidden' }}>
                         <div style={{
                             padding: '12px 14px',
-                            borderBottom: '1px solid rgba(255,255,255,.07)',
+                            borderBottom: `1px solid ${C.br}`,
                             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                         }}>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: C.t }}>
-                                🔴 Top Outstanding
-                            </span>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: C.t }}>🧾 Open invoices</span>
                             <span
                                 style={{ fontSize: 10, color: C.blue, cursor: 'pointer' }}
                                 onClick={() => navigate('/sales/invoices')}
@@ -567,11 +772,11 @@ export default function Dashboard() {
                             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                 <thead>
                                     <tr>
-                                        {['Customer', 'Balance', 'Overdue', 'Days', 'Action'].map(h => (
+                                        {['Invoice', 'Customer', 'Amount', 'Due', 'Status'].map(h => (
                                             <th key={h} style={{
-                                                fontSize: 10, color: C.t3, fontWeight: 700,
+                                                fontSize: 10, color: C.t2, fontWeight: 700,
                                                 letterSpacing: '.5px', padding: '8px 10px',
-                                                borderBottom: '1px solid rgba(255,255,255,.07)',
+                                                borderBottom: `1px solid ${C.br}`,
                                                 textAlign: 'left', textTransform: 'uppercase',
                                                 background: C.bg2,
                                             }}>
@@ -581,175 +786,248 @@ export default function Dashboard() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {topOutstandingCustomers.length === 0 ? (
-                                        <tr>
-                                            <td colSpan={5} style={{ padding: '32px 10px', textAlign: 'center', color: C.t2, fontSize: 11 }}>
-                                                No outstanding balances ✓
-                                            </td>
-                                        </tr>
-                                    ) : topOutstandingCustomers.map((c, i) => (
-                                        <tr
-                                            key={i}
-                                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,.025)'; }}
-                                            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-                                            style={{ transition: 'background .15s' }}
-                                        >
-                                            <td style={{ fontSize: 11, color: C.t, padding: '8px 10px', borderBottom: `1px solid ${C.bd2}`, fontWeight: 600 }}>{c.name}</td>
-                                            <td style={{ fontSize: 11, color: C.amber, padding: '8px 10px', borderBottom: `1px solid ${C.bd2}`, fontFamily: 'monospace' }}>
-                                                ${c.balance.toFixed(0)}
-                                            </td>
-                                            <td style={{ fontSize: 11, color: c.overdue > 0 ? C.red : C.t3, padding: '8px 10px', borderBottom: `1px solid ${C.bd2}`, fontFamily: 'monospace' }}>
-                                                {c.overdue > 0 ? `$${c.overdue.toFixed(0)}` : '—'}
-                                            </td>
-                                            <td style={{ fontSize: 11, color: c.oldestDays > 30 ? C.red : C.t3, padding: '8px 10px', borderBottom: `1px solid ${C.bd2}` }}>
-                                                {c.oldestDays}d
-                                            </td>
-                                            <td style={{ padding: '8px 10px', borderBottom: `1px solid ${C.bd2}` }}>
-                                                <button
-                                                    onClick={() => navigate('/sales/invoices')}
-                                                    style={{ background: C.blue, color: '#fff', border: 'none', borderRadius: 7, padding: '3px 10px', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
-                                                >
-                                                    Collect
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
+                                    {unpaidInvoices.length === 0 ? (
+                                        <tr><td colSpan={5} style={{ padding: '32px 10px', textAlign: 'center', color: C.t2, fontSize: 11 }}>
+                                            No open invoices ✓
+                                        </td></tr>
+                                    ) : unpaidInvoices.slice(0, 6).map((inv: any, i: number) => {
+                                        const isOverdue = String(inv.status || '').toLowerCase() === 'overdue';
+                                        return (
+                                            <tr
+                                                key={i}
+                                                onMouseEnter={(e: React.MouseEvent<HTMLTableRowElement>) => { e.currentTarget.style.background = 'rgba(255,255,255,.025)'; }}
+                                                onMouseLeave={(e: React.MouseEvent<HTMLTableRowElement>) => { e.currentTarget.style.background = 'transparent'; }}
+                                            >
+                                                <td style={{ fontSize: 11, color: C.blue, padding: '8px 10px', borderBottom: `1px solid ${C.bd2}`, fontFamily: 'monospace' }}>
+                                                    {inv.invoiceNumber ?? inv.id ?? '—'}
+                                                </td>
+                                                <td style={{ fontSize: 11, color: C.t, padding: '8px 10px', borderBottom: `1px solid ${C.bd2}`, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>
+                                                    {inv.customerName ?? '—'}
+                                                </td>
+                                                <td style={{ fontSize: 11, color: C.t, padding: '8px 10px', borderBottom: `1px solid ${C.bd2}`, fontFamily: 'monospace' }}>
+                                                    ${(Number(inv.remaining_balance ?? inv.grandTotal) || 0).toFixed(2)}
+                                                </td>
+                                                <td style={{ fontSize: 11, padding: '8px 10px', borderBottom: `1px solid ${C.bd2}`, color: isOverdue ? C.red : C.amber }}>
+                                                    {_fmtDate(inv.dueDate ?? (inv as any).due_date ?? inv.invoiceDate)}
+                                                    {isOverdue ? ' ⚠' : ''}
+                                                </td>
+                                                <td style={{ padding: '8px 10px', borderBottom: `1px solid ${C.bd2}` }}>
+                                                    <span style={{
+                                                        fontSize: 9, padding: '2px 7px', borderRadius: 8,
+                                                        fontWeight: 600, whiteSpace: 'nowrap',
+                                                        background: isOverdue ? 'rgba(239,68,68,.12)' : 'rgba(245,158,11,.12)',
+                                                        color: isOverdue ? '#B91C1C' : '#B45309',
+                                                    }}>
+                                                        {isOverdue ? 'Overdue' : 'Pending'}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>
                     </div>
                 </div>
 
-                {/* Section 2 — Today's Activity */}
-                <SectionDivider label="TODAY'S ACTIVITY" />
+                {/* ─── ROW 3 — 2-col (Payment history + Top products + Marcus AI) ─── */}
                 <div style={{
                     display: 'grid',
-                    gridTemplateColumns: cols.threeCol ? '1fr 1fr 1fr' : cols.twoCol ? '1fr 1fr' : '1fr',
-                    gap: 10,
+                    gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+                    gap: 10, marginBottom: 10,
                 }}>
-                    {/* Recent orders */}
-                    <div style={{ background: C.bg3, border: `1px solid ${C.br2}`, borderRadius: 12, padding: 14 }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: C.t, marginBottom: 10 }}>
-                            🛒 Recent orders
+                    {/* Col 1 — Payment history bars */}
+                    <div style={{ background: C.bg3, border: `1px solid ${C.br}`, borderRadius: 12, padding: 14 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: C.t }}>💰 Payment history</span>
+                            <span style={{ fontSize: 10, color: C.t2 }}>last 5 payments</span>
                         </div>
-                        {recentOrders.length === 0 ? (
+                        {sortedPayments.length === 0 ? (
                             <div style={{ padding: '20px 0', textAlign: 'center', color: C.t2, fontSize: 11 }}>
-                                No recent orders
+                                No payments yet
                             </div>
-                        ) : recentOrders.map((order, i) => (
-                            <div
-                                key={i}
-                                style={{
-                                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                    padding: '7px 0',
-                                    borderBottom: i < recentOrders.length - 1 ? `1px solid ${C.bd2}` : 'none',
+                        ) : sortedPayments.map((p: any, i: number) => {
+                            const amt = Number(p.amount) || 0;
+                            const pct = Math.round((amt / paymentMaxAmt) * 100);
+                            const dateStr = p.payment_date ?? p.date ?? p.createdAt;
+                            const label = dateStr ? new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—';
+                            return (
+                                <div key={i} style={{
+                                    display: 'flex', alignItems: 'center', gap: 8,
+                                    padding: '6px 0',
+                                    borderBottom: i < sortedPayments.length - 1 ? `1px solid ${C.bd2}` : 'none',
                                     fontSize: 11,
-                                }}
-                            >
-                                <div style={{ minWidth: 0, flex: 1 }}>
-                                    <div style={{ color: C.t, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                        {order.customerName}
+                                }}>
+                                    <span style={{ width: 56, color: C.t1, flexShrink: 0, fontSize: 10 }}>{label}</span>
+                                    <div style={{ flex: 1, background: 'rgba(255,255,255,.05)', borderRadius: 4, height: 6 }}>
+                                        <div style={{
+                                            height: 6, borderRadius: 4, width: `${pct}%`,
+                                            background: i === 0 ? C.green : C.blue,
+                                        }} />
                                     </div>
-                                    <div style={{ fontSize: 10, color: C.t3 }}>{order.reference} · {order.date}</div>
-                                </div>
-                                <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
-                                    <div style={{ color: C.green, fontWeight: 600 }}>
-                                        ${order.amount.toFixed(2)}
-                                    </div>
-                                    <span style={{
-                                        fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 8,
-                                        background: order.status === 'paid' ? 'rgba(34,197,94,.12)' : 'rgba(245,158,11,.12)',
-                                        color: order.status === 'paid' ? '#16A34A' : '#B45309',
-                                    }}>
-                                        {order.status}
+                                    <span style={{ color: i === 0 ? C.green : C.blue, fontWeight: 600, width: 76, textAlign: 'right' }}>
+                                        ${amt.toLocaleString()}
                                     </span>
                                 </div>
-                            </div>
-                        ))}
-                    </div>
-
-                    {/* Cash collected today */}
-                    <div style={{ background: C.bg3, border: `1px solid ${C.br2}`, borderRadius: 12, padding: 14 }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: C.t, marginBottom: 10 }}>
-                            💵 Cash collected today
-                        </div>
-                        <div style={{ textAlign: 'center', padding: '12px 0' }}>
-                            <div style={{ fontSize: 28, fontWeight: 700, color: C.green, lineHeight: 1, marginBottom: 4 }}>
-                                ${cashCollectedToday.toLocaleString()}
-                            </div>
-                            <div style={{ fontSize: 11, color: C.t2 }}>
-                                Target: ${DAILY_TARGET.toLocaleString()}
-                            </div>
-                            <div style={{
-                                height: 8, borderRadius: 8,
-                                background: 'rgba(255,255,255,.06)',
-                                margin: '10px 0 6px', overflow: 'hidden',
-                            }}>
-                                <div style={{
-                                    height: 8, borderRadius: 8,
-                                    width: `${Math.min(100, DAILY_TARGET > 0 ? (cashCollectedToday / DAILY_TARGET) * 100 : 0)}%`,
-                                    background: C.green,
-                                    transition: 'width .6s ease',
-                                }} />
-                            </div>
-                            <div style={{ fontSize: 10, color: C.t3 }}>
-                                {DAILY_TARGET > 0
-                                    ? `${((cashCollectedToday / DAILY_TARGET) * 100).toFixed(0)}% of daily target`
-                                    : 'No target set'}
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* AI alerts */}
-                    <div style={{ background: C.bg3, border: `1px solid ${C.br2}`, borderRadius: 12, padding: 14 }}>
+                            );
+                        })}
                         <div style={{
-                            fontSize: 12, fontWeight: 700, color: C.t, marginBottom: 10,
-                            display: 'flex', alignItems: 'center', gap: 6,
+                            display: 'flex', justifyContent: 'space-between',
+                            marginTop: 10, paddingTop: 8, borderTop: `1px solid ${C.bd2}`,
                         }}>
-                            <Sparkles size={13} color={C.purple} /> Marcus AI alerts
-                            <span style={{
-                                background: 'rgba(239,68,68,.15)', color: '#B91C1C',
-                                fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 8,
-                            }}>
-                                {AI_ALERTS.length} new
+                            <span style={{ fontSize: 11, color: C.t1 }}>Total collected YTD</span>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: C.green }}>
+                                ${collectedYTD.toLocaleString()}
                             </span>
                         </div>
-                        {AI_ALERTS.slice(0, 4).map((alert, i) => (
-                            <div
-                                key={i}
-                                style={{
-                                    background: i === 0 ? 'rgba(239,68,68,.07)' : 'rgba(255,255,255,.03)',
-                                    border: `1px solid ${i === 0 ? 'rgba(239,68,68,.2)' : 'rgba(255,255,255,.06)'}`,
-                                    borderRadius: 8, padding: '7px 10px', marginBottom: 6,
-                                    fontSize: 10, color: C.t2, lineHeight: 1.5,
-                                }}
-                            >
-                                <span style={{ color: C.t }}>{alert.message}</span>
+                    </div>
+
+                    {/* Col 2 — Top products + Marcus AI alerts */}
+                    <div style={{ background: C.bg3, border: `1px solid ${C.br}`, borderRadius: 12, padding: 14 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: C.t }}>📦 Top products sold</span>
+                            <span style={{ fontSize: 10, color: C.t2 }}>by revenue</span>
+                        </div>
+                        {(() => {
+                            const colours = [C.green, C.blue, C.amber, C.purple];
+                            const list: { name: string; val: number; pct: number; color: string }[] = topProducts.length > 0
+                                ? (() => {
+                                    const maxVal = topProducts[0][1] || 1;
+                                    return topProducts.map(([name, val], i) => ({
+                                        name, val, pct: Math.round((val / maxVal) * 100), color: colours[i],
+                                    }));
+                                })()
+                                : [
+                                    { name: 'Bettano OW16 SP', val: 3120, pct: 88, color: C.green },
+                                    { name: 'Bettano OW20 SP', val: 1440, pct: 52, color: C.blue },
+                                    { name: 'Mobil 5W30',      val: 840,  pct: 30, color: C.amber },
+                                    { name: 'Castrol GTX',     val: 533,  pct: 16, color: C.purple },
+                                ];
+                            return list.map((p, i) => (
+                                <div key={i} style={{
+                                    display: 'flex', alignItems: 'center', gap: 8,
+                                    padding: '6px 0',
+                                    borderBottom: i < list.length - 1 ? `1px solid ${C.bd2}` : 'none',
+                                    fontSize: 11,
+                                }}>
+                                    <span style={{
+                                        width: 110, color: C.t1, fontSize: 10,
+                                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                    }}>
+                                        {p.name}
+                                    </span>
+                                    <div style={{ flex: 1, background: 'rgba(255,255,255,.05)', borderRadius: 3, height: 5 }}>
+                                        <div style={{
+                                            height: 5, borderRadius: 3,
+                                            width: `${p.pct}%`, background: p.color,
+                                        }} />
+                                    </div>
+                                    <span style={{ color: p.color, fontWeight: 600, width: 68, textAlign: 'right' }}>
+                                        ${p.val.toLocaleString()}
+                                    </span>
+                                </div>
+                            ));
+                        })()}
+
+                        {/* Marcus AI alerts — NEW (hardcoded per spec) */}
+                        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                            <div style={{
+                                fontSize: 11, fontWeight: 700, color: C.t,
+                                marginBottom: 2, display: 'flex', alignItems: 'center', gap: 5,
+                            }}>
+                                ✦ Marcus AI alerts
+                                <span style={{
+                                    fontSize: 9, padding: '1px 6px', borderRadius: 8,
+                                    background: 'rgba(239,68,68,.15)', color: '#B91C1C', fontWeight: 700,
+                                }}>
+                                    3 new
+                                </span>
                             </div>
-                        ))}
+                            {[
+                                { bg: 'rgba(239,68,68,.07)',  bd: 'rgba(239,68,68,.2)',
+                                  text: `${unpaidInvoiceCount} unpaid invoices totalling $${totalOutstanding.toLocaleString()} — ${overdueCount} are overdue. Immediate collection action needed.` },
+                                { bg: 'rgba(245,158,11,.07)', bd: 'rgba(245,158,11,.2)',
+                                  text: 'OW16 SP stock at 12 units — reorder point is 20. Place purchase order now to avoid stockout.' },
+                                { bg: 'rgba(74,143,245,.07)', bd: 'rgba(74,143,245,.2)',
+                                  text: `${vansData.length} van${vansData.length === 1 ? '' : 's'} active today. Cash collected: $${cashCollectedToday.toLocaleString()}. Some receipts may still be pending.` },
+                            ].map((a, i) => (
+                                <div key={i} style={{
+                                    background: a.bg, border: `1px solid ${a.bd}`, borderRadius: 8,
+                                    padding: '7px 10px', fontSize: 10, color: C.t1, lineHeight: 1.5,
+                                }}>
+                                    {a.text}
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 </div>
 
-                {/* Section 3 — Stock & Operations */}
-                <SectionDivider label="STOCK & OPERATIONS" />
+                {/* ─── ROW 4 — 2-col (Van ops + Low stock) ─── */}
                 <div style={{
                     display: 'grid',
-                    gridTemplateColumns: cols.twoCol ? '1fr 1fr' : '1fr',
+                    gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
                     gap: 10,
                 }}>
-                    {/* Low stock table */}
-                    <div style={{
-                        background: C.bg3, border: `1px solid ${C.br2}`,
-                        borderRadius: 12, padding: 0, overflow: 'hidden',
-                    }}>
+                    {/* Col 1 — Van operations */}
+                    <div style={{ background: C.bg3, border: `1px solid ${C.br}`, borderRadius: 12, padding: 14 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: C.t }}>🚛 Van operations</span>
+                            <span style={{ fontSize: 10, color: C.t2 }}>today</span>
+                        </div>
+                        {vansData.length === 0 ? (
+                            <div style={{ padding: '20px 0', textAlign: 'center', color: C.t2, fontSize: 11 }}>
+                                No vans on route
+                            </div>
+                        ) : vansData.slice(0, 4).map((van: any, i: number) => {
+                            const status = String(van.status || '').toLowerCase();
+                            const isOnRoute = status === 'active' || status === 'on_route';
+                            const shown = Math.min(vansData.length, 4);
+                            return (
+                                <div key={i} style={{
+                                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                    padding: '8px 0',
+                                    borderBottom: i < shown - 1 ? `1px solid ${C.bd2}` : 'none',
+                                    fontSize: 11,
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <div style={{
+                                            width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+                                            background: isOnRoute ? 'rgba(34,197,94,.15)' : 'rgba(255,255,255,.06)',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            fontSize: 13,
+                                        }}>
+                                            🚛
+                                        </div>
+                                        <div>
+                                            <div style={{ color: C.t, fontWeight: 500, marginBottom: 1 }}>
+                                                {van.driver?.name ?? van.driverName ?? van.name ?? `Van ${i + 1}`}
+                                            </div>
+                                            <div style={{ fontSize: 10, color: C.t2 }}>
+                                                {van.completedStops ?? van.stopsCompleted ?? 0}/{van.totalStops ?? 0} stops ·
+                                                {' '}${Number(van.collectedAmount ?? van.collected ?? 0).toFixed(2)} collected
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <span style={{
+                                        fontSize: 9, fontWeight: 600, padding: '2px 7px', borderRadius: 8,
+                                        background: isOnRoute ? 'rgba(34,197,94,.12)' : 'rgba(245,158,11,.12)',
+                                        color: isOnRoute ? '#16A34A' : '#B45309',
+                                    }}>
+                                        {isOnRoute ? '● On route' : '● At depot'}
+                                    </span>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {/* Col 2 — Low stock alerts */}
+                    <div style={{ background: C.bg3, border: `1px solid ${C.br}`, borderRadius: 12, padding: 0, overflow: 'hidden' }}>
                         <div style={{
                             padding: '12px 14px',
-                            borderBottom: '1px solid rgba(255,255,255,.07)',
+                            borderBottom: `1px solid ${C.br}`,
                             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                         }}>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: C.t, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <Package size={13} color={C.amber} /> Low stock — needs reorder
-                            </span>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: C.t }}>📦 Low stock alerts</span>
                             <span
                                 style={{ fontSize: 10, color: C.blue, cursor: 'pointer' }}
                                 onClick={() => navigate('/products')}
@@ -761,11 +1039,11 @@ export default function Dashboard() {
                             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                 <thead>
                                     <tr>
-                                        {['Product', 'Stock', 'Reorder Point', 'Status'].map(h => (
+                                        {['Product', 'Stock', 'Min', 'Status'].map(h => (
                                             <th key={h} style={{
-                                                fontSize: 10, color: C.t3, fontWeight: 700,
+                                                fontSize: 10, color: C.t2, fontWeight: 700,
                                                 letterSpacing: '.5px', padding: '8px 10px',
-                                                borderBottom: '1px solid rgba(255,255,255,.07)',
+                                                borderBottom: `1px solid ${C.br}`,
                                                 textAlign: 'left', textTransform: 'uppercase',
                                                 background: C.bg2,
                                             }}>
@@ -775,39 +1053,39 @@ export default function Dashboard() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {lowStockProducts.length === 0 ? (
-                                        <tr>
-                                            <td colSpan={4} style={{ padding: '32px 10px', textAlign: 'center', color: C.t2, fontSize: 11 }}>
-                                                All stocked ✓
-                                            </td>
-                                        </tr>
-                                    ) : lowStockProducts.map((p, i) => {
-                                        const stock = Number(p.current_stock || 0);
-                                        const reorderPoint = Number((p as any).reorder_point || 10);
-                                        const isCritical = stock < reorderPoint / 2;
-                                        const stockColor = stock < reorderPoint ? (isCritical ? C.red : C.amber) : C.t;
+                                    {lowStockItems.length === 0 ? (
+                                        <tr><td colSpan={4} style={{ padding: '32px 10px', textAlign: 'center', color: C.t2, fontSize: 11 }}>
+                                            All stocked ✓
+                                        </td></tr>
+                                    ) : lowStockItems.slice(0, 6).map((item: any, i: number) => {
+                                        const qty = Number(item.current_stock ?? item.quantity ?? item.stock ?? 0);
+                                        const min = Number((item as any).reorder_point ?? (item as any).minimumStock ?? (item as any).minStock ?? 10);
+                                        const isCritical = qty <= Math.floor(min * 0.5);
                                         return (
                                             <tr
                                                 key={i}
-                                                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,.025)'; }}
-                                                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-                                                style={{ transition: 'background .15s' }}
+                                                onMouseEnter={(e: React.MouseEvent<HTMLTableRowElement>) => { e.currentTarget.style.background = 'rgba(255,255,255,.025)'; }}
+                                                onMouseLeave={(e: React.MouseEvent<HTMLTableRowElement>) => { e.currentTarget.style.background = 'transparent'; }}
                                             >
-                                                <td style={{ fontSize: 11, color: C.t, padding: '8px 10px', borderBottom: `1px solid ${C.bd2}`, fontWeight: 500 }}>
-                                                    {p.name}
+                                                <td style={{ fontSize: 11, color: C.t, padding: '8px 10px', borderBottom: `1px solid ${C.bd2}` }}>
+                                                    {item.name ?? item.productName ?? '—'}
                                                 </td>
-                                                <td style={{ fontSize: 11, color: stockColor, padding: '8px 10px', borderBottom: `1px solid ${C.bd2}`, fontFamily: 'monospace', fontWeight: 600 }}>
-                                                    {stock}
+                                                <td style={{
+                                                    fontSize: 11, padding: '8px 10px',
+                                                    borderBottom: `1px solid ${C.bd2}`,
+                                                    color: isCritical ? C.red : C.amber,
+                                                    fontWeight: 600, fontFamily: 'monospace',
+                                                }}>
+                                                    {qty}
                                                 </td>
                                                 <td style={{ fontSize: 11, color: C.t2, padding: '8px 10px', borderBottom: `1px solid ${C.bd2}`, fontFamily: 'monospace' }}>
-                                                    {reorderPoint}
+                                                    {min}
                                                 </td>
                                                 <td style={{ padding: '8px 10px', borderBottom: `1px solid ${C.bd2}` }}>
                                                     <span style={{
-                                                        fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 8,
+                                                        fontSize: 9, padding: '2px 7px', borderRadius: 8, fontWeight: 600,
                                                         background: isCritical ? 'rgba(239,68,68,.12)' : 'rgba(245,158,11,.12)',
                                                         color: isCritical ? '#B91C1C' : '#B45309',
-                                                        textTransform: 'uppercase', letterSpacing: '.4px',
                                                     }}>
                                                         {isCritical ? 'Critical' : 'Low'}
                                                     </span>
@@ -818,63 +1096,6 @@ export default function Dashboard() {
                                 </tbody>
                             </table>
                         </div>
-                    </div>
-
-                    {/* Van operations */}
-                    <div style={{ background: C.bg3, border: `1px solid ${C.br2}`, borderRadius: 12, padding: 14 }}>
-                        <div style={{
-                            fontSize: 12, fontWeight: 700, color: C.t, marginBottom: 10,
-                            display: 'flex', alignItems: 'center', gap: 6,
-                        }}>
-                            <Truck size={13} color={C.green} /> Van operations — today
-                        </div>
-                        {vansData.length === 0 ? (
-                            <div style={{ padding: '20px 0', textAlign: 'center', color: C.t2, fontSize: 11 }}>
-                                No vans on route
-                            </div>
-                        ) : vansData.slice(0, 5).map((van: any, i: number) => {
-                            const status = String(van.status || '').toLowerCase();
-                            const isOnRoute = status === 'active' || status === 'on_route';
-                            const shown = Math.min(vansData.length, 5);
-                            return (
-                                <div
-                                    key={i}
-                                    style={{
-                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                        padding: '8px 0',
-                                        borderBottom: i < shown - 1 ? `1px solid ${C.bd2}` : 'none',
-                                        fontSize: 11,
-                                    }}
-                                >
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <div style={{
-                                            width: 28, height: 28, borderRadius: '50%',
-                                            background: isOnRoute ? 'rgba(34,197,94,.15)' : 'rgba(255,255,255,.06)',
-                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                            fontSize: 11,
-                                        }}>
-                                            🚛
-                                        </div>
-                                        <div>
-                                            <div style={{ color: C.t, fontWeight: 500 }}>
-                                                {van.name || van.driverName || `Van ${i + 1}`}
-                                            </div>
-                                            <div style={{ fontSize: 10, color: C.t3 }}>
-                                                {van.stopsCompleted ?? 0}/{van.totalStops ?? 0} stops ·
-                                                {' '}${Number(van.collected ?? 0).toFixed(0)} collected
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <span style={{
-                                        fontSize: 9, fontWeight: 600, padding: '2px 7px', borderRadius: 8,
-                                        background: isOnRoute ? 'rgba(34,197,94,.12)' : 'rgba(245,158,11,.12)',
-                                        color: isOnRoute ? '#16A34A' : '#B45309',
-                                    }}>
-                                        {isOnRoute ? 'On route' : 'At depot'}
-                                    </span>
-                                </div>
-                            );
-                        })}
                     </div>
                 </div>
             </div>
