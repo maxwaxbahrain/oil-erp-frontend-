@@ -696,6 +696,53 @@ export default function InvoiceFormPage() {
                             <p className="text-xs font-medium mt-1" style={{ color: 'var(--color-text-secondary)' }}>
                                 Create Sales Invoice
                             </p>
+                            {/* GAP E — invoice info row (number + status + date + due) */}
+                            <div style={{
+                                display: 'flex', alignItems: 'center', gap: 10,
+                                marginTop: 8, flexWrap: 'wrap', fontSize: 11,
+                            }}>
+                                <span style={{ color: '#8BA3C7' }}>Invoice number:</span>
+                                <span style={{
+                                    background: 'rgba(74,143,245,.12)',
+                                    border: '1px solid rgba(74,143,245,.25)',
+                                    borderRadius: 20, padding: '2px 9px',
+                                    fontSize: 10, color: '#4F8EF7', fontWeight: 500,
+                                }}>
+                                    {formData.invoiceNumber || 'Auto'}
+                                </span>
+
+                                <span style={{ color: '#8BA3C7', marginLeft: 4 }}>Status:</span>
+                                <span style={{
+                                    background: 'rgba(245,158,11,.12)',
+                                    border: '1px solid rgba(245,158,11,.25)',
+                                    borderRadius: 20, padding: '2px 9px',
+                                    fontSize: 10, color: '#F59E0B', fontWeight: 500,
+                                }}>
+                                    {isEditMode
+                                        ? (formData.paymentStatus === 'Paid'
+                                            ? 'Paid'
+                                            : formData.paymentStatus === 'Advance Paid'
+                                                ? 'Partial'
+                                                : 'Unpaid')
+                                        : 'Draft'}
+                                </span>
+
+                                <span style={{ color: '#8BA3C7', marginLeft: 4 }}>Date:</span>
+                                <span style={{ fontSize: 11, color: '#EEF2FF', fontWeight: 500 }}>
+                                    {formData.invoiceDate
+                                        ? new Date(formData.invoiceDate).toLocaleDateString('en-GB',
+                                            { day: 'numeric', month: 'short', year: 'numeric' })
+                                        : '—'}
+                                </span>
+
+                                <span style={{ color: '#8BA3C7', marginLeft: 4 }}>Due:</span>
+                                <span style={{ fontSize: 11, color: '#EEF2FF', fontWeight: 500 }}>
+                                    {formData.dueDate
+                                        ? new Date(formData.dueDate).toLocaleDateString('en-GB',
+                                            { day: 'numeric', month: 'short', year: 'numeric' })
+                                        : '—'}
+                                </span>
+                            </div>
                         </div>
                     </div>
 
@@ -878,6 +925,53 @@ export default function InvoiceFormPage() {
                                 displayKey="name"
                                 disabled={loading}
                             />
+                            {/* GAP D — customer avatar pill (visual enrichment below
+                                the SearchableSelect; cannot change what the select
+                                itself renders since that's in a shared component). */}
+                            {formData.customerId && (() => {
+                                const cust = customers.find(c => String(c.id) === String(formData.customerId));
+                                if (!cust) return null;
+                                const initials = (cust.name ?? 'CU')
+                                    .trim().split(/\s+/).slice(0, 2)
+                                    .map((w: string) => w[0] ?? '').join('').toUpperCase();
+                                const city = (cust as any).city
+                                    ?? ((cust as any).address?.split(',')[1]?.trim())
+                                    ?? (cust as any).country
+                                    ?? '';
+                                const code = (cust as any).code;
+                                return (
+                                    <div style={{
+                                        display: 'flex', alignItems: 'center', gap: 8,
+                                        padding: '6px 10px', marginTop: 4,
+                                        background: 'rgba(74,143,245,.07)',
+                                        border: '1px solid rgba(74,143,245,.15)',
+                                        borderRadius: 8, fontSize: 11,
+                                    }}>
+                                        <div style={{
+                                            width: 24, height: 24, borderRadius: '50%',
+                                            background: 'rgba(74,143,245,.2)',
+                                            color: '#4F8EF7', fontSize: 9, fontWeight: 600,
+                                            display: 'flex', alignItems: 'center',
+                                            justifyContent: 'center', flexShrink: 0,
+                                        }}>
+                                            {initials}
+                                        </div>
+                                        <span style={{ color: '#EEF2FF', fontWeight: 500 }}>{cust.name}</span>
+                                        {code && (
+                                            <span style={{
+                                                fontSize: 9, padding: '1px 6px', borderRadius: 8,
+                                                background: 'rgba(255,255,255,.08)',
+                                                color: '#8BA3C7',
+                                            }}>
+                                                {code}
+                                            </span>
+                                        )}
+                                        {city && (
+                                            <span style={{ fontSize: 10, color: '#8BA3C7' }}>{city}</span>
+                                        )}
+                                    </div>
+                                );
+                            })()}
                             {/* FIX 6 — display-only payment terms hint, reads from
                                 already-loaded customers state, no new API calls */}
                             {formData.customerId && (() => {
@@ -1279,6 +1373,153 @@ export default function InvoiceFormPage() {
                                     <div className="flex justify-between items-center bg-green-900/30 px-4 py-3 rounded-xl border border-green-700/40 shadow-lg mt-2">
                                         <span className="text-xs font-semibold text-green-400">Balance due</span>
                                         <span className="text-2xl font-mono font-bold text-green-400">{formData.remainingBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                    </div>
+
+                                    {/* GAP A + B — customer account summary
+                                        (current outstanding / this invoice / new total)
+                                        + credit usage progress bar. Read-only IIFE, no
+                                        new state. Shows only when customer is selected. */}
+                                    {formData.customerId && (() => {
+                                        const cust = customers.find(c => String(c.id) === String(formData.customerId));
+                                        if (!cust) return null;
+                                        const outstanding = Math.max(0, Number((cust as any).balance ?? 0));
+                                        const creditLimit = Number((cust as any).credit_limit ?? 0);
+                                        const newTotal = outstanding + (formData.grandTotal ?? 0);
+                                        const usedPct = creditLimit > 0
+                                            ? Math.min(100, Math.round((newTotal / creditLimit) * 100))
+                                            : 0;
+                                        const barColor = usedPct > 100
+                                            ? '#EF4444'
+                                            : usedPct > 80
+                                                ? '#F59E0B'
+                                                : '#4F8EF7';
+
+                                        const rows: Array<{ label: string; value: string; color: string }> = [
+                                            {
+                                                label: 'Current outstanding',
+                                                value: `$${outstanding.toLocaleString()}`,
+                                                color: outstanding > 0 ? '#F59E0B' : '#22C55E',
+                                            },
+                                            {
+                                                label: 'This invoice',
+                                                value: `$${Number(formData.grandTotal ?? 0).toLocaleString()}`,
+                                                color: '#EEF2FF',
+                                            },
+                                            {
+                                                label: 'New total owed',
+                                                value: `$${newTotal.toLocaleString()}`,
+                                                color: newTotal > 0 ? '#F59E0B' : '#22C55E',
+                                            },
+                                            ...(creditLimit > 0 ? [{
+                                                label: 'Credit limit',
+                                                value: `$${creditLimit.toLocaleString()}`,
+                                                color: '#4F8EF7',
+                                            }] : []),
+                                        ];
+
+                                        return (
+                                            <div style={{
+                                                marginTop: 14, paddingTop: 12,
+                                                borderTop: '1px solid rgba(255,255,255,.07)',
+                                            }}>
+                                                <div style={{
+                                                    fontSize: 10, fontWeight: 600, color: '#8BA3C7',
+                                                    textTransform: 'uppercase', letterSpacing: '.4px',
+                                                    marginBottom: 8,
+                                                }}>
+                                                    Customer account
+                                                </div>
+
+                                                {rows.map(row => (
+                                                    <div
+                                                        key={row.label}
+                                                        style={{
+                                                            display: 'flex', justifyContent: 'space-between',
+                                                            padding: '5px 0',
+                                                            borderBottom: '1px solid rgba(255,255,255,.04)',
+                                                            fontSize: 11,
+                                                        }}
+                                                    >
+                                                        <span style={{ color: '#8BA3C7' }}>{row.label}</span>
+                                                        <span style={{ color: row.color, fontWeight: 500 }}>{row.value}</span>
+                                                    </div>
+                                                ))}
+
+                                                {creditLimit > 0 && (
+                                                    <div style={{ marginTop: 8 }}>
+                                                        <div style={{
+                                                            display: 'flex', justifyContent: 'space-between',
+                                                            fontSize: 10, color: '#8BA3C7', marginBottom: 4,
+                                                        }}>
+                                                            <span>Credit used after invoice</span>
+                                                            <span style={{ color: barColor }}>{usedPct}%</span>
+                                                        </div>
+                                                        <div style={{
+                                                            height: 6, borderRadius: 6,
+                                                            background: 'rgba(255,255,255,.06)', overflow: 'hidden',
+                                                        }}>
+                                                            <div style={{
+                                                                height: 6, borderRadius: 6,
+                                                                width: `${Math.min(100, usedPct)}%`,
+                                                                background: barColor,
+                                                                transition: 'width .4s ease',
+                                                            }} />
+                                                        </div>
+                                                        <div style={{ fontSize: 9, color: '#8BA3C7', marginTop: 4 }}>
+                                                            {`$${Math.max(0, creditLimit - newTotal).toLocaleString()} still available`}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })()}
+
+                                    {/* GAP C — repeat 3 action buttons inside summary panel.
+                                        Same handlers as the top-row buttons (preserved verbatim). */}
+                                    <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                        <button
+                                            onClick={handleSave}
+                                            disabled={saving}
+                                            style={{
+                                                width: '100%', background: '#4F8EF7', color: '#fff',
+                                                border: 'none', borderRadius: 8, padding: '9px 14px',
+                                                fontSize: 12, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                gap: 6, opacity: saving ? 0.7 : 1,
+                                                fontFamily: 'inherit',
+                                            }}
+                                        >
+                                            {saving ? 'Saving...' : '✓ Confirm & save'}
+                                        </button>
+                                        <button
+                                            onClick={handleSaveDraft}
+                                            disabled={saving}
+                                            style={{
+                                                width: '100%', background: 'transparent',
+                                                border: '1px solid rgba(255,255,255,.12)', borderRadius: 8,
+                                                padding: '8px 14px', fontSize: 12, fontWeight: 500,
+                                                color: '#8BA3C7', cursor: saving ? 'not-allowed' : 'pointer',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                gap: 6, opacity: saving ? 0.7 : 1,
+                                                fontFamily: 'inherit',
+                                            }}
+                                        >
+                                            💾 Save as draft
+                                        </button>
+                                        <button
+                                            onClick={handleDownloadPDF}
+                                            style={{
+                                                width: '100%', background: 'rgba(74,143,245,.08)',
+                                                border: '1px solid rgba(74,143,245,.25)', borderRadius: 8,
+                                                padding: '8px 14px', fontSize: 12, fontWeight: 500,
+                                                color: '#4F8EF7', cursor: 'pointer',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                gap: 6,
+                                                fontFamily: 'inherit',
+                                            }}
+                                        >
+                                            ⬇ Download PDF
+                                        </button>
                                     </div>
                                 </div>
                             </div>
