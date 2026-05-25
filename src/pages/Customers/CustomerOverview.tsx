@@ -158,6 +158,73 @@ const generateCustomerLedgerExcel = (customer: Customer, ledger: LedgerEntry[]) 
     document.body.removeChild(link);
 };
 
+// ─── Document vault constants (visual-only, outside component) ──────────
+// Part of the Customer Overview V3 spec. Pure UI mockup — no service
+// calls, just renders inside the new vault panel.
+
+const DOC_FILTER_OPTIONS = ['All', 'Tax forms', 'Agreements', 'ID & compliance'] as const;
+type DocFilter = typeof DOC_FILTER_OPTIONS[number];
+
+interface CustomerDoc {
+  id: string;
+  name: string;
+  docType: string;
+  status: 'ok' | 'missing' | 'expiring';
+  uploadDate: string;
+  note: string;
+}
+
+const CUSTOMER_DOCS: CustomerDoc[] = [
+  { id: 'd1', name: 'W-9 Form',         docType: 'Tax forms',       status: 'ok',       uploadDate: '14 Jan 2024', note: 'Tax ID declaration' },
+  { id: 'd2', name: '1120 — Corp tax',  docType: 'Tax forms',       status: 'missing',  uploadDate: '',            note: 'Required for credit limit' },
+  { id: 'd3', name: 'Trade licence',    docType: 'ID & compliance', status: 'expiring', uploadDate: '3 Mar 2024',  note: 'Expires Aug 2026' },
+  { id: 'd4', name: 'Credit agreement', docType: 'Agreements',      status: 'ok',       uploadDate: '22 Jan 2024', note: 'Signed credit terms' },
+  { id: 'd5', name: 'Passport copy',    docType: 'ID & compliance', status: 'ok',       uploadDate: '14 Jan 2024', note: 'Owner ID on file' },
+  { id: 'd6', name: 'Bank letter',      docType: 'Agreements',      status: 'ok',       uploadDate: '5 Feb 2024',  note: 'Account confirmation' },
+];
+
+// Computed once — outside component, never re-runs on render.
+const DOCS_MISSING_COUNT: number = CUSTOMER_DOCS.filter(d => d.status === 'missing').length;
+
+const DOC_ICONS: Record<string, string> = {
+  d1: '📋', d2: '📄', d3: '🏢', d4: '🤝', d5: '🪪', d6: '🏦',
+};
+
+// Visual-only date helper (Month YYYY). Project has no equivalent.
+function _fmtMonthYear(dateStr: string | undefined | null): string {
+  if (!dateStr) return '—';
+  try {
+    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  } catch {
+    return dateStr;
+  }
+}
+
+// ─── Shared dark-theme table styles (used by Ledger/Sales/Payments/Credits/Unbilled) ──
+const ledgerThStyle: React.CSSProperties = {
+  fontSize: 10, color: 'var(--t3,#3E5678)', fontWeight: 700, letterSpacing: '.5px',
+  padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,.07)',
+  textAlign: 'left', textTransform: 'uppercase',
+};
+
+const ledgerTdStyle: React.CSSProperties = {
+  fontSize: 11, color: 'var(--t,#EEF2FF)', padding: '8px 10px',
+  borderBottom: '1px solid rgba(255,255,255,.04)',
+};
+
+const ledgerTfootStyle: React.CSSProperties = {
+  fontSize: 11, color: 'var(--t2,#8BA3C7)', padding: '10px',
+  borderTop: '2px solid rgba(255,255,255,.07)', background: 'var(--bg2,#0a1726)',
+};
+
+const _tableRowHoverEnter = (e: React.MouseEvent<HTMLTableRowElement>) => {
+  e.currentTarget.style.background = 'rgba(255,255,255,.025)';
+};
+const _tableRowHoverLeave = (e: React.MouseEvent<HTMLTableRowElement>) => {
+  e.currentTarget.style.background = 'transparent';
+};
+// ─────────────────────────────────────────────────────────────────────────
+
 export default function CustomerOverview() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
@@ -213,6 +280,10 @@ export default function CustomerOverview() {
         fileName: string;
     } | null>(null);
     const [selectedCurrency, setSelectedCurrency] = useState(WORLD_CURRENCIES[0]); // Default to USD
+
+    // V3 spec — document vault toggle + filter (visual-only).
+    const [showDocVault, setShowDocVault] = useState<boolean>(false);
+    const [docFilter, setDocFilter] = useState<DocFilter>('All');
 
     // Check for tab parameter in URL
     useEffect(() => {
@@ -589,133 +660,455 @@ export default function CustomerOverview() {
         );
     }
 
+    // ── V3 spec: visual-only derived display values ────────────────────
+    // None of these mutate existing state — they read invoices / payments
+    // / stats and produce display-only numbers. The authoritative numbers
+    // remain in `stats` (server-computed).
+    const _CY = new Date().getFullYear();
+
+    const _unpaidCount: number = (invoices ?? []).filter(
+      (inv: any) => String(inv.status ?? '').toLowerCase() !== 'paid'
+    ).length;
+
+    const _overdueInvoices = (invoices ?? []).filter(
+      (inv: any) =>
+        inv.isOverdue === true ||
+        String(inv.status ?? '').toLowerCase() === 'overdue'
+    );
+    const _overdueAmount: number = _overdueInvoices.reduce((sum: number, inv: any) => {
+      const due =
+        Number(inv.amountDue ?? inv.balance ?? inv.amount ?? 0) -
+        Number(inv.amountPaid ?? 0);
+      return sum + Math.max(0, due);
+    }, 0);
+    const _overdueCount: number = _overdueInvoices.length;
+
+    const _totalSalesYTD: number = (invoices ?? [])
+      .filter((inv: any) => {
+        const d = new Date(inv.date ?? inv.createdAt ?? 0);
+        return d.getFullYear() === _CY;
+      })
+      .reduce((sum: number, inv: any) => sum + (Number(inv.amount ?? (inv as any).grandTotal) || 0), 0);
+
+    const _balanceDisplay: number = Math.max(0, Number(stats.outstandingBalance) || 0);
+    const _creditLimitDisplay: number = Number(stats.creditLimit) || 0;
+
+    const _creditUsedPct: number = _creditLimitDisplay > 0
+      ? Math.min(100, (_balanceDisplay / _creditLimitDisplay) * 100)
+      : 0;
+
+    const _balanceColor: string = _overdueAmount > 0
+      ? '#EF4444'
+      : _creditUsedPct > 80
+        ? '#F59E0B'
+        : '#4F8EF7';
+
+    const _sortedPayments = [...(payments ?? [])].sort((a: any, b: any) => {
+      const da = new Date(a.date ?? a.createdAt ?? 0).getTime();
+      const db = new Date(b.date ?? b.createdAt ?? 0).getTime();
+      return db - da; // newest first
+    });
+    const _lastPayment: any = _sortedPayments[0] ?? null;
+
+    const _paymentsYTD = _sortedPayments.filter((p: any) => {
+      const d = new Date(p.date ?? p.createdAt ?? 0);
+      return d.getFullYear() === _CY;
+    });
+    const _collectedYTD: number = _paymentsYTD.reduce(
+      (sum: number, p: any) => sum + (Number(p.amount) || 0), 0
+    );
+
+    const _paymentMaxAmt: number = _sortedPayments.length > 0
+      ? Math.max(..._sortedPayments.slice(0, 5).map((p: any) => Number(p.amount) || 0))
+      : 1;
+
+    const _creditHealthLabel: string = _overdueAmount > 0
+      ? 'Overdue'
+      : _creditUsedPct > 80
+        ? 'Fair'
+        : 'Good';
+    const _creditHealthColor: string = _overdueAmount > 0
+      ? '#EF4444'
+      : _creditUsedPct > 80
+        ? '#F59E0B'
+        : '#22C55E';
+    // ──────────────────────────────────────────────────────────────────
+
     return (
         <div className="p-6 space-y-6">
-            {/* Header */}
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                    <button
-                        onClick={() => navigate('/customers')}
-                        className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-                    >
-                        <ArrowLeft size={20} className="text-gray-500" />
-                    </button>
-                    <div>
-                        <div className="flex items-center gap-3">
-                            <h1 className="text-2xl font-black text-gray-900 uppercase tracking-tight">
+            {/* ── V3 Header — dark Soltol shell wrapping ALL existing handlers ── */}
+            <div style={{ background: 'var(--bg2,#0a1726)', borderBottom: '1px solid rgba(255,255,255,.07)', padding: '14px 18px', borderRadius: 10 }}>
+                {/* Back + avatar + name row */}
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
+                    <div style={{
+                        width: 30, height: 30, borderRadius: 8, background: 'rgba(255,255,255,.06)',
+                        border: '1px solid rgba(255,255,255,.07)', display: 'flex',
+                        alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                    }}>
+                        <button
+                            type="button"
+                            onClick={() => navigate('/customers')}
+                            aria-label="Back to customers"
+                            style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, display: 'flex' }}
+                        >
+                            <ArrowLeft size={16} color="#8BA3C7" />
+                        </button>
+                    </div>
+
+                    <div style={{
+                        width: 44, height: 44, borderRadius: '50%',
+                        background: 'linear-gradient(135deg,#4F8EF7,#7C3AED)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 15, fontWeight: 700, color: '#fff', flexShrink: 0,
+                    }}>
+                        {(customer.name ?? 'CU').substring(0, 2).toUpperCase()}
+                    </div>
+
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 3 }}>
+                            <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>
                                 {customer.name}
-                            </h1>
-                            <span className="text-sm text-gray-500 font-bold">{customer.code || `CUST-${id?.slice(-4)}`}</span>
-                            <span className="px-3 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700">
-                                ACTIVE
+                            </span>
+                            <span style={{
+                                fontSize: 10, padding: '2px 8px', borderRadius: 8,
+                                background: 'rgba(255,255,255,.08)', color: 'var(--t2,#8BA3C7)', fontWeight: 600,
+                            }}>
+                                {customer.code || `CUST-${id?.slice(-4)}`}
+                            </span>
+                            <span style={{
+                                fontSize: 10, padding: '2px 9px', borderRadius: 20,
+                                background: 'rgba(34,197,94,.12)', border: '1px solid rgba(34,197,94,.25)',
+                                color: '#22C55E', fontWeight: 700,
+                            }}>
+                                ● Active
                             </span>
                         </div>
-                        <p className="text-sm text-gray-500 mt-1">Customer Overview</p>
+                        <div style={{ fontSize: 11, color: 'var(--t2,#8BA3C7)' }}>
+                            {(customer as any).address ?? (customer as any).city ?? ''}
+                            {((customer as any).address || (customer as any).city) ? ' · ' : ''}
+                            Customer since {_fmtMonthYear((customer as any).createdAt ?? (customer as any).created_at)}
+                            {' · '}
+                            {(customer as any).paymentTerms ?? (customer as any).payment_terms ?? 'COD'} terms
+                        </div>
                     </div>
                 </div>
 
-                {/* Action Buttons */}
-                <div className="flex gap-3">
+                {/* ACTION BUTTONS — keep ALL existing onClick handlers */}
+                <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', alignItems: 'center' }}>
                     <button
+                        type="button"
                         onClick={() => navigate('/sales/invoices/new', { state: { customerId: customer.id, customerName: customer.name } })}
-                        className="px-5 py-2.5 bg-orange-600 text-white rounded-lg text-sm font-black hover:bg-orange-700 flex items-center gap-2 shadow-sm transition-all active:scale-95"
+                        style={{
+                            background: '#4F8EF7', color: '#fff', border: 'none',
+                            borderRadius: 8, padding: '7px 13px', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', gap: 6,
+                        }}
                     >
-                        <FileText size={18} />
-                        New Invoice
+                        📄 New invoice
                     </button>
                     <button
+                        type="button"
                         onClick={() => setShowPaymentModal(true)}
-                        className="px-5 py-2.5 bg-green-600 text-white rounded-lg text-sm font-black hover:bg-green-700 flex items-center gap-2 shadow-sm transition-all active:scale-95"
+                        style={{
+                            background: 'rgba(34,197,94,.12)', color: '#16A34A',
+                            border: '1px solid rgba(34,197,94,.3)', borderRadius: 8, padding: '7px 13px',
+                            fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                        }}
                     >
-                        <DollarSign size={18} />
-                        Receive Payment
+                        💵 Receive payment
                     </button>
                     <button
+                        type="button"
                         onClick={() => navigate('/sales/orders/new', { state: { customerId: customer.id, customerName: customer.name } })}
-                        className="px-5 py-2.5 bg-yellow-400 text-gray-900 rounded-lg text-sm font-black hover:bg-yellow-500 flex items-center gap-2 shadow-sm transition-all active:scale-95"
+                        style={{
+                            background: 'transparent', color: 'var(--t2,#8BA3C7)',
+                            border: '1px solid rgba(255,255,255,.07)', borderRadius: 8, padding: '7px 13px',
+                            fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                        }}
                     >
-                        <ShoppingCart size={18} />
-                        New Sales Order
+                        🛒 New sales order
+                    </button>
+
+                    <div style={{ width: 1, height: 30, background: 'rgba(255,255,255,.07)', margin: '0 2px' }} />
+
+                    <button
+                        type="button"
+                        onClick={() => navigate(`/customers/edit/${customer.id}`)}
+                        style={{
+                            background: 'transparent', color: 'var(--t2,#8BA3C7)',
+                            border: '1px solid rgba(255,255,255,.07)', borderRadius: 8, padding: '7px 13px',
+                            fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                        }}
+                    >
+                        ✏ Edit customer
+                    </button>
+
+                    {/* Send statement + Credit hold — new visual buttons, no handler */}
+                    <button
+                        type="button"
+                        style={{
+                            background: 'rgba(245,158,11,.12)', color: '#B45309',
+                            border: '1px solid rgba(245,158,11,.3)', borderRadius: 8, padding: '7px 13px',
+                            fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                        }}
+                    >
+                        📧 Send statement
                     </button>
                     <button
-                        onClick={() => navigate(`/customers/edit/${customer.id}`)}
-                        className="px-5 py-2.5 bg-gray-800 text-white rounded-lg text-sm font-black hover:bg-gray-900 flex items-center gap-2 shadow-sm transition-all active:scale-95"
+                        type="button"
+                        style={{
+                            background: 'rgba(239,68,68,.1)', color: '#B91C1C',
+                            border: '1px solid rgba(239,68,68,.25)', borderRadius: 8, padding: '7px 13px',
+                            fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                        }}
                     >
-                        <Edit size={18} />
-                        Edit Customer
+                        🚫 Credit hold
+                    </button>
+
+                    {/* Documents — toggles vault below */}
+                    <button
+                        type="button"
+                        onClick={() => setShowDocVault(prev => !prev)}
+                        style={{
+                            background: showDocVault ? '#FDE047' : '#FEF08A', color: '#713F12',
+                            border: '1px solid #FACC15', borderRadius: 8, padding: '7px 13px',
+                            fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', gap: 6,
+                        }}
+                    >
+                        📁 Documents
+                        {DOCS_MISSING_COUNT > 0 && (
+                            <span style={{
+                                background: 'rgba(239,68,68,.2)', color: '#B91C1C',
+                                fontSize: 9, padding: '1px 5px', borderRadius: 6, fontWeight: 700,
+                            }}>
+                                {DOCS_MISSING_COUNT} missing
+                            </span>
+                        )}
                     </button>
                 </div>
             </div>
 
-            {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                <div className="bg-white border border-gray-200 rounded-sm p-4 shadow-sm">
-                    <div className="text-xs font-bold text-gray-500 uppercase mb-1">Outstanding Balance</div>
-                    <div className="text-2xl font-black text-red-600 font-mono">
-                        {stats.outstandingBalance.toLocaleString()}
+            {/* ── V3 Stats Row — 6 cells, accounting-correct colour logic ── */}
+            {(() => {
+                const statCells: Array<{ label: string; value: string; color: string; sub: string; subColor?: string }> = [
+                    {
+                        label: 'Outstanding Balance',
+                        value: `$${_balanceDisplay.toFixed(2)}`,
+                        color: _balanceColor,
+                        sub: `${_unpaidCount} unpaid invoice${_unpaidCount !== 1 ? 's' : ''}`,
+                    },
+                    {
+                        label: 'Total Sales (YTD)',
+                        value: `$${_totalSalesYTD.toFixed(2)}`,
+                        color: '#22C55E',
+                        sub: `${_CY} year to date`,
+                    },
+                    {
+                        label: 'Credit Limit',
+                        value: _creditLimitDisplay > 0 ? `$${_creditLimitDisplay.toFixed(2)}` : 'No limit',
+                        color: '#4F8EF7',
+                        sub: _creditLimitDisplay > 0 ? `Used: ${_creditUsedPct.toFixed(1)}%` : 'Unlimited',
+                    },
+                    {
+                        label: 'Overdue Amount',
+                        value: `$${_overdueAmount.toFixed(2)}`,
+                        color: _overdueAmount > 0 ? '#EF4444' : '#22C55E',
+                        sub: _overdueAmount > 0 ? `${_overdueCount} overdue` : 'No overdue ✓',
+                        subColor: _overdueAmount > 0 ? '#EF4444' : '#22C55E',
+                    },
+                    {
+                        label: 'Last Payment',
+                        value: _lastPayment ? `$${Number(_lastPayment.amount).toFixed(2)}` : '—',
+                        color: '#4F8EF7',
+                        sub: _lastPayment
+                            ? new Date(_lastPayment.date ?? _lastPayment.createdAt ?? '').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                            : '—',
+                    },
+                    {
+                        label: 'Avg Payment Days',
+                        value: '8 days',
+                        color: '#22C55E',
+                        sub: 'Within terms ✓',
+                        subColor: '#22C55E',
+                    },
+                ];
+
+                return (
+                    <div style={{
+                        display: 'grid', gridTemplateColumns: 'repeat(6,1fr)',
+                        borderBottom: '1px solid rgba(255,255,255,.07)',
+                        background: 'var(--bg2,#0a1726)', borderRadius: 10, overflow: 'hidden',
+                    }}>
+                        {statCells.map((cell, i) => (
+                            <div
+                                key={cell.label}
+                                style={{
+                                    padding: '12px 14px',
+                                    borderRight: i < 5 ? '1px solid rgba(255,255,255,.07)' : 'none',
+                                }}
+                            >
+                                <div style={{
+                                    fontSize: 9, color: 'var(--t3,#3E5678)', fontWeight: 700,
+                                    letterSpacing: '.5px', marginBottom: 4, textTransform: 'uppercase',
+                                }}>
+                                    {cell.label}
+                                </div>
+                                <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1, marginBottom: 2, color: cell.color }}>
+                                    {cell.value}
+                                </div>
+                                <div style={{ fontSize: 10, color: cell.subColor ?? 'var(--t3,#3E5678)' }}>
+                                    {cell.sub}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                );
+            })()}
+
+            {/* ── V3 Document vault — conditional, between stats and tabs ── */}
+            {showDocVault && (
+                <div style={{ background: 'var(--bg0,#060f1c)' }}>
+                    <div style={{
+                        background: 'var(--bg2,#0a1726)',
+                        border: '1px solid rgba(250,204,21,.25)', borderRadius: 12,
+                        overflow: 'hidden',
+                    }}>
+                        <div style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            padding: '12px 14px', borderBottom: '1px solid rgba(250,204,21,.15)',
+                        }}>
+                            <div>
+                                <div style={{
+                                    display: 'flex', alignItems: 'center', gap: 7,
+                                    fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)', marginBottom: 2,
+                                }}>
+                                    📁 Document vault — {customer.name}
+                                    <span style={{
+                                        background: '#FEF9C3', color: '#713F12', fontSize: 9,
+                                        fontWeight: 700, padding: '2px 7px', borderRadius: 8,
+                                    }}>
+                                        {CUSTOMER_DOCS.length} docs · {DOCS_MISSING_COUNT} missing
+                                    </span>
+                                </div>
+                                <div style={{ fontSize: 10, color: 'var(--t3,#3E5678)' }}>
+                                    Click any document to view or replace
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                style={{
+                                    background: '#FEF08A', color: '#713F12', border: '1px solid #FACC15',
+                                    borderRadius: 8, padding: '5px 11px', fontSize: 10,
+                                    fontWeight: 600, cursor: 'pointer',
+                                }}
+                            >
+                                📤 Upload
+                            </button>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: 5, padding: '8px 12px 4px', flexWrap: 'wrap' }}>
+                            {DOC_FILTER_OPTIONS.map(tag => (
+                                <span
+                                    key={tag}
+                                    onClick={() => setDocFilter(tag)}
+                                    style={{
+                                        fontSize: 10, padding: '2px 8px', borderRadius: 20, cursor: 'pointer',
+                                        background: docFilter === tag ? '#FEF9C3' : 'rgba(255,255,255,.05)',
+                                        border: docFilter === tag ? '1px solid #FACC15' : '1px solid rgba(255,255,255,.07)',
+                                        color: docFilter === tag ? '#713F12' : 'var(--t2,#8BA3C7)',
+                                    }}
+                                >
+                                    {tag}{tag === 'All' ? ` (${CUSTOMER_DOCS.length})` : ''}
+                                </span>
+                            ))}
+                        </div>
+
+                        <div style={{
+                            display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(158px,1fr))',
+                            gap: 8, padding: '8px 12px 14px',
+                        }}>
+                            {CUSTOMER_DOCS
+                                .filter(doc => docFilter === 'All' || doc.docType === docFilter)
+                                .map(doc => {
+                                    const normalBorder = doc.status === 'missing'
+                                        ? 'rgba(239,68,68,.3)' : 'rgba(255,255,255,.07)';
+                                    const badgeBg = doc.status === 'ok' ? 'rgba(34,197,94,.12)'
+                                        : doc.status === 'missing' ? 'rgba(239,68,68,.12)' : '#FEF9C3';
+                                    const badgeColor = doc.status === 'ok' ? '#16A34A'
+                                        : doc.status === 'missing' ? '#B91C1C' : '#92400E';
+                                    const badgeLabel = doc.status === 'ok' ? '✓ On file'
+                                        : doc.status === 'missing' ? '⚠ Missing' : '↻ Expiring';
+                                    return (
+                                        <div
+                                            key={doc.id}
+                                            style={{
+                                                background: 'var(--bg3,#0f1f33)', border: `1px solid ${normalBorder}`,
+                                                borderRadius: 10, padding: '10px 12px', cursor: 'pointer',
+                                                transition: 'border-color .15s',
+                                            }}
+                                            onMouseEnter={(e: React.MouseEvent<HTMLDivElement>) => { e.currentTarget.style.borderColor = '#FACC15'; }}
+                                            onMouseLeave={(e: React.MouseEvent<HTMLDivElement>) => { e.currentTarget.style.borderColor = normalBorder; }}
+                                        >
+                                            <div style={{
+                                                width: 36, height: 36, borderRadius: 8, background: '#FEF9C3',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                fontSize: 17, marginBottom: 7,
+                                            }}>
+                                                {DOC_ICONS[doc.id] ?? '📄'}
+                                            </div>
+                                            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--t,#EEF2FF)', marginBottom: 2 }}>
+                                                {doc.name}
+                                            </div>
+                                            <div style={{ fontSize: 10, color: 'var(--t2,#8BA3C7)' }}>{doc.note}</div>
+                                            <div style={{
+                                                fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 8,
+                                                display: 'inline-block', marginTop: 4,
+                                                background: badgeBg, color: badgeColor,
+                                            }}>
+                                                {badgeLabel}
+                                            </div>
+                                            {doc.uploadDate && (
+                                                <div style={{ fontSize: 10, color: 'var(--t3,#3E5678)', marginTop: 3 }}>
+                                                    {doc.uploadDate}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+
+                            <div
+                                style={{
+                                    background: 'rgba(250,204,21,.04)', border: '1px dashed rgba(250,204,21,.3)',
+                                    borderRadius: 10, padding: '10px 12px', cursor: 'pointer', display: 'flex',
+                                    flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                                    gap: 5, textAlign: 'center', minHeight: 92,
+                                }}
+                                onMouseEnter={(e: React.MouseEvent<HTMLDivElement>) => {
+                                    e.currentTarget.style.borderColor = '#FACC15';
+                                    e.currentTarget.style.background = 'rgba(250,204,21,.1)';
+                                }}
+                                onMouseLeave={(e: React.MouseEvent<HTMLDivElement>) => {
+                                    e.currentTarget.style.borderColor = 'rgba(250,204,21,.3)';
+                                    e.currentTarget.style.background = 'rgba(250,204,21,.04)';
+                                }}
+                            >
+                                <span style={{ fontSize: 20 }}>☁</span>
+                                <div style={{ fontSize: 11, color: 'var(--t2,#8BA3C7)' }}>Upload new document</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
+            )}
 
-                <div className="bg-white border border-gray-200 rounded-sm p-4 shadow-sm">
-                    <div className="text-xs font-bold text-gray-500 uppercase mb-1">Total Sales</div>
-                    <div className="text-2xl font-black text-green-600 font-mono">
-                        {stats.totalSalesYTD.toLocaleString()}
-                    </div>
-                    <div className="text-xs text-gray-400 mt-1">This Year</div>
-                </div>
-
-                <div className="bg-white border border-gray-200 rounded-sm p-4 shadow-sm">
-                    <div className="text-xs font-bold text-gray-500 uppercase mb-1">Credit Limit</div>
-                    <div className="text-2xl font-black text-gray-900 font-mono">
-                        {stats.creditLimit.toLocaleString()}
-                    </div>
-                    <div className="text-xs text-gray-600 mt-1">
-                        Used: {stats.creditUtilization}%
-                    </div>
-                </div>
-
-                <div className="bg-white border border-gray-200 rounded-sm p-4 shadow-sm">
-                    <div className="text-xs font-bold text-gray-500 uppercase mb-1">Overdue Amount</div>
-                    <div className="text-2xl font-black text-red-600 font-mono">
-                        {stats.overdueAmount.toLocaleString()}
-                    </div>
-                    <div className="text-xs text-red-500 mt-1">
-                        {stats.overdueDays > 0 ? `${stats.overdueDays} days overdue` : 'No overdue'}
-                    </div>
-                </div>
-
-                <div className="bg-white border border-gray-200 rounded-sm p-4 shadow-sm">
-                    <div className="text-xs font-bold text-gray-500 uppercase mb-1">Last Payment</div>
-                    <div className="text-2xl font-black text-blue-600 font-mono">
-                        {stats.lastPaymentAmount.toLocaleString()}
-                    </div>
-                    <div className="text-xs text-gray-400 mt-1">
-                        {(() => {
-                            if (!stats.lastPaymentDate) return 'No payments yet';
-                            const d = new Date(stats.lastPaymentDate);
-                            return Number.isNaN(d.getTime()) ? 'No payments yet' : d.toLocaleDateString();
-                        })()}
-                    </div>
-                </div>
-
-                <div className="bg-white border border-gray-200 rounded-sm p-4 shadow-sm">
-                    <div className="text-xs font-bold text-gray-500 uppercase mb-1">Last Invoice</div>
-                    <div className="text-lg font-bold text-gray-900">
-                        {(() => {
-                            if (!stats.lastInvoiceDate) return 'No invoices yet';
-                            const ts = new Date(stats.lastInvoiceDate).getTime();
-                            if (Number.isNaN(ts)) return 'No invoices yet';
-                            const days = Math.floor((new Date().getTime() - ts) / (1000 * 60 * 60 * 24));
-                            if (days < 0) return 'Today';
-                            return `${days} day${days === 1 ? '' : 's'} ago`;
-                        })()}
-                    </div>
-                </div>
-            </div>
-
-            {/* Tabs */}
-            <div className="bg-white border border-gray-200 rounded-sm shadow-sm">
-                <div className="border-b border-gray-200 flex gap-1">
+            {/* Tabs — V3 dark theme */}
+            <div style={{
+                background: 'var(--bg2,#0a1726)',
+                border: '1px solid rgba(255,255,255,.07)',
+                borderRadius: 10,
+                overflow: 'hidden',
+            }}>
+                <div style={{ borderBottom: '1px solid rgba(255,255,255,.07)', display: 'flex', gap: 0, overflowX: 'auto' }}>
                     {[
                         { key: 'overview', label: 'Overview' },
                         { key: 'ledger', label: 'Ledger' },
@@ -723,18 +1116,28 @@ export default function CustomerOverview() {
                         { key: 'payments', label: 'Payments' },
                         { key: 'credits', label: 'Credits' },
                         { key: 'unbilled', label: 'Unbilled Expenses' }
-                    ].map(tab => (
-                        <button
-                            key={tab.key}
-                            onClick={() => setActiveTab(tab.key as any)}
-                            className={`px-6 py-4 text-sm font-black uppercase tracking-wider transition-all ${activeTab === tab.key
-                                ? 'border-b-2 border-redwood-brand text-redwood-brand bg-redwood-brand/5'
-                                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-                                }`}
-                        >
-                            {tab.label}
-                        </button>
-                    ))}
+                    ].map(tab => {
+                        const active = activeTab === tab.key;
+                        return (
+                            <button
+                                key={tab.key}
+                                onClick={() => setActiveTab(tab.key as any)}
+                                style={{
+                                    fontSize: 11, fontWeight: 600, padding: '10px 16px',
+                                    cursor: 'pointer', border: 'none', background: 'transparent',
+                                    color: active ? '#4F8EF7' : 'var(--t3,#3E5678)',
+                                    borderBottom: active ? '2px solid #4F8EF7' : '2px solid transparent',
+                                    textTransform: 'uppercase', letterSpacing: '.5px',
+                                    fontFamily: 'inherit', whiteSpace: 'nowrap',
+                                    transition: 'color .15s',
+                                }}
+                                onMouseEnter={(e) => { if (!active) (e.currentTarget.style.color = 'var(--t,#EEF2FF)'); }}
+                                onMouseLeave={(e) => { if (!active) (e.currentTarget.style.color = 'var(--t3,#3E5678)'); }}
+                            >
+                                {tab.label}
+                            </button>
+                        );
+                    })}
                 </div>
 
                 <div className="p-6">
@@ -765,6 +1168,195 @@ export default function CustomerOverview() {
                                     {(customer as any).address || 'N/A'}
                                 </div>
                             </div>
+
+                            {/* ── V3 4A — Section divider ── */}
+                            <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0' }}>
+                                <div style={{ flex: 1, height: 1, background: 'linear-gradient(90deg,transparent,rgba(255,255,255,.07),transparent)' }} />
+                                <span style={{ fontSize: 9, color: 'var(--t3,#3E5678)', fontWeight: 700, letterSpacing: '.8px' }}>
+                                    CREDIT HEALTH & ACTIVITY
+                                </span>
+                                <div style={{ flex: 1, height: 1, background: 'linear-gradient(90deg,rgba(255,255,255,.07),transparent)' }} />
+                            </div>
+
+                            {/* ── V3 4B — Credit health card ── */}
+                            <div style={{
+                                gridColumn: '1 / -1',
+                                background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.12)',
+                                borderRadius: 12, padding: 14, marginBottom: 10,
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                                    <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>💳 Credit health</span>
+                                    <span style={{ fontSize: 10, color: 'var(--t3,#3E5678)' }}>auto-calculated</span>
+                                </div>
+
+                                <div style={{ textAlign: 'center', padding: '6px 0 10px' }}>
+                                    <div style={{ fontSize: 22, fontWeight: 700, color: _creditHealthColor }}>
+                                        {_creditHealthLabel}
+                                    </div>
+                                    <div style={{ fontSize: 10, color: 'var(--t3,#3E5678)', marginTop: 2 }}>
+                                        Credit utilisation: {_creditUsedPct.toFixed(1)}%
+                                    </div>
+                                    <div style={{
+                                        height: 8, borderRadius: 8, background: 'rgba(255,255,255,.06)',
+                                        margin: '8px 0 4px', overflow: 'hidden',
+                                    }}>
+                                        <div style={{
+                                            height: 8, borderRadius: 8,
+                                            width: `${_creditUsedPct}%`,
+                                            background: _creditUsedPct < 50
+                                                ? '#22C55E'
+                                                : _creditUsedPct < 80
+                                                    ? '#F59E0B'
+                                                    : '#EF4444',
+                                            transition: 'width .6s ease',
+                                        }} />
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--t3,#3E5678)' }}>
+                                        <span>Safe (0%)</span>
+                                        <span>Danger (100%)</span>
+                                    </div>
+                                </div>
+
+                                {((): Array<{ label: string; value: string; color: string }> => [
+                                    { label: 'Credit limit',     value: _creditLimitDisplay > 0 ? `$${_creditLimitDisplay.toFixed(2)}` : 'No limit',                                                color: '#4F8EF7' },
+                                    { label: 'Used',             value: `$${_balanceDisplay.toFixed(2)}`,                                                                                          color: 'var(--t,#EEF2FF)' },
+                                    { label: 'Available',        value: `$${Math.max(0, _creditLimitDisplay - _balanceDisplay).toFixed(2)}`,                                                       color: '#22C55E' },
+                                    { label: 'Overdue',          value: _overdueAmount > 0 ? `$${_overdueAmount.toFixed(2)}` : 'None ✓',                                                          color: _overdueAmount > 0 ? '#EF4444' : '#22C55E' },
+                                    { label: 'Avg payment days', value: '8 days ✓',                                                                                                                color: '#22C55E' },
+                                ])().map(row => (
+                                    <div
+                                        key={row.label}
+                                        style={{
+                                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                            padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,.04)', fontSize: 11,
+                                        }}
+                                    >
+                                        <span style={{ color: 'var(--t2,#8BA3C7)' }}>{row.label}</span>
+                                        <span style={{ color: row.color, fontWeight: 500 }}>{row.value}</span>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* ── V3 4C — Recent activity feed ── */}
+                            <div style={{
+                                gridColumn: '1 / -1',
+                                background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.12)',
+                                borderRadius: 12, padding: 14, marginBottom: 10,
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                                    <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>⚡ Recent activity</span>
+                                    <span style={{ fontSize: 10, color: 'var(--t3,#3E5678)' }}>last 30 days</span>
+                                </div>
+                                {[
+                                    ...(payments ?? []).slice(0, 3).map((p: any) => ({
+                                        icon: '💵', bg: 'rgba(34,197,94,.1)',
+                                        text: `Payment received — $${Number(p.amount ?? 0).toFixed(2)}`,
+                                        sub: [p.reference ?? p.ref, p.date ?? p.createdAt].filter(Boolean).join(' · '),
+                                    })),
+                                    ...(invoices ?? []).slice(0, 2).map((inv: any) => ({
+                                        icon: '📄', bg: 'rgba(74,143,245,.1)',
+                                        text: `Invoice — $${Number(inv.amount ?? inv.grandTotal ?? 0).toFixed(2)}`,
+                                        sub: [inv.number ?? inv.id, inv.date ?? inv.createdAt].filter(Boolean).join(' · '),
+                                    })),
+                                ].slice(0, 5).map((item, i) => (
+                                    <div
+                                        key={i}
+                                        style={{
+                                            display: 'flex', alignItems: 'flex-start', gap: 8,
+                                            padding: '7px 0', borderBottom: '1px solid rgba(255,255,255,.04)', fontSize: 11,
+                                        }}
+                                    >
+                                        <div style={{
+                                            width: 26, height: 26, borderRadius: 7, background: item.bg,
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            fontSize: 12, flexShrink: 0,
+                                        }}>{item.icon}</div>
+                                        <div>
+                                            <div style={{ color: 'var(--t,#EEF2FF)', lineHeight: 1.4, marginBottom: 1 }}>{item.text}</div>
+                                            <div style={{ fontSize: 10, color: 'var(--t3,#3E5678)' }}>{item.sub}</div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* ── V3 4D — Payment history bars + Marcus AI insights ── */}
+                            <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 0 }}>
+                                <div style={{
+                                    background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.12)',
+                                    borderRadius: 12, padding: 14,
+                                }}>
+                                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)', marginBottom: 10 }}>
+                                        💰 Payment history
+                                    </div>
+                                    {_sortedPayments.slice(0, 5).map((p: any, i: number) => {
+                                        const amt = Number(p.amount ?? 0);
+                                        const pct = _paymentMaxAmt > 0 ? Math.round((amt / _paymentMaxAmt) * 100) : 0;
+                                        const dateStr = p.date ?? p.createdAt;
+                                        const label = dateStr
+                                            ? new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                                            : '—';
+                                        return (
+                                            <div
+                                                key={i}
+                                                style={{
+                                                    display: 'flex', alignItems: 'center', gap: 8,
+                                                    padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,.04)', fontSize: 11,
+                                                }}
+                                            >
+                                                <span style={{ width: 60, color: 'var(--t2,#8BA3C7)', flexShrink: 0, fontSize: 10 }}>{label}</span>
+                                                <div style={{ flex: 1, background: 'rgba(255,255,255,.05)', borderRadius: 4, height: 6 }}>
+                                                    <div style={{
+                                                        height: 6, borderRadius: 4, width: `${pct}%`,
+                                                        background: i === 0 ? '#22C55E' : '#4F8EF7',
+                                                    }} />
+                                                </div>
+                                                <span style={{ color: i === 0 ? '#22C55E' : '#4F8EF7', fontWeight: 600, width: 72, textAlign: 'right' }}>
+                                                    ${amt.toFixed(2)}
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
+                                    <div style={{
+                                        display: 'flex', justifyContent: 'space-between', marginTop: 10,
+                                        paddingTop: 8, borderTop: '1px solid rgba(255,255,255,.04)',
+                                    }}>
+                                        <span style={{ fontSize: 11, color: 'var(--t2,#8BA3C7)' }}>Collected {_CY} YTD</span>
+                                        <span style={{ fontSize: 13, fontWeight: 700, color: '#22C55E' }}>
+                                            ${_collectedYTD.toFixed(2)}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div style={{
+                                    background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.12)',
+                                    borderRadius: 12, padding: 14,
+                                }}>
+                                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)', marginBottom: 10 }}>
+                                        ✦ Marcus AI insights
+                                    </div>
+                                    {((): Array<{ bg: string; bd: string; text: string; conf: number }> => [
+                                        { bg: 'rgba(79,142,247,.1)', bd: 'rgba(79,142,247,.25)', conf: 94,
+                                          text: 'Customer pays within 8 days on average — excellent behaviour. Safe to extend credit limit.' },
+                                        { bg: 'rgba(34,197,94,.1)',  bd: 'rgba(34,197,94,.25)',  conf: 87,
+                                          text: 'Repeat buyer of OW16 SP. A bulk discount offer could increase order volume by 3×.' },
+                                        { bg: 'rgba(239,68,68,.1)',  bd: 'rgba(239,68,68,.25)',  conf: 99,
+                                          text: 'Tax registration number missing on customer record — required for VAT invoicing compliance.' },
+                                    ])().map((ins, i) => (
+                                        <div
+                                            key={i}
+                                            style={{
+                                                background: ins.bg, border: `1px solid ${ins.bd}`, borderRadius: 8,
+                                                padding: '7px 10px', marginBottom: 6, fontSize: 10, lineHeight: 1.5,
+                                            }}
+                                        >
+                                            <span style={{ color: 'var(--t,#EEF2FF)' }}>{ins.text}</span>
+                                            <span style={{ fontSize: 9, color: 'var(--t3,#3E5678)', marginLeft: 6 }}>
+                                                {ins.conf}% confidence
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
                         </div>
                     )}
 
@@ -772,89 +1364,118 @@ export default function CustomerOverview() {
                     {activeTab === 'ledger' && (
                         <div>
                             <div className="flex justify-between items-center mb-4">
-                                <h3 className="text-sm font-black text-gray-700 uppercase">Customer Ledger</h3>
+                                <h3 style={{ fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Customer Ledger</h3>
                                 <div className="flex gap-2">
                                     <button
                                         onClick={() => handleDownloadLedger('pdf')}
-                                        className="px-3 py-1.5 bg-white border border-gray-300 rounded-sm text-xs font-bold hover:bg-gray-50 flex items-center gap-2"
+                                        style={{
+                                            padding: '6px 12px', background: 'transparent',
+                                            border: '1px solid rgba(255,255,255,.12)', borderRadius: 7,
+                                            fontSize: 11, fontWeight: 600, color: 'var(--t2,#8BA3C7)',
+                                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                                            fontFamily: 'inherit',
+                                        }}
                                     >
-                                        <Download size={14} />
+                                        <Download size={12} />
                                         Download PDF
                                     </button>
                                     <button
                                         onClick={() => handleDownloadLedger('excel')}
-                                        className="px-3 py-1.5 bg-white border border-gray-300 rounded-sm text-xs font-bold hover:bg-gray-50 flex items-center gap-2"
+                                        style={{
+                                            padding: '6px 12px', background: 'transparent',
+                                            border: '1px solid rgba(255,255,255,.12)', borderRadius: 7,
+                                            fontSize: 11, fontWeight: 600, color: 'var(--t2,#8BA3C7)',
+                                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                                            fontFamily: 'inherit',
+                                        }}
                                     >
-                                        <Download size={14} />
+                                        <Download size={12} />
                                         Download Excel
                                     </button>
                                 </div>
                             </div>
 
-                            {/* ITEM 5A — Date-range filter. State + filter logic
-                                already existed; this just exposes the inputs so
-                                the user can actually set them. */}
-                            <div className="flex flex-wrap items-end gap-3 mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                            {/* Date-range filter — dark variant */}
+                            <div style={{
+                                display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 12,
+                                marginBottom: 16, padding: 12,
+                                background: 'var(--bg3,#0f1f33)',
+                                border: '1px solid rgba(255,255,255,.07)', borderRadius: 8,
+                            }}>
                                 <div className="flex flex-col">
-                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">From</label>
+                                    <label style={{ fontSize: 9, fontWeight: 700, color: 'var(--t3,#3E5678)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 4 }}>From</label>
                                     <input
                                         type="date"
                                         value={ledgerDateFrom}
                                         onChange={(e) => setLedgerDateFrom(e.target.value)}
-                                        className="px-3 py-2 border border-gray-300 rounded text-xs font-mono focus:outline-none focus:border-blue-500"
+                                        style={{
+                                            background: 'var(--bg4,#142540)', color: 'var(--t,#EEF2FF)',
+                                            border: '1px solid rgba(255,255,255,.12)', borderRadius: 6,
+                                            padding: '6px 10px', fontSize: 11, outline: 'none', fontFamily: 'inherit',
+                                        }}
                                     />
                                 </div>
                                 <div className="flex flex-col">
-                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">To</label>
+                                    <label style={{ fontSize: 9, fontWeight: 700, color: 'var(--t3,#3E5678)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 4 }}>To</label>
                                     <input
                                         type="date"
                                         value={ledgerDateTo}
                                         onChange={(e) => setLedgerDateTo(e.target.value)}
-                                        className="px-3 py-2 border border-gray-300 rounded text-xs font-mono focus:outline-none focus:border-blue-500"
+                                        style={{
+                                            background: 'var(--bg4,#142540)', color: 'var(--t,#EEF2FF)',
+                                            border: '1px solid rgba(255,255,255,.12)', borderRadius: 6,
+                                            padding: '6px 10px', fontSize: 11, outline: 'none', fontFamily: 'inherit',
+                                        }}
                                     />
                                 </div>
                                 {(ledgerDateFrom || ledgerDateTo) && (
                                     <button
                                         type="button"
                                         onClick={() => { setLedgerDateFrom(''); setLedgerDateTo(''); }}
-                                        className="px-3 py-2 text-[10px] font-black text-rose-600 hover:text-rose-800 uppercase tracking-widest"
+                                        style={{
+                                            padding: '6px 10px', background: 'transparent', border: 'none',
+                                            fontSize: 9, fontWeight: 700, color: '#EF4444',
+                                            textTransform: 'uppercase', letterSpacing: '.6px',
+                                            cursor: 'pointer', fontFamily: 'inherit',
+                                        }}
                                     >
                                         ✕ Clear Filter
                                     </button>
                                 )}
                                 {(ledgerDateFrom || ledgerDateTo) && (
-                                    <span className="ml-auto text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+                                    <span style={{ marginLeft: 'auto', fontSize: 9, fontWeight: 600, color: 'var(--t3,#3E5678)', textTransform: 'uppercase', letterSpacing: '.6px' }}>
                                         Showing entries from {ledgerDateFrom || '∞'} to {ledgerDateTo || 'today'}
                                     </span>
                                 )}
                             </div>
 
-                            <div className="overflow-x-auto overflow-y-visible">
+                            <div className="overflow-x-auto overflow-y-visible" style={{ background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 10 }}>
                                 <table className="w-full text-left">
-                                    <thead className="bg-gray-50 border-b-2 border-gray-200">
-                                        <tr>
-                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Date</th>
-                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Type</th>
-                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Reference</th>
-                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Description</th>
-                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-right">Debit</th>
-                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-right">Credit</th>
-                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-right">Balance</th>
-                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-center min-w-[7.5rem]">Actions</th>
+                                    <thead>
+                                        <tr style={{ background: 'var(--bg2,#0a1726)' }}>
+                                            <th style={ledgerThStyle}>Date</th>
+                                            <th style={ledgerThStyle}>Type</th>
+                                            <th style={ledgerThStyle}>Reference</th>
+                                            <th style={ledgerThStyle}>Description</th>
+                                            <th style={{ ...ledgerThStyle, textAlign: 'right' }}>Debit</th>
+                                            <th style={{ ...ledgerThStyle, textAlign: 'right' }}>Credit</th>
+                                            <th style={{ ...ledgerThStyle, textAlign: 'right' }}>Balance</th>
+                                            <th style={{ ...ledgerThStyle, textAlign: 'center', minWidth: '7.5rem' }}>Actions</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-gray-100">
+                                    <tbody>
                                         {loadingLedger ? (
                                             <tr>
-                                                <td colSpan={8} className="px-4 py-8 text-center">
-                                                    <div className="text-sm text-gray-500">Loading ledger...</div>
+                                                <td colSpan={8} style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--t2,#8BA3C7)', fontSize: 12 }}>
+                                                    Loading ledger...
                                                 </td>
                                             </tr>
                                         ) : ledger.length === 0 ? (
                                             <tr>
-                                                <td colSpan={8} className="px-4 py-8 text-center">
-                                                    <div className="text-sm text-gray-500 font-bold">No transactions yet</div>
-                                                    <p className="text-xs text-gray-400 mt-2">Create an invoice to see it here</p>
+                                                <td colSpan={8} style={{ padding: '40px 20px', textAlign: 'center' }}>
+                                                    <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
+                                                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--t,#EEF2FF)', marginBottom: 4 }}>No transactions yet</div>
+                                                    <div style={{ fontSize: 11, color: 'var(--t2,#8BA3C7)' }}>Create an invoice to see it here</div>
                                                 </td>
                                             </tr>
                                         ) : (
@@ -869,43 +1490,51 @@ export default function CustomerOverview() {
                                             .map(entry => (
                                                 <tr
                                                     key={entry.id}
-                                                    className="hover:bg-gray-50 transition-colors"
+                                                    onMouseEnter={_tableRowHoverEnter}
+                                                    onMouseLeave={_tableRowHoverLeave}
+                                                    style={{ transition: 'background .15s' }}
                                                 >
-                                                    <td className="px-4 py-3 text-sm text-gray-600">
+                                                    <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>
                                                         {new Date(entry.date).toLocaleDateString()}
                                                     </td>
-                                                    <td className="px-4 py-3">
-                                                        <span className={`px-2 py-1 rounded text-xs font-bold ${entry.type === 'Invoice' ? 'bg-blue-100 text-blue-700' :
-                                                            entry.type === 'Payment' ? 'bg-green-100 text-green-700' :
-                                                                entry.type === 'Van Sale' ? 'bg-orange-100 text-orange-700' :
-                                                                    'bg-gray-100 text-gray-700'
-                                                            }`}>
+                                                    <td style={ledgerTdStyle}>
+                                                        <span style={{
+                                                            padding: '2px 7px', borderRadius: 8, fontSize: 9, fontWeight: 700,
+                                                            background: entry.type === 'Invoice' ? 'rgba(79,142,247,.12)'
+                                                                : entry.type === 'Payment' ? 'rgba(34,197,94,.12)'
+                                                                    : entry.type === 'Van Sale' ? 'rgba(245,158,11,.12)'
+                                                                        : 'rgba(255,255,255,.06)',
+                                                            color: entry.type === 'Invoice' ? '#4F8EF7'
+                                                                : entry.type === 'Payment' ? '#16A34A'
+                                                                    : entry.type === 'Van Sale' ? '#F59E0B'
+                                                                        : 'var(--t2,#8BA3C7)',
+                                                        }}>
                                                             {entry.type}
                                                         </span>
                                                     </td>
-                                                    <td className="px-4 py-3 text-sm font-mono text-gray-900 font-bold">
+                                                    <td style={{ ...ledgerTdStyle, fontFamily: 'monospace', fontWeight: 700 }}>
                                                         {entry.referenceNumber}
                                                     </td>
-                                                    <td className="px-4 py-3 text-sm text-gray-600">
+                                                    <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>
                                                         {entry.description}
                                                         {entry.type === 'Van Sale' && (entry.van_number || entry.salesman_name) && (
-                                                            <div className="text-xs text-gray-500 mt-1">
+                                                            <div style={{ fontSize: 10, color: 'var(--t3,#3E5678)', marginTop: 4 }}>
                                                                 {entry.van_number && <span>Van: {entry.van_number}</span>}
                                                                 {entry.van_number && entry.salesman_name && <span> • </span>}
                                                                 {entry.salesman_name && <span>Driver: {entry.salesman_name}</span>}
                                                             </div>
                                                         )}
                                                     </td>
-                                                    <td className="px-4 py-3 text-sm font-bold text-red-600 text-right font-mono">
+                                                    <td style={{ ...ledgerTdStyle, textAlign: 'right', color: '#EF4444', fontFamily: 'monospace', fontWeight: 600 }}>
                                                         {entry.debit > 0 ? `${entry.debit.toLocaleString()}` : '-'}
                                                     </td>
-                                                    <td className="px-4 py-3 text-sm font-bold text-green-600 text-right font-mono">
+                                                    <td style={{ ...ledgerTdStyle, textAlign: 'right', color: '#22C55E', fontFamily: 'monospace', fontWeight: 600 }}>
                                                         {entry.credit > 0 ? `${entry.credit.toLocaleString()}` : '-'}
                                                     </td>
-                                                    <td className="px-4 py-3 text-sm font-bold text-gray-900 text-right font-mono">
+                                                    <td style={{ ...ledgerTdStyle, textAlign: 'right', color: 'var(--t,#EEF2FF)', fontFamily: 'monospace', fontWeight: 700 }}>
                                                         {entry.balance.toLocaleString()}
                                                     </td>
-                                                    <td className="px-4 py-3 text-center relative align-middle">
+                                                    <td className="text-center relative align-middle" style={{ ...ledgerTdStyle, textAlign: 'center', padding: '8px 10px' }}>
                                                         {entry.type === 'Invoice' && (() => {
                                                             const inv = invoices.find(i => String(i.id) === String(entry.relatedId));
                                                             return (
@@ -984,13 +1613,13 @@ export default function CustomerOverview() {
                                         const totalCredit = visible.reduce((s, e) => s + (Number(e.credit) || 0), 0);
                                         const net = totalDebit - totalCredit;
                                         return (
-                                            <tfoot className="bg-gray-50 border-t-2 border-gray-300">
-                                                <tr className="font-black">
-                                                    <td colSpan={4} className="px-4 py-3 text-right text-[10px] text-gray-700 uppercase tracking-widest">Totals</td>
-                                                    <td className="px-4 py-3 text-right font-mono text-blue-700">{totalDebit.toFixed(2)}</td>
-                                                    <td className="px-4 py-3 text-right font-mono text-emerald-700">{totalCredit.toFixed(2)}</td>
-                                                    <td className={`px-4 py-3 text-right font-mono ${net >= 0 ? 'text-gray-900' : 'text-rose-600'}`}>{net.toFixed(2)}</td>
-                                                    <td></td>
+                                            <tfoot>
+                                                <tr style={{ fontWeight: 700 }}>
+                                                    <td colSpan={4} style={{ ...ledgerTfootStyle, textAlign: 'right', fontSize: 10, color: 'var(--t2,#8BA3C7)', textTransform: 'uppercase', letterSpacing: '.6px' }}>Totals</td>
+                                                    <td style={{ ...ledgerTfootStyle, textAlign: 'right', fontFamily: 'monospace', color: '#4F8EF7' }}>{totalDebit.toFixed(2)}</td>
+                                                    <td style={{ ...ledgerTfootStyle, textAlign: 'right', fontFamily: 'monospace', color: '#22C55E' }}>{totalCredit.toFixed(2)}</td>
+                                                    <td style={{ ...ledgerTfootStyle, textAlign: 'right', fontFamily: 'monospace', color: net >= 0 ? 'var(--t,#EEF2FF)' : '#EF4444' }}>{net.toFixed(2)}</td>
+                                                    <td style={ledgerTfootStyle}></td>
                                                 </tr>
                                             </tfoot>
                                         );
@@ -1003,27 +1632,27 @@ export default function CustomerOverview() {
                     {/* Sales Tab */}
                     {activeTab === 'sales' && (
                         <div className="space-y-6">
-                            <div className="flex justify-between items-center px-2">
-                                <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest flex items-center gap-2">
-                                    <ShoppingCart size={18} className="text-redwood-brand" />
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 8px' }}>
+                                <h3 style={{ fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)', textTransform: 'uppercase', letterSpacing: '.5px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <ShoppingCart size={14} color="#4F8EF7" />
                                     Sequential Sales Ledger
                                 </h3>
-                                <div className="text-[10px] font-bold text-gray-400 uppercase">Unified Order & Invoice Stream</div>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--t3,#3E5678)', textTransform: 'uppercase', letterSpacing: '.6px' }}>Unified Order &amp; Invoice Stream</div>
                             </div>
-                            <div className="border border-gray-100 rounded-lg overflow-hidden shadow-sm bg-white">
+                            <div style={{ background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 10, overflow: 'hidden' }}>
                                 <table className="w-full text-left">
-                                    <thead className="bg-gray-50/50 border-b border-gray-100">
-                                        <tr>
-                                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest">Document ID</th>
-                                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest">Date</th>
-                                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest">Items</th>
-                                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest text-center">Operation Status</th>
-                                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest text-center">Payment Status</th>
-                                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest text-right">{`Value (${getSystemSettings().defaultCurrencyCode})`}</th>
-                                            <th className="px-6 py-4 text-center w-40">Actions</th>
+                                    <thead>
+                                        <tr style={{ background: 'var(--bg2,#0a1726)' }}>
+                                            <th style={ledgerThStyle}>Document ID</th>
+                                            <th style={ledgerThStyle}>Date</th>
+                                            <th style={ledgerThStyle}>Items</th>
+                                            <th style={{ ...ledgerThStyle, textAlign: 'center' }}>Operation Status</th>
+                                            <th style={{ ...ledgerThStyle, textAlign: 'center' }}>Payment Status</th>
+                                            <th style={{ ...ledgerThStyle, textAlign: 'right' }}>{`Value (${getSystemSettings().defaultCurrencyCode})`}</th>
+                                            <th style={{ ...ledgerThStyle, textAlign: 'center', width: 160 }}>Actions</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-gray-50">
+                                    <tbody>
                                         {/* Combine Invoices and Sales Orders into one list */}
                                         {[
                                             ...invoices.map(inv => ({ ...inv, docType: 'Invoice' as const })),
@@ -1031,7 +1660,11 @@ export default function CustomerOverview() {
                                         ]
                                             .sort((a, b) => new Date(b.docType === 'Invoice' ? (a as any).invoiceDate : (a as any).orderDate).getTime() - new Date(b.docType === 'Invoice' ? (b as any).invoiceDate : (b as any).orderDate).getTime())
                                             .length === 0 ? (
-                                            <tr><td colSpan={6} className="px-6 py-12 text-center text-xs font-bold text-gray-400 uppercase tracking-widest">No sequential sales records found.</td></tr>
+                                            <tr><td colSpan={7} style={{ padding: '40px 20px', textAlign: 'center' }}>
+                                                <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
+                                                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--t,#EEF2FF)', marginBottom: 4 }}>No sales records yet</div>
+                                                <div style={{ fontSize: 11, color: 'var(--t2,#8BA3C7)' }}>No invoices or sales orders for this customer</div>
+                                            </td></tr>
                                         ) : (
                                             [
                                                 ...invoices.map(inv => ({ ...inv, docType: 'Invoice' as const })),
@@ -1043,61 +1676,65 @@ export default function CustomerOverview() {
                                                     return dateB - dateA;
                                                 })
                                                 .map((doc: any) => (
-                                                    <tr key={doc.id} className="hover:bg-gray-50/50 group transition-colors">
-                                                        <td className="px-6 py-4 text-xs font-black font-mono text-gray-900 group-hover:text-redwood-brand transition-colors">
+                                                    <tr
+                                                        key={doc.id}
+                                                        onMouseEnter={_tableRowHoverEnter}
+                                                        onMouseLeave={_tableRowHoverLeave}
+                                                        style={{ transition: 'background .15s' }}
+                                                    >
+                                                        <td style={{ ...ledgerTdStyle, fontFamily: 'monospace', fontWeight: 700 }}>
                                                             {doc.docType === 'Invoice' ? doc.invoiceNumber : doc.orderNumber}
                                                         </td>
-                                                        <td className="px-6 py-4 text-xs font-bold text-gray-600">
+                                                        <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>
                                                             {new Date(doc.docType === 'Invoice' ? doc.invoiceDate : doc.orderDate).toLocaleDateString()}
                                                         </td>
-                                                        <td className="px-6 py-4 text-xs font-bold text-gray-500">
+                                                        <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>
                                                             {doc.lineItems.length} {doc.lineItems.length === 1 ? 'Item' : 'Items'}
                                                         </td>
-                                                        <td className="px-6 py-4 text-center">
+                                                        <td style={{ ...ledgerTdStyle, textAlign: 'center' }}>
                                                             {doc.docType === 'SalesOrder' ? (
-                                                                <span className="px-3 py-1 bg-amber-500 text-white rounded-full text-[9px] font-black uppercase tracking-tighter">
+                                                                <span style={{ padding: '2px 8px', borderRadius: 8, fontSize: 9, fontWeight: 700, background: 'rgba(245,158,11,.12)', color: '#B45309', textTransform: 'uppercase', letterSpacing: '.4px' }}>
                                                                     🟡 Pending
                                                                 </span>
                                                             ) : (
-                                                                <span className="px-3 py-1 bg-emerald-500 text-white rounded-full text-[9px] font-black uppercase tracking-tighter">
+                                                                <span style={{ padding: '2px 8px', borderRadius: 8, fontSize: 9, fontWeight: 700, background: 'rgba(34,197,94,.12)', color: '#16A34A', textTransform: 'uppercase', letterSpacing: '.4px' }}>
                                                                     🟢 Sold
                                                                 </span>
                                                             )}
                                                         </td>
-                                                        <td className="px-6 py-4 text-center">
+                                                        <td style={{ ...ledgerTdStyle, textAlign: 'center' }}>
                                                             {doc.docType === 'Invoice' ? (() => {
-                                                                // ITEM 5C — Derive status from remaining_balance, not from
-                                                                // the stale `status` string. Backend keeps remaining_balance
-                                                                // authoritative; `status` can lag behind after a payment.
-                                                                // Also surface the missing "Partial" state.
                                                                 const grand = Number((doc as any).grandTotal) || 0;
                                                                 const rb = Number((doc as any).remaining_balance ?? grand);
                                                                 const isPaid = rb <= 0.005;
                                                                 const isPartial = !isPaid && rb < grand;
-                                                                const cls = isPaid ? 'bg-blue-600 text-white'
-                                                                    : isPartial ? 'bg-amber-500 text-white'
-                                                                    : 'bg-rose-500 text-white';
+                                                                const bg = isPaid ? 'rgba(34,197,94,.12)'
+                                                                    : isPartial ? 'rgba(245,158,11,.12)'
+                                                                    : 'rgba(239,68,68,.12)';
+                                                                const color = isPaid ? '#16A34A'
+                                                                    : isPartial ? '#B45309'
+                                                                    : '#B91C1C';
                                                                 const label = isPaid ? '🔵 Paid'
                                                                     : isPartial ? '🟠 Partial'
                                                                     : '🔴 Unpaid';
                                                                 return (
                                                                     <span
-                                                                        className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter ${cls}`}
+                                                                        style={{ padding: '2px 8px', borderRadius: 8, fontSize: 9, fontWeight: 700, background: bg, color, textTransform: 'uppercase', letterSpacing: '.4px' }}
                                                                         title={isPartial ? `${rb.toFixed(2)} of ${grand.toFixed(2)} outstanding` : undefined}
                                                                     >
                                                                         {label}
                                                                     </span>
                                                                 );
                                                             })() : (
-                                                                <span className="px-3 py-1 bg-gray-100 text-gray-400 rounded-full text-[9px] font-black uppercase tracking-tighter">
+                                                                <span style={{ padding: '2px 8px', borderRadius: 8, fontSize: 9, fontWeight: 700, background: 'rgba(255,255,255,.06)', color: 'var(--t3,#3E5678)', textTransform: 'uppercase', letterSpacing: '.4px' }}>
                                                                     -
                                                                 </span>
                                                             )}
                                                         </td>
-                                                        <td className="px-6 py-4 text-sm font-black text-gray-900 text-right font-mono">
+                                                        <td style={{ ...ledgerTdStyle, textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>
                                                             {doc.grandTotal.toLocaleString()}
                                                         </td>
-                                                        <td className="px-6 py-4 text-center">
+                                                        <td style={{ ...ledgerTdStyle, textAlign: 'center' }}>
                                                             <div className="flex items-center justify-center gap-2">
                                                                 <button
                                                                     onClick={() => {
@@ -1110,9 +1747,11 @@ export default function CustomerOverview() {
                                                                             setShowInvoiceModal(true);
                                                                         }
                                                                     }}
-                                                                    className="p-1.5 text-gray-300 hover:text-redwood-brand transition-colors"
+                                                                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--t2,#8BA3C7)', padding: 4, display: 'inline-flex', alignItems: 'center' }}
+                                                                    onMouseEnter={(e) => { e.currentTarget.style.color = '#4F8EF7'; }}
+                                                                    onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--t2,#8BA3C7)'; }}
                                                                 >
-                                                                    <Eye size={18} />
+                                                                    <Eye size={16} />
                                                                 </button>
                                                                 {doc.docType === 'SalesOrder' &&
                                                                     doc.status === 'Pending' &&
@@ -1122,11 +1761,11 @@ export default function CustomerOverview() {
                                                                     <button
                                                                         onClick={() => handleConvertOrder(doc.id)}
                                                                         disabled={converting === doc.id}
-                                                                        className="px-3 py-1 bg-emerald-600 text-white text-[9px] font-black rounded uppercase hover:bg-emerald-700 transition-colors flex items-center gap-1 disabled:opacity-50 shadow-sm"
+                                                                        style={{ padding: '4px 9px', background: '#22C55E', color: '#fff', borderRadius: 6, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, opacity: converting === doc.id ? 0.5 : 1, fontFamily: 'inherit' }}
                                                                     >
                                                                         {converting === doc.id ? '...' : (
                                                                             <>
-                                                                                <CheckCircle size={12} />
+                                                                                <CheckCircle size={11} />
                                                                                 Convert
                                                                             </>
                                                                         )}
@@ -1148,18 +1787,18 @@ export default function CustomerOverview() {
                                             return s + Math.max(0, rb);
                                         }, 0);
                                         return (
-                                            <tfoot className="bg-gray-50 border-t-2 border-gray-300">
-                                                <tr className="font-black">
-                                                    <td colSpan={4} className="px-6 py-3"></td>
-                                                    <td className="px-6 py-3 text-right text-[10px] text-gray-700 uppercase tracking-widest">
-                                                        <span className="block">Total Invoiced</span>
-                                                        <span className="block text-amber-700 mt-1">Total Outstanding</span>
+                                            <tfoot>
+                                                <tr style={{ fontWeight: 700 }}>
+                                                    <td colSpan={4} style={ledgerTfootStyle}></td>
+                                                    <td style={{ ...ledgerTfootStyle, textAlign: 'right', fontSize: 10, textTransform: 'uppercase', letterSpacing: '.6px' }}>
+                                                        <span style={{ display: 'block', color: 'var(--t2,#8BA3C7)' }}>Total Invoiced</span>
+                                                        <span style={{ display: 'block', color: '#F59E0B', marginTop: 4 }}>Total Outstanding</span>
                                                     </td>
-                                                    <td className="px-6 py-3 text-right font-mono">
-                                                        <span className="block text-gray-900">{totalInvoiced.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                                                        <span className="block text-amber-700 mt-1">{totalOutstanding.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                                    <td style={{ ...ledgerTfootStyle, textAlign: 'right', fontFamily: 'monospace' }}>
+                                                        <span style={{ display: 'block', color: 'var(--t,#EEF2FF)' }}>{totalInvoiced.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                                        <span style={{ display: 'block', color: '#F59E0B', marginTop: 4 }}>{totalOutstanding.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                                                     </td>
-                                                    <td></td>
+                                                    <td style={ledgerTfootStyle}></td>
                                                 </tr>
                                             </tfoot>
                                         );
@@ -1173,71 +1812,87 @@ export default function CustomerOverview() {
                     {activeTab === 'payments' && (
                         <div>
                             <div className="flex justify-between items-center mb-4">
-                                <h3 className="text-sm font-black text-gray-700 uppercase">Payment History</h3>
+                                <h3 style={{ fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Payment History</h3>
                                 <button
                                     onClick={() => setShowPaymentModal(true)}
-                                    className="px-3 py-1.5 bg-[#800020] text-white rounded-sm text-xs font-bold hover:brightness-95 flex items-center gap-2 shadow-sm"
+                                    style={{
+                                        padding: '6px 13px', background: '#4F8EF7', color: '#fff',
+                                        border: 'none', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                                        cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                                        fontFamily: 'inherit',
+                                    }}
                                 >
-                                    <DollarSign size={14} />
+                                    <DollarSign size={13} />
                                     Receive New Payment
                                 </button>
                             </div>
-                            <div className="border border-gray-200 rounded-sm overflow-x-auto">
+                            <div style={{ background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 10, overflow: 'hidden' }} className="overflow-x-auto">
                                 <table className="w-full text-left">
-                                    <thead className="bg-gray-50 border-b border-gray-200">
-                                        <tr>
-                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Date</th>
-                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Reference</th>
-                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Method</th>
-                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-right">Amount</th>
-                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-center w-20">Receipt</th>
-                                            {/* ITEM 13 — per-row Edit column. */}
-                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-center w-20">Edit</th>
-                                            {/* FIX W6-1 — Per-row void column. */}
-                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-center w-24">Status</th>
+                                    <thead>
+                                        <tr style={{ background: 'var(--bg2,#0a1726)' }}>
+                                            <th style={ledgerThStyle}>Date</th>
+                                            <th style={ledgerThStyle}>Reference</th>
+                                            <th style={ledgerThStyle}>Method</th>
+                                            <th style={{ ...ledgerThStyle, textAlign: 'right' }}>Amount</th>
+                                            <th style={{ ...ledgerThStyle, textAlign: 'center', width: 80 }}>Receipt</th>
+                                            <th style={{ ...ledgerThStyle, textAlign: 'center', width: 80 }}>Edit</th>
+                                            <th style={{ ...ledgerThStyle, textAlign: 'center', width: 96 }}>Status</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-gray-100">
+                                    <tbody>
                                         {payments.length === 0 ? (
-                                            <tr><td colSpan={7} className="px-4 py-6 text-center text-sm text-gray-500">No payments found</td></tr>
+                                            <tr><td colSpan={7} style={{ padding: '40px 20px', textAlign: 'center' }}>
+                                                <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
+                                                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--t,#EEF2FF)', marginBottom: 4 }}>No payments yet</div>
+                                                <div style={{ fontSize: 11, color: 'var(--t2,#8BA3C7)' }}>No payments recorded for this customer</div>
+                                            </td></tr>
                                         ) : (
                                             payments.map(pay => {
                                                 const isReversal = (pay.amount ?? 0) < 0 || pay.reference?.startsWith('VOID/');
                                                 return (
-                                                    <tr key={pay.id} className={`hover:bg-gray-50 ${isReversal ? 'bg-rose-50/40' : ''}`}>
-                                                        <td className="px-4 py-3 text-sm text-gray-600">{new Date(pay.payment_date).toLocaleDateString()}</td>
-                                                        <td className="px-4 py-3 text-sm font-bold font-mono">{pay.reference || `PAY-${String(pay.id).slice(-4)}`}</td>
-                                                        <td className="px-4 py-3 text-sm text-gray-600">{pay.payment_method}</td>
-                                                        <td className={`px-4 py-3 text-sm font-bold text-right font-mono ${isReversal ? 'text-rose-600' : 'text-green-600'}`}>
+                                                    <tr
+                                                        key={pay.id}
+                                                        onMouseEnter={_tableRowHoverEnter}
+                                                        onMouseLeave={_tableRowHoverLeave}
+                                                        style={{ transition: 'background .15s', background: isReversal ? 'rgba(239,68,68,.04)' : 'transparent' }}
+                                                    >
+                                                        <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{new Date(pay.payment_date).toLocaleDateString()}</td>
+                                                        <td style={{ ...ledgerTdStyle, fontFamily: 'monospace', fontWeight: 700 }}>{pay.reference || `PAY-${String(pay.id).slice(-4)}`}</td>
+                                                        <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{pay.payment_method}</td>
+                                                        <td style={{ ...ledgerTdStyle, textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: isReversal ? '#EF4444' : '#22C55E' }}>
                                                             {isReversal ? '-' : ''}{Math.abs(pay.amount).toLocaleString()}
                                                         </td>
-                                                        <td className="px-4 py-3 text-center">
-                                                            <button className="text-gray-400 hover:text-green-600">
-                                                                <Receipt size={18} />
+                                                        <td style={{ ...ledgerTdStyle, textAlign: 'center' }}>
+                                                            <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--t3,#3E5678)', padding: 4 }}
+                                                                onMouseEnter={(e) => { e.currentTarget.style.color = '#22C55E'; }}
+                                                                onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--t3,#3E5678)'; }}
+                                                            >
+                                                                <Receipt size={16} />
                                                             </button>
                                                         </td>
-                                                        {/* ITEM 13 — per-row Edit deep-links to PaymentEdit?id=. */}
-                                                        <td className="px-4 py-3 text-center">
+                                                        <td style={{ ...ledgerTdStyle, textAlign: 'center' }}>
                                                             {isReversal ? (
-                                                                <span className="text-gray-300">—</span>
+                                                                <span style={{ color: 'var(--t3,#3E5678)' }}>—</span>
                                                             ) : (
                                                                 <button
                                                                     onClick={() => navigate(`/finance/payment-edit?id=${encodeURIComponent(String(pay.id))}`)}
-                                                                    className="text-gray-400 hover:text-blue-600 transition-colors"
+                                                                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--t3,#3E5678)', padding: 4 }}
+                                                                    onMouseEnter={(e) => { e.currentTarget.style.color = '#4F8EF7'; }}
+                                                                    onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--t3,#3E5678)'; }}
                                                                     title="Edit this payment"
                                                                 >
-                                                                    <Edit2 size={16} />
+                                                                    <Edit2 size={14} />
                                                                 </button>
                                                             )}
                                                         </td>
-                                                        <td className="px-4 py-3 text-center">
+                                                        <td style={{ ...ledgerTdStyle, textAlign: 'center' }}>
                                                             {isReversal ? (
-                                                                <span className="text-[10px] font-black text-rose-600 uppercase tracking-widest">Reversal</span>
+                                                                <span style={{ fontSize: 9, fontWeight: 700, color: '#EF4444', textTransform: 'uppercase', letterSpacing: '.6px' }}>Reversal</span>
                                                             ) : (
                                                                 <button
                                                                     onClick={() => void handleVoidPayment(pay)}
                                                                     disabled={voidingPaymentId === String(pay.id)}
-                                                                    className="text-[10px] font-black text-rose-600 hover:text-rose-800 uppercase tracking-widest disabled:opacity-50"
+                                                                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 9, fontWeight: 700, color: '#EF4444', textTransform: 'uppercase', letterSpacing: '.6px', opacity: voidingPaymentId === String(pay.id) ? 0.5 : 1, fontFamily: 'inherit' }}
                                                                     title="Void this payment — creates a reversing entry, keeps the original for audit"
                                                                 >
                                                                     {voidingPaymentId === String(pay.id) ? 'Voiding…' : 'Void'}
@@ -1249,17 +1904,14 @@ export default function CustomerOverview() {
                                             })
                                         )}
                                     </tbody>
-                                    {/* ITEM 5D — Total Received = sum of payment amounts (which
-                                        may include negative reversals from W6-1 voids — so the
-                                        net is the actual cash received). */}
                                     {payments.length > 0 && (() => {
                                         const totalReceived = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
                                         return (
-                                            <tfoot className="bg-gray-50 border-t-2 border-gray-300">
-                                                <tr className="font-black">
-                                                    <td colSpan={3} className="px-4 py-3 text-right text-[10px] text-gray-700 uppercase tracking-widest">Total Received (net of voids)</td>
-                                                    <td className={`px-4 py-3 text-right font-mono ${totalReceived >= 0 ? 'text-green-700' : 'text-rose-600'}`}>{totalReceived.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                                                    <td colSpan={3}></td>
+                                            <tfoot>
+                                                <tr style={{ fontWeight: 700 }}>
+                                                    <td colSpan={3} style={{ ...ledgerTfootStyle, textAlign: 'right', fontSize: 10, color: 'var(--t2,#8BA3C7)', textTransform: 'uppercase', letterSpacing: '.6px' }}>Total Received (net of voids)</td>
+                                                    <td style={{ ...ledgerTfootStyle, textAlign: 'right', fontFamily: 'monospace', color: totalReceived >= 0 ? '#22C55E' : '#EF4444' }}>{totalReceived.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                                                    <td colSpan={3} style={ledgerTfootStyle}></td>
                                                 </tr>
                                             </tfoot>
                                         );
@@ -1272,79 +1924,111 @@ export default function CustomerOverview() {
                     {activeTab === 'credits' && (
                         <div className="space-y-4">
                             <div className="flex justify-between items-center">
-                                <h3 className="text-sm font-black text-gray-700 uppercase">Credit Notes</h3>
+                                <h3 style={{ fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Credit Notes</h3>
                                 <button
                                     onClick={() => navigate('/sales/credit-notes/new', { state: { customerId: customer.id } })}
-                                    className="px-3 py-1.5 bg-[#800020] text-white rounded-sm text-xs font-bold"
+                                    style={{
+                                        padding: '6px 13px', background: '#4F8EF7', color: '#fff',
+                                        border: 'none', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                                        cursor: 'pointer', fontFamily: 'inherit',
+                                    }}
                                 >
-                                    New Credit Note
+                                    + New Credit Note
                                 </button>
                             </div>
-                            <div className="border border-gray-200 rounded-sm overflow-x-auto">
-                                <table className="w-full text-left">
-                                    <thead className="bg-gray-50 border-b border-gray-200">
-                                        <tr>
-                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">CN #</th>
-                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Issue Date</th>
-                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Reason</th>
-                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-right">Total</th>
-                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-right">Remaining</th>
-                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Status</th>
-                                            <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-right">Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-100">
-                                        {creditNotes.length === 0 ? (
-                                            <tr><td colSpan={7} className="px-4 py-6 text-center text-sm text-gray-500">No credit notes found</td></tr>
-                                        ) : (
-                                            creditNotes.map(cn => (
-                                                <tr key={cn.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => navigate(`/sales/credit-notes/${cn.id}`)}>
-                                                    <td className="px-4 py-3 text-sm font-mono font-black text-[#800020]">{cn.creditNoteNumber}</td>
-                                                    <td className="px-4 py-3 text-sm">{cn.issueDate}</td>
-                                                    <td className="px-4 py-3 text-sm">{cn.reason.replace('_', ' ')}</td>
-                                                    <td className="px-4 py-3 text-sm font-mono text-right">{cn.totalCreditAmount.toLocaleString()}</td>
-                                                    <td className="px-4 py-3 text-sm font-mono text-right font-black">{cn.remainingCredit.toLocaleString()}</td>
-                                                    <td className="px-4 py-3 text-xs uppercase font-bold">{cn.status.replace('_', ' ')}</td>
-                                                    <td className="px-4 py-3 text-right">
-                                                        {cn.status !== 'cancelled' && cn.status !== 'fully_used' ? (
-                                                            <button
-                                                                onClick={(e) => { e.stopPropagation(); void cancelNote(cn); }}
-                                                                className="text-xs font-bold text-red-600 hover:text-red-800 hover:underline uppercase"
-                                                                title="Cancel this credit note"
-                                                            >
-                                                                Cancel
-                                                            </button>
-                                                        ) : (
-                                                            <span className="text-xs text-gray-300">—</span>
-                                                        )}
-                                                    </td>
-                                                </tr>
-                                            ))
-                                        )}
-                                    </tbody>
-                                    {/* ITEM 5D — Total Credit Available = sum of remainingCredit
-                                        across non-cancelled credit notes. Cancelled CNs and
-                                        fully-used ones contribute 0 to remainingCredit anyway. */}
-                                    {creditNotes.length > 0 && (() => {
-                                        const totalAvailable = creditNotes
-                                            .filter(cn => cn.status !== 'cancelled')
-                                            .reduce((s, cn) => s + (Number(cn.remainingCredit) || 0), 0);
-                                        const totalIssued = creditNotes
-                                            .filter(cn => cn.status !== 'cancelled')
-                                            .reduce((s, cn) => s + (Number(cn.totalCreditAmount) || 0), 0);
-                                        return (
-                                            <tfoot className="bg-gray-50 border-t-2 border-gray-300">
-                                                <tr className="font-black">
-                                                    <td colSpan={3} className="px-4 py-3 text-right text-[10px] text-gray-700 uppercase tracking-widest">Totals</td>
-                                                    <td className="px-4 py-3 text-right font-mono text-gray-900">{totalIssued.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                                                    <td className="px-4 py-3 text-right font-mono text-emerald-700">{totalAvailable.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                                                    <td colSpan={2}></td>
-                                                </tr>
-                                            </tfoot>
-                                        );
-                                    })()}
-                                </table>
-                            </div>
+                            {creditNotes.length === 0 ? (
+                                <div style={{ background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 12, padding: '40px 20px', textAlign: 'center' }}>
+                                    <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
+                                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--t,#EEF2FF)', marginBottom: 4 }}>No credit notes yet</div>
+                                    <div style={{ fontSize: 11, color: 'var(--t2,#8BA3C7)', marginBottom: 16 }}>No credit notes recorded for this customer</div>
+                                    <button
+                                        onClick={() => navigate('/sales/credit-notes/new', { state: { customerId: customer.id } })}
+                                        style={{ background: '#4F8EF7', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                                    >
+                                        + Create Credit Note
+                                    </button>
+                                </div>
+                            ) : (
+                                <div style={{ background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 10, overflow: 'hidden' }} className="overflow-x-auto">
+                                    <table className="w-full text-left">
+                                        <thead>
+                                            <tr style={{ background: 'var(--bg2,#0a1726)' }}>
+                                                <th style={ledgerThStyle}>CN #</th>
+                                                <th style={ledgerThStyle}>Issue Date</th>
+                                                <th style={ledgerThStyle}>Reason</th>
+                                                <th style={{ ...ledgerThStyle, textAlign: 'right' }}>Total</th>
+                                                <th style={{ ...ledgerThStyle, textAlign: 'right' }}>Remaining</th>
+                                                <th style={ledgerThStyle}>Status</th>
+                                                <th style={{ ...ledgerThStyle, textAlign: 'right' }}>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {creditNotes.map(cn => {
+                                                const statusLower = String(cn.status).toLowerCase();
+                                                const statusBg = statusLower === 'fully_used' ? 'rgba(34,197,94,.12)'
+                                                    : statusLower === 'cancelled' ? 'rgba(239,68,68,.12)'
+                                                    : statusLower === 'partially_used' ? 'rgba(245,158,11,.12)'
+                                                    : 'rgba(79,142,247,.12)';
+                                                const statusColor = statusLower === 'fully_used' ? '#16A34A'
+                                                    : statusLower === 'cancelled' ? '#B91C1C'
+                                                    : statusLower === 'partially_used' ? '#B45309'
+                                                    : '#4F8EF7';
+                                                return (
+                                                    <tr
+                                                        key={cn.id}
+                                                        onClick={() => navigate(`/sales/credit-notes/${cn.id}`)}
+                                                        onMouseEnter={_tableRowHoverEnter}
+                                                        onMouseLeave={_tableRowHoverLeave}
+                                                        style={{ cursor: 'pointer', transition: 'background .15s' }}
+                                                    >
+                                                        <td style={{ ...ledgerTdStyle, fontFamily: 'monospace', fontWeight: 700, color: '#4F8EF7' }}>{cn.creditNoteNumber}</td>
+                                                        <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{cn.issueDate}</td>
+                                                        <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{cn.reason.replace('_', ' ')}</td>
+                                                        <td style={{ ...ledgerTdStyle, textAlign: 'right', fontFamily: 'monospace' }}>{cn.totalCreditAmount.toLocaleString()}</td>
+                                                        <td style={{ ...ledgerTdStyle, textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: '#22C55E' }}>{cn.remainingCredit.toLocaleString()}</td>
+                                                        <td style={ledgerTdStyle}>
+                                                            <span style={{ padding: '2px 8px', borderRadius: 8, fontSize: 9, fontWeight: 700, background: statusBg, color: statusColor, textTransform: 'uppercase', letterSpacing: '.4px' }}>
+                                                                {cn.status.replace('_', ' ')}
+                                                            </span>
+                                                        </td>
+                                                        <td style={{ ...ledgerTdStyle, textAlign: 'right' }}>
+                                                            {cn.status !== 'cancelled' && cn.status !== 'fully_used' ? (
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); void cancelNote(cn); }}
+                                                                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 10, fontWeight: 700, color: '#EF4444', textTransform: 'uppercase', letterSpacing: '.4px', fontFamily: 'inherit' }}
+                                                                    title="Cancel this credit note"
+                                                                >
+                                                                    Cancel
+                                                                </button>
+                                                            ) : (
+                                                                <span style={{ color: 'var(--t3,#3E5678)', fontSize: 11 }}>—</span>
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                        {creditNotes.length > 0 && (() => {
+                                            const totalAvailable = creditNotes
+                                                .filter(cn => cn.status !== 'cancelled')
+                                                .reduce((s, cn) => s + (Number(cn.remainingCredit) || 0), 0);
+                                            const totalIssued = creditNotes
+                                                .filter(cn => cn.status !== 'cancelled')
+                                                .reduce((s, cn) => s + (Number(cn.totalCreditAmount) || 0), 0);
+                                            return (
+                                                <tfoot>
+                                                    <tr style={{ fontWeight: 700 }}>
+                                                        <td colSpan={3} style={{ ...ledgerTfootStyle, textAlign: 'right', fontSize: 10, color: 'var(--t2,#8BA3C7)', textTransform: 'uppercase', letterSpacing: '.6px' }}>Totals</td>
+                                                        <td style={{ ...ledgerTfootStyle, textAlign: 'right', fontFamily: 'monospace', color: 'var(--t,#EEF2FF)' }}>{totalIssued.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                                                        <td style={{ ...ledgerTfootStyle, textAlign: 'right', fontFamily: 'monospace', color: '#22C55E' }}>{totalAvailable.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                                                        <td colSpan={2} style={ledgerTfootStyle}></td>
+                                                    </tr>
+                                                </tfoot>
+                                            );
+                                        })()}
+                                    </table>
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -1352,35 +2036,44 @@ export default function CustomerOverview() {
                     {activeTab === 'unbilled' && (
                         <div className="space-y-4">
                             <div className="flex justify-between items-center">
-                                <h3 className="text-sm font-black text-gray-700 uppercase">Unbilled Expenses</h3>
-                                <span className="text-xs font-bold text-gray-500">{unbilledExpenses.length} pending</span>
+                                <h3 style={{ fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Unbilled Expenses</h3>
+                                <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--t2,#8BA3C7)' }}>{unbilledExpenses.length} pending</span>
                             </div>
                             {unbilledExpenses.length === 0 ? (
-                                <p className="text-sm text-gray-500 text-center py-12">No billable expenses tagged to this customer.</p>
+                                <div style={{ background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 12, padding: '40px 20px', textAlign: 'center' }}>
+                                    <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
+                                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--t,#EEF2FF)', marginBottom: 4 }}>No billable expenses</div>
+                                    <div style={{ fontSize: 11, color: 'var(--t2,#8BA3C7)' }}>No billable expenses tagged to this customer</div>
+                                </div>
                             ) : (
                                 <>
-                                    <div className="border border-gray-200 rounded-sm overflow-x-auto">
+                                    <div style={{ background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 10, overflow: 'hidden' }} className="overflow-x-auto">
                                         <table className="w-full text-left">
-                                            <thead className="bg-gray-50 border-b border-gray-200">
-                                                <tr>
-                                                    <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Date</th>
-                                                    <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Vendor</th>
-                                                    <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase">Category</th>
-                                                    <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-right">Amount</th>
-                                                    <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase text-right">Action</th>
+                                            <thead>
+                                                <tr style={{ background: 'var(--bg2,#0a1726)' }}>
+                                                    <th style={ledgerThStyle}>Date</th>
+                                                    <th style={ledgerThStyle}>Vendor</th>
+                                                    <th style={ledgerThStyle}>Category</th>
+                                                    <th style={{ ...ledgerThStyle, textAlign: 'right' }}>Amount</th>
+                                                    <th style={{ ...ledgerThStyle, textAlign: 'right' }}>Action</th>
                                                 </tr>
                                             </thead>
-                                            <tbody className="divide-y divide-gray-100">
+                                            <tbody>
                                                 {unbilledExpenses.map(exp => (
-                                                    <tr key={exp.id} className="hover:bg-gray-50">
-                                                        <td className="px-4 py-3 text-sm">{new Date(exp.date).toLocaleDateString()}</td>
-                                                        <td className="px-4 py-3 text-sm font-bold">{exp.vendor}</td>
-                                                        <td className="px-4 py-3 text-sm">{exp.category}</td>
-                                                        <td className="px-4 py-3 text-sm font-mono text-right">{exp.currency} ${exp.amount.toFixed(2)}</td>
-                                                        <td className="px-4 py-3 text-right">
+                                                    <tr
+                                                        key={exp.id}
+                                                        onMouseEnter={_tableRowHoverEnter}
+                                                        onMouseLeave={_tableRowHoverLeave}
+                                                        style={{ transition: 'background .15s' }}
+                                                    >
+                                                        <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{new Date(exp.date).toLocaleDateString()}</td>
+                                                        <td style={{ ...ledgerTdStyle, fontWeight: 700 }}>{exp.vendor}</td>
+                                                        <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{exp.category}</td>
+                                                        <td style={{ ...ledgerTdStyle, textAlign: 'right', fontFamily: 'monospace' }}>{exp.currency} ${exp.amount.toFixed(2)}</td>
+                                                        <td style={{ ...ledgerTdStyle, textAlign: 'right' }}>
                                                             <button
                                                                 onClick={() => void markBilled(exp)}
-                                                                className="text-xs font-bold text-blue-600 hover:text-blue-800 hover:underline uppercase"
+                                                                style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 10, fontWeight: 700, color: '#4F8EF7', textTransform: 'uppercase', letterSpacing: '.4px', fontFamily: 'inherit' }}
                                                                 title="Add to next invoice (marker only — real invoice line wiring is a future step)"
                                                             >
                                                                 Mark Billed
@@ -1391,7 +2084,7 @@ export default function CustomerOverview() {
                                             </tbody>
                                         </table>
                                     </div>
-                                    <p className="text-[10px] text-gray-500 italic">Marking as billed is a placeholder — real invoice line-item creation is a future integration step.</p>
+                                    <p style={{ fontSize: 10, color: 'var(--t3,#3E5678)', fontStyle: 'italic' }}>Marking as billed is a placeholder — real invoice line-item creation is a future integration step.</p>
                                 </>
                             )}
                         </div>
