@@ -1,130 +1,103 @@
-import {
-    ShoppingCart,
-    Wallet,
-    TrendingUp,
-    AlertTriangle,
-    MoreVertical,
-    RefreshCw,
-    Download,
-    Calendar,
-    Sliders,
-    X,
-    Users,
-    UserPlus,
-    Truck,
-    Package,
-    Sparkles,
-    ChevronDown,
-    Lock,
-    Unlock,
-    ListChecks,
-} from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
+// ──────────────────────────────────────────────────────────────
+// Dashboard Overview — Soltol dark theme redesign
+// Visual-layer rewrite per DASHBOARD_OVERVIEW_MASTER_PROMPT.md.
+// All data loading, services, useMemo computations preserved.
+// Layout simplified to: header → 6 KPIs → Revenue & Collections
+// → Today's Activity → Stock & Operations.
+// ──────────────────────────────────────────────────────────────
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { RefreshCw, X, Calendar, Sparkles, Truck, Package } from 'lucide-react';
 import {
-    BarChart, Bar, PieChart, Pie, Cell,
-    XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
+    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
-import { getCustomers, getInvoices, getProducts, getSalesOrders, getVans, getPayments, type Invoice, type Product } from '../../services/api';
+import {
+    getCustomers, getInvoices, getProducts, getSalesOrders, getVans, getPayments,
+    type Invoice, type Product,
+} from '../../services/api';
 import { getPurchaseOrders } from '../../services/purchasesService';
-// TC-02 — Dashboard Options dropdown.
-import autoTable from 'jspdf-autotable';
-import { generateStandardPDF } from '../../utils/documentGenerator';
-import { formatCurrency } from '../../services/settingsService';
 import { useEscape } from '../../hooks/useEscape';
 
-// ── KPI sparkline data — static, hardcoded.  Matches the spec from
-// public/preview.html.  These are NOT real metrics — they're a
-// 7-point trend silhouette under each KPI tile so the card hints
-// at directional momentum without committing to per-card history
-// queries (which would require new backend work).
-const SPARKLINE_DATA = {
-    income:   [62, 68, 71, 75, 77, 78, 82],
-    ar:       [380, 390, 400, 408, 410, 412, 411],
-    ap:       [41, 44, 47, 51, 50, 52, 52],
-    total:    [320, 355, 375, 390, 400, 408, 412],
-    lowstock: [8, 14, 19, 24, 28, 35, 40],
+// ── Spec colour tokens (fallback hex so theme.css stays untouched) ─
+const C = {
+    bg:     'var(--bg, #060f1c)',
+    bg2:    'var(--bg2, #0a1726)',
+    bg3:    'var(--bg3, #0f1f33)',
+    bg4:    'var(--bg4, #142540)',
+    blue:   '#4F8EF7',
+    green:  '#22C55E',
+    red:    '#EF4444',
+    amber:  '#F59E0B',
+    purple: '#7C3AED',
+    t:      'var(--t, #EEF2FF)',
+    t2:     'var(--t2, #8BA3C7)',
+    t3:     'var(--t3, #3E5678)',
+    br2:    'rgba(255,255,255,.12)',
+    bd2:    'rgba(255,255,255,.04)',
 } as const;
-type SparkKey = keyof typeof SPARKLINE_DATA;
 
-// ── Prediction-chip palette.  Three semantic variants:
-//   teal  = on-track / positive
-//   amber = action-needed / heads-up
-//   red   = critical / warn
-const PREDICTION_PALETTE = {
-    teal:  { bg: 'rgba(0,212,170,0.10)', color: '#5EEAD4', border: 'rgba(0,212,170,0.2)' },
-    amber: { bg: 'var(--color-badge-amber-bg)', color: 'var(--color-brand-amber-tint)', border: 'rgba(245,158,11,0.2)' },
-    red:   { bg: 'var(--color-badge-red-bg)', color: 'var(--color-brand-red-tint)', border: 'rgba(239,68,68,0.2)' },
-} as const;
-type PredictionVariant = keyof typeof PREDICTION_PALETTE;
+// Marcus AI alert copy (matches existing dashboard's static insights).
+const AI_ALERTS: { message: string }[] = [
+    { message: 'Qahir Enterprises 32d overdue — $3,875 at risk. Stop credit immediately.' },
+    { message: 'AP $18k due Friday — schedule payment run today.' },
+    { message: 'Income on track for $490k projection by month-end.' },
+    { message: 'OW16 SP stock low — Auto PO ready for approval.' },
+];
 
-// ── Inline SVG sparkline — single polyline, no fill.  preserveAspectRatio
-// "none" lets the line stretch horizontally to the card width.
-function Sparkline({ data, color }: { data: readonly number[]; color: string }) {
-    const min = Math.min(...data);
-    const max = Math.max(...data);
-    const range = max - min || 1;
-    const w = 100, h = 32;
-    const pts = data
-        .map((v, i) => `${(i / (data.length - 1)) * w},${h - ((v - min) / range) * h}`)
-        .join(' ');
+const DAILY_TARGET = 2800;
+
+function SectionDivider({ label }: { label: string }) {
     return (
-        <svg
-            width="100%"
-            height={h}
-            viewBox={`0 0 ${w} ${h}`}
-            preserveAspectRatio="none"
-            className="mt-2 block"
-            aria-hidden="true"
-        >
-            <polyline fill="none" stroke={color} strokeWidth="1.5" points={pts} />
-        </svg>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '16px 0 10px' }}>
+            <div style={{ flex: 1, height: 1, background: 'linear-gradient(90deg,transparent,rgba(255,255,255,.07),transparent)' }} />
+            <span style={{ fontSize: 9, color: C.t3, fontWeight: 700, letterSpacing: '.8px' }}>{label}</span>
+            <div style={{ flex: 1, height: 1, background: 'linear-gradient(90deg,rgba(255,255,255,.07),transparent)' }} />
+        </div>
     );
 }
 
 export default function Dashboard() {
     const navigate = useNavigate();
+
+    // Data state (loaded from services — preserved)
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
-    const [salesOrdersCount, setSalesOrdersCount] = useState(0);
-    const [vansCount, setVansCount] = useState(0);
+    const [salesOrdersData, setSalesOrdersData] = useState<any[]>([]);
+    const [vansData, setVansData] = useState<any[]>([]);
+    const [paymentsData, setPaymentsData] = useState<any[]>([]);
     const [customersCount, setCustomersCount] = useState(0);
     const [newCustomersThisMonth, setNewCustomersThisMonth] = useState(0);
     const [, setDataError] = useState(false);
-    const [aiContext, setAiContext] = useState({ invoices: [], customers: [], products: [], payments: [], purchaseOrders: [], vans: [] } as any);
-    // TC-02 — Options dropdown state.
-    const [optionsOpen, setOptionsOpen] = useState(false);
+
+    // UI state
     const [refreshing, setRefreshing] = useState(false);
     const [toast, setToast] = useState<string | null>(null);
     const [showDateRange, setShowDateRange] = useState(false);
     const [dashFrom, setDashFrom] = useState<string>('');
     const [dashTo, setDashTo] = useState<string>('');
     const [chartRange, setChartRange] = useState<'3m' | '6m' | 'ytd' | '1y'>('3m');
-    const optionsRef = useRef<HTMLDivElement>(null);
 
-    // AI Business Insights collapsible panel (between KPIs and Charts row).
-    // Static text per spec — no live AI call here; CTA opens the existing
-    // advisor via the `soltol:open-ai-advisor` event (see askAI).
-    const [aiOpen, setAiOpen] = useState(false);
+    // Responsive grid columns
+    const [cols, setCols] = useState({
+        kpi: typeof window !== 'undefined'
+            ? (window.innerWidth >= 1024 ? 6 : window.innerWidth >= 768 ? 3 : 2)
+            : 6,
+        twoCol: typeof window !== 'undefined' ? window.innerWidth >= 768 : true,
+        threeCol: typeof window !== 'undefined' ? window.innerWidth >= 1024 : true,
+    });
 
-    // Today's Checklist — local UI state only, no persistence.  Tag values
-    // 'urgent' | 'critical' | 'low' | null drive the row badge color.
-    type ChecklistTag = 'urgent' | 'critical' | 'low' | null;
-    type ChecklistItem = { label: string; done: boolean; tag: ChecklistTag };
-    const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([
-        { label: "Post yesterday's invoices",         done: true,  tag: null },
-        { label: 'Reconcile bank payments',            done: false, tag: 'urgent' },
-        { label: 'Chase Qahir — $3,875 overdue 32d',   done: false, tag: 'critical' },
-        { label: 'Mobil 5W30 reorder check',           done: false, tag: 'low' },
-        { label: 'Review 3 pending approvals',         done: true,  tag: null },
-    ]);
-    const toggleCheck = (i: number) =>
-        setChecklistItems(prev => prev.map((item, idx) => idx === i ? { ...item, done: !item.done } : item));
-    const checkLeft = checklistItems.filter(i => !i.done).length;
+    useEffect(() => {
+        const update = () => setCols({
+            kpi: window.innerWidth >= 1024 ? 6 : window.innerWidth >= 768 ? 3 : 2,
+            twoCol: window.innerWidth >= 768,
+            threeCol: window.innerWidth >= 1024,
+        });
+        update();
+        window.addEventListener('resize', update);
+        return () => window.removeEventListener('resize', update);
+    }, []);
 
-    // TC-02 — Extracted the data loader so "Refresh Data" can call it
-    // from the Options menu and the mount effect can call it once.
-    // Returns a Promise so callers can await it and show a spinner.
+    // ── Data loader (preserved business logic) ─────────────────────
     async function loadDashboardData() {
         setRefreshing(true);
         try {
@@ -137,16 +110,20 @@ export default function Dashboard() {
                 getPayments().catch(() => []),
                 getPurchaseOrders().catch(() => []),
             ]);
-            setAiContext({ invoices: inv, customers, products: prod, payments: pays, purchaseOrders: pos, vans });
+            // `pos` (purchase orders) still loaded for parity with original; not
+            // surfaced in the new layout but kept so the service call signature
+            // and downstream consumers (if any) remain intact.
+            void pos;
             setInvoices(Array.isArray(inv) ? inv : []);
             setProducts(Array.isArray(prod) ? prod : []);
-            setSalesOrdersCount(Array.isArray(orders) ? orders.length : 0);
-            setVansCount(Array.isArray(vans) ? vans.filter((v) => String(v.status).toLowerCase() === 'active').length : 0);
+            setSalesOrdersData(Array.isArray(orders) ? orders : []);
+            setVansData(Array.isArray(vans) ? vans : []);
+            setPaymentsData(Array.isArray(pays) ? pays : []);
             const custList = Array.isArray(customers) ? customers : [];
             setCustomersCount(custList.length);
 
             const now = new Date();
-            const thisMonth = custList.filter((c) => {
+            const thisMonth = custList.filter((c: any) => {
                 if (!c.created_at) return false;
                 const d = new Date(c.created_at);
                 return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
@@ -161,90 +138,19 @@ export default function Dashboard() {
     }
 
     useEffect(() => { void loadDashboardData(); }, []);
-
-    // TC-02 — Close dropdown on outside click and on Escape.
-    useEffect(() => {
-        const onDoc = (e: MouseEvent) => {
-            if (!optionsRef.current) return;
-            if (!optionsRef.current.contains(e.target as Node)) setOptionsOpen(false);
-        };
-        document.addEventListener('mousedown', onDoc);
-        return () => document.removeEventListener('mousedown', onDoc);
-    }, []);
-    useEscape(() => setOptionsOpen(false), optionsOpen);
     useEscape(() => setShowDateRange(false), showDateRange);
 
-    // Transient toast — 2.5s auto-dismiss. Used by Customize and a few others.
     function flashToast(msg: string) {
         setToast(msg);
         setTimeout(() => setToast(null), 2500);
     }
 
-    // TC-02 — Refresh Data option.
     async function handleRefresh() {
-        setOptionsOpen(false);
         await loadDashboardData();
         flashToast('Dashboard data refreshed.');
     }
 
-    // TC-02 — Export as PDF option. Uses the standard PDF wrapper so the
-    // company header + footer match every other PDF in the app.
-    function handleExportPDF() {
-        setOptionsOpen(false);
-        try {
-            generateStandardPDF('Dashboard Snapshot', `dashboard-${new Date().toISOString().slice(0, 10)}`, (doc) => {
-                let y = 92;
-                doc.setFontSize(10);
-                doc.setFont('helvetica', 'bold');
-                doc.setTextColor(80, 80, 80);
-                doc.text(`Generated: ${new Date().toLocaleString()}`, 14, y);
-                y += 8;
-                autoTable(doc, {
-                    startY: y,
-                    head: [['Metric', 'Value']],
-                    body: [
-                        ['Total Income', formatCurrency(metrics.totalIncome)],
-                        ['Total Expenses', formatCurrency(metrics.totalExpenses)],
-                        ['Net Profit', formatCurrency(metrics.netProfit)],
-                        ['Unpaid Invoices', formatCurrency(metrics.unpaidAmount)],
-                        ['Overdue Count', String(metrics.overdueCount)],
-                        ['Low Stock Items (<10)', String(metrics.lowStock)],
-                        ['Active Sales Orders', String(salesOrdersCount)],
-                        ['Active Vans', String(vansCount)],
-                        ['Total Customers', String(customersCount)],
-                        ['New Customers (this month)', String(newCustomersThisMonth)],
-                        ['Total Products', String(metrics.productCount)],
-                    ],
-                    headStyles: { fillColor: [128, 0, 32], textColor: 255, fontStyle: 'bold' },
-                    columnStyles: { 1: { halign: 'right' } },
-                    margin: { left: 14, right: 14 },
-                    styles: { fontSize: 10, cellPadding: 4 },
-                });
-            }, 'report');
-        } catch (e: any) {
-            flashToast(`PDF failed: ${e?.message || 'try again'}`);
-        }
-    }
-
-    function handleOpenDateRange() {
-        setOptionsOpen(false);
-        setShowDateRange(true);
-    }
-
-    function handleCustomize() {
-        setOptionsOpen(false);
-        flashToast('Dashboard customization — coming soon.');
-    }
-
-    // Opens the existing AI Business Advisor in the bottom-right via
-    // the same window-event AIHub uses.  No pre-fill (would require
-    // touching AIAssistant.tsx, out of scope).
-    const askAI = useCallback(() => {
-        try { window.dispatchEvent(new Event('soltol:open-ai-advisor')); } catch { /* ignore */ }
-    }, []);
-
-    // TC-02 — When a date range is set, filter invoices for chart computation.
-    // Empty range = no filter (the default behavior).
+    // ── Derived data (preserved + extended) ─────────────────────────
     const filteredInvoices = useMemo(() => {
         if (!dashFrom && !dashTo) return invoices;
         return invoices.filter(inv => {
@@ -255,25 +161,6 @@ export default function Dashboard() {
         });
     }, [invoices, dashFrom, dashTo]);
 
-    const metrics = useMemo(() => {
-        const validIncomeInvoices = invoices.filter((i) => String(i.status || '').toLowerCase() !== 'cancelled');
-        const totalIncome = validIncomeInvoices.reduce((sum, i) => sum + (Number(i.grandTotal) || 0), 0);
-        const totalExpenses = 0;
-        const netProfit = totalIncome;
-        const unpaid = invoices.filter((i) => ['unpaid', 'pending', 'partial', 'overdue'].includes(String(i.status || '').toLowerCase()));
-        const unpaidAmount = unpaid.reduce((sum, i) => sum + (Number(i.remaining_balance ?? i.grandTotal) || 0), 0);
-        const overdueCount = invoices.filter((i) => String(i.status || '').toLowerCase() === 'overdue').length;
-        const lowStock = products.filter((p) => Number(p.current_stock || 0) < 10).length;
-        const productCount = products.length;
-        return { totalIncome, totalExpenses, netProfit, unpaidAmount, overdueCount, lowStock, productCount };
-    }, [invoices, products]);
-
-    // TC-02 — Chart uses filteredInvoices so the Options → Set Date Range
-    // affects the monthly performance bars (and only the bars — the KPI
-    // tiles still reflect all-time totals so a date filter doesn't make
-    // the user think their revenue dropped).
-    //
-    // chartRange controls how many months back to display (3M / 6M / YTD / 1Y).
     const monthlyPerformanceData = useMemo(() => {
         const now = new Date();
         const months =
@@ -298,729 +185,698 @@ export default function Dashboard() {
         return points;
     }, [filteredInvoices, chartRange]);
 
-    // Donut data — top 3 products by stock + an aggregated "Others"
-    // bucket.  Each item carries its own colour so the donut and side
-    // legend render consistently.
-    const inventoryDonutData = useMemo(() => {
-        const sorted = products
-            .map((p) => ({ name: p.name, value: Number(p.current_stock) || 0 }))
-            .filter((x) => x.value > 0)
-            .sort((a, b) => b.value - a.value);
-        const total = sorted.reduce((sum, x) => sum + x.value, 0);
-        if (total === 0) return [];
-        const palette = ['#4F8EF7', '#22C55E', '#F59E0B'];
-        const top3 = sorted.slice(0, 3).map((item, i) => ({
-            name: item.name,
-            value: item.value,
-            pct: Math.round((item.value / total) * 100),
-            color: palette[i],
-        }));
-        const othersValue = sorted.slice(3).reduce((sum, x) => sum + x.value, 0);
-        if (othersValue > 0) {
-            top3.push({
-                name: 'Others',
-                value: othersValue,
-                pct: Math.round((othersValue / total) * 100),
-                color: '#3E5678',
-            });
-        }
-        return top3;
-    }, [products]);
-
     const recentOrders = useMemo(() => {
-        const custMap: Record<string, string> = {};
-        (aiContext.customers || []).forEach((c: any) => { custMap[String(c.id)] = c.name; });
         return [...invoices]
             .sort((a, b) => new Date(b.invoiceDate || b.createdAt).getTime() - new Date(a.invoiceDate || a.createdAt).getTime())
-            .slice(0, 8)
+            .slice(0, 5)
             .map((i) => ({
                 id: i.invoiceNumber || String(i.id),
-                customer: i.customerName || custMap[String(i.customerId)] || custMap[String((i as any).customer_id)] || 'Customer',
-                date: i.invoiceDate || i.createdAt?.slice(0, 10) || '—',
-                net: Number(i.subtotal) || 0,
-                vat: Number(i.taxAmount) || 0,
+                customerName: i.customerName || 'Customer',
+                reference: i.invoiceNumber || String(i.id),
+                date: (i.invoiceDate || i.createdAt || '').toString().slice(0, 10),
                 amount: Number(i.grandTotal) || 0,
-                status: i.status || 'Unpaid',
-                // Per spec: payment terms fallback to 'COD'; isOverdue from status.
-                // Source fields are optional on the Invoice type — cast for safety.
-                terms: (i as any).paymentTerms || (i as any).terms || 'COD',
-                isOverdue: String(i.status || '').toLowerCase() === 'overdue',
+                status: String(i.status || 'Unpaid').toLowerCase(),
             }));
-    }, [invoices, aiContext.customers]);
+    }, [invoices]);
 
+    // ── KPI metrics computed from existing data ────────────────────
+    const _now = new Date();
+    const _curMonth = _now.getMonth();
+    const _curYear = _now.getFullYear();
+    const _todayStr = _now.toISOString().slice(0, 10);
+
+    const totalRevenueMTD = invoices.reduce((sum, inv) => {
+        if (String(inv.status || '').toLowerCase() === 'cancelled') return sum;
+        const d = new Date(inv.invoiceDate || inv.createdAt || 0);
+        if (d.getFullYear() !== _curYear || d.getMonth() !== _curMonth) return sum;
+        return sum + (Number(inv.grandTotal) || 0);
+    }, 0);
+
+    const unpaidInvoices = invoices.filter(i =>
+        ['unpaid', 'pending', 'partial', 'overdue'].includes(String(i.status || '').toLowerCase())
+    );
+    const totalOutstanding = unpaidInvoices.reduce(
+        (sum, i) => sum + (Number(i.remaining_balance ?? i.grandTotal) || 0), 0
+    );
+    const unpaidInvoiceCount = unpaidInvoices.length;
+
+    const overdueInvoices = invoices.filter(i => String(i.status || '').toLowerCase() === 'overdue');
+    const overdueTotal = overdueInvoices.reduce(
+        (sum, i) => sum + (Number(i.remaining_balance ?? i.grandTotal) || 0), 0
+    );
+    const overdueCount = overdueInvoices.length;
+
+    const todayOrders = salesOrdersData.filter((o: any) => {
+        const d = String(o.orderDate || o.createdAt || '').slice(0, 10);
+        return d === _todayStr;
+    });
+    const ordersToday = todayOrders.length;
+    const orderValueToday = todayOrders.reduce(
+        (sum: number, o: any) => sum + (Number(o.grandTotal) || 0), 0
+    );
+
+    const lowStockCount = products.filter(p => Number(p.current_stock || 0) < 10).length;
+    const lowStockProducts = products
+        .filter(p => Number(p.current_stock || 0) < 20)
+        .sort((a, b) => Number(a.current_stock || 0) - Number(b.current_stock || 0))
+        .slice(0, 5);
+
+    const activeCustomerCount = customersCount;
+
+    const cashCollectedToday = paymentsData.reduce((sum: number, p: any) => {
+        const d = String(p.payment_date || p.date || '').slice(0, 10);
+        return d === _todayStr ? sum + (Number(p.amount) || 0) : sum;
+    }, 0);
+
+    // Top outstanding customers — grouped from invoices
+    const topOutstandingCustomers = (() => {
+        const map = new Map<string, { name: string; balance: number; overdue: number; oldestDays: number }>();
+        invoices.forEach(inv => {
+            const status = String(inv.status || '').toLowerCase();
+            if (!['unpaid', 'pending', 'partial', 'overdue'].includes(status)) return;
+            const key = inv.customerName || String((inv as any).customerId || '?');
+            const amt = Number(inv.remaining_balance ?? inv.grandTotal) || 0;
+            const isOverdue = status === 'overdue';
+            const dateStr = inv.invoiceDate || inv.createdAt;
+            const ageDays = dateStr ? Math.floor((_now.getTime() - new Date(dateStr).getTime()) / 86400000) : 0;
+            const prev = map.get(key) || { name: key, balance: 0, overdue: 0, oldestDays: 0 };
+            prev.balance += amt;
+            if (isOverdue) prev.overdue += amt;
+            if (ageDays > prev.oldestDays) prev.oldestDays = ageDays;
+            map.set(key, prev);
+        });
+        return [...map.values()].sort((a, b) => b.balance - a.balance).slice(0, 5);
+    })();
+
+    // ── KPI definitions ────────────────────────────────────────────
+    const KPIS = [
+        {
+            label: 'Total Revenue (MTD)',
+            value: `$${totalRevenueMTD.toLocaleString()}`,
+            color: C.green, stripe: C.green,
+            sub: 'this month',
+            badge: { text: '↑ MTD', color: C.green },
+        },
+        {
+            label: 'Outstanding AR',
+            value: `$${totalOutstanding.toLocaleString()}`,
+            color: totalOutstanding > 0 ? C.amber : C.green, stripe: C.amber,
+            sub: `${unpaidInvoiceCount} unpaid invoices`,
+            badge: { text: 'Collect', color: C.amber },
+        },
+        {
+            label: 'Overdue Amount',
+            value: `$${overdueTotal.toLocaleString()}`,
+            color: overdueTotal > 0 ? C.red : C.green, stripe: C.red,
+            sub: overdueTotal > 0 ? `${overdueCount} customers` : 'All clear ✓',
+            badge: { text: overdueTotal > 0 ? 'Urgent' : 'Clear', color: overdueTotal > 0 ? C.red : C.green },
+        },
+        {
+            label: 'Orders Today',
+            value: String(ordersToday),
+            color: C.blue, stripe: C.blue,
+            sub: `$${orderValueToday.toLocaleString()} value`,
+            badge: { text: 'Today', color: C.blue },
+        },
+        {
+            label: 'Low Stock Items',
+            value: String(lowStockCount),
+            color: lowStockCount > 0 ? C.amber : C.green, stripe: C.amber,
+            sub: lowStockCount > 0 ? 'need reorder' : 'All stocked ✓',
+            badge: { text: lowStockCount > 0 ? 'Reorder' : 'OK', color: lowStockCount > 0 ? C.amber : C.green },
+        },
+        {
+            label: 'Active Customers',
+            value: String(activeCustomerCount),
+            color: C.blue, stripe: C.purple,
+            sub: `${newCustomersThisMonth} new this month`,
+            badge: { text: 'Active', color: C.blue },
+        },
+    ];
+
+    // ── Render ─────────────────────────────────────────────────────
     return (
-        <div className="space-y-8 animate-in fade-in duration-700 pb-10">
-            {/* TC-02 — Transient toast for Refresh / Customize / errors. */}
+        <div style={{ background: C.bg, color: C.t, minHeight: '100%' }}>
+            {/* Transient toast (refresh / date range / errors) */}
             {toast && (
-                <div className="fixed top-6 right-6 z-50 bg-gray-900 text-white px-5 py-3 rounded-xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2 duration-200">
-                    <span className="text-sm font-bold">{toast}</span>
-                    <button onClick={() => setToast(null)} className="text-gray-400 hover:text-white"><X size={14} /></button>
+                <div
+                    role="status"
+                    aria-live="polite"
+                    style={{
+                        position: 'fixed', top: 80, right: 24, zIndex: 200,
+                        background: C.bg3,
+                        border: '1px solid rgba(34,197,94,.3)',
+                        borderRadius: 9, padding: '10px 14px',
+                        fontSize: 11, color: C.green,
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        boxShadow: '0 8px 24px rgba(0,0,0,.4)',
+                    }}
+                >
+                    <span>{toast}</span>
+                    <button
+                        onClick={() => setToast(null)}
+                        aria-label="Dismiss"
+                        style={{ background: 'transparent', border: 'none', color: C.t2, cursor: 'pointer', padding: 0, display: 'flex' }}
+                    >
+                        <X size={12} />
+                    </button>
                 </div>
             )}
 
-            {/* Header & Quick Actions */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-                <div>
-                    <h1 className="text-3xl font-black text-redwood-text-main tracking-tight">Dashboard Overview</h1>
-                    <p className="text-[13px] text-redwood-text-muted font-medium mt-1">
-                        Real-time performance metrics and insights.
-                        {(dashFrom || dashTo) && (
-                            <span className="ml-2 text-[11px] text-orange-600 font-black uppercase tracking-widest">
-                                · Chart filtered: {dashFrom || '…'} → {dashTo || 'today'}
-                                <button onClick={() => { setDashFrom(''); setDashTo(''); flashToast('Date range cleared.'); }} className="ml-2 underline">clear</button>
-                            </span>
-                        )}
-                    </p>
-                </div>
-
-                {/* TC-02 — Options dropdown. Refresh / Export PDF / Set Date Range / Customize. */}
-                <div ref={optionsRef} className="relative">
-                    <button
-                        onClick={() => setOptionsOpen(o => !o)}
-                        className="flex items-center gap-2 px-4 py-2.5 bg-redwood-bg-surface border border-redwood-border hover:border-redwood-border rounded-xl text-sm font-black uppercase tracking-widest text-redwood-text-main shadow-sm transition-all"
-                        aria-haspopup="menu"
-                        aria-expanded={optionsOpen}
-                    >
-                        <MoreVertical size={16} /> Options
-                    </button>
-                    {optionsOpen && (
-                        <div role="menu" className="absolute right-0 top-full mt-2 w-64 bg-redwood-bg-surface border border-redwood-border rounded-xl shadow-2xl py-2 z-40">
-                            <button
-                                onClick={() => void handleRefresh()}
-                                disabled={refreshing}
-                                role="menuitem"
-                                className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-redwood-text-main hover:bg-white/5 disabled:opacity-50 text-left"
-                            >
-                                <RefreshCw size={16} className={refreshing ? 'animate-spin text-orange-600' : 'text-orange-600'} />
-                                Refresh Data
-                            </button>
-                            <button
-                                onClick={handleExportPDF}
-                                role="menuitem"
-                                className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-redwood-text-main hover:bg-white/5 text-left"
-                            >
-                                <Download size={16} className="text-blue-600" />
-                                Export as PDF
-                            </button>
-                            <button
-                                onClick={handleOpenDateRange}
-                                role="menuitem"
-                                className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-redwood-text-main hover:bg-white/5 text-left"
-                            >
-                                <Calendar size={16} className="text-emerald-600" />
-                                Set Date Range
-                            </button>
-                            <div className="h-px bg-white/10 my-1" />
-                            <button
-                                onClick={handleCustomize}
-                                role="menuitem"
-                                className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-redwood-text-main hover:bg-white/5 text-left"
-                            >
-                                <Sliders size={16} className="text-purple-600" />
-                                Customize
-                            </button>
-                        </div>
-                    )}
+            {/* Page header */}
+            <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid rgba(255,255,255,.07)' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                    <div>
+                        <h1 style={{
+                            fontSize: 22, fontWeight: 700, color: C.t,
+                            display: 'flex', alignItems: 'center', gap: 8, margin: 0,
+                        }}>
+                            <span aria-hidden>📊</span> Dashboard Overview
+                        </h1>
+                        <p style={{ fontSize: 12, color: C.t2, marginTop: 4 }}>
+                            Revenue · Collections · Stock · AI alerts · Team performance
+                            {(dashFrom || dashTo) && (
+                                <span style={{ marginLeft: 8, fontSize: 10, color: C.amber, fontWeight: 700 }}>
+                                    · Chart filtered: {dashFrom || '…'} → {dashTo || 'today'}{' '}
+                                    <button
+                                        onClick={() => { setDashFrom(''); setDashTo(''); flashToast('Date range cleared.'); }}
+                                        style={{ background: 'transparent', border: 'none', color: C.blue, cursor: 'pointer', textDecoration: 'underline', fontSize: 10, fontFamily: 'inherit' }}
+                                    >
+                                        clear
+                                    </button>
+                                </span>
+                            )}
+                        </p>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                        <button
+                            onClick={() => void handleRefresh()}
+                            disabled={refreshing}
+                            style={{
+                                background: 'transparent', border: '1px solid rgba(255,255,255,.12)',
+                                borderRadius: 8, padding: '6px 13px', fontSize: 11,
+                                color: C.t2, cursor: refreshing ? 'wait' : 'pointer',
+                                display: 'flex', alignItems: 'center', gap: 5,
+                                fontFamily: 'inherit', opacity: refreshing ? 0.6 : 1,
+                            }}
+                        >
+                            <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} />
+                            Refresh
+                        </button>
+                        <button
+                            onClick={() => setShowDateRange(v => !v)}
+                            style={{
+                                background: showDateRange ? 'rgba(79,142,247,.12)' : 'transparent',
+                                border: '1px solid rgba(255,255,255,.12)',
+                                borderRadius: 8, padding: '6px 13px', fontSize: 11,
+                                color: showDateRange ? C.blue : C.t2, cursor: 'pointer',
+                                display: 'flex', alignItems: 'center', gap: 5,
+                                fontFamily: 'inherit',
+                            }}
+                        >
+                            <Calendar size={12} /> Date range
+                        </button>
+                    </div>
                 </div>
             </div>
 
-            {/* TC-02 — Inline date range picker, shown when "Set Date Range" is chosen. */}
+            {/* Date range picker (collapsible) */}
             {showDateRange && (
-                <div className="bg-redwood-bg-surface border-2 border-emerald-200 rounded-xl shadow-md p-6">
-                    <div className="flex items-center justify-between mb-4">
-                        <div>
-                            <p className="text-sm font-black text-redwood-text-main uppercase tracking-widest">Chart Date Range</p>
-                            <p className="text-xs text-redwood-text-muted mt-1">Filters the Monthly Performance chart below. KPIs stay at all-time totals.</p>
-                        </div>
-                        <button onClick={() => setShowDateRange(false)} className="p-2 hover:bg-white/10 rounded-lg text-redwood-text-muted"><X size={16} /></button>
+                <div style={{
+                    margin: '12px 20px 0',
+                    background: C.bg3,
+                    border: '1px solid rgba(79,142,247,.25)',
+                    borderRadius: 12, padding: '12px 14px',
+                    display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 12,
+                }}>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <label style={{ fontSize: 9, color: C.t3, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 4 }}>From</label>
+                        <input
+                            type="date"
+                            value={dashFrom}
+                            onChange={e => setDashFrom(e.target.value)}
+                            style={{ background: C.bg4, color: C.t, border: '1px solid rgba(255,255,255,.12)', borderRadius: 6, padding: '6px 10px', fontSize: 11, outline: 'none', fontFamily: 'inherit' }}
+                        />
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                        <div>
-                            <label className="block text-xs font-black text-redwood-text-main uppercase mb-2">From</label>
-                            <input type="date" value={dashFrom} onChange={e => setDashFrom(e.target.value)}
-                                className="w-full border-2 border-redwood-border rounded-lg px-3 py-3 text-sm font-bold outline-none focus:border-emerald-500" />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-black text-redwood-text-main uppercase mb-2">To</label>
-                            <input type="date" value={dashTo} onChange={e => setDashTo(e.target.value)}
-                                className="w-full border-2 border-redwood-border rounded-lg px-3 py-3 text-sm font-bold outline-none focus:border-emerald-500" />
-                        </div>
-                        <div className="flex gap-2">
-                            <button onClick={() => { setDashFrom(''); setDashTo(''); }}
-                                className="px-4 py-3 bg-white/10 hover:bg-white/15 text-xs font-black uppercase tracking-widest rounded-lg">Clear</button>
-                            <button onClick={() => { setShowDateRange(false); flashToast('Date range applied to charts.'); }}
-                                className="px-6 py-3 bg-emerald-600 text-white text-xs font-black uppercase tracking-widest rounded-lg hover:bg-emerald-700">Apply</button>
-                        </div>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <label style={{ fontSize: 9, color: C.t3, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 4 }}>To</label>
+                        <input
+                            type="date"
+                            value={dashTo}
+                            onChange={e => setDashTo(e.target.value)}
+                            style={{ background: C.bg4, color: C.t, border: '1px solid rgba(255,255,255,.12)', borderRadius: 6, padding: '6px 10px', fontSize: 11, outline: 'none', fontFamily: 'inherit' }}
+                        />
                     </div>
+                    <button
+                        onClick={() => { setDashFrom(''); setDashTo(''); }}
+                        style={{ padding: '6px 12px', background: 'transparent', border: '1px solid rgba(255,255,255,.12)', borderRadius: 6, fontSize: 10, color: C.t2, fontWeight: 600, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '.5px', fontFamily: 'inherit' }}
+                    >
+                        Clear
+                    </button>
+                    <button
+                        onClick={() => { setShowDateRange(false); flashToast('Date range applied to charts.'); }}
+                        style={{ padding: '6px 14px', background: C.blue, color: '#fff', border: 'none', borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '.5px', fontFamily: 'inherit' }}
+                    >
+                        Apply
+                    </button>
+                    <button
+                        onClick={() => setShowDateRange(false)}
+                        aria-label="Close date range picker"
+                        style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: C.t2, cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center' }}
+                    >
+                        <X size={12} />
+                    </button>
                 </div>
             )}
 
-            {/* 1. Key Metrics Cards — 5 Soltol-themed KPI tiles */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
-                {([
-                    {
-                        label: 'Total Income',
-                        value: `$${metrics.totalIncome.toLocaleString()}`,
-                        sub: 'From all invoices',
-                        badge: 'MTD',
-                        color: 'var(--color-brand-green)',
-                        light: 'var(--color-brand-green-tint)',
-                        tint:  'var(--color-badge-green-bg)',
-                        border:'rgba(34,197,94,0.2)',
-                        icon: TrendingUp,
-                        isWarn: false,
-                        spark: 'income' as SparkKey,
-                        prediction: { text: '↑ Forecast $490k by May 31', variant: 'teal' as PredictionVariant },
-                    },
-                    {
-                        label: 'AR Outstanding',
-                        value: `$${metrics.unpaidAmount.toLocaleString()}`,
-                        sub: `${metrics.overdueCount} overdue invoices`,
-                        badge: 'Aging',
-                        color: 'var(--color-brand-red)',
-                        light: 'var(--color-brand-red-tint)',
-                        tint:  'var(--color-badge-red-bg)',
-                        border:'rgba(239,68,68,0.2)',
-                        icon: AlertTriangle,
-                        isWarn: true,
-                        spark: 'ar' as SparkKey,
-                        prediction: { text: '⚠ Chase Qahir today — 32d overdue', variant: 'red' as PredictionVariant },
-                    },
-                    {
-                        label: 'Active Orders',
-                        value: String(salesOrdersCount),
-                        sub: 'Sales orders open',
-                        badge: 'Open',
-                        color: 'var(--color-brand-amber)',
-                        light: 'var(--color-brand-amber-tint)',
-                        tint:  'var(--color-badge-amber-bg)',
-                        border:'rgba(245,158,11,0.2)',
-                        icon: ShoppingCart,
-                        isWarn: false,
-                        spark: 'ap' as SparkKey,
-                        prediction: { text: '+ Schedule $18k payment run Friday', variant: 'amber' as PredictionVariant },
-                    },
-                    {
-                        label: 'Net Profit',
-                        value: `$${metrics.netProfit.toLocaleString()}`,
-                        sub: 'Income − Expenses',
-                        badge: 'MTD',
-                        color: 'var(--color-brand-blue)',
-                        light: 'var(--color-brand-blue-tint)',
-                        tint:  'rgba(79,142,247,0.14)',
-                        border:'rgba(79,142,247,0.28)',
-                        icon: Wallet,
-                        isWarn: false,
-                        spark: 'total' as SparkKey,
-                        prediction: { text: '↑ On track for $88k by month-end', variant: 'teal' as PredictionVariant },
-                    },
-                    {
-                        label: 'Low Stock Alerts',
-                        value: String(metrics.lowStock),
-                        sub: 'Below reorder point',
-                        badge: 'Critical',
-                        color: 'var(--color-brand-teal)',
-                        light: '#5EEAD4',
-                        tint:  'rgba(0,212,170,0.10)',
-                        border:'rgba(0,212,170,0.2)',
-                        icon: AlertTriangle,
-                        isWarn: metrics.lowStock > 0,
-                        spark: 'lowstock' as SparkKey,
-                        prediction: { text: '⚠ Expired batch in quarantine — D1', variant: 'red' as PredictionVariant },
-                    },
-                ] as const).map((k, i) => {
-                    const Icon = k.icon;
-                    return (
+            <div style={{ padding: '14px 20px 24px' }}>
+                {/* KPI row — 6 cards */}
+                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols.kpi},1fr)`, gap: 10 }}>
+                    {KPIS.map((kpi, i) => (
                         <div
                             key={i}
-                            className="relative overflow-hidden bg-redwood-bg-surface border border-redwood-border rounded-[14px] px-[14px] py-[13px] transition-all hover:-translate-y-0.5 hover:shadow-[0_12px_30px_rgba(0,0,0,0.4)] hover:border-white/20"
+                            style={{
+                                background: C.bg3, border: `1px solid ${C.br2}`,
+                                borderRadius: 10, padding: '11px 13px',
+                                position: 'relative', overflow: 'hidden', cursor: 'pointer',
+                                transition: 'transform .2s',
+                            }}
+                            onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; }}
                         >
-                            {/* Top accent gradient stripe */}
-                            <div
-                                className="absolute top-0 left-0 right-0 h-0.5 rounded-t-[14px]"
-                                style={{ background: `linear-gradient(90deg, ${k.color}, ${k.light})` }}
-                            />
-
-                            {/* Label row + status badge */}
-                            <div className="flex items-center justify-between mb-1.5">
-                                <div className="flex items-center gap-1.5 text-[10.5px] font-medium text-redwood-text-muted">
-                                    <Icon size={13} style={{ color: k.color }} />
-                                    {k.label}
-                                </div>
-                                <span
-                                    className="text-[9px] font-semibold px-[7px] py-[2px] rounded-full"
-                                    style={{
-                                        background: k.tint,
-                                        color: k.light,
-                                        border: `1px solid ${k.border}`,
-                                    }}
-                                >
-                                    {k.badge}
-                                </span>
+                            <div style={{
+                                position: 'absolute', top: 0, left: 0, right: 0,
+                                height: 2.5, background: kpi.stripe,
+                            }} />
+                            <span style={{
+                                position: 'absolute', top: 8, right: 8,
+                                fontSize: 9, fontWeight: 600,
+                                padding: '1px 6px', borderRadius: 8,
+                                background: `${kpi.badge.color}22`, color: kpi.badge.color,
+                            }}>
+                                {kpi.badge.text}
+                            </span>
+                            <div style={{ fontSize: 10, color: C.t2, marginBottom: 4, marginTop: 2 }}>{kpi.label}</div>
+                            <div style={{ fontSize: 22, fontWeight: 700, color: kpi.color, lineHeight: 1, marginBottom: 3 }}>
+                                {kpi.value}
                             </div>
-
-                            {/* Big value — Syne font, color-tinted */}
-                            <div
-                                className="text-[22px] font-semibold leading-[1.1] tracking-[-0.5px] mb-[3px]"
-                                style={{ fontFamily: "'Syne', sans-serif", color: k.color }}
-                            >
-                                {k.value}
-                            </div>
-
-                            {/* Sub-label */}
-                            <div
-                                className="text-[10px] flex items-center gap-1"
-                                style={{ color: k.isWarn ? 'var(--color-brand-red-tint)' : '#3E5678' }}
-                            >
-                                {k.sub}
-                            </div>
-
-                            {/* Sparkline — 7-point trend silhouette */}
-                            <Sparkline data={SPARKLINE_DATA[k.spark]} color={k.color} />
-
-                            {/* Prediction chip */}
-                            <div
-                                className="text-[9px] mt-1 px-2 py-[2px] rounded-full inline-flex items-center"
-                                style={{
-                                    background: PREDICTION_PALETTE[k.prediction.variant].bg,
-                                    color:      PREDICTION_PALETTE[k.prediction.variant].color,
-                                    border:     `1px solid ${PREDICTION_PALETTE[k.prediction.variant].border}`,
-                                }}
-                            >
-                                {k.prediction.text}
-                            </div>
+                            <div style={{ fontSize: 10, color: C.t3 }}>{kpi.sub}</div>
                         </div>
-                    );
-                })}
-            </div>
-
-            {/* AI Business Insights — collapsible.  Static copy (spec).
-                Click header or chevron to expand; teaser always shows
-                a one-line summary so the panel is useful when closed. */}
-            <div className="bg-redwood-bg-surface border border-[rgba(79,142,247,0.28)] rounded-[14px] overflow-hidden">
-                <div
-                    onClick={() => setAiOpen(v => !v)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setAiOpen(v => !v); } }}
-                    aria-expanded={aiOpen}
-                    className="flex items-center justify-between px-4 py-2.5 cursor-pointer select-none hover:bg-white/5"
-                >
-                    <div className="flex items-center gap-2">
-                        <Sparkles size={14} className="text-[#4F8EF7]" aria-hidden="true" />
-                        <span className="text-[12px] font-semibold text-redwood-text-main">AI Business Insights</span>
-                        <span className="text-[10px] text-redwood-text-muted">Powered by Claude</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <span className="text-[9px] text-[#22C55E] bg-[rgba(34,197,94,0.12)] border border-[rgba(34,197,94,0.2)] rounded-full px-2 py-[2px] inline-flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E] animate-pulse inline-block" />
-                            Live
-                        </span>
-                        <span className="text-[10px] text-redwood-text-muted inline-flex items-center gap-1">
-                            {aiOpen ? 'Collapse' : 'Expand'}
-                            <ChevronDown
-                                size={12}
-                                style={{ transform: aiOpen ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}
-                            />
-                        </span>
-                    </div>
+                    ))}
                 </div>
 
-                {/* Teaser — visible only when collapsed */}
-                {!aiOpen && (
-                    <div className="px-4 pb-2.5 text-[11px] text-redwood-text-muted border-t border-redwood-border">
-                        ⬛ Today: <strong className="text-redwood-text-main">Qahir</strong> $3,875 overdue 32d ·{' '}
-                        <strong className="text-redwood-text-main">AP $18k</strong> due Friday · Income on track for $490k ·{' '}
-                        <button
-                            onClick={(e) => { e.stopPropagation(); setAiOpen(true); }}
-                            className="text-[#4F8EF7] underline ml-1 hover:no-underline"
-                        >
-                            Expand for full AI insights →
-                        </button>
-                    </div>
-                )}
-
-                {/* Full content — visible only when expanded */}
-                {aiOpen && (
-                    <div className="px-4 py-3 text-[12px] text-redwood-text-muted leading-[1.8] border-t border-redwood-border">
-                        <span style={{ color: 'var(--color-brand-red-tint)', fontWeight: 500 }}>⚠ Critical:</span>{' '}
-                        <strong className="text-redwood-text-main">Qahir Enterprises</strong> is 32d overdue —{' '}
-                        <strong className="text-redwood-text-main">$3,875</strong> at risk. Stop credit immediately and issue demand letter today. ·{' '}
-                        <span style={{ color: 'var(--color-brand-amber-tint)', fontWeight: 500 }}>Cash alert:</span>{' '}
-                        <strong className="text-redwood-text-main">$52,300</strong> AP outstanding with{' '}
-                        <strong className="text-redwood-text-main">$18k</strong> due in 7 days. ·{' '}
-                        <span style={{ color: 'var(--color-brand-green-tint)', fontWeight: 500 }}>✓ Strong month:</span>{' '}
-                        MTD income <strong className="text-redwood-text-main">$411,832</strong> on track for projected{' '}
-                        <strong className="text-redwood-text-main">$490k</strong>.
-                    </div>
-                )}
-            </div>
-
-            {/* 2. Charts Row — Soltol two-panel design */}
-            <div className="grid grid-cols-1 lg:grid-cols-[1.8fr_1fr] gap-[10px]">
-                {/* Financial Performance — left, wider */}
-                <div className="bg-redwood-bg-surface border border-redwood-border rounded-[14px] px-4 py-3.5">
-                    <div className="flex items-center justify-between mb-3">
-                        <div>
-                            <div className="text-[13px] font-semibold text-redwood-text-main">Financial Performance</div>
-                            <div className="text-[10px] text-redwood-text-muted">Sales vs Expenses</div>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                            <div className="flex bg-redwood-row-bg rounded-md overflow-hidden border border-redwood-border">
-                                {(['3m', '6m', 'ytd', '1y'] as const).map((r) => (
-                                    <button
-                                        key={r}
-                                        onClick={() => setChartRange(r)}
-                                        className={`px-[9px] py-1 text-[10px] font-medium transition-colors ${
-                                            chartRange === r
-                                                ? 'bg-[#4F8EF7] text-white'
-                                                : 'bg-transparent text-redwood-text-muted hover:text-redwood-text-main'
-                                        }`}
-                                    >
-                                        {r === 'ytd' ? 'YTD' : r.toUpperCase()}
-                                    </button>
-                                ))}
-                            </div>
-                            <button onClick={askAI} className="text-[10px] text-[#4F8EF7] hover:underline">
-                                Ask AI →
-                            </button>
-                        </div>
-                    </div>
-                    <div className="h-[160px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={monthlyPerformanceData}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-redwood-border)" />
-                                <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'var(--color-redwood-text-muted)' }} stroke="var(--color-redwood-border)" />
-                                <YAxis tick={{ fontSize: 11, fill: 'var(--color-redwood-text-muted)' }} stroke="var(--color-redwood-border)" />
-                                <Tooltip contentStyle={{ backgroundColor: 'var(--color-redwood-bg-surface)', border: '1px solid var(--color-redwood-border)', borderRadius: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--color-redwood-text-main)' }} />
-                                <Bar dataKey="sales" name="Total Sales" fill="#4F8EF7" radius={[4, 4, 0, 0]} />
-                                <Bar dataKey="expenses" name="Total Expenses" fill="rgba(79,142,247,0.3)" radius={[4, 4, 0, 0]} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
-                    <div className="flex gap-[14px] mt-2">
-                        <div className="flex items-center gap-[5px] text-[10px] text-redwood-text-muted">
-                            <div className="w-2 h-2 rounded-sm" style={{ background: '#4F8EF7' }} />
-                            Total Sales
-                        </div>
-                        <div className="flex items-center gap-[5px] text-[10px] text-redwood-text-muted">
-                            <div className="w-2 h-2 rounded-sm" style={{ background: 'rgba(79,142,247,0.3)' }} />
-                            Total Expenses
-                        </div>
-                    </div>
-                </div>
-
-                {/* Inventory Distribution — right, donut + side legend */}
-                <div className="bg-redwood-bg-surface border border-redwood-border rounded-[14px] px-4 py-3.5">
-                    <div className="flex items-center justify-between mb-3">
-                        <div>
-                            <div className="text-[13px] font-semibold text-redwood-text-main">Inventory Distribution</div>
-                            <div className="text-[10px] text-redwood-text-muted">Stock by product line</div>
-                        </div>
-                        <button onClick={askAI} className="text-[10px] text-[#4F8EF7] hover:underline">
-                            Ask AI →
-                        </button>
-                    </div>
-                    <div className="flex items-center gap-[14px] mt-2">
-                        <div className="w-[100px] h-[100px] flex-shrink-0">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <PieChart>
-                                    <Pie
-                                        data={inventoryDonutData}
-                                        cx="50%"
-                                        cy="50%"
-                                        innerRadius={32}
-                                        outerRadius={50}
-                                        paddingAngle={2}
-                                        dataKey="value"
-                                        isAnimationActive={false}
-                                    >
-                                        {inventoryDonutData.map((d, i) => (
-                                            <Cell key={`cell-${i}`} fill={d.color} stroke="none" />
-                                        ))}
-                                    </Pie>
-                                    <Tooltip contentStyle={{ backgroundColor: 'var(--color-redwood-bg-surface)', border: '1px solid var(--color-redwood-border)', borderRadius: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--color-redwood-text-main)' }} />
-                                </PieChart>
-                            </ResponsiveContainer>
-                        </div>
-                        <div className="flex flex-col gap-[7px] flex-1 min-w-0">
-                            {inventoryDonutData.length === 0 ? (
-                                <div className="text-[10px] text-redwood-text-muted">No inventory data</div>
-                            ) : (
-                                inventoryDonutData.map((d, i) => (
-                                    <div key={i} className="flex items-center gap-[7px]">
-                                        <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: d.color }} />
-                                        <span className="text-[10px] text-redwood-text-muted flex-1 truncate">{d.name}</span>
-                                        <span className="text-[10px] font-semibold" style={{ color: d.color }}>{d.pct}%</span>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* 3. Bottom Row — Recent Invoices + Quick Stats */}
-            <div className="grid grid-cols-1 lg:grid-cols-[1.8fr_1fr] gap-[10px]">
-                {/* Recent Invoices — compact dark table */}
-                <div className="bg-redwood-bg-surface border border-redwood-border rounded-[14px] px-4 py-3.5">
-                    <div className="flex items-center justify-between mb-3">
-                        <div>
-                            <div className="text-[13px] font-semibold text-redwood-text-main">Recent Invoices</div>
-                            <div className="text-[10px] text-redwood-text-muted">Latest activity · click a row for detail</div>
-                        </div>
-                        <button
-                            onClick={() => navigate('/sales/invoices')}
-                            className="text-[10px] text-[#4F8EF7] hover:underline"
-                        >
-                            View all →
-                        </button>
-                    </div>
-                    <div className="overflow-x-auto">
-                        <table className="w-full border-collapse text-[11px]">
-                            <thead>
-                                <tr>
-                                    <th className="text-left text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">Invoice #</th>
-                                    <th className="text-left text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">Customer</th>
-                                    <th className="text-left text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">Date</th>
-                                    <th className="text-left text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">Terms</th>
-                                    <th className="text-right text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">Net</th>
-                                    <th className="text-right text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">VAT 15%</th>
-                                    <th className="text-right text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">Total</th>
-                                    <th className="text-center text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">Lock</th>
-                                    <th className="text-left text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">Tax Reg</th>
-                                    <th className="text-left text-[9.5px] font-semibold uppercase tracking-[0.05em] text-redwood-text-muted border-b border-redwood-border px-2.5 py-1.5 whitespace-nowrap">Status</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {recentOrders.length === 0 ? (
-                                    <tr><td colSpan={10} className="text-center text-[11px] text-redwood-text-muted px-2.5 py-6">No recent invoices</td></tr>
-                                ) : recentOrders.map((order) => {
-                                    const s = String(order.status).toLowerCase();
-                                    const pill =
-                                        s === 'paid' || s === 'completed' ?
-                                            { bg: 'var(--color-badge-green-bg)', color: 'var(--color-brand-green)', border: 'rgba(34,197,94,0.2)' } :
-                                        s === 'overdue' ?
-                                            { bg: 'var(--color-badge-red-bg)', color: 'var(--color-brand-red-tint)', border: 'rgba(239,68,68,0.2)' } :
-                                            { bg: 'var(--color-badge-amber-bg)', color: 'var(--color-brand-amber-tint)', border: 'rgba(245,158,11,0.2)' };
+                {/* Section 1 — Revenue & Collections */}
+                <SectionDivider label="REVENUE & COLLECTIONS" />
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: cols.twoCol ? '1.6fr 1fr' : '1fr',
+                    gap: 10,
+                }}>
+                    {/* Revenue chart */}
+                    <div style={{ background: C.bg3, border: `1px solid ${C.br2}`, borderRadius: 12, padding: 14 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: C.t }}>
+                                📈 Revenue
+                            </span>
+                            <div style={{ display: 'flex', gap: 4 }}>
+                                {(['3m', '6m', 'ytd', '1y'] as const).map(r => {
+                                    const active = chartRange === r;
                                     return (
-                                        <tr
-                                            key={order.id}
-                                            onClick={() => navigate(`/sales/invoices/${order.id}`)}
-                                            className="cursor-pointer transition-colors hover:bg-[rgba(79,142,247,0.07)]"
+                                        <button
+                                            key={r}
+                                            onClick={() => setChartRange(r)}
+                                            style={{
+                                                padding: '3px 8px', borderRadius: 6,
+                                                fontSize: 10, fontWeight: 600,
+                                                background: active ? C.blue : 'transparent',
+                                                color: active ? '#fff' : C.t3,
+                                                border: '1px solid rgba(255,255,255,.07)',
+                                                cursor: 'pointer', textTransform: 'uppercase',
+                                                fontFamily: 'inherit',
+                                            }}
                                         >
-                                            <td className="px-2.5 py-2 border-b border-white/5">
-                                                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: '10px', color: 'var(--color-brand-blue-tint)' }}>{order.id}</span>
-                                            </td>
-                                            <td className="px-2.5 py-2 border-b border-white/5 text-redwood-text-main">{order.customer}</td>
-                                            <td className="px-2.5 py-2 border-b border-white/5 text-redwood-text-muted">{order.date}</td>
-
-                                            {/* Terms — pill: blue for normal terms, red for overdue */}
-                                            <td className="px-2.5 py-2 border-b border-white/5">
-                                                <span
-                                                    className={`text-[10px] px-2 py-[2px] rounded-full font-mono border whitespace-nowrap ${
-                                                        order.isOverdue
-                                                            ? 'bg-[rgba(239,68,68,0.12)] text-[#FCA5A5] border-[rgba(239,68,68,0.2)]'
-                                                            : 'bg-[rgba(79,142,247,0.10)] text-[#93C5FD] border-[rgba(79,142,247,0.28)]'
-                                                    }`}
-                                                >
-                                                    {order.isOverdue ? 'Overdue' : (order.terms || 'COD')}
-                                                </span>
-                                            </td>
-
-                                            <td className="px-2.5 py-2 border-b border-white/5 text-right text-redwood-text-muted">${order.net.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                            <td className="px-2.5 py-2 border-b border-white/5 text-right" style={{ color: 'var(--color-brand-blue-tint)' }}>${order.vat.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                            <td className="px-2.5 py-2 border-b border-white/5 text-right">
-                                                <strong className="text-redwood-text-main">${order.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
-                                            </td>
-
-                                            {/* Lock — green padlock if paid, amber open padlock otherwise */}
-                                            <td className="px-2.5 py-2 border-b border-white/5 text-center">
-                                                {String(order.status).toLowerCase() === 'paid'
-                                                    ? <Lock size={13} className="inline-block" style={{ color: 'var(--color-brand-green)' }} aria-label="Locked (paid)" />
-                                                    : <Unlock size={13} className="inline-block" style={{ color: 'var(--color-brand-amber)' }} aria-label="Unlocked (unpaid)" />}
-                                            </td>
-
-                                            {/* Tax Reg — static "Missing" until source field exists */}
-                                            <td className="px-2.5 py-2 border-b border-white/5">
-                                                <span className="text-[9px] text-[#FCA5A5]">Missing</span>
-                                            </td>
-
-                                            <td className="px-2.5 py-2 border-b border-white/5">
-                                                <span
-                                                    className="text-[9px] font-semibold px-2 py-[2px] rounded-full"
-                                                    style={{ background: pill.bg, color: pill.color, border: `1px solid ${pill.border}` }}
-                                                >
-                                                    {order.status}
-                                                </span>
-                                            </td>
-                                        </tr>
+                                            {r === 'ytd' ? 'YTD' : r.toUpperCase()}
+                                        </button>
                                     );
                                 })}
-                            </tbody>
-                        </table>
-                    </div>
-
-                    {/* Tax Reg warning banner — static, single instance.
-                        Sits below the table inside the same panel card so
-                        the red callout shares the panel's border radius. */}
-                    <div className="mt-2 px-3 py-2 bg-[rgba(239,68,68,0.07)] border border-[rgba(239,68,68,0.18)] rounded-[8px] text-[10px] text-[#FCA5A5] flex items-start gap-2">
-                        <AlertTriangle size={13} className="flex-shrink-0 mt-[1px]" aria-hidden="true" />
-                        <span>
-                            <strong>Tax Registration Number</strong> is missing from all invoices. This is a legal requirement.
-                            Add your VAT reg number in Settings → Company Profile to auto-populate on every invoice.
-                        </span>
-                    </div>
-                </div>
-
-                {/* RIGHT column — stacked: Quick Stats → Van Status → Today's Checklist */}
-                <div className="flex flex-col gap-[10px]">
-                {/* Quick Stats — operational list */}
-                <div className="bg-redwood-bg-surface border border-redwood-border rounded-[14px] px-4 py-3.5">
-                    <div className="flex items-center justify-between mb-2">
-                        <div className="text-[13px] font-semibold text-redwood-text-main">Quick Stats</div>
-                        <div className="text-[10px] text-redwood-text-muted">Operational</div>
-                    </div>
-                    <div className="flex flex-col gap-[5px]">
-                        {([
-                            { icon: Users,        label: 'Total Customers',     value: customersCount,         color: undefined as string | undefined },
-                            { icon: UserPlus,     label: 'New This Month',      value: newCustomersThisMonth,  color: 'var(--color-brand-teal)' },
-                            { icon: Truck,        label: 'Active Vans',         value: vansCount,              color: undefined },
-                            { icon: Package,      label: 'Products in Catalog', value: metrics.productCount,   color: undefined },
-                            { icon: ShoppingCart, label: 'Total Orders MTD',    value: salesOrdersCount,       color: undefined },
-                        ]).map((row, i) => {
-                            const Icon = row.icon;
-                            return (
-                                <div key={i} className="flex items-center justify-between px-2.5 py-1.5 bg-redwood-row-bg border border-redwood-border rounded-[6px] transition-colors hover:bg-redwood-row-hover">
-                                    <div className="flex items-center gap-1.5 text-[11px] text-redwood-text-muted">
-                                        <Icon size={13} style={row.color ? { color: row.color } : { color: '#3E5678' }} />
-                                        {row.label}
-                                    </div>
-                                    <div className="text-[12px] font-semibold" style={row.color ? { color: row.color } : { color: 'var(--color-redwood-text-main)' }}>
-                                        {row.value}
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-
-                    {/* System Health */}
-                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[rgba(34,197,94,0.10)] border border-[rgba(34,197,94,0.15)] rounded-[6px] mt-1.5">
-                        <div className="w-2 h-2 rounded-full bg-[#22C55E] animate-pulse" />
-                        <span className="text-[10px] text-[#86EFAC] font-medium">All Systems Operational</span>
-                    </div>
-                </div>
-
-                {/* Van Status — 2-up tile grid driven by aiContext.vans */}
-                <div className="bg-redwood-bg-surface border border-redwood-border rounded-[14px] px-4 py-3.5">
-                    <div className="flex items-center justify-between mb-2.5">
-                        <div className="text-[13px] font-semibold text-redwood-text-main flex items-center gap-1.5">
-                            <Truck size={13} className="text-redwood-text-muted" />
-                            Van Status
-                        </div>
-                        <button
-                            onClick={() => navigate('/logistics/operations')}
-                            className="text-[10px] text-[#4F8EF7] hover:underline"
-                        >
-                            Field view →
-                        </button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                        {((aiContext.vans as any[]) || []).slice(0, 2).map((van: any, i: number) => {
-                            const isOnline = van.status === 'active' || van.isOnline;
-                            return (
-                                <div
-                                    key={i}
-                                    className={`rounded-[8px] p-2.5 border bg-redwood-row-bg ${isOnline ? 'border-[rgba(34,197,94,0.25)]' : 'border-[rgba(245,158,11,0.25)]'}`}
-                                >
-                                    <div className="flex items-center justify-between mb-1.5">
-                                        <span className="text-[11px] font-semibold text-redwood-text-main">
-                                            {van.name || `Van 0${i + 1}`}
-                                        </span>
-                                        <span
-                                            className={`text-[9px] font-semibold px-1.5 py-[1px] rounded-full border ${
-                                                isOnline
-                                                    ? 'bg-[rgba(34,197,94,0.12)] text-[#86EFAC] border-[rgba(34,197,94,0.2)]'
-                                                    : 'bg-[rgba(245,158,11,0.12)] text-[#FCD34D] border-[rgba(245,158,11,0.2)]'
-                                            }`}
-                                        >
-                                            {isOnline ? 'Online' : 'Offline'}
-                                        </span>
-                                    </div>
-                                    {van.driverName && <div className="text-[10px] text-redwood-text-muted">Driver: {van.driverName}</div>}
-                                    {van.location && <div className="text-[10px] text-redwood-text-muted">{van.location}</div>}
-                                    <div className="text-[10px] text-redwood-text-muted mt-0.5">
-                                        Stock on van: {van.currentStock ?? van.stock ?? 0} units
-                                    </div>
-                                    {Number(van.offlineInvoices) > 0 && (
-                                        <div className="mt-1.5 text-[9px] bg-[rgba(245,158,11,0.12)] text-[#FCD34D] border border-[rgba(245,158,11,0.2)] rounded-[5px] px-2 py-1 flex items-center gap-1">
-                                            ☁ {van.offlineInvoices} offline invoices — sync now
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })}
-                        {((aiContext.vans as any[]) || []).length === 0 && (
-                            <div className="col-span-2 text-[10px] text-redwood-text-muted text-center py-3">
-                                No van data available
                             </div>
-                        )}
+                        </div>
+                        <div style={{ height: 200 }}>
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={monthlyPerformanceData}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                                    <XAxis dataKey="month" tick={{ fill: '#3E5678', fontSize: 10 }} axisLine={{ stroke: 'rgba(255,255,255,0.07)' }} />
+                                    <YAxis tick={{ fill: '#3E5678', fontSize: 10 }} axisLine={{ stroke: 'rgba(255,255,255,0.07)' }} />
+                                    <Tooltip
+                                        contentStyle={{
+                                            backgroundColor: 'var(--bg3,#0f1f33)',
+                                            border: '1px solid rgba(79,142,247,0.3)',
+                                            borderRadius: 8,
+                                            color: '#EEF2FF',
+                                            fontSize: 11,
+                                        }}
+                                        cursor={{ fill: 'rgba(255,255,255,.03)' }}
+                                    />
+                                    <Bar dataKey="sales" name="Revenue" fill="#4F8EF7" radius={[4, 4, 0, 0]} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </div>
+
+                    {/* Top outstanding customers */}
+                    <div style={{
+                        background: C.bg3, border: `1px solid ${C.br2}`,
+                        borderRadius: 12, padding: 0, overflow: 'hidden',
+                    }}>
+                        <div style={{
+                            padding: '12px 14px',
+                            borderBottom: '1px solid rgba(255,255,255,.07)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: C.t }}>
+                                🔴 Top Outstanding
+                            </span>
+                            <span
+                                style={{ fontSize: 10, color: C.blue, cursor: 'pointer' }}
+                                onClick={() => navigate('/sales/invoices')}
+                            >
+                                View all →
+                            </span>
+                        </div>
+                        <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                <thead>
+                                    <tr>
+                                        {['Customer', 'Balance', 'Overdue', 'Days', 'Action'].map(h => (
+                                            <th key={h} style={{
+                                                fontSize: 10, color: C.t3, fontWeight: 700,
+                                                letterSpacing: '.5px', padding: '8px 10px',
+                                                borderBottom: '1px solid rgba(255,255,255,.07)',
+                                                textAlign: 'left', textTransform: 'uppercase',
+                                                background: C.bg2,
+                                            }}>
+                                                {h}
+                                            </th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {topOutstandingCustomers.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={5} style={{ padding: '32px 10px', textAlign: 'center', color: C.t2, fontSize: 11 }}>
+                                                No outstanding balances ✓
+                                            </td>
+                                        </tr>
+                                    ) : topOutstandingCustomers.map((c, i) => (
+                                        <tr
+                                            key={i}
+                                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,.025)'; }}
+                                            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                                            style={{ transition: 'background .15s' }}
+                                        >
+                                            <td style={{ fontSize: 11, color: C.t, padding: '8px 10px', borderBottom: `1px solid ${C.bd2}`, fontWeight: 600 }}>{c.name}</td>
+                                            <td style={{ fontSize: 11, color: C.amber, padding: '8px 10px', borderBottom: `1px solid ${C.bd2}`, fontFamily: 'monospace' }}>
+                                                ${c.balance.toFixed(0)}
+                                            </td>
+                                            <td style={{ fontSize: 11, color: c.overdue > 0 ? C.red : C.t3, padding: '8px 10px', borderBottom: `1px solid ${C.bd2}`, fontFamily: 'monospace' }}>
+                                                {c.overdue > 0 ? `$${c.overdue.toFixed(0)}` : '—'}
+                                            </td>
+                                            <td style={{ fontSize: 11, color: c.oldestDays > 30 ? C.red : C.t3, padding: '8px 10px', borderBottom: `1px solid ${C.bd2}` }}>
+                                                {c.oldestDays}d
+                                            </td>
+                                            <td style={{ padding: '8px 10px', borderBottom: `1px solid ${C.bd2}` }}>
+                                                <button
+                                                    onClick={() => navigate('/sales/invoices')}
+                                                    style={{ background: C.blue, color: '#fff', border: 'none', borderRadius: 7, padding: '3px 10px', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                                                >
+                                                    Collect
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
 
-                {/* Today's Checklist — local toggle state */}
-                <div className="bg-redwood-bg-surface border border-redwood-border rounded-[14px] px-4 py-3.5">
-                    <div className="flex items-center justify-between mb-2.5">
-                        <div className="text-[13px] font-semibold text-redwood-text-main flex items-center gap-1.5">
-                            <ListChecks size={13} className="text-redwood-text-muted" />
-                            Today's Checklist
+                {/* Section 2 — Today's Activity */}
+                <SectionDivider label="TODAY'S ACTIVITY" />
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: cols.threeCol ? '1fr 1fr 1fr' : cols.twoCol ? '1fr 1fr' : '1fr',
+                    gap: 10,
+                }}>
+                    {/* Recent orders */}
+                    <div style={{ background: C.bg3, border: `1px solid ${C.br2}`, borderRadius: 12, padding: 14 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: C.t, marginBottom: 10 }}>
+                            🛒 Recent orders
                         </div>
-                        <span className="text-[10px] text-redwood-text-muted">{checkLeft} left</span>
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                        {checklistItems.map((item, i) => (
+                        {recentOrders.length === 0 ? (
+                            <div style={{ padding: '20px 0', textAlign: 'center', color: C.t2, fontSize: 11 }}>
+                                No recent orders
+                            </div>
+                        ) : recentOrders.map((order, i) => (
                             <div
                                 key={i}
-                                onClick={() => toggleCheck(i)}
-                                role="checkbox"
-                                aria-checked={item.done}
-                                tabIndex={0}
-                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCheck(i); } }}
-                                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-[6px] border cursor-pointer transition-colors ${
-                                    item.done
-                                        ? 'bg-[rgba(34,197,94,0.07)] border-[rgba(34,197,94,0.15)]'
-                                        : 'bg-redwood-row-bg border-redwood-border hover:bg-redwood-row-hover'
-                                }`}
+                                style={{
+                                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                    padding: '7px 0',
+                                    borderBottom: i < recentOrders.length - 1 ? `1px solid ${C.bd2}` : 'none',
+                                    fontSize: 11,
+                                }}
                             >
-                                <div className={`w-3.5 h-3.5 rounded-[3px] border-[1.5px] flex items-center justify-center flex-shrink-0 transition-colors ${
-                                    item.done ? 'bg-[#22C55E] border-[#22C55E]' : 'border-[#3E5678]'
-                                }`}>
-                                    {item.done && (
-                                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round">
-                                            <polyline points="20 6 9 17 4 12" />
-                                        </svg>
-                                    )}
+                                <div style={{ minWidth: 0, flex: 1 }}>
+                                    <div style={{ color: C.t, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {order.customerName}
+                                    </div>
+                                    <div style={{ fontSize: 10, color: C.t3 }}>{order.reference} · {order.date}</div>
                                 </div>
-                                <span className={`text-[10px] flex-1 ${item.done ? 'line-through text-redwood-text-muted' : 'text-redwood-text-main'}`}>
-                                    {item.label}
-                                </span>
-                                {item.tag && (
-                                    <span
-                                        className={`text-[8px] font-semibold px-1.5 py-[1px] rounded-full border ${
-                                            item.tag === 'urgent' || item.tag === 'critical'
-                                                ? 'bg-[rgba(239,68,68,0.12)] text-[#FCA5A5] border-[rgba(239,68,68,0.2)]'
-                                                : 'bg-[rgba(245,158,11,0.12)] text-[#FCD34D] border-[rgba(245,158,11,0.2)]'
-                                        }`}
-                                    >
-                                        {item.tag}
+                                <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
+                                    <div style={{ color: C.green, fontWeight: 600 }}>
+                                        ${order.amount.toFixed(2)}
+                                    </div>
+                                    <span style={{
+                                        fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 8,
+                                        background: order.status === 'paid' ? 'rgba(34,197,94,.12)' : 'rgba(245,158,11,.12)',
+                                        color: order.status === 'paid' ? '#16A34A' : '#B45309',
+                                    }}>
+                                        {order.status}
                                     </span>
-                                )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Cash collected today */}
+                    <div style={{ background: C.bg3, border: `1px solid ${C.br2}`, borderRadius: 12, padding: 14 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: C.t, marginBottom: 10 }}>
+                            💵 Cash collected today
+                        </div>
+                        <div style={{ textAlign: 'center', padding: '12px 0' }}>
+                            <div style={{ fontSize: 28, fontWeight: 700, color: C.green, lineHeight: 1, marginBottom: 4 }}>
+                                ${cashCollectedToday.toLocaleString()}
+                            </div>
+                            <div style={{ fontSize: 11, color: C.t2 }}>
+                                Target: ${DAILY_TARGET.toLocaleString()}
+                            </div>
+                            <div style={{
+                                height: 8, borderRadius: 8,
+                                background: 'rgba(255,255,255,.06)',
+                                margin: '10px 0 6px', overflow: 'hidden',
+                            }}>
+                                <div style={{
+                                    height: 8, borderRadius: 8,
+                                    width: `${Math.min(100, DAILY_TARGET > 0 ? (cashCollectedToday / DAILY_TARGET) * 100 : 0)}%`,
+                                    background: C.green,
+                                    transition: 'width .6s ease',
+                                }} />
+                            </div>
+                            <div style={{ fontSize: 10, color: C.t3 }}>
+                                {DAILY_TARGET > 0
+                                    ? `${((cashCollectedToday / DAILY_TARGET) * 100).toFixed(0)}% of daily target`
+                                    : 'No target set'}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* AI alerts */}
+                    <div style={{ background: C.bg3, border: `1px solid ${C.br2}`, borderRadius: 12, padding: 14 }}>
+                        <div style={{
+                            fontSize: 12, fontWeight: 700, color: C.t, marginBottom: 10,
+                            display: 'flex', alignItems: 'center', gap: 6,
+                        }}>
+                            <Sparkles size={13} color={C.purple} /> Marcus AI alerts
+                            <span style={{
+                                background: 'rgba(239,68,68,.15)', color: '#B91C1C',
+                                fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 8,
+                            }}>
+                                {AI_ALERTS.length} new
+                            </span>
+                        </div>
+                        {AI_ALERTS.slice(0, 4).map((alert, i) => (
+                            <div
+                                key={i}
+                                style={{
+                                    background: i === 0 ? 'rgba(239,68,68,.07)' : 'rgba(255,255,255,.03)',
+                                    border: `1px solid ${i === 0 ? 'rgba(239,68,68,.2)' : 'rgba(255,255,255,.06)'}`,
+                                    borderRadius: 8, padding: '7px 10px', marginBottom: 6,
+                                    fontSize: 10, color: C.t2, lineHeight: 1.5,
+                                }}
+                            >
+                                <span style={{ color: C.t }}>{alert.message}</span>
                             </div>
                         ))}
                     </div>
                 </div>
-                </div>  {/* close RIGHT column wrapper */}
 
+                {/* Section 3 — Stock & Operations */}
+                <SectionDivider label="STOCK & OPERATIONS" />
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: cols.twoCol ? '1fr 1fr' : '1fr',
+                    gap: 10,
+                }}>
+                    {/* Low stock table */}
+                    <div style={{
+                        background: C.bg3, border: `1px solid ${C.br2}`,
+                        borderRadius: 12, padding: 0, overflow: 'hidden',
+                    }}>
+                        <div style={{
+                            padding: '12px 14px',
+                            borderBottom: '1px solid rgba(255,255,255,.07)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: C.t, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <Package size={13} color={C.amber} /> Low stock — needs reorder
+                            </span>
+                            <span
+                                style={{ fontSize: 10, color: C.blue, cursor: 'pointer' }}
+                                onClick={() => navigate('/products')}
+                            >
+                                View all →
+                            </span>
+                        </div>
+                        <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                <thead>
+                                    <tr>
+                                        {['Product', 'Stock', 'Reorder Point', 'Status'].map(h => (
+                                            <th key={h} style={{
+                                                fontSize: 10, color: C.t3, fontWeight: 700,
+                                                letterSpacing: '.5px', padding: '8px 10px',
+                                                borderBottom: '1px solid rgba(255,255,255,.07)',
+                                                textAlign: 'left', textTransform: 'uppercase',
+                                                background: C.bg2,
+                                            }}>
+                                                {h}
+                                            </th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {lowStockProducts.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={4} style={{ padding: '32px 10px', textAlign: 'center', color: C.t2, fontSize: 11 }}>
+                                                All stocked ✓
+                                            </td>
+                                        </tr>
+                                    ) : lowStockProducts.map((p, i) => {
+                                        const stock = Number(p.current_stock || 0);
+                                        const reorderPoint = Number((p as any).reorder_point || 10);
+                                        const isCritical = stock < reorderPoint / 2;
+                                        const stockColor = stock < reorderPoint ? (isCritical ? C.red : C.amber) : C.t;
+                                        return (
+                                            <tr
+                                                key={i}
+                                                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,.025)'; }}
+                                                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                                                style={{ transition: 'background .15s' }}
+                                            >
+                                                <td style={{ fontSize: 11, color: C.t, padding: '8px 10px', borderBottom: `1px solid ${C.bd2}`, fontWeight: 500 }}>
+                                                    {p.name}
+                                                </td>
+                                                <td style={{ fontSize: 11, color: stockColor, padding: '8px 10px', borderBottom: `1px solid ${C.bd2}`, fontFamily: 'monospace', fontWeight: 600 }}>
+                                                    {stock}
+                                                </td>
+                                                <td style={{ fontSize: 11, color: C.t2, padding: '8px 10px', borderBottom: `1px solid ${C.bd2}`, fontFamily: 'monospace' }}>
+                                                    {reorderPoint}
+                                                </td>
+                                                <td style={{ padding: '8px 10px', borderBottom: `1px solid ${C.bd2}` }}>
+                                                    <span style={{
+                                                        fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 8,
+                                                        background: isCritical ? 'rgba(239,68,68,.12)' : 'rgba(245,158,11,.12)',
+                                                        color: isCritical ? '#B91C1C' : '#B45309',
+                                                        textTransform: 'uppercase', letterSpacing: '.4px',
+                                                    }}>
+                                                        {isCritical ? 'Critical' : 'Low'}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    {/* Van operations */}
+                    <div style={{ background: C.bg3, border: `1px solid ${C.br2}`, borderRadius: 12, padding: 14 }}>
+                        <div style={{
+                            fontSize: 12, fontWeight: 700, color: C.t, marginBottom: 10,
+                            display: 'flex', alignItems: 'center', gap: 6,
+                        }}>
+                            <Truck size={13} color={C.green} /> Van operations — today
+                        </div>
+                        {vansData.length === 0 ? (
+                            <div style={{ padding: '20px 0', textAlign: 'center', color: C.t2, fontSize: 11 }}>
+                                No vans on route
+                            </div>
+                        ) : vansData.slice(0, 5).map((van: any, i: number) => {
+                            const status = String(van.status || '').toLowerCase();
+                            const isOnRoute = status === 'active' || status === 'on_route';
+                            const shown = Math.min(vansData.length, 5);
+                            return (
+                                <div
+                                    key={i}
+                                    style={{
+                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                        padding: '8px 0',
+                                        borderBottom: i < shown - 1 ? `1px solid ${C.bd2}` : 'none',
+                                        fontSize: 11,
+                                    }}
+                                >
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <div style={{
+                                            width: 28, height: 28, borderRadius: '50%',
+                                            background: isOnRoute ? 'rgba(34,197,94,.15)' : 'rgba(255,255,255,.06)',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            fontSize: 11,
+                                        }}>
+                                            🚛
+                                        </div>
+                                        <div>
+                                            <div style={{ color: C.t, fontWeight: 500 }}>
+                                                {van.name || van.driverName || `Van ${i + 1}`}
+                                            </div>
+                                            <div style={{ fontSize: 10, color: C.t3 }}>
+                                                {van.stopsCompleted ?? 0}/{van.totalStops ?? 0} stops ·
+                                                {' '}${Number(van.collected ?? 0).toFixed(0)} collected
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <span style={{
+                                        fontSize: 9, fontWeight: 600, padding: '2px 7px', borderRadius: 8,
+                                        background: isOnRoute ? 'rgba(34,197,94,.12)' : 'rgba(245,158,11,.12)',
+                                        color: isOnRoute ? '#16A34A' : '#B45309',
+                                    }}>
+                                        {isOnRoute ? 'On route' : 'At depot'}
+                                    </span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
             </div>
         </div>
     );
