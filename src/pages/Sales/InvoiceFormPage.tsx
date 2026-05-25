@@ -666,29 +666,49 @@ export default function InvoiceFormPage() {
                     </div>
                 </div>
             )}
-            {/* Header */}
-            <div className="bg-white rounded-xl shadow-lg border-2 border-[#800020] p-6">
+            {/* Header — Soltol dark theme */}
+            <div style={{
+                background: 'var(--color-background-primary)',
+                borderBottom: '0.5px solid var(--color-border-tertiary)',
+                padding: '13px 18px',
+                borderRadius: 12,
+            }}>
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
                         <button
                             onClick={() => navigate(-1)}
-                            className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                            className="p-2 hover:bg-white/5 rounded-full transition-colors"
                         >
-                            <ArrowLeft size={20} className="text-gray-500" />
+                            <ArrowLeft size={20} style={{ color: 'var(--color-text-secondary)' }} />
                         </button>
-                        <div className="w-14 h-14 bg-[#800020] rounded-xl flex items-center justify-center shadow-lg">
-                            <FileText size={28} className="text-white" />
+                        <div style={{
+                            width: 44, height: 44,
+                            background: 'rgba(79,142,247,.12)',
+                            borderRadius: 9,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                            <FileText size={22} style={{ color: '#4F8EF7' }} />
                         </div>
                         <div>
-                            <h1 className="text-2xl font-black text-gray-900 uppercase">New Invoice</h1>
-                            <p className="text-xs text-gray-500 font-semibold mt-1">Create Sales Invoice</p>
+                            <h1 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
+                                New invoice
+                            </h1>
+                            <p className="text-xs font-medium mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+                                Create Sales Invoice
+                            </p>
                         </div>
                     </div>
 
                     <div className="flex gap-2">
                         <button
                             onClick={() => navigate(-1)}
-                            className="px-6 py-3 bg-white border-2 border-gray-300 rounded-lg text-sm font-bold hover:bg-gray-50"
+                            style={{
+                                padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                                background: 'transparent',
+                                border: '1px solid rgba(255,255,255,.12)',
+                                color: 'var(--color-text-secondary)',
+                                cursor: 'pointer', fontFamily: 'inherit',
+                            }}
                         >
                             Cancel
                         </button>
@@ -696,32 +716,95 @@ export default function InvoiceFormPage() {
                         <button
                             onClick={handleDownloadPDF}
                             disabled={saving}
-                            className="px-6 py-3 bg-white border-2 border-blue-600 text-blue-700 rounded-lg text-sm font-black hover:bg-blue-50 flex items-center gap-2 disabled:opacity-50"
                             title="Download a PDF copy of this invoice"
+                            style={{
+                                padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                                background: 'transparent',
+                                border: '1px solid #4F8EF7', color: '#4F8EF7',
+                                cursor: saving ? 'not-allowed' : 'pointer',
+                                opacity: saving ? 0.5 : 1,
+                                display: 'flex', alignItems: 'center', gap: 6,
+                                fontFamily: 'inherit',
+                            }}
                         >
-                            <Download size={18} />
+                            <Download size={14} />
                             Download PDF
                         </button>
                         <button
                             onClick={handleSaveDraft}
                             disabled={saving || !!savedNotice}
-                            className="px-6 py-3 bg-white border-2 border-gray-700 text-gray-700 rounded-lg text-sm font-black hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
                             title="Save without submitting — fewer required fields"
+                            style={{
+                                padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                                background: 'transparent',
+                                border: '1px solid rgba(255,255,255,.18)',
+                                color: 'var(--color-text-secondary)',
+                                cursor: (saving || !!savedNotice) ? 'not-allowed' : 'pointer',
+                                opacity: (saving || !!savedNotice) ? 0.5 : 1,
+                                display: 'flex', alignItems: 'center', gap: 6,
+                                fontFamily: 'inherit',
+                            }}
                         >
-                            <Save size={18} />
+                            <Save size={14} />
                             {saving ? 'Saving…' : 'Save as Draft'}
                         </button>
                         <button
                             onClick={handleSave}
                             disabled={saving || !!savedNotice}
-                            className="px-8 py-3 bg-[#800020] text-white rounded-lg text-sm font-black hover:bg-[#600018] flex items-center gap-2 disabled:opacity-50 shadow-xl"
+                            style={{
+                                padding: '7px 18px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                                background: '#4F8EF7', color: '#fff', border: 'none',
+                                cursor: (saving || !!savedNotice) ? 'not-allowed' : 'pointer',
+                                opacity: (saving || !!savedNotice) ? 0.5 : 1,
+                                display: 'flex', alignItems: 'center', gap: 6,
+                                boxShadow: '0 2px 6px rgba(79,142,247,.25)',
+                                fontFamily: 'inherit',
+                            }}
                         >
-                            <Save size={18} />
+                            <Save size={14} />
                             {saving ? 'Saving...' : 'Confirm & Save'}
                         </button>
                     </div>
                 </div>
             </div>
+
+            {/* ── FIX 5 — Credit limit warning banner (display-only, reads
+                already-loaded customers state; no new API calls) ── */}
+            {formData.customerId && (() => {
+                const cust = customers.find(c => String(c.id) === String(formData.customerId));
+                const outstanding = Number((cust as any)?.balance ?? 0);
+                const creditLimit = Number((cust as any)?.credit_limit ?? 0);
+                if (outstanding <= 0 && creditLimit === 0) return null;
+                const newTotal = outstanding + (formData.grandTotal ?? 0);
+                const usedPct = creditLimit > 0 ? Math.min(100, Math.round((newTotal / creditLimit) * 100)) : 0;
+                const isWarning = creditLimit > 0 && usedPct > 80;
+                const isDanger  = creditLimit > 0 && usedPct > 100;
+                if (outstanding === 0 && !creditLimit) return null;
+                return (
+                    <div style={{
+                        margin: '0 0 12px',
+                        padding: '8px 12px',
+                        borderRadius: 8,
+                        border: `1px solid ${isDanger ? 'rgba(239,68,68,.3)' : isWarning ? 'rgba(245,158,11,.3)' : 'rgba(74,143,245,.2)'}`,
+                        background: isDanger ? 'rgba(239,68,68,.07)' : isWarning ? 'rgba(245,158,11,.07)' : 'rgba(74,143,245,.07)',
+                        display: 'flex', alignItems: 'flex-start', gap: 8,
+                        fontSize: 11,
+                        color: isDanger ? '#EF4444' : isWarning ? '#F59E0B' : '#4F8EF7',
+                    }}>
+                        <span style={{ flexShrink: 0, fontSize: 14 }}>
+                            {isDanger ? '🚨' : isWarning ? '⚠️' : 'ℹ️'}
+                        </span>
+                        <div>
+                            <strong>
+                                {isDanger ? 'Over credit limit: ' : isWarning ? 'Credit warning: ' : 'Credit notice: '}
+                            </strong>
+                            {cust?.name ?? 'Customer'} has ${outstanding.toLocaleString()} outstanding.
+                            {creditLimit > 0 && ` Credit limit: $${creditLimit.toLocaleString()} · After this invoice: $${newTotal.toLocaleString()} (${usedPct}% used).`}
+                            {creditLimit === 0 && ' No credit limit set.'}
+                        </div>
+                    </div>
+                );
+            })()}
 
             {/* Form */}
             <div className="bg-white border-2 border-gray-200 rounded-xl shadow-md p-8 space-y-8">
@@ -729,7 +812,7 @@ export default function InvoiceFormPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-6 border-b-2 border-gray-200">
                     <div>
                         <div className="flex items-center justify-between mb-2">
-                            <label className="text-xs font-black text-gray-600 uppercase">
+                            <label className="text-xs font-semibold text-gray-600">
                                 Salesman <span className="text-red-500">*</span>
                             </label>
                             {/* ITEM 7A — Quick-add new salesman, mirrors New Customer. */}
@@ -763,8 +846,8 @@ export default function InvoiceFormPage() {
                         )}
                     </div>
                     <div>
-                        <label className="block text-xs font-black text-gray-600 uppercase mb-2">
-                            Van / Route
+                        <label className="block text-xs font-semibold text-gray-600 mb-2">
+                            Van / route
                         </label>
                         <SearchableSelect
                             options={VANS}
@@ -781,7 +864,7 @@ export default function InvoiceFormPage() {
                     <div className="space-y-4">
                         <div>
                             <div className="flex items-center justify-between mb-2">
-                                <label className="text-xs font-black text-gray-600 uppercase">Customer <span className="text-red-500">*</span></label>
+                                <label className="text-xs font-semibold text-gray-600">Customer <span className="text-red-500">*</span></label>
                                 <button type="button" onClick={() => setShowNewCustomer(true)}
                                     className="flex items-center gap-1 text-xs font-black text-orange-600 hover:text-orange-800 transition-all">
                                     <UserPlus size={12} /> New Customer
@@ -795,6 +878,22 @@ export default function InvoiceFormPage() {
                                 displayKey="name"
                                 disabled={loading}
                             />
+                            {/* FIX 6 — display-only payment terms hint, reads from
+                                already-loaded customers state, no new API calls */}
+                            {formData.customerId && (() => {
+                                const cust = customers.find(c => String(c.id) === String(formData.customerId));
+                                const terms = (cust as any)?.payment_terms ?? (cust as any)?.paymentTerms;
+                                if (!terms) return null;
+                                return (
+                                    <div style={{
+                                        fontSize: 10, color: '#8BA3C7', marginTop: 4,
+                                        display: 'flex', alignItems: 'center', gap: 5,
+                                    }}>
+                                        <span>🔒</span>
+                                        Payment terms: <strong style={{ color: '#EEF2FF' }}>{terms}</strong>
+                                    </div>
+                                );
+                            })()}
                             {showNewCustomer && (
                                 <div className="mt-2 p-3 bg-orange-50 border border-orange-200 rounded-xl space-y-2">
                                     <div className="flex items-center justify-between">
@@ -816,40 +915,40 @@ export default function InvoiceFormPage() {
                         </div>
 
                         <div>
-                            <label className="block text-xs font-black text-gray-600 uppercase mb-2">
-                                Invoice Date
+                            <label className="block text-xs font-semibold text-gray-600 mb-2">
+                                Invoice date
                             </label>
                             <input
                                 type="date"
                                 value={formData.invoiceDate}
                                 onChange={(e) => setFormData(prev => ({ ...prev, invoiceDate: e.target.value }))}
-                                className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-bold focus:border-[#800020] focus:outline-none transition-all"
+                                className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-bold focus:border-[#4F8EF7] focus:outline-none transition-all"
                             />
                         </div>
                     </div>
 
                     <div className="space-y-4">
                         <div>
-                            <label className="block text-xs font-black text-gray-600 uppercase mb-2">
-                                Invoice Number
+                            <label className="block text-xs font-semibold text-gray-600 mb-2">
+                                Invoice number
                             </label>
                             <input
                                 type="text"
                                 value={formData.invoiceNumber}
                                 onChange={(e) => setFormData(prev => ({ ...prev, invoiceNumber: e.target.value }))}
-                                className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-mono font-black focus:border-[#800020] focus:outline-none transition-all"
+                                className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-mono font-black focus:border-[#4F8EF7] focus:outline-none transition-all"
                             />
                         </div>
 
                         <div>
-                            <label className="block text-xs font-black text-gray-600 uppercase mb-2">
-                                Due Date
+                            <label className="block text-xs font-semibold text-gray-600 mb-2">
+                                Due date
                             </label>
                             <input
                                 type="date"
                                 value={formData.dueDate}
                                 onChange={(e) => setFormData(prev => ({ ...prev, dueDate: e.target.value }))}
-                                className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-bold focus:border-[#800020] focus:outline-none transition-all"
+                                className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-bold focus:border-[#4F8EF7] focus:outline-none transition-all"
                             />
                         </div>
                     </div>
@@ -857,21 +956,21 @@ export default function InvoiceFormPage() {
 
                 {/* Line Items */}
                 <div>
-                    <h3 className="text-sm font-black text-gray-700 uppercase mb-4">Line Items</h3>
+                    <h3 className="text-sm font-semibold text-gray-700 mb-4">Line items</h3>
 
                     <div className="overflow-x-auto border-2 border-gray-200 rounded-lg">
                         <table className="w-full">
                             <thead className="bg-gray-100">
                                 <tr>
-                                    <th className="px-4 py-3 text-left text-xs font-black text-gray-700 uppercase w-[18%]">Product</th>
-                                    <th className="px-4 py-3 text-left text-xs font-black text-gray-700 uppercase w-[28%]">Description</th>
-                                    <th className="px-3 py-3 text-center text-xs font-black text-gray-700 uppercase w-20">Qty</th>
-                                    <th className="px-3 py-3 text-center text-xs font-black text-gray-700 uppercase w-28">Rate</th>
+                                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 w-[18%]">Product</th>
+                                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 w-[28%]">Description</th>
+                                    <th className="px-3 py-3 text-center text-xs font-semibold text-gray-700 w-20">Qty</th>
+                                    <th className="px-3 py-3 text-center text-xs font-semibold text-gray-700 w-28">Rate</th>
                                     {/* ITEM 7D — Per-line discount & tax. Optional; 0 = use header values. */}
-                                    <th className="px-2 py-3 text-center text-xs font-black text-gray-700 uppercase w-20" title="Per-line discount % (stacks on top of header discount)">Disc %</th>
-                                    <th className="px-2 py-3 text-center text-xs font-black text-gray-700 uppercase w-20" title="Per-line tax % (overrides header rate when > 0)">Tax %</th>
-                                    <th className="px-4 py-3 text-right text-xs font-black text-gray-700 uppercase w-28">Amount</th>
-                                    <th className="px-3 py-3 text-center text-xs font-black text-gray-700 uppercase w-16">Action</th>
+                                    <th className="px-2 py-3 text-center text-xs font-semibold text-gray-700 w-20" title="Per-line discount % (stacks on top of header discount)">Disc %</th>
+                                    <th className="px-2 py-3 text-center text-xs font-semibold text-gray-700 w-20" title="Per-line tax % (overrides header rate when > 0)">Tax %</th>
+                                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700 w-28">Amount</th>
+                                    <th className="px-3 py-3 text-center text-xs font-semibold text-gray-700 w-16"></th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200">
@@ -914,7 +1013,7 @@ export default function InvoiceFormPage() {
                                                 onChange={(e) => handleLineItemChange(item.id, 'description', e.target.value)}
                                                 placeholder="Item description..."
                                                 rows={2}
-                                                className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-[#800020] focus:outline-none resize-none"
+                                                className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-[#4F8EF7] focus:outline-none resize-none"
                                             />
                                         </td>
 
@@ -928,7 +1027,7 @@ export default function InvoiceFormPage() {
                                                 className={`w-full border-2 rounded-lg px-3 py-2 text-sm text-center font-mono font-bold focus:outline-none ${
                                                     overStock
                                                         ? 'border-rose-400 bg-rose-50 text-rose-700 focus:border-rose-500'
-                                                        : 'border-gray-300 focus:border-[#800020]'
+                                                        : 'border-gray-300 focus:border-[#4F8EF7]'
                                                 }`}
                                             />
                                             {/* ITEM 7E — Over-stock warning. */}
@@ -947,7 +1046,7 @@ export default function InvoiceFormPage() {
                                                 min="0"
                                                 step="0.01"
                                                 placeholder="Enter rate"
-                                                className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm text-center font-mono font-bold focus:border-[#800020] focus:outline-none"
+                                                className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm text-center font-mono font-bold focus:border-[#4F8EF7] focus:outline-none"
                                             />
                                         </td>
 
@@ -961,7 +1060,7 @@ export default function InvoiceFormPage() {
                                                 max="100"
                                                 step="0.01"
                                                 placeholder="0"
-                                                className="w-full border-2 border-gray-300 rounded-lg px-2 py-2 text-sm text-center font-mono font-bold focus:border-[#800020] focus:outline-none"
+                                                className="w-full border-2 border-gray-300 rounded-lg px-2 py-2 text-sm text-center font-mono font-bold focus:border-[#4F8EF7] focus:outline-none"
                                             />
                                         </td>
 
@@ -975,7 +1074,7 @@ export default function InvoiceFormPage() {
                                                 max="100"
                                                 step="0.01"
                                                 placeholder="0"
-                                                className="w-full border-2 border-gray-300 rounded-lg px-2 py-2 text-sm text-center font-mono font-bold focus:border-[#800020] focus:outline-none"
+                                                className="w-full border-2 border-gray-300 rounded-lg px-2 py-2 text-sm text-center font-mono font-bold focus:border-[#4F8EF7] focus:outline-none"
                                             />
                                         </td>
 
@@ -1013,17 +1112,17 @@ export default function InvoiceFormPage() {
 
                 {/* Payment Options Section */}
                 <div className="border-t-2 border-gray-200 pt-8 mt-8">
-                    <h3 className="text-sm font-black text-gray-700 uppercase mb-6 flex items-center gap-2">
-                        <div className="w-2 h-6 bg-[#800020]"></div>
-                        Payment & Terms
+                    <h3 className="text-sm font-semibold text-gray-700 mb-6 flex items-center gap-2">
+                        <div className="w-2 h-6 bg-[#4F8EF7]"></div>
+                        Payment & terms
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 bg-gray-50 p-6 rounded-xl border-2 border-dashed border-gray-300">
                         <div className="space-y-3">
-                            <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest">Payment Status</label>
+                            <label className="block text-xs font-semibold text-gray-500">Payment status</label>
                             <select
                                 value={formData.paymentStatus}
                                 onChange={(e) => setFormData(p => ({ ...p, paymentStatus: e.target.value as any, paymentMethod: '', amountPaid: 0 }))}
-                                className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-bold focus:border-[#800020] outline-none bg-white transition-all"
+                                className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-bold focus:border-[#4F8EF7] outline-none bg-white transition-all"
                             >
                                 <option value="Unpaid">Unpaid (Full Credit)</option>
                                 <option value="Paid">Paid (Full Payment)</option>
@@ -1033,11 +1132,11 @@ export default function InvoiceFormPage() {
 
                         {(formData.paymentStatus === 'Paid' || formData.paymentStatus === 'Advance Paid') && (
                             <div className="space-y-3">
-                                <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest">Payment Method</label>
+                                <label className="block text-xs font-semibold text-gray-500">Payment method</label>
                                 <select
                                     value={formData.paymentMethod}
                                     onChange={(e) => setFormData(p => ({ ...p, paymentMethod: e.target.value }))}
-                                    className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-bold focus:border-[#800020] outline-none bg-white transition-all shadow-sm"
+                                    className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-bold focus:border-[#4F8EF7] outline-none bg-white transition-all shadow-sm"
                                     required
                                 >
                                     <option value="">-- Select Method --</option>
@@ -1052,7 +1151,7 @@ export default function InvoiceFormPage() {
                             ledger posting which Cash/Bank sub-account to debit. */}
                         {(formData.paymentStatus === 'Paid' || formData.paymentStatus === 'Advance Paid') && (
                             <div className="space-y-3">
-                                <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest">Deposit To Account</label>
+                                <label className="block text-xs font-semibold text-gray-500">Deposit to account</label>
                                 {bankAccounts.length === 0 ? (
                                     <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-snug">
                                         No bank or cash accounts configured. Add sub-accounts under <strong>Finance → Chart of Accounts → Cash &amp; Bank (1110)</strong>.
@@ -1061,7 +1160,7 @@ export default function InvoiceFormPage() {
                                     <select
                                         value={formData.depositAccountId}
                                         onChange={(e) => setFormData(p => ({ ...p, depositAccountId: e.target.value }))}
-                                        className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-bold focus:border-[#800020] outline-none bg-white transition-all shadow-sm"
+                                        className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-bold focus:border-[#4F8EF7] outline-none bg-white transition-all shadow-sm"
                                         required
                                     >
                                         <option value="">-- Select Account --</option>
@@ -1075,12 +1174,12 @@ export default function InvoiceFormPage() {
 
                         {formData.paymentStatus === 'Advance Paid' && (
                             <div className="space-y-3">
-                                <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest">Amount Paid</label>
+                                <label className="block text-xs font-semibold text-gray-500">Amount paid</label>
                                 <input
                                     type="number"
                                     value={formData.amountPaid || ''}
                                     onChange={(e) => setFormData(p => ({ ...p, amountPaid: parseFloat(e.target.value) || 0 }))}
-                                    className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-mono font-black focus:border-[#800020] outline-none transition-all"
+                                    className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-mono font-black focus:border-[#4F8EF7] outline-none transition-all"
                                     placeholder="0.00"
                                 />
                             </div>
@@ -1093,32 +1192,33 @@ export default function InvoiceFormPage() {
                     <div className="flex flex-col md:flex-row gap-8 justify-between">
                         {/* Notes Area */}
                         <div className="w-full md:w-1/2">
-                            <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-3">
-                                Internal Notes & Terms
+                            <label className="block text-xs font-semibold text-gray-500 mb-3">
+                                Notes &amp; terms
                             </label>
                             <textarea
                                 value={formData.notes}
                                 onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
                                 rows={6}
                                 placeholder="Add terms & conditions, delivery notes, or internal comments..."
-                                className="w-full border-2 border-gray-300 rounded-xl px-4 py-3 text-sm font-medium focus:border-[#800020] focus:ring-4 focus:ring-[#800020]/5 outline-none resize-none transition-all shadow-inner bg-gray-50/50"
+                                className="w-full border-2 border-gray-300 rounded-xl px-4 py-3 text-sm font-medium focus:border-[#4F8EF7] focus:ring-4 focus:ring-[#4F8EF7]/5 outline-none resize-none transition-all shadow-inner bg-gray-50/50"
                             />
                         </div>
 
                         {/* Totals Card */}
                         <div className="w-full md:w-5/12 bg-white rounded-2xl border-2 border-gray-900 overflow-hidden shadow-2xl skew-y-0 translate-z-0">
                             <div className="bg-gray-900 px-6 py-4">
-                                <h4 className="text-xs font-black text-white uppercase tracking-[0.2em]">Summary & Totals</h4>
+                                <h4 className="text-xs font-semibold text-white">Summary &amp; totals</h4>
                             </div>
                             <div className="p-6 space-y-4">
                                 <div className="flex justify-between items-center group">
-                                    <span className="text-xs font-bold text-gray-500 uppercase group-hover:text-gray-900 transition-colors">Subtotal</span>
+                                    <span className="text-xs font-medium text-gray-500 group-hover:text-gray-900 transition-colors">Subtotal</span>
                                     <span className="text-lg font-mono font-black text-gray-900">{formData.subtotal.toLocaleString()}</span>
                                 </div>
 
                                 <div className="flex justify-between items-center group">
                                     <div className="flex items-center gap-3">
-                                        <span className="text-xs font-bold text-gray-500 uppercase group-hover:text-gray-900 transition-colors">Tax Rate</span>
+                                        <span className="text-xs font-medium text-gray-500 group-hover:text-gray-900 transition-colors">Tax rate (%)</span>
+                                        <span style={{ fontSize: 10, color: '#8BA3C7', marginLeft: 4 }}>UAE VAT</span>
                                         <div className="flex items-center bg-gray-100 rounded-md px-2 border border-gray-200">
                                             <input
                                                 type="number"
@@ -1134,19 +1234,19 @@ export default function InvoiceFormPage() {
                                 </div>
 
                                 <div className="flex justify-between items-center group">
-                                    <span className="text-xs font-bold text-gray-500 uppercase group-hover:text-gray-900 transition-colors">Discount</span>
+                                    <span className="text-xs font-medium text-gray-500 group-hover:text-gray-900 transition-colors">Discount</span>
                                     <input
                                         type="number"
                                         value={formData.discount || ''}
                                         onChange={(e) => setFormData(prev => ({ ...prev, discount: parseFloat(e.target.value) || 0 }))}
-                                        className="w-32 border-2 border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right font-mono font-black focus:border-[#800020] outline-none transition-all bg-gray-50"
+                                        className="w-32 border-2 border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right font-mono font-black focus:border-[#4F8EF7] outline-none transition-all bg-gray-50"
                                         placeholder="0"
                                     />
                                 </div>
 
                                 <div className="flex justify-between items-center group">
                                     <div className="flex items-center gap-2">
-                                        <span className="text-xs font-bold text-gray-500 uppercase group-hover:text-gray-900 transition-colors">Round Off</span>
+                                        <span className="text-xs font-medium text-gray-500 group-hover:text-gray-900 transition-colors">Round off</span>
                                         <button type="button"
                                             onClick={() => setFormData(prev => { const base = prev.subtotal + prev.taxAmount - prev.discount; const roff = parseFloat((Math.round(base) - base).toFixed(2)); return { ...prev, roundOff: roff }; })}
                                             className="text-[10px] px-2 py-0.5 bg-gray-100 hover:bg-gray-200 rounded font-bold text-gray-500 transition-all">Auto</button>
@@ -1155,7 +1255,7 @@ export default function InvoiceFormPage() {
                                         type="number"
                                         value={formData.roundOff ? parseFloat(formData.roundOff.toFixed(2)) : ''}
                                         onChange={(e) => setFormData(prev => ({ ...prev, roundOff: parseFloat(e.target.value) || 0 }))}
-                                        className="w-32 border-2 border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right font-mono font-black focus:border-[#800020] outline-none transition-all bg-gray-50"
+                                        className="w-32 border-2 border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right font-mono font-black focus:border-[#4F8EF7] outline-none transition-all bg-gray-50"
                                         placeholder="0.00"
                                         step="0.01"
                                     />
@@ -1163,22 +1263,22 @@ export default function InvoiceFormPage() {
 
                                 <div className="pt-4 border-t-2 border-gray-900 space-y-3">
                                     <div className="flex justify-between items-center">
-                                        <span className="text-sm font-black text-gray-900 uppercase tracking-widest">Grand Total</span>
-                                        <span className="text-3xl font-mono font-black text-[#800020]">{formData.grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                        <span className="text-sm font-semibold text-gray-900">Grand total</span>
+                                        <span className="text-3xl font-mono font-black text-[#4F8EF7]">{formData.grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                                     </div>
 
                                     {formData.paymentStatus !== 'Unpaid' && (
                                         <div className="flex justify-between items-center bg-emerald-50 px-3 py-2 rounded-lg border border-emerald-200">
-                                            <span className="text-[10px] font-black text-emerald-700 uppercase">Paid Amount</span>
+                                            <span className="text-xs font-semibold text-emerald-700">Paid amount</span>
                                             <span className="text-sm font-mono font-black text-emerald-800">
                                                 {formData.paymentStatus === 'Paid' ? formData.grandTotal.toLocaleString() : formData.amountPaid.toLocaleString()}
                                             </span>
                                         </div>
                                     )}
 
-                                    <div className="flex justify-between items-center bg-[#800020] px-4 py-3 rounded-xl border border-white/20 shadow-lg mt-2">
-                                        <span className="text-xs font-black text-white uppercase tracking-widest">Balance Due</span>
-                                        <span className="text-2xl font-mono font-black text-white">{formData.remainingBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                    <div className="flex justify-between items-center bg-green-900/30 px-4 py-3 rounded-xl border border-green-700/40 shadow-lg mt-2">
+                                        <span className="text-xs font-semibold text-green-400">Balance due</span>
+                                        <span className="text-2xl font-mono font-bold text-green-400">{formData.remainingBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                                     </div>
                                 </div>
                             </div>
