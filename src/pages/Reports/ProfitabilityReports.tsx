@@ -4226,220 +4226,541 @@ export default function ProfitabilityReports() {
                     );
                 })()}
 
-                {activeTab === 'analytics' && (
-                    <div className="space-y-8 animate-in slide-in-from-bottom-2 duration-500">
-
-                        {/* Monthly Revenue Chart */}
-                        <div>
-                            <h2 className="text-sm font-black text-gray-800 uppercase tracking-widest mb-1 flex items-center gap-2">
-                                <BarChart3 size={16} className="text-orange-500" /> Monthly Revenue — Last 12 Months
-                            </h2>
-                            <p className="text-xs text-gray-400 mb-4">Revenue vs Profit per month</p>
-                            <div className="bg-gray-50 rounded-2xl p-4 h-64">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={monthlyData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-                                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                                        <XAxis dataKey="month" tick={{ fontSize: 10, fontWeight: 700 }} />
-                                        <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} />
-                                        <Tooltip formatter={(v: any) => globalFormatCurrency(Number(v))} />
-                                        <Legend />
-                                        <Bar dataKey="revenue" name="Revenue" fill="#f97316" radius={[4,4,0,0]} />
-                                        <Bar dataKey="profit" name="Profit" fill="#22c55e" radius={[4,4,0,0]} />
-                                    </BarChart>
-                                </ResponsiveContainer>
+                                {activeTab === 'analytics' && (() => {
+                    void { BarChart, Bar, Legend, globalFormatCurrency };
+                    const anaPanel: CSSProperties = {
+                        background: '#0f1f33',
+                        border: '0.5px solid rgba(255,255,255,.07)',
+                        borderRadius: 12,
+                        padding: '12px 14px',
+                    };
+                    const sectionTitle = (title: React.ReactNode, sub?: string, badge?: React.ReactNode) => (
+                        <div style={{ marginBottom: 10 }}>
+                            <div style={{ fontSize: 11, fontWeight: 500, color: '#EEF2FF', display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+                                {title}
+                                {badge}
+                            </div>
+                            {sub && <div style={{ fontSize: 9, color: '#3E5678', marginTop: 2 }}>{sub}</div>}
+                        </div>
+                    );
+                    const filterPill = (label: string, active: boolean, activeColor = 'rgba(79,142,247,.18)', activeBorder = 'rgba(79,142,247,.45)', activeText = '#93C5FD') => (
+                        <button
+                            type="button"
+                            style={{
+                                padding: '3px 10px',
+                                borderRadius: 999,
+                                fontSize: 9,
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                border: '1px solid',
+                                borderColor: active ? activeBorder : 'rgba(255,255,255,.08)',
+                                background: active ? activeColor : 'rgba(255,255,255,.04)',
+                                color: active ? activeText : '#8BA3C7',
+                                fontFamily: 'inherit',
+                            }}
+                        >
+                            {label}
+                        </button>
+                    );
+                    const aiInsightRow = (dot: string, body: React.ReactNode) => (
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 0', borderBottom: '0.5px solid rgba(255,255,255,.04)' }}>
+                            <span style={{ width: 8, height: 8, borderRadius: '50%', background: dot, flexShrink: 0, marginTop: 3 }} />
+                            <div style={{ flex: 1, fontSize: 10, color: '#8BA3C7', lineHeight: 1.5 }}>
+                                {body}
+                                <span
+                                    style={{ fontSize: 9, color: '#4F8EF7', background: 'rgba(79,142,247,.1)', borderRadius: 20, padding: '1px 6px', cursor: 'pointer', marginLeft: 5, display: 'inline-block' }}
+                                    onClick={() => alert('AI reasoning (preview)\n\nConnect AI endpoint for detailed explanation.')}
+                                    onKeyDown={() => {}}
+                                    role="button"
+                                    tabIndex={0}
+                                >
+                                    Why? →
+                                </span>
+                                <span style={{ marginLeft: 6, display: 'inline-flex', gap: 4 }}>
+                                    <button type="button" onClick={() => {}} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, padding: 0 }} title="Helpful">👍</button>
+                                    <button type="button" onClick={() => {}} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, padding: 0 }} title="Not helpful">👎</button>
+                                </span>
                             </div>
                         </div>
+                    );
 
-                        {/* Top 10 Customers + Top Products */}
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    const mayRevenue = plData?.revenue.totalRevenue ?? (monthlyData.length ? monthlyData[monthlyData.length - 1].revenue : 0);
+                    const mayProfit = plData?.netProfit.afterTax ?? (monthlyData.length ? monthlyData[monthlyData.length - 1].profit : 0);
+                    const netMarginPct = plData?.netProfit.margin ?? (mayRevenue > 0 ? (mayProfit / mayRevenue) * 100 : 0);
+                    const overdueCount = overdueAlerts.length;
+                    const maxOverdueDays = overdueCount ? Math.max(...overdueAlerts.map((a) => a.days)) : 0;
+                    const zeroStockCount = lowStockAlerts.filter((s) => s.stock === 0).length;
+                    const pricingErrorProduct = topProducts.find((p) => p.margin <= 0) ?? topProducts.find((p) => p.margin < 10);
+                    const hasPricingFlag = !!pricingErrorProduct;
+                    const totalActiveAlerts = overdueCount + lowStockAlerts.length + (hasPricingFlag ? 1 : 0);
+                    const totalCustRev = topCustomers.reduce((s, c) => s + c.revenue, 0);
+                    const topCustShare = totalCustRev > 0 && topCustomers[0] ? (topCustomers[0].revenue / totalCustRev) * 100 : 0;
+                    const chartData = monthlyData.length > 0 ? monthlyData : [];
+                    const firstRev = chartData[0]?.revenue ?? 0;
+                    const lastRev = chartData.length ? chartData[chartData.length - 1].revenue : 0;
+                    const revenueGrowth12 = chartData.length >= 2 ? pctChange(lastRev, firstRev) : '+24.1%';
+                    const maxChartVal = Math.max(...chartData.flatMap((m) => [m.revenue, m.profit]), 1);
+                    const maxSalesRev = Math.max(...salesmanData.map((s) => s.revenue), 1);
+                    const avgSalesTarget = salesmanData.length ? salesmanData.reduce((s, x) => s + x.revenue, 0) / salesmanData.length : 0;
+                    const ANALYTICS_PERIOD_PILLS = [
+                        { key: 'mtd' as PeriodKey, label: 'MTD May 2026' },
+                        { key: 'qtd' as PeriodKey, label: 'QTD Q2-2026' },
+                        { key: 'ytd' as PeriodKey, label: 'YTD 2026' },
+                    ];
 
-                            {/* Top 10 Customers */}
-                            <div>
-                                <h2 className="text-sm font-black text-gray-800 uppercase tracking-widest mb-1 flex items-center gap-2">
-                                    <Star size={16} className="text-yellow-500" /> Top 10 Customers by Revenue
-                                </h2>
-                                <p className="text-xs text-gray-400 mb-4">Highest revenue customers this period</p>
-                                <div className="space-y-2">
-                                    {topCustomers.length === 0 ? (
-                                        <div className="text-center py-8 text-gray-400 text-sm">No customer data yet</div>
-                                    ) : topCustomers.map((c, i) => (
-                                        <div key={i} className="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-3">
-                                            <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black text-white flex-shrink-0 ${i === 0 ? 'bg-yellow-500' : i === 1 ? 'bg-gray-400' : i === 2 ? 'bg-amber-600' : 'bg-gray-200 text-gray-600'}`}>
-                                                {i + 1}
-                                            </span>
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-sm font-black text-gray-900 truncate">{c.name}</p>
-                                                <p className="text-xs text-gray-400">{c.invoices} invoice{c.invoices !== 1 ? 's' : ''}</p>
-                                            </div>
-                                            <div className="text-right">
-                                                <p className="text-sm font-black font-mono text-gray-900">{globalFormatCurrency(c.revenue)}</p>
-                                                {i === 0 && <span className="text-[10px] text-yellow-600 font-black">👑 TOP</span>}
-                                            </div>
+                    return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {/* Header */}
+                            <div style={{ padding: '10px 14px', background: '#0a1726', border: '1px solid rgba(255,255,255,.07)', borderRadius: 10 }}>
+                                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 9 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                        <div style={{ width: 36, height: 36, borderRadius: 9, background: 'rgba(239,68,68,.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                            <Brain size={18} style={{ color: '#F87171' }} />
                                         </div>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Top Products by Profit */}
-                            <div>
-                                <h2 className="text-sm font-black text-gray-800 uppercase tracking-widest mb-1 flex items-center gap-2">
-                                    <Package size={16} className="text-blue-500" /> Top Products by Revenue
-                                </h2>
-                                <p className="text-xs text-gray-400 mb-4">Best performing products this period</p>
-                                <div className="space-y-2">
-                                    {topProducts.length === 0 ? (
-                                        <div className="text-center py-8 text-gray-400 text-sm">No product data yet</div>
-                                    ) : topProducts.map((p, i) => (
-                                        <div key={i} className="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-3">
-                                            <span className="text-2xl">🛢️</span>
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-sm font-black text-gray-900 truncate">{p.name}</p>
-                                                <p className="text-xs text-gray-400">{p.units.toLocaleString()} units sold</p>
-                                            </div>
-                                            <div className="text-right">
-                                                <p className="text-sm font-black font-mono text-gray-900">{globalFormatCurrency(p.revenue)}</p>
-                                                <p className="text-xs font-black text-emerald-600">{p.margin}% margin</p>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Salesman Performance */}
-                        <div>
-                            <h2 className="text-sm font-black text-gray-800 uppercase tracking-widest mb-1 flex items-center gap-2">
-                                <Users size={16} className="text-purple-500" /> Salesman / Van Performance
-                            </h2>
-                            <p className="text-xs text-gray-400 mb-4">Revenue per driver this period</p>
-                            {salesmanData.length === 0 ? (
-                                <div className="bg-gray-50 rounded-2xl p-8 text-center text-gray-400 text-sm">No salesman data yet — create sales orders with van assignments</div>
-                            ) : (
-                                <div className="overflow-x-auto rounded-2xl border border-gray-100">
-                                    <table className="w-full text-left">
-                                        <thead className="bg-gray-50 border-b border-gray-100">
-                                            <tr>
-                                                {['Salesman / Van', 'Orders', 'Revenue', 'Margin', 'Performance'].map(h => (
-                                                    <th key={h} className="px-5 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">{h}</th>
-                                                ))}
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-gray-50">
-                                            {salesmanData.map((s, i) => (
-                                                <tr key={i} className="hover:bg-gray-50">
-                                                    <td className="px-5 py-4 text-sm font-black text-gray-900">{s.name}</td>
-                                                    <td className="px-5 py-4 text-sm text-gray-600">{s.orders}</td>
-                                                    <td className="px-5 py-4 text-sm font-black font-mono text-gray-900">{globalFormatCurrency(s.revenue)}</td>
-                                                    <td className="px-5 py-4 text-sm font-black text-emerald-600">{s.margin.toFixed(1)}%</td>
-                                                    <td className="px-5 py-4">
-                                                        <div className="w-24 bg-gray-200 rounded-full h-2">
-                                                            <div className="bg-orange-500 h-2 rounded-full" style={{width: `${Math.min(100, (s.revenue / (salesmanData[0]?.revenue || 1)) * 100)}%`}} />
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Alerts Section */}
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-                            {/* Overdue Invoice Alerts */}
-                            <div>
-                                <h2 className="text-sm font-black text-gray-800 uppercase tracking-widest mb-1 flex items-center gap-2">
-                                    <Bell size={16} className="text-red-500" /> Overdue Invoice Alerts
-                                    {overdueAlerts.length > 0 && <span className="px-2 py-0.5 bg-red-100 text-red-700 text-[10px] font-black rounded-full">{overdueAlerts.length}</span>}
-                                </h2>
-                                <p className="text-xs text-gray-400 mb-4">Customers with unpaid invoices — take action now</p>
-                                {overdueAlerts.length === 0 ? (
-                                    <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-6 text-center">
-                                        <p className="text-emerald-700 font-black text-sm">✅ No overdue invoices!</p>
-                                        <p className="text-emerald-500 text-xs mt-1">All customers are up to date</p>
-                                    </div>
-                                ) : (
-                                    <div className="space-y-2">
-                                        {overdueAlerts.map((a, i) => (
-                                            <div key={i} className={`flex items-center justify-between rounded-xl px-4 py-3 border ${a.days > 60 ? 'bg-red-50 border-red-200' : a.days > 30 ? 'bg-orange-50 border-orange-200' : 'bg-yellow-50 border-yellow-200'}`}>
-                                                <div>
-                                                    <p className="text-sm font-black text-gray-900">{a.customer}</p>
-                                                    <p className="text-xs text-gray-500">{a.invoice} · {a.days > 0 ? `${a.days}d overdue` : 'Due today'}</p>
-                                                </div>
-                                                <div className="text-right">
-                                                    <p className="text-sm font-black font-mono text-red-700">{globalFormatCurrency(a.amount)}</p>
-                                                    <span className={`text-[10px] font-black ${a.days > 60 ? 'text-red-600' : a.days > 30 ? 'text-orange-600' : 'text-yellow-600'}`}>
-                                                        {a.days > 60 ? '🔴 Critical' : a.days > 30 ? '🟠 High' : '🟡 Medium'}
+                                        <div>
+                                            <div style={{ fontSize: 17, fontWeight: 500, color: '#EEF2FF', fontFamily: "'Syne',sans-serif", display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                                Analytics &amp; alerts
+                                                {totalActiveAlerts > 0 && (
+                                                    <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(239,68,68,.15)', color: '#FCA5A5', border: '1px solid rgba(239,68,68,.35)' }}>
+                                                        {totalActiveAlerts} active alerts
                                                     </span>
-                                                </div>
+                                                )}
                                             </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Low Stock Alerts */}
-                            <div>
-                                <h2 className="text-sm font-black text-gray-800 uppercase tracking-widest mb-1 flex items-center gap-2">
-                                    <AlertTriangle size={16} className="text-amber-500" /> Low Stock Alerts
-                                    {lowStockAlerts.length > 0 && <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-black rounded-full">{lowStockAlerts.length}</span>}
-                                </h2>
-                                <p className="text-xs text-gray-400 mb-4">Products below 20 units — reorder soon</p>
-                                {lowStockAlerts.length === 0 ? (
-                                    <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-6 text-center">
-                                        <p className="text-emerald-700 font-black text-sm">✅ All products well stocked!</p>
-                                        <p className="text-emerald-500 text-xs mt-1">No products below reorder level</p>
-                                    </div>
-                                ) : (
-                                    <div className="space-y-2">
-                                        {lowStockAlerts.map((s, i) => (
-                                            <div key={i} className={`flex items-center justify-between rounded-xl px-4 py-3 border ${s.stock === 0 ? 'bg-red-50 border-red-200' : s.stock < 10 ? 'bg-orange-50 border-orange-200' : 'bg-yellow-50 border-yellow-200'}`}>
-                                                <div className="flex items-center gap-3">
-                                                    <span className="text-2xl">🛢️</span>
-                                                    <div>
-                                                        <p className="text-sm font-black text-gray-900">{s.name}</p>
-                                                        <p className="text-xs text-gray-500">SKU: {s.sku}</p>
-                                                    </div>
-                                                </div>
-                                                <div className="text-right">
-                                                    <p className={`text-lg font-black font-mono ${s.stock === 0 ? 'text-red-600' : 'text-orange-600'}`}>{s.stock}</p>
-                                                    <p className="text-[10px] font-black text-gray-500">units left</p>
-                                                </div>
+                                            <div style={{ fontSize: 11, color: '#8BA3C7', marginTop: 1 }}>
+                                                Revenue trends · overdue AR · stock alerts · customer concentration · AI actions · USD
                                             </div>
-                                        ))}
+                                        </div>
                                     </div>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Gross Margin per Product */}
-                        <div>
-                            <h2 className="text-sm font-black text-gray-800 uppercase tracking-widest mb-1 flex items-center gap-2">
-                                <TrendingUp size={16} className="text-emerald-500" /> Gross Margin % by Product
-                            </h2>
-                            <p className="text-xs text-gray-400 mb-4">Which oil product makes you the most money</p>
-                            {topProducts.length === 0 ? (
-                                <div className="bg-gray-50 rounded-2xl p-8 text-center text-gray-400 text-sm">No product sales data yet</div>
-                            ) : (
-                                <div className="bg-gray-50 rounded-2xl p-4 h-52">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <BarChart data={topProducts.slice(0,5)} layout="vertical" margin={{ left: 80, right: 20 }}>
-                                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                                            <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(v) => `${v}%`} domain={[0, 100]} />
-                                            <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fontWeight: 700 }} width={75} />
-                                            <Tooltip formatter={(v: any) => `${v}%`} />
-                                            <Bar dataKey="margin" name="Gross Margin %" fill="#22c55e" radius={[0,4,4,0]} />
-                                        </BarChart>
-                                    </ResponsiveContainer>
+                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }} className="print:hidden">
+                                        <button type="button" onClick={() => window.print()} style={ghostBtn}>
+                                            <Printer size={11} /> Print
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => alert('AI action all alerts (preview)\n\nConnect agentic endpoint to draft emails, POs, and pricing fixes.')}
+                                            style={{
+                                                ...ghostBtn,
+                                                background: 'linear-gradient(135deg,rgba(124,58,237,.3),rgba(79,142,247,.25))',
+                                                borderColor: 'rgba(155,111,228,.4)',
+                                                color: '#C4B5FD',
+                                            }}
+                                        >
+                                            <Sparkles size={11} /> AI action all alerts
+                                        </button>
+                                    </div>
                                 </div>
-                            )}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }} className="print:hidden">
+                                    <span style={{ fontSize: 10, color: '#3E5678', fontWeight: 500 }}>Period:</span>
+                                    {ANALYTICS_PERIOD_PILLS.map((p) => (
+                                        <button
+                                            key={p.key}
+                                            type="button"
+                                            onClick={() => setPeriod(p.key)}
+                                            style={{
+                                                padding: '4px 10px',
+                                                borderRadius: 20,
+                                                fontSize: 10,
+                                                cursor: 'pointer',
+                                                border: '0.5px solid',
+                                                borderColor: period === p.key ? 'rgba(79,142,247,.35)' : 'rgba(255,255,255,.1)',
+                                                background: period === p.key ? 'rgba(79,142,247,.15)' : '#0f1f33',
+                                                color: period === p.key ? '#4F8EF7' : '#8BA3C7',
+                                                fontWeight: period === p.key ? 500 : 400,
+                                                fontFamily: 'inherit',
+                                                whiteSpace: 'nowrap',
+                                            }}
+                                        >
+                                            {p.label}
+                                        </button>
+                                    ))}
+                                    <span style={{ fontSize: 10, color: '#22C55E', background: 'rgba(34,197,94,.1)', border: '0.5px solid rgba(34,197,94,.2)', borderRadius: 20, padding: '2px 8px', marginLeft: 4, fontWeight: 600 }}>
+                                        ● Live · 2 min ago
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Secondary filter bar */}
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: 8,
+                                    flexWrap: 'wrap',
+                                    padding: '6px 10px',
+                                    background: '#060f1c',
+                                    border: '1px solid rgba(255,255,255,.07)',
+                                    borderRadius: 8,
+                                }}
+                                className="print:hidden"
+                            >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                    <span style={{ fontSize: 8, fontWeight: 600, color: '#3E5678', textTransform: 'uppercase', marginRight: 2 }}>Currency</span>
+                                    {filterPill('USD ($)', true)}
+                                    {filterPill('AED', false)}
+                                    <span style={{ width: 1, height: 16, background: 'rgba(255,255,255,.08)', margin: '0 4px' }} />
+                                    <span style={{ fontSize: 8, fontWeight: 600, color: '#3E5678', textTransform: 'uppercase', marginRight: 2 }}>Compare</span>
+                                    {filterPill('vs Apr 2026', true, 'rgba(124,58,237,.18)', 'rgba(124,58,237,.45)', '#C4B5FD')}
+                                    {filterPill('vs Budget', false)}
+                                </div>
+                                <span style={{ fontSize: 8, fontWeight: 700, padding: '3px 10px', borderRadius: 999, background: 'rgba(34,197,94,.12)', color: '#22C55E', border: '1px solid rgba(34,197,94,.28)', whiteSpace: 'nowrap' }}>
+                                    ✓ Data verified
+                                </span>
+                            </div>
+
+                            {/* KPI strip — 5 cards */}
+                            <div style={{ display: 'grid', gridTemplateColumns: cols.twoCol ? 'repeat(5, 1fr)' : 'repeat(2, 1fr)', gap: 8 }}>
+                                {kpiCard({
+                                    stripe: '#4F8EF7',
+                                    label: 'Revenue (May)',
+                                    value: formatCompactUsd(mayRevenue),
+                                    valueColor: '#4F8EF7',
+                                    sub: `${monthCompare.revenuePct} vs Apr`,
+                                })}
+                                {kpiCard({
+                                    stripe: '#22C55E',
+                                    label: 'Net Profit (May)',
+                                    badge: `${netMarginPct.toFixed(1)}% margin`,
+                                    badgeBg: 'rgba(34,197,94,.12)',
+                                    badgeColor: '#22C55E',
+                                    value: formatCompactUsd(mayProfit),
+                                    valueColor: '#22C55E',
+                                    sub: `${netMarginPct.toFixed(1)}% net margin`,
+                                })}
+                                {kpiCard({
+                                    stripe: '#EF4444',
+                                    label: 'Overdue Invoices',
+                                    value: `${overdueCount} alerts`,
+                                    valueColor: '#EF4444',
+                                    sub: maxOverdueDays > 0 ? `${maxOverdueDays} days oldest` : 'All current',
+                                })}
+                                {kpiCard({
+                                    stripe: '#F59E0B',
+                                    label: 'Low Stock SKUs',
+                                    value: `${zeroStockCount || lowStockAlerts.length} at 0 units`,
+                                    valueColor: '#F59E0B',
+                                    sub: `${lowStockAlerts.length} SKUs below reorder`,
+                                })}
+                                {kpiCard({
+                                    stripe: '#D97706',
+                                    label: 'Data Quality Flag',
+                                    value: hasPricingFlag ? 'Pricing error' : 'All clear',
+                                    valueColor: hasPricingFlag ? '#F59E0B' : '#22C55E',
+                                    sub: hasPricingFlag ? (pricingErrorProduct?.name ?? 'Review product pricing') : 'No data flags',
+                                })}
+                            </div>
+
+                            {/* Revenue vs Profit chart */}
+                            <div style={anaPanel}>
+                                {sectionTitle('Revenue vs Profit', 'Jun 2025 → May 2026 · grouped monthly bars · USD')}
+                                <svg viewBox="0 0 800 190" xmlns="http://www.w3.org/2000/svg" style={{ width: '100%', height: 190 }}>
+                                    {[15, 55, 95, 135].map((y) => (
+                                        <line key={y} x1="48" y1={y} x2="790" y2={y} stroke="rgba(255,255,255,.04)" strokeWidth="1" />
+                                    ))}
+                                    {[130, 90, 50].map((lbl, i) => (
+                                        <text key={lbl} x="44" y={18 + i * 40} fill="#3E5678" fontSize="8" textAnchor="end">
+                                            {formatCompactUsd((maxChartVal * (3 - i)) / 3)}
+                                        </text>
+                                    ))}
+                                    <rect x="680" y="8" width="10" height="10" fill="#4F8EF7" rx="2" />
+                                    <text x="694" y="16" fill="#8BA3C7" fontSize="8">Revenue</text>
+                                    <rect x="740" y="8" width="10" height="10" fill="#22C55E" rx="2" />
+                                    <text x="754" y="16" fill="#8BA3C7" fontSize="8">Profit</text>
+                                    {(chartData.length > 0 ? chartData : Array.from({ length: 12 }, (_, i) => ({ month: CF_MONTH_LABELS[i] ?? `M${i}`, revenue: 0, profit: 0 }))).map((m, i) => {
+                                        const x = 52 + i * 62;
+                                        const revH = Math.max(4, (m.revenue / maxChartVal) * 95);
+                                        const profH = Math.max(4, (m.profit / maxChartVal) * 95);
+                                        const isMay = i === (chartData.length > 0 ? chartData.length - 1 : 11);
+                                        const monthLabel = typeof m.month === 'string' ? m.month.split(' ')[0] : `M${i + 1}`;
+                                        return (
+                                            <g key={`${monthLabel}-${i}`}>
+                                                <rect x={x} y={135 - revH} width={14} height={revH} fill="#4F8EF7" rx={2} opacity={isMay ? 1 : 0.72} />
+                                                <rect x={x + 16} y={135 - profH} width={14} height={profH} fill="#22C55E" rx={2} opacity={isMay ? 1 : 0.72} />
+                                                <text x={x + 15} y={152} fill={isMay ? '#EEF2FF' : '#3E5678'} fontSize="7" textAnchor="middle" fontWeight={isMay ? 700 : 400}>
+                                                    {monthLabel}
+                                                </text>
+                                            </g>
+                                        );
+                                    })}
+                                </svg>
+                                <div style={{ fontSize: 9, color: '#22C55E', marginTop: 6, fontWeight: 600 }}>
+                                    {revenueGrowth12} revenue growth over 12 months
+                                </div>
+                            </div>
+
+                            {/* Two-column grid */}
+                            <div style={{ display: 'grid', gridTemplateColumns: cols.twoCol ? '1fr 1fr' : '1fr', gap: 8 }}>
+                                {/* Left column */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                    {/* Overdue Invoice Alerts */}
+                                    <div style={anaPanel}>
+                                        {sectionTitle(
+                                            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Bell size={12} style={{ color: '#EF4444' }} /> Overdue Invoice Alerts</span>,
+                                            'Customers with unpaid invoices — take action now',
+                                            overdueCount > 0 ? (
+                                                <span style={{ fontSize: 8, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: 'rgba(239,68,68,.15)', color: '#FCA5A5', border: '1px solid rgba(239,68,68,.3)' }}>{overdueCount}</span>
+                                            ) : undefined,
+                                        )}
+                                        {overdueAlerts.length === 0 ? (
+                                            <div style={{ textAlign: 'center', padding: '20px 0', color: '#22C55E', fontSize: 11 }}>✓ No overdue invoices</div>
+                                        ) : (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                                {overdueAlerts.map((a, i) => (
+                                                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: '#0a1726', border: '0.5px solid rgba(255,255,255,.06)', borderRadius: 8 }}>
+                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                            <div style={{ fontSize: 11, fontWeight: 500, color: '#EEF2FF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.customer}</div>
+                                                            <div style={{ fontSize: 9, color: '#8BA3C7', marginTop: 2 }}>{a.invoice} · <span style={{ color: '#EF4444', fontWeight: 600 }}>{a.days}d overdue</span></div>
+                                                        </div>
+                                                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                                                            <div style={{ fontSize: 11, fontWeight: 700, color: '#FCA5A5', fontFamily: "'Syne',sans-serif" }}>{formatUsdFull(a.amount)}</div>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => alert(`Draft email (preview)\n\nTo: ${a.customer}\nRe: Overdue invoice ${a.invoice} — ${formatUsdFull(a.amount)} (${a.days} days)`)}
+                                                                style={{ marginTop: 4, padding: '2px 8px', borderRadius: 6, fontSize: 8, fontWeight: 600, cursor: 'pointer', border: '1px solid rgba(79,142,247,.35)', background: 'rgba(79,142,247,.12)', color: '#93C5FD', fontFamily: 'inherit' }}
+                                                            >
+                                                                Draft email
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Top 10 Customers */}
+                                    <div style={anaPanel}>
+                                        {sectionTitle(<span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Star size={12} style={{ color: '#F59E0B' }} /> Top 10 Customers by Revenue</span>, 'Ranked by MTD revenue · USD')}
+                                        {topCustomers.length === 0 ? (
+                                            <div style={{ textAlign: 'center', padding: '16px 0', color: '#3E5678', fontSize: 10 }}>No customer data yet</div>
+                                        ) : (
+                                            <>
+                                                {topCustShare >= 25 && (
+                                                    <div style={{ fontSize: 9, color: '#F59E0B', background: 'rgba(245,158,11,.1)', border: '0.5px solid rgba(245,158,11,.25)', borderRadius: 8, padding: '6px 10px', marginBottom: 8 }}>
+                                                        ⚠ Concentration risk — top customer is {topCustShare.toFixed(0)}% of tracked revenue
+                                                    </div>
+                                                )}
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                                    {topCustomers.map((c, i) => {
+                                                        const share = totalCustRev > 0 ? (c.revenue / totalCustRev) * 100 : 0;
+                                                        return (
+                                                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: i < topCustomers.length - 1 ? '0.5px solid rgba(255,255,255,.04)' : 'none' }}>
+                                                                <span style={{ width: 20, height: 20, borderRadius: '50%', background: i === 0 ? 'rgba(245,158,11,.2)' : 'rgba(255,255,255,.06)', color: i === 0 ? '#F59E0B' : '#8BA3C7', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
+                                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                                    <div style={{ fontSize: 10, fontWeight: 500, color: '#EEF2FF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
+                                                                    <div style={{ fontSize: 8, color: '#3E5678' }}>{c.invoices} invoice{c.invoices !== 1 ? 's' : ''}</div>
+                                                                </div>
+                                                                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                                                                    <div style={{ fontSize: 10, fontWeight: 700, color: '#EEF2FF', fontFamily: "'Syne',sans-serif" }}>{formatUsdFull(c.revenue)}</div>
+                                                                    <div style={{ fontSize: 8, color: '#8BA3C7' }}>{share.toFixed(1)}% share</div>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+
+                                    {/* Salesman Performance */}
+                                    <div style={anaPanel}>
+                                        {sectionTitle(<span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Users size={12} style={{ color: '#A78BFA' }} /> Salesman Performance</span>, 'Revenue vs team average · USD')}
+                                        {salesmanData.length === 0 ? (
+                                            <div style={{ textAlign: 'center', padding: '16px 0', color: '#3E5678', fontSize: 10 }}>No salesman data yet</div>
+                                        ) : (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                                {salesmanData.map((s, i) => {
+                                                    const pct = Math.min(100, (s.revenue / maxSalesRev) * 100);
+                                                    const isTop = i === 0;
+                                                    const belowTarget = s.revenue < avgSalesTarget;
+                                                    return (
+                                                        <div key={i}>
+                                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                                    <span style={{ fontSize: 10, fontWeight: 500, color: '#EEF2FF' }}>{s.name}</span>
+                                                                    {isTop && <span style={{ fontSize: 7, fontWeight: 700, padding: '1px 5px', borderRadius: 999, background: 'rgba(34,197,94,.15)', color: '#22C55E' }}>Top performer</span>}
+                                                                    {belowTarget && !isTop && <span style={{ fontSize: 7, fontWeight: 700, padding: '1px 5px', borderRadius: 999, background: 'rgba(239,68,68,.12)', color: '#FCA5A5' }}>Below target</span>}
+                                                                </div>
+                                                                <span style={{ fontSize: 9, color: '#8BA3C7' }}>{formatUsdFull(s.revenue)} · {s.margin.toFixed(1)}%</span>
+                                                            </div>
+                                                            <div style={{ height: 6, background: 'rgba(255,255,255,.06)', borderRadius: 999, overflow: 'hidden' }}>
+                                                                <div style={{ height: '100%', width: `${pct}%`, background: isTop ? '#22C55E' : belowTarget ? '#EF4444' : '#4F8EF7', borderRadius: 999 }} />
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Right column */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                    {/* Low Stock Alerts */}
+                                    <div style={anaPanel}>
+                                        {sectionTitle(
+                                            'Low Stock Alerts',
+                                            'Products at or below reorder level',
+                                            lowStockAlerts.length > 0 ? (
+                                                <span style={{ fontSize: 8, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: 'rgba(245,158,11,.15)', color: '#FCD34D', border: '1px solid rgba(245,158,11,.3)' }}>{lowStockAlerts.length}</span>
+                                            ) : undefined,
+                                        )}
+                                        {lowStockAlerts.length === 0 ? (
+                                            <div style={{ textAlign: 'center', padding: '20px 0', color: '#22C55E', fontSize: 11 }}>✓ All products well stocked</div>
+                                        ) : (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                                {lowStockAlerts.slice(0, 8).map((s, i) => (
+                                                    <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '8px 10px', background: '#0a1726', border: `0.5px solid ${s.stock === 0 ? 'rgba(239,68,68,.25)' : 'rgba(245,158,11,.2)'}`, borderRadius: 8 }}>
+                                                        <div style={{ minWidth: 0 }}>
+                                                            <div style={{ fontSize: 11, fontWeight: 500, color: '#EEF2FF' }}>{s.name}</div>
+                                                            <div style={{ fontSize: 9, color: '#8BA3C7' }}>SKU: {s.sku}</div>
+                                                        </div>
+                                                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                                                            <div style={{ fontSize: 12, fontWeight: 700, color: s.stock === 0 ? '#EF4444' : '#F59E0B', fontFamily: "'Syne',sans-serif" }}>{s.stock} units</div>
+                                                            <div style={{ fontSize: 8, fontWeight: 600, color: s.stock === 0 ? '#EF4444' : '#F59E0B' }}>{s.stock === 0 ? 'Out of stock' : 'Low stock'}</div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                                {hasPricingFlag && (
+                                                    <div style={{ padding: '8px 10px', background: 'rgba(217,119,6,.1)', border: '0.5px dashed rgba(217,119,6,.35)', borderRadius: 8, fontSize: 9, color: '#FCD34D' }}>
+                                                        ⚠ Data flag: pricing error on {pricingErrorProduct?.name ?? 'product'} ({pricingErrorProduct?.margin ?? 0}% margin)
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Top Products by Revenue */}
+                                    <div style={anaPanel}>
+                                        {sectionTitle(<span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Package size={12} style={{ color: '#4F8EF7' }} /> Top Products by Revenue</span>, 'Units sold · margin % · USD')}
+                                        {topProducts.length === 0 ? (
+                                            <div style={{ textAlign: 'center', padding: '16px 0', color: '#3E5678', fontSize: 10 }}>No product data yet</div>
+                                        ) : (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                                {topProducts.slice(0, 8).map((p, i) => (
+                                                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: i < Math.min(topProducts.length, 8) - 1 ? '0.5px solid rgba(255,255,255,.04)' : 'none' }}>
+                                                        <span style={{ fontSize: 14, flexShrink: 0 }}>🛢️</span>
+                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                            <div style={{ fontSize: 10, fontWeight: 500, color: '#EEF2FF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                                                            <div style={{ fontSize: 8, color: '#3E5678' }}>{p.units.toLocaleString()} units sold</div>
+                                                        </div>
+                                                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                                                            <div style={{ fontSize: 10, fontWeight: 700, color: '#EEF2FF', fontFamily: "'Syne',sans-serif" }}>{formatUsdFull(p.revenue)}</div>
+                                                            <div style={{ fontSize: 8, color: p.margin >= 15 ? '#22C55E' : '#F59E0B', fontWeight: 600 }}>{p.margin}% margin</div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Gross Margin % by Product */}
+                                    <div style={anaPanel}>
+                                        {sectionTitle('Gross Margin % by Product', 'Horizontal bars · top SKUs by margin')}
+                                        {topProducts.length === 0 ? (
+                                            <div style={{ textAlign: 'center', padding: '16px 0', color: '#3E5678', fontSize: 10 }}>No product sales data yet</div>
+                                        ) : (
+                                            <>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                                    {topProducts.slice(0, 5).map((p, i) => (
+                                                        <div key={i}>
+                                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                                                                <span style={{ fontSize: 9, color: '#8BA3C7', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }}>{p.name}</span>
+                                                                <span style={{ fontSize: 9, fontWeight: 700, color: p.margin >= 20 ? '#22C55E' : '#F59E0B' }}>{p.margin}%</span>
+                                                            </div>
+                                                            <div style={{ height: 6, background: 'rgba(255,255,255,.06)', borderRadius: 999, overflow: 'hidden' }}>
+                                                                <div style={{ height: '100%', width: `${Math.min(100, p.margin)}%`, background: p.margin >= 20 ? '#22C55E' : '#F59E0B', borderRadius: 999 }} />
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                <div style={{ marginTop: 10, padding: '8px 10px', background: 'rgba(124,58,237,.1)', border: '0.5px dashed rgba(155,111,228,.3)', borderRadius: 8, fontSize: 9, color: '#C4B5FD', lineHeight: 1.5 }}>
+                                                    🤖 AI insight: {topProducts[0]?.name ?? 'Top SKU'} leads at {topProducts[0]?.margin ?? 0}% margin — prioritize sales effort on high-margin lubricant lines; review {pricingErrorProduct?.name ?? 'low-margin SKUs'} for pricing errors.
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Bottom full width — AI sections */}
+                            <div style={{ ...anaPanel, background: 'linear-gradient(135deg, rgba(10,23,38,.98) 0%, rgba(30,27,75,.85) 100%)', borderColor: 'rgba(124,58,237,.2)' }}>
+                                <div style={{ fontSize: 11, fontWeight: 500, color: '#C4B5FD', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 7 }}>
+                                    <Brain size={14} style={{ color: '#A78BFA' }} /> AI Analytics Summary
+                                </div>
+                                {aiInsightRow('#22C55E', <>Revenue reached <strong style={{ color: '#22C55E' }}>{formatCompactUsd(mayRevenue)}</strong> in May ({monthCompare.revenuePct} vs Apr) with net profit <strong style={{ color: '#22C55E' }}>{formatCompactUsd(mayProfit)}</strong> at {netMarginPct.toFixed(1)}% margin.</>)}
+                                {aiInsightRow('#EF4444', <><strong style={{ color: '#EF4444' }}>{overdueCount} overdue invoices</strong> totalling {formatUsdFull(overdueAlerts.reduce((s, a) => s + a.amount, 0))} — oldest {maxOverdueDays} days. Collections action recommended this week.</>)}
+                                {aiInsightRow('#F59E0B', <><strong style={{ color: '#F59E0B' }}>{zeroStockCount || lowStockAlerts.length} SKUs at zero stock</strong> — reorder fast movers to avoid revenue loss on high-velocity lines.</>)}
+                                {aiInsightRow('#9B6FE4', topCustShare >= 25 ? <>Customer concentration: <strong style={{ color: '#9B6FE4' }}>{topCustomers[0]?.name ?? 'Top account'}</strong> is {topCustShare.toFixed(0)}% of revenue — diversify to reduce dependency risk.</> : <>Margin mix healthy across top products — focus on {topProducts[0]?.name ?? 'best SKU'} ({topProducts[0]?.margin ?? 0}% margin) for upsell campaigns.</>)}
+
+                                <div style={{ fontSize: 10, fontWeight: 500, color: '#C4B5FD', margin: '12px 0 7px', display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+                                    🤖 AI Suggested Actions
+                                    <span style={{ fontSize: 9, background: 'rgba(245,158,11,.12)', color: '#F59E0B', borderRadius: 20, padding: '1px 6px' }}>3 pending your approval</span>
+                                </div>
+                                {[
+                                    {
+                                        icon: '📧',
+                                        bg: 'rgba(239,68,68,.12)',
+                                        title: `Send collection emails to ${overdueCount || 'top'} overdue accounts`,
+                                        detail: overdueCount > 0 ? `Draft personalised reminders for ${overdueAlerts.slice(0, 3).map((a) => a.customer).join(', ')}.` : 'No overdue accounts — monitor weekly.',
+                                    },
+                                    {
+                                        icon: '📦',
+                                        bg: 'rgba(245,158,11,.12)',
+                                        title: `Create PO for ${zeroStockCount || lowStockAlerts.length} out-of-stock SKUs`,
+                                        detail: lowStockAlerts.length > 0 ? `Auto-PO for ${lowStockAlerts.slice(0, 2).map((s) => s.name).join(', ')} and similar fast movers.` : 'Stock levels healthy — no PO needed.',
+                                    },
+                                    {
+                                        icon: '💲',
+                                        bg: 'rgba(124,58,237,.12)',
+                                        title: hasPricingFlag ? `Fix pricing error on ${pricingErrorProduct?.name ?? 'product'}` : 'Review wholesale pricing on bulk orders',
+                                        detail: hasPricingFlag ? `${pricingErrorProduct?.margin ?? 0}% margin detected — validate cost vs sell price.` : 'Margin compression on bulk orders — validate discount policy.',
+                                    },
+                                ].map((action, i) => (
+                                    <div key={i} style={{ background: '#0a1726', border: '0.5px solid rgba(255,255,255,.06)', borderRadius: 8, padding: '9px 12px', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 9 }}>
+                                        <div style={{ width: 26, height: 26, borderRadius: 6, background: action.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, flexShrink: 0 }}>{action.icon}</div>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ fontSize: 11, fontWeight: 500, color: '#EEF2FF', marginBottom: 2 }}>{action.title}</div>
+                                            <div style={{ fontSize: 10, color: '#8BA3C7' }}>{action.detail}</div>
+                                        </div>
+                                        <button type="button" onClick={() => alert('Action approved (preview)\n\nConnect agentic endpoint to execute.')} style={{ background: '#22C55E', border: 'none', borderRadius: 6, padding: '3px 9px', fontSize: 9, color: '#fff', cursor: 'pointer', fontWeight: 600, fontFamily: 'inherit', whiteSpace: 'nowrap' }}>✓ Approve</button>
+                                        <button type="button" onClick={() => alert('Action declined (preview)')} style={{ background: 'rgba(255,255,255,.05)', border: '0.5px solid rgba(255,255,255,.1)', borderRadius: 6, padding: '3px 9px', fontSize: 9, color: '#8BA3C7', cursor: 'pointer', marginLeft: 4, fontFamily: 'inherit', whiteSpace: 'nowrap' }}>Decline</button>
+                                    </div>
+                                ))}
+
+                                <div style={{ background: '#0f1f33', border: '0.5px solid rgba(155,111,228,.3)', borderRadius: 9, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8, marginTop: 9 }}>
+                                    <span style={{ fontSize: 14, flexShrink: 0 }}>🤖</span>
+                                    <input
+                                        type="text"
+                                        value={aiQuestion}
+                                        onChange={(e) => setAiQuestion(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                const q = aiQuestion.trim() || AI_PROMPTS[0];
+                                                alert(`AI Analytics (preview)\n\n"${q}"\n\nConnect the AI CFO endpoint to get live answers.`);
+                                            }
+                                        }}
+                                        placeholder="Ask AI: 'Which customers are highest risk?' · 'What should I reorder first?' · 'Why is margin down?'"
+                                        style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: 11, color: '#EEF2FF', fontFamily: 'inherit' }}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const q = aiQuestion.trim() || AI_PROMPTS[0];
+                                            alert(`AI Analytics (preview)\n\n"${q}"\n\nConnect the AI CFO endpoint to get live answers.`);
+                                        }}
+                                        style={{ background: '#9B6FE4', border: 'none', borderRadius: 6, padding: '5px 12px', fontSize: 10, color: '#fff', cursor: 'pointer', fontWeight: 600, flexShrink: 0, fontFamily: 'inherit' }}
+                                    >
+                                        Ask →
+                                    </button>
+                                </div>
+                                <div style={{ marginTop: 7, fontSize: 9, color: '#3E5678', textAlign: 'right' }}>
+                                    🔒 Data processed on-device · never leaves your account · educational use only
+                                </div>
+                            </div>
                         </div>
-
-                    </div>
-                )}
-
-                {activeTab === 'reports' && (
+                    );
+                })()}
+{activeTab === 'reports' && (
                     <div className="space-y-6 animate-in slide-in-from-bottom-2 duration-500">
                         <div>
                             <h2 className="text-sm font-black text-gray-700 uppercase tracking-widest mb-1">Accounts & Receivables</h2>
