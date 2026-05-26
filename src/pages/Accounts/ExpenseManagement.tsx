@@ -4,7 +4,7 @@ import { getSystemSettings } from '../../services/settingsService';
 import {
     DollarSign, Upload, Plus,
     Edit2, Trash2, RefreshCw,
-    Sparkles, Brain, Download, Send, Search, Paperclip, Bot
+    Sparkles, Brain, Download, Send, Search, Paperclip, Bot, X
 } from 'lucide-react';
 import { getSalesOrders } from '../../services/salesService';
 import clsx from 'clsx';
@@ -128,7 +128,6 @@ function ConfidenceBadge({ value }: { value?: number }) {
 
 export default function ExpenseManagement() {
     const navigate = useNavigate();
-    const [activeTab, setActiveTab] = useState<'manual' | 'ai'>('manual');
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [categories, setCategories] = useState<ExpenseCategory[]>([]);
     const [loading, setLoading] = useState(true);
@@ -138,7 +137,15 @@ export default function ExpenseManagement() {
 
     // Manual entry state
     const [showManualForm, setShowManualForm] = useState(false);
+    const [showAiUpload, setShowAiUpload] = useState(false);
     const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+
+    function closeAiUpload() {
+        setShowAiUpload(false);
+        setAiExtractedData(null);
+        setUploadedFile(null);
+    }
+
     // ITEM 16 — Escape closes the manual entry modal. The category
     // dropdown (declared below) has its own outside-click handler; Escape
     // closes both at once which is the expected behavior.
@@ -146,6 +153,7 @@ export default function ExpenseManagement() {
         setShowManualForm(false);
         setEditingExpense(null);
     }, showManualForm);
+    useEscape(closeAiUpload, showAiUpload);
 
     // AI upload state
     const [, setUploadedFile] = useState<File | null>(null);
@@ -446,8 +454,7 @@ export default function ExpenseManagement() {
                 aiConfidence: aiExtractedData.confidence
             });
             await loadData();
-            setAiExtractedData(null);
-            setUploadedFile(null);
+            closeAiUpload();
         } catch (error) {
             console.error('Failed to save AI expense:', error);
             alert('Failed to save expense');
@@ -832,7 +839,7 @@ export default function ExpenseManagement() {
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: '12px' }}>
                     <button
                         type="button"
-                        onClick={() => { setActiveTab('manual'); setShowManualForm(true); setEditingExpense(null); }}
+                        onClick={() => { setShowManualForm(true); setEditingExpense(null); }}
                         style={{
                             flex: '1 1 200px',
                             padding: '14px 20px',
@@ -854,7 +861,7 @@ export default function ExpenseManagement() {
                     </button>
                     <button
                         type="button"
-                        onClick={() => setActiveTab('ai')}
+                        onClick={() => { setShowManualForm(false); setShowAiUpload(true); }}
                         style={{
                             flex: '1 1 200px',
                             padding: '14px 20px',
@@ -1083,109 +1090,113 @@ export default function ExpenseManagement() {
                         </span>
                     </div>
                 </div>
-            {/* AI Smart Upload Tab */}
-            {activeTab === 'ai' && (
-                <div className="space-y-8">
-                    <h3 className="text-xl font-black text-gray-900 uppercase tracking-tighter flex items-center gap-3">
-                        <Sparkles className="text-purple-600" size={24} />
-                        AI-Powered Receipt Processing
-                    </h3>
-
-                    {!aiExtractedData ? (
-                        <div className="bg-white p-12 rounded-3xl border-2 border-dashed border-gray-200 hover:border-purple-400 transition-all">
-                            <label className="cursor-pointer block">
-                                <input
-                                    type="file"
-                                    accept="image/*,.pdf"
-                                    onChange={handleFileUpload}
-                                    className="hidden"
-                                    disabled={aiProcessing}
-                                />
-                                <div className="text-center">
-                                    {aiProcessing ? (
-                                        <>
-                                            <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-purple-600 mx-auto mb-6"></div>
-                                            <h4 className="text-xl font-black text-gray-900 uppercase tracking-tighter mb-2">AI Processing...</h4>
-                                            <p className="text-sm text-gray-500 font-medium">Extracting data from your receipt</p>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Upload size={64} className="mx-auto text-gray-300 mb-6" />
-                                            <h4 className="text-xl font-black text-gray-900 uppercase tracking-tighter mb-2">
-                                                📁 Drag & Drop Receipt Here
-                                            </h4>
-                                            <p className="text-sm text-gray-500 font-medium mb-4">or Click to Upload</p>
-                                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
-                                                Supports: JPG, PNG, PDF
-                                            </p>
-                                        </>
-                                    )}
-                                </div>
-                            </label>
-                        </div>
-                    ) : (
-                        <div className="bg-white p-12 rounded-3xl border border-gray-100 shadow-sm">
-                            <div className="flex items-center gap-3 mb-8">
-                                <div className="w-12 h-12 bg-gradient-to-br from-purple-600 to-blue-600 rounded-2xl flex items-center justify-center text-white">
-                                    <Sparkles size={24} />
-                                </div>
-                                <div>
-                                    <h4 className="text-xl font-black text-gray-900 uppercase tracking-tighter">Extracted Information</h4>
-                                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">AI Confidence: {aiExtractedData.confidence}%</p>
-                                </div>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-6 mb-8">
-                                <div className="p-6 bg-gray-50 rounded-2xl">
-                                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Vendor</p>
-                                    <p className="text-lg font-black text-gray-900">{aiExtractedData.vendor}</p>
-                                    <ConfidenceBadge value={aiExtractedData.perFieldConfidence?.vendor ?? aiExtractedData.confidence} />
-                                </div>
-                                <div className="p-6 bg-gray-50 rounded-2xl">
-                                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Amount</p>
-                                    <p className="text-lg font-black text-gray-900">{aiExtractedData.currency} ${aiExtractedData.amount}</p>
-                                    <ConfidenceBadge value={aiExtractedData.perFieldConfidence?.amount ?? aiExtractedData.confidence} />
-                                </div>
-                                <div className="p-6 bg-gray-50 rounded-2xl">
-                                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Date</p>
-                                    <p className="text-lg font-black text-gray-900">{new Date(aiExtractedData.date).toLocaleDateString()}</p>
-                                    <ConfidenceBadge value={aiExtractedData.perFieldConfidence?.date ?? aiExtractedData.confidence} />
-                                </div>
-                                <div className="p-6 bg-gray-50 rounded-2xl">
-                                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Tax</p>
-                                    <p className="text-lg font-black text-gray-900">${aiExtractedData.taxAmount}</p>
-                                </div>
-                            </div>
-
-                            <div className="p-6 bg-purple-50 rounded-2xl border border-purple-100 mb-8">
-                                <p className="text-[10px] font-black text-purple-600 uppercase tracking-widest mb-2">Category (AI Suggested)</p>
-                                <p className="text-lg font-black text-purple-900">{aiExtractedData.suggestedCategory}</p>
-                                <p className="text-sm text-purple-700 font-medium mt-1">{aiExtractedData.confidence}% match confidence</p>
-                            </div>
-
-                            <div className="flex gap-4">
-                                <button
-                                    onClick={() => {
-                                        setAiExtractedData(null);
-                                        setUploadedFile(null);
+            {/* AI Smart Upload Modal */}
+            {showAiUpload && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-6 backdrop-blur-md bg-black/50">
+                    <div
+                        className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl"
+                        style={{
+                            background: 'var(--color-redwood-bg-surface)',
+                            border: '1px solid var(--color-redwood-border)',
+                        }}
+                    >
+                        <div
+                            style={{
+                                padding: '16px 20px',
+                                borderBottom: '1px solid var(--color-redwood-border)',
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                justifyContent: 'space-between',
+                                gap: 12,
+                                position: 'sticky',
+                                top: 0,
+                                background: 'var(--color-redwood-bg-surface)',
+                                zIndex: 1,
+                            }}
+                        >
+                            <div>
+                                <h3
+                                    style={{
+                                        fontFamily: "'Syne',sans-serif",
+                                        fontSize: 18,
+                                        fontWeight: 600,
+                                        color: 'var(--color-redwood-text-main)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 8,
+                                        margin: 0,
                                     }}
-                                    className="flex-1 py-5 bg-white border border-gray-200 text-[11px] font-black uppercase tracking-widest text-gray-600 rounded-2xl hover:bg-gray-100 transition-all"
                                 >
-                                    ❌ Reject
-                                </button>
-                                <button
-                                    onClick={handleAIConfirm}
-                                    disabled={saving}
-                                    className="flex-[2] py-5 bg-gradient-to-r from-purple-600 to-blue-600 text-white text-[11px] font-black uppercase tracking-widest rounded-2xl hover:opacity-90 transition-all shadow-xl disabled:opacity-50"
-                                >
-                                    {saving ? '⏳ Saving...' : '✓ Looks Good - Save'}
-                                </button>
+                                    <Sparkles size={20} style={{ color: '#A78BFA' }} />
+                                    AI smart upload
+                                </h3>
+                                <p style={{ fontSize: 11, color: 'var(--color-redwood-text-muted)', margin: '4px 0 0' }}>
+                                    Upload a receipt — AI extracts vendor, amount, and date
+                                </p>
                             </div>
+                            <button type="button" onClick={closeAiUpload} aria-label="Close" style={{ background: 'transparent', border: 'none', color: 'var(--color-redwood-text-muted)', cursor: 'pointer', padding: 4 }}>
+                                <X size={20} />
+                            </button>
                         </div>
-                    )}
+                        <div style={{ padding: '20px' }}>
+                            {!aiExtractedData ? (
+                                <label className="cursor-pointer block" style={{ padding: '40px 24px', borderRadius: 14, border: '2px dashed var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)' }}>
+                                    <input type="file" accept="image/*,.pdf" onChange={handleFileUpload} className="hidden" disabled={aiProcessing} />
+                                    <div className="text-center">
+                                        {aiProcessing ? (
+                                            <>
+                                                <div className="animate-spin rounded-full h-14 w-14 mx-auto mb-4" style={{ border: '3px solid #7C3AED', borderTopColor: 'transparent' }} />
+                                                <h4 style={{ fontSize: 15, fontWeight: 600, color: 'var(--color-redwood-text-main)', margin: '0 0 6px' }}>AI Processing…</h4>
+                                                <p style={{ fontSize: 12, color: 'var(--color-redwood-text-muted)', margin: 0 }}>Extracting data from your receipt</p>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Upload size={48} className="mx-auto mb-4" style={{ color: '#A78BFA' }} />
+                                                <h4 style={{ fontSize: 15, fontWeight: 600, color: 'var(--color-redwood-text-main)', margin: '0 0 6px' }}>Drag & drop receipt here</h4>
+                                                <p style={{ fontSize: 12, color: 'var(--color-redwood-text-muted)', margin: '0 0 8px' }}>or click to upload</p>
+                                                <p style={{ fontSize: 10, color: 'var(--color-redwood-text-subtle)', margin: 0 }}>Supports JPG, PNG, PDF</p>
+                                            </>
+                                        )}
+                                    </div>
+                                </label>
+                            ) : (
+                                <div className="space-y-5">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <div style={{ padding: 14, borderRadius: 10, background: 'var(--color-redwood-row-bg)', border: '1px solid var(--color-redwood-border)' }}>
+                                            <p style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)', marginBottom: 4 }}>Vendor</p>
+                                            <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-redwood-text-main)', margin: 0 }}>{aiExtractedData.vendor}</p>
+                                            <ConfidenceBadge value={aiExtractedData.perFieldConfidence?.vendor ?? aiExtractedData.confidence} />
+                                        </div>
+                                        <div style={{ padding: 14, borderRadius: 10, background: 'var(--color-redwood-row-bg)', border: '1px solid var(--color-redwood-border)' }}>
+                                            <p style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)', marginBottom: 4 }}>Amount</p>
+                                            <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-redwood-text-main)', margin: 0 }}>{aiExtractedData.currency} ${aiExtractedData.amount}</p>
+                                            <ConfidenceBadge value={aiExtractedData.perFieldConfidence?.amount ?? aiExtractedData.confidence} />
+                                        </div>
+                                        <div style={{ padding: 14, borderRadius: 10, background: 'var(--color-redwood-row-bg)', border: '1px solid var(--color-redwood-border)' }}>
+                                            <p style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)', marginBottom: 4 }}>Date</p>
+                                            <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-redwood-text-main)', margin: 0 }}>{new Date(aiExtractedData.date).toLocaleDateString()}</p>
+                                            <ConfidenceBadge value={aiExtractedData.perFieldConfidence?.date ?? aiExtractedData.confidence} />
+                                        </div>
+                                        <div style={{ padding: 14, borderRadius: 10, background: 'var(--color-redwood-row-bg)', border: '1px solid var(--color-redwood-border)' }}>
+                                            <p style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)', marginBottom: 4 }}>Tax</p>
+                                            <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-redwood-text-main)', margin: 0 }}>${aiExtractedData.taxAmount}</p>
+                                        </div>
+                                    </div>
+                                    <div style={{ padding: 14, borderRadius: 10, background: 'rgba(124,58,237,.12)', border: '1px solid rgba(124,58,237,.28)' }}>
+                                        <p style={{ fontSize: 10, color: '#C4B5FD', marginBottom: 4 }}>Category (AI suggested)</p>
+                                        <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-redwood-text-main)', margin: 0 }}>{aiExtractedData.suggestedCategory}</p>
+                                        <p style={{ fontSize: 11, color: '#C4B5FD', marginTop: 4 }}>{aiExtractedData.confidence}% match confidence</p>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 10 }}>
+                                        <button type="button" onClick={() => { setAiExtractedData(null); setUploadedFile(null); }} style={{ flex: 1, padding: '12px 16px', borderRadius: 10, border: '1px solid var(--color-redwood-border)', background: 'transparent', color: 'var(--color-redwood-text-muted)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Reject</button>
+                                        <button type="button" onClick={handleAIConfirm} disabled={saving} style={{ flex: 2, padding: '12px 16px', borderRadius: 10, border: 'none', background: 'linear-gradient(90deg,#7C3AED,#4F8EF7)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.6 : 1 }}>{saving ? 'Saving…' : 'Looks good — Save'}</button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
                 </div>
             )}
-
 
             </div>
         </div>
