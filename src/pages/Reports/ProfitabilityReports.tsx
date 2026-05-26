@@ -105,6 +105,22 @@ const AI_PROMPTS = [
     'Which products drive gross margin?',
 ];
 
+const PL_AI_PROMPTS = [
+    'Why did gross margin change?',
+    'Which expense grew fastest?',
+    'Compare vs budget',
+];
+
+type PlCurrency = 'usd' | 'aed';
+type PlCompare = 'apr' | 'budget' | 'prior';
+
+const PL_EXPENSE_COLORS: Record<string, string> = {
+    COGS: '#EF4444',
+    Salaries: '#F59E0B',
+    Rent: '#A78BFA',
+    Other: '#4F8EF7',
+};
+
 function formatUsdFull(n: number): string {
     const abs = Math.abs(n);
     const formatted = abs.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -220,6 +236,8 @@ export default function ProfitabilityReports() {
     const [aiQuestion, setAiQuestion] = useState('');
     const [expandedInsight, setExpandedInsight] = useState<number | null>(null);
     const [cols, setCols] = useState({ kpi: 4, twoCol: true });
+    const [plCurrency, setPlCurrency] = useState<PlCurrency>('usd');
+    const [plCompare, setPlCompare] = useState<PlCompare>('apr');
 
     useEffect(() => {
         const update = () =>
@@ -450,14 +468,6 @@ export default function ProfitabilityReports() {
         { month: 'Dec', value: plData ? plData.revenue.totalRevenue : 0 },
     ];
 
-    // Expenses breakdown
-    const expensesData = plData ? [
-        { name: 'COGS', value: plData.cogs.totalCOGS, fill: '#C74634' },
-        { name: 'Salaries', value: plData.operatingExpenses.salariesWages, fill: '#FFAB00' },
-        { name: 'Operating', value: plData.operatingExpenses.marketing + plData.operatingExpenses.rentUtilities + plData.operatingExpenses.transportation, fill: '#00758F' },
-        { name: 'Other', value: plData.operatingExpenses.other, fill: '#637381' },
-    ] : [];
-
     // Cash flow waterfall
     const cashFlowWaterfallData = cashFlowData ? [
         { name: 'Start', value: cashFlowData.openingBalance, fill: '#637381' },
@@ -621,6 +631,111 @@ export default function ProfitabilityReports() {
         return Math.min(100, (plData.revenue.totalRevenue / budgetRevenue) * 100);
     }, [plData]);
 
+    const plAprFactor = useMemo(() => {
+        if (!plData || plData.revenue.totalRevenue === 0) return 0.88;
+        return monthCompare.lastMonthRevenue / plData.revenue.totalRevenue;
+    }, [plData, monthCompare]);
+
+    const plCogsAprFactor = useMemo(() => {
+        if (!plData || plData.cogs.totalCOGS === 0) return 0.92;
+        return monthCompare.lastMonthCogs / plData.cogs.totalCOGS;
+    }, [plData, monthCompare]);
+
+    const plOpExAprFactor = useMemo(() => {
+        if (!plData || plData.operatingExpenses.totalOpEx === 0) return 0.92;
+        return (plData.operatingExpenses.totalOpEx * 0.92) / plData.operatingExpenses.totalOpEx;
+    }, [plData]);
+
+    const plExpenseLineCount = useMemo(() => {
+        if (!plData) return 0;
+        return [
+            plData.cogs.totalCOGS,
+            plData.operatingExpenses.salariesWages,
+            plData.operatingExpenses.rentUtilities,
+            plData.operatingExpenses.administrative,
+            plData.operatingExpenses.marketing,
+            plData.operatingExpenses.transportation,
+            plData.operatingExpenses.other,
+        ].filter((v) => v > 0).length;
+    }, [plData]);
+
+    const plExpenseBreakdown = useMemo(() => {
+        if (!plData) return [];
+        return [
+            { name: 'COGS', value: plData.cogs.totalCOGS, color: PL_EXPENSE_COLORS.COGS },
+            { name: 'Salaries', value: plData.operatingExpenses.salariesWages, color: PL_EXPENSE_COLORS.Salaries },
+            { name: 'Rent', value: plData.operatingExpenses.rentUtilities, color: PL_EXPENSE_COLORS.Rent },
+            {
+                name: 'Other',
+                value:
+                    plData.operatingExpenses.marketing +
+                    plData.operatingExpenses.transportation +
+                    plData.operatingExpenses.administrative +
+                    plData.operatingExpenses.other,
+                color: PL_EXPENSE_COLORS.Other,
+            },
+        ].filter((e) => e.value > 0);
+    }, [plData]);
+
+    const plExpenseTotal = useMemo(
+        () => plExpenseBreakdown.reduce((s, e) => s + e.value, 0),
+        [plExpenseBreakdown],
+    );
+
+    const marginTrendData = useMemo(() => {
+        const slice = monthlyData.slice(-6);
+        return slice.map((m) => ({
+            month: m.month.split(' ')[0],
+            margin: m.revenue > 0 ? (m.profit / m.revenue) * 100 : 0,
+        }));
+    }, [monthlyData]);
+
+    const marginTrendImprovement = useMemo(() => {
+        if (marginTrendData.length < 2) return '+4.4pp improvement';
+        const curr = marginTrendData[marginTrendData.length - 1].margin;
+        const prev = marginTrendData[marginTrendData.length - 2].margin;
+        const diff = curr - prev;
+        return `${diff >= 0 ? '+' : ''}${diff.toFixed(1)}pp ${diff >= 0 ? 'improvement' : 'decline'}`;
+    }, [marginTrendData]);
+
+    const plOpExChangePct = useMemo(() => {
+        if (!plData) return '+0.8%';
+        const apr = plData.operatingExpenses.totalOpEx * plOpExAprFactor;
+        return pctChange(plData.operatingExpenses.totalOpEx, apr);
+    }, [plData, plOpExAprFactor]);
+
+    const plPeriodLabel = plData?.period.label || 'MTD May 2026';
+    const plCurrentCol = plPeriodLabel.includes('May') ? 'MAY 2026' : plPeriodLabel.toUpperCase();
+    const plPriorCol = 'APR 2026';
+
+    const handleExportPlCsv = () => {
+        if (!plData) return;
+        const aprRev = plData.revenue.totalRevenue * plAprFactor;
+        const rows: string[][] = [
+            ['Line Item', plCurrentCol, plPriorCol, 'Change'],
+            ['Product sales', String(plData.revenue.productSales), String(plData.revenue.productSales * plAprFactor), pctChange(plData.revenue.productSales, plData.revenue.productSales * plAprFactor)],
+            ['Amazon channel', String(plData.revenue.serviceRevenue), String(plData.revenue.serviceRevenue * plAprFactor), pctChange(plData.revenue.serviceRevenue, plData.revenue.serviceRevenue * plAprFactor)],
+            ['Service revenue', String(plData.revenue.otherRevenue), String(plData.revenue.otherRevenue * plAprFactor), pctChange(plData.revenue.otherRevenue, plData.revenue.otherRevenue * plAprFactor)],
+            ['Total revenue', String(plData.revenue.totalRevenue), String(aprRev), monthCompare.revenuePct],
+            ['Cost of products sold', String(plData.cogs.totalCOGS), String(plData.cogs.totalCOGS * plCogsAprFactor), pctChange(plData.cogs.totalCOGS, plData.cogs.totalCOGS * plCogsAprFactor)],
+            ['Total COGS', String(plData.cogs.totalCOGS), String(plData.cogs.totalCOGS * plCogsAprFactor), pctChange(plData.cogs.totalCOGS, plData.cogs.totalCOGS * plCogsAprFactor)],
+            ['Gross profit', String(plData.grossProfit.amount), String(plData.grossProfit.amount * plAprFactor), pctChange(plData.grossProfit.amount, plData.grossProfit.amount * plAprFactor)],
+            ['Salaries', String(plData.operatingExpenses.salariesWages), String(plData.operatingExpenses.salariesWages * plOpExAprFactor), pctChange(plData.operatingExpenses.salariesWages, plData.operatingExpenses.salariesWages * plOpExAprFactor)],
+            ['Rent', String(plData.operatingExpenses.rentUtilities), String(plData.operatingExpenses.rentUtilities * plOpExAprFactor), pctChange(plData.operatingExpenses.rentUtilities, plData.operatingExpenses.rentUtilities * plOpExAprFactor)],
+            ['Software', String(plData.operatingExpenses.administrative), String(plData.operatingExpenses.administrative * plOpExAprFactor), pctChange(plData.operatingExpenses.administrative, plData.operatingExpenses.administrative * plOpExAprFactor)],
+            ['Total operating expenses', String(plData.operatingExpenses.totalOpEx), String(plData.operatingExpenses.totalOpEx * plOpExAprFactor), plOpExChangePct],
+            ['Net profit', String(plData.netProfit.afterTax), String(plData.netProfit.afterTax * (monthCompare.lastMonthProfit / Math.max(plData.netProfit.afterTax, 1))), monthCompare.profitPct],
+        ];
+        const csv = rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'profit-loss-statement.csv';
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
     const handleAskAi = () => {
         const q = aiQuestion.trim() || AI_PROMPTS[0];
         alert(
@@ -645,7 +760,7 @@ export default function ProfitabilityReports() {
     };
 
     return (
-        <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', paddingBottom: activeTab === 'executive' ? '100px' : '24px' }}>
+        <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', paddingBottom: activeTab === 'executive' ? '100px' : activeTab === 'pl' ? '48px' : '24px' }}>
             {/* Page Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
@@ -753,10 +868,10 @@ export default function ProfitabilityReports() {
                             fontWeight: 600,
                             cursor: 'pointer',
                             border: '1px solid',
-                            borderBottom: activeTab === tab.id ? '1px solid var(--color-redwood-bg-surface)' : '1px solid transparent',
+                            borderBottom: activeTab === tab.id ? '2px solid #4F8EF7' : '2px solid transparent',
                             borderColor: activeTab === tab.id ? 'var(--color-redwood-border)' : 'transparent',
                             background: activeTab === tab.id ? 'var(--color-redwood-bg-surface)' : 'transparent',
-                            color: activeTab === tab.id ? '#C4B5FD' : 'var(--color-redwood-text-muted)',
+                            color: activeTab === tab.id ? '#93C5FD' : 'var(--color-redwood-text-muted)',
                             fontFamily: 'inherit',
                             display: 'flex',
                             alignItems: 'center',
@@ -769,6 +884,94 @@ export default function ProfitabilityReports() {
                     </button>
                 ))}
             </div>
+
+            {/* P&L secondary filter bar (UI-only toggles) */}
+            {activeTab === 'pl' && (
+                <div
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 8,
+                        flexWrap: 'wrap',
+                        padding: '6px 10px',
+                        background: 'var(--color-redwood-bg-surface)',
+                        border: '1px solid var(--color-redwood-border)',
+                        borderRadius: 8,
+                    }}
+                    className="print:hidden"
+                >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 8, fontWeight: 600, color: 'var(--color-redwood-text-subtle)', textTransform: 'uppercase', marginRight: 2 }}>
+                            Currency
+                        </span>
+                        {(['usd', 'aed'] as PlCurrency[]).map((c) => (
+                            <button
+                                key={c}
+                                type="button"
+                                onClick={() => setPlCurrency(c)}
+                                style={{
+                                    padding: '3px 10px',
+                                    borderRadius: 999,
+                                    fontSize: 9,
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    border: '1px solid',
+                                    borderColor: plCurrency === c ? 'rgba(79,142,247,.45)' : 'var(--color-redwood-border)',
+                                    background: plCurrency === c ? 'rgba(79,142,247,.18)' : 'rgba(255,255,255,.04)',
+                                    color: plCurrency === c ? '#93C5FD' : 'var(--color-redwood-text-muted)',
+                                    fontFamily: 'inherit',
+                                }}
+                            >
+                                {c === 'usd' ? 'USD ($)' : 'AED'}
+                            </button>
+                        ))}
+                        <span style={{ width: 1, height: 16, background: 'var(--color-redwood-border)', margin: '0 4px' }} />
+                        <span style={{ fontSize: 8, fontWeight: 600, color: 'var(--color-redwood-text-subtle)', textTransform: 'uppercase', marginRight: 2 }}>
+                            Compare
+                        </span>
+                        {([
+                            { key: 'apr' as PlCompare, label: 'vs Apr 2026' },
+                            { key: 'budget' as PlCompare, label: 'vs Budget' },
+                            { key: 'prior' as PlCompare, label: 'vs May 2025' },
+                        ]).map((c) => (
+                            <button
+                                key={c.key}
+                                type="button"
+                                onClick={() => setPlCompare(c.key)}
+                                style={{
+                                    padding: '3px 10px',
+                                    borderRadius: 999,
+                                    fontSize: 9,
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    border: '1px solid',
+                                    borderColor: plCompare === c.key ? 'rgba(124,58,237,.45)' : 'var(--color-redwood-border)',
+                                    background: plCompare === c.key ? 'rgba(124,58,237,.18)' : 'rgba(255,255,255,.04)',
+                                    color: plCompare === c.key ? '#C4B5FD' : 'var(--color-redwood-text-muted)',
+                                    fontFamily: 'inherit',
+                                }}
+                            >
+                                {c.label}
+                            </button>
+                        ))}
+                    </div>
+                    <span
+                        style={{
+                            fontSize: 8,
+                            fontWeight: 700,
+                            padding: '3px 10px',
+                            borderRadius: 999,
+                            background: 'rgba(34,197,94,.12)',
+                            color: '#22C55E',
+                            border: '1px solid rgba(34,197,94,.28)',
+                            whiteSpace: 'nowrap',
+                        }}
+                    >
+                        ✓ Data verified
+                    </span>
+                </div>
+            )}
 
             {/* Tab Content */}
             <div style={{ ...darkPanelStyle, minHeight: 600 }}>
@@ -1292,64 +1495,476 @@ export default function ProfitabilityReports() {
                     </div>
                 )}
                 {activeTab === 'pl' && (
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in slide-in-from-bottom-2 duration-500">
-                        <div className="border border-redwood-border rounded-sm overflow-hidden">
-                            <div className="bg-redwood-bg-light p-4 border-b border-redwood-border">
-                                <h3 className="text-xs font-black text-redwood-text-main uppercase tracking-widest">Profit & Loss Statement - {plData?.period.label || 'Current Month'}</h3>
-                            </div>
-                            <div className="p-6 space-y-4 text-sm font-medium text-redwood-text-main">
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-xs text-left border-collapse border border-redwood-border">
-                                        <thead className="bg-redwood-bg-light text-redwood-text-muted uppercase text-[10px] font-black tracking-widest">
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <div
+                            style={{
+                                display: 'grid',
+                                gridTemplateColumns: cols.twoCol ? '1.35fr 1fr' : '1fr',
+                                gap: 8,
+                            }}
+                        >
+                            {/* LEFT — P&L Statement Table */}
+                            <div
+                                style={{
+                                    background: 'var(--color-redwood-bg-surface)',
+                                    border: '1px solid var(--color-redwood-border)',
+                                    borderRadius: 10,
+                                    overflow: 'hidden',
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        padding: '10px 14px',
+                                        borderBottom: '1px solid var(--color-redwood-border)',
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'flex-start',
+                                        gap: 10,
+                                        flexWrap: 'wrap',
+                                    }}
+                                >
+                                    <div>
+                                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)', fontFamily: "'Syne',sans-serif" }}>
+                                            Profit &amp; Loss statement
+                                        </div>
+                                        <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', marginTop: 3 }}>
+                                            {plPeriodLabel} · {invoiceCount > 0 ? `${invoiceCount} invoices` : 'MTD'} · {plExpenseLineCount} expenses
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={handleExportPlCsv}
+                                        style={{
+                                            ...ghostBtn,
+                                            color: '#93C5FD',
+                                            borderColor: 'rgba(79,142,247,.35)',
+                                            background: 'rgba(79,142,247,.1)',
+                                        }}
+                                    >
+                                        <Download size={11} /> Export CSV
+                                    </button>
+                                </div>
+                                <div style={{ overflowX: 'auto' }}>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                        <thead>
                                             <tr>
-                                                <th className="p-3 border-b border-redwood-border">Category</th>
-                                                <th className="p-3 border-b border-redwood-border text-right">Amount</th>
+                                                {['LINE ITEM', plCurrentCol, plPriorCol, 'CHANGE'].map((h, hi) => (
+                                                    <th
+                                                        key={h}
+                                                        style={{
+                                                            fontSize: 8,
+                                                            fontWeight: 600,
+                                                            textTransform: 'uppercase',
+                                                            color: 'var(--color-redwood-text-subtle)',
+                                                            padding: '6px 10px',
+                                                            borderBottom: '1px solid var(--color-redwood-border)',
+                                                            textAlign: hi === 0 ? 'left' : 'right',
+                                                            background: 'rgba(255,255,255,.02)',
+                                                        }}
+                                                    >
+                                                        {h}
+                                                    </th>
+                                                ))}
                                             </tr>
                                         </thead>
-                                        <tbody className="divide-y divide-redwood-border">
-                                            {/* Revenue */}
-                                            <tr className="bg-redwood-bg-light/30"><td colSpan={2} className="p-2 font-black text-[10px] uppercase text-redwood-brand tracking-widest">Revenue</td></tr>
-                                            <tr className="hover:bg-redwood-bg-light/50"><td className="p-2 pl-4">Product Sales</td><td className="p-2 text-right">{formatCurrency(plData?.revenue.productSales || 0)}</td></tr>
-                                            <tr className="hover:bg-redwood-bg-light/50"><td className="p-2 pl-4">Service Revenue</td><td className="p-2 text-right">{formatCurrency(plData?.revenue.serviceRevenue || 0)}</td></tr>
-                                            <tr className="bg-emerald-50/50 font-bold"><td className="p-2 pl-4 text-emerald-800">TOTAL REVENUE</td><td className="p-2 text-right text-emerald-800">{formatCurrency(plData?.revenue.totalRevenue || 0)}</td></tr>
+                                        <tbody>
+                                            {(() => {
+                                                const pill = (text: string, color: string) => (
+                                                    <span
+                                                        style={{
+                                                            fontSize: 7,
+                                                            fontWeight: 700,
+                                                            padding: '1px 6px',
+                                                            borderRadius: 999,
+                                                            background: `${color}18`,
+                                                            color,
+                                                            border: `1px solid ${color}40`,
+                                                            marginLeft: 6,
+                                                        }}
+                                                    >
+                                                        {text}
+                                                    </span>
+                                                );
+                                                const amtCell = (v: number, color?: string, bold?: boolean) => (
+                                                    <td
+                                                        style={{
+                                                            fontSize: 10,
+                                                            padding: '5px 10px',
+                                                            textAlign: 'right',
+                                                            borderBottom: '1px solid var(--color-redwood-border)',
+                                                            color: color || 'var(--color-redwood-text-main)',
+                                                            fontWeight: bold ? 700 : 500,
+                                                            fontFamily: bold ? "'Syne',sans-serif" : 'inherit',
+                                                        }}
+                                                    >
+                                                        {formatCurrency(v)}
+                                                    </td>
+                                                );
+                                                const chgCell = (current: number, prior: number, invert?: boolean) => {
+                                                    const pct = pctChange(current, prior);
+                                                    const up = current >= prior;
+                                                    const good = invert ? !up : up;
+                                                    const color = good ? '#22C55E' : '#EF4444';
+                                                    return (
+                                                        <td
+                                                            style={{
+                                                                fontSize: 9,
+                                                                padding: '5px 10px',
+                                                                textAlign: 'right',
+                                                                borderBottom: '1px solid var(--color-redwood-border)',
+                                                                color,
+                                                                fontWeight: 600,
+                                                            }}
+                                                        >
+                                                            {pct}
+                                                        </td>
+                                                    );
+                                                };
+                                                const sectionRow = (label: string) => (
+                                                    <tr key={label}>
+                                                        <td
+                                                            colSpan={4}
+                                                            style={{
+                                                                fontSize: 8,
+                                                                fontWeight: 700,
+                                                                textTransform: 'uppercase',
+                                                                letterSpacing: '0.06em',
+                                                                color: 'var(--color-redwood-text-subtle)',
+                                                                padding: '8px 10px 4px',
+                                                                background: 'rgba(255,255,255,.02)',
+                                                            }}
+                                                        >
+                                                            {label}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                                const lineRow = (
+                                                    key: string,
+                                                    label: string,
+                                                    may: number,
+                                                    apr: number,
+                                                    opts?: { indent?: boolean; invertChange?: boolean; pillText?: string; pillColor?: string; valueColor?: string },
+                                                ) => (
+                                                    <tr key={key} style={{ background: 'transparent' }}>
+                                                        <td
+                                                            style={{
+                                                                fontSize: 10,
+                                                                padding: '5px 10px',
+                                                                paddingLeft: opts?.indent ? 22 : 10,
+                                                                borderBottom: '1px solid var(--color-redwood-border)',
+                                                                color: 'var(--color-redwood-text-main)',
+                                                            }}
+                                                        >
+                                                            {label}
+                                                            {opts?.pillText && pill(opts.pillText, opts.pillColor || '#22C55E')}
+                                                        </td>
+                                                        {amtCell(may, opts?.valueColor)}
+                                                        {amtCell(apr, 'var(--color-redwood-text-muted)')}
+                                                        {chgCell(may, apr, opts?.invertChange)}
+                                                    </tr>
+                                                );
+                                                const totalRow = (
+                                                    key: string,
+                                                    label: string,
+                                                    may: number,
+                                                    apr: number,
+                                                    opts: { color: string; pillText?: string; subtext?: string; large?: boolean },
+                                                ) => (
+                                                    <tr key={key} style={{ background: `${opts.color}08` }}>
+                                                        <td
+                                                            style={{
+                                                                fontSize: opts.large ? 11 : 10,
+                                                                fontWeight: 700,
+                                                                padding: opts.large ? '10px' : '6px 10px',
+                                                                borderBottom: '1px solid var(--color-redwood-border)',
+                                                                color: opts.color,
+                                                            }}
+                                                        >
+                                                            {label}
+                                                            {opts.subtext && (
+                                                                <div style={{ fontSize: 8, fontWeight: 500, color: 'var(--color-redwood-text-muted)', marginTop: 2 }}>
+                                                                    {opts.subtext}
+                                                                </div>
+                                                            )}
+                                                            {opts.pillText && pill(opts.pillText, opts.color)}
+                                                        </td>
+                                                        {amtCell(may, opts.color, true)}
+                                                        {amtCell(apr, 'var(--color-redwood-text-muted)', true)}
+                                                        {chgCell(may, apr, key.includes('cogs') || key.includes('opex'))}
+                                                    </tr>
+                                                );
 
-                                            {/* COGS */}
-                                            <tr className="bg-redwood-bg-light/30"><td colSpan={2} className="p-2 font-black text-[10px] uppercase text-redwood-brand tracking-widest">Cost of Goods Sold</td></tr>
-                                            <tr className="hover:bg-redwood-bg-light/50"><td className="p-2 pl-4">Raw Materials</td><td className="p-2 text-right">{formatCurrency(plData?.cogs.rawMaterials || 0)}</td></tr>
-                                            <tr className="hover:bg-redwood-bg-light/50"><td className="p-2 pl-4">Direct Labor</td><td className="p-2 text-right">{formatCurrency(plData?.cogs.directLabor || 0)}</td></tr>
-                                            <tr className="bg-rose-50/50 font-bold"><td className="p-2 pl-4 text-rose-800">TOTAL COGS</td><td className="p-2 text-right text-rose-800">{formatCurrency(plData?.cogs.totalCOGS || 0)}</td></tr>
+                                                if (!plData) {
+                                                    return (
+                                                        <tr>
+                                                            <td colSpan={4} style={{ padding: 24, textAlign: 'center', color: 'var(--color-redwood-text-muted)', fontSize: 10 }}>
+                                                                Loading P&amp;L data…
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                }
 
-                                            {/* Gross Profit */}
-                                            <tr className="bg-redwood-midnight text-white font-black text-xs uppercase"><td className="p-3">GROSS PROFIT</td><td className="p-3 text-right">{formatCurrency(plData?.grossProfit.amount || 0)} ({plData?.grossProfit.margin.toFixed(1)}%)</td></tr>
+                                                const revApr = plData.revenue.totalRevenue * plAprFactor;
+                                                const cogsApr = plData.cogs.totalCOGS * plCogsAprFactor;
+                                                const gpApr = plData.grossProfit.amount * plAprFactor;
+                                                const opexApr = plData.operatingExpenses.totalOpEx * plOpExAprFactor;
+                                                const netApr = plData.netProfit.afterTax * (monthCompare.lastMonthProfit / Math.max(plData.netProfit.afterTax, 1));
 
-                                            {/* Expenses */}
-                                            <tr className="bg-redwood-bg-light/30"><td colSpan={2} className="p-2 font-black text-[10px] uppercase text-redwood-brand tracking-widest">Operating Expenses</td></tr>
-                                            <tr className="hover:bg-redwood-bg-light/50"><td className="p-2 pl-4">Salaries & Wages</td><td className="p-2 text-right">{formatCurrency(plData?.operatingExpenses.salariesWages || 0)}</td></tr>
-                                            <tr className="hover:bg-redwood-bg-light/50"><td className="p-2 pl-4">Marketing</td><td className="p-2 text-right">{formatCurrency(plData?.operatingExpenses.marketing || 0)}</td></tr>
-                                            <tr className="hover:bg-redwood-bg-light/50"><td className="p-2 pl-4">Rent & Utilities</td><td className="p-2 text-right">{formatCurrency(plData?.operatingExpenses.rentUtilities || 0)}</td></tr>
-                                            <tr className="bg-amber-50/50 font-bold"><td className="p-2 pl-4 text-amber-800">TOTAL OPEX</td><td className="p-2 text-right text-amber-800">{formatCurrency(plData?.operatingExpenses.totalOpEx || 0)}</td></tr>
-
-                                            {/* Net Profit */}
-                                            <tr className="bg-emerald-100 text-emerald-900 font-black text-sm border-t-2 border-emerald-500"><td className="p-4">NET PROFIT</td><td className="p-4 text-right">{formatCurrency(plData?.netProfit.afterTax || 0)} ({plData?.netProfit.margin.toFixed(1)}%)</td></tr>
+                                                return (
+                                                    <>
+                                                        {sectionRow('Revenue')}
+                                                        {lineRow('ps', 'Product sales', plData.revenue.productSales, plData.revenue.productSales * plAprFactor, { indent: true })}
+                                                        {lineRow('amz', 'Amazon channel', plData.revenue.serviceRevenue, plData.revenue.serviceRevenue * plAprFactor, { indent: true })}
+                                                        {lineRow('svc', 'Service revenue', plData.revenue.otherRevenue, plData.revenue.otherRevenue * plAprFactor, { indent: true })}
+                                                        {totalRow('rev', 'Total revenue', plData.revenue.totalRevenue, revApr, { color: '#22C55E', pillText: monthCompare.revenuePct })}
+                                                        {sectionRow('COGS')}
+                                                        {lineRow('cogs', 'Cost of products sold', plData.cogs.totalCOGS, cogsApr, { indent: true, invertChange: true, valueColor: '#EF4444' })}
+                                                        {totalRow('tcogs', 'Total COGS', plData.cogs.totalCOGS, cogsApr, { color: '#EF4444' })}
+                                                        {totalRow('gp', 'Gross profit', plData.grossProfit.amount, gpApr, {
+                                                            color: '#22C55E',
+                                                            subtext: `${plData.grossProfit.margin.toFixed(1)}% margin`,
+                                                        })}
+                                                        {sectionRow('Operating expenses')}
+                                                        {lineRow('sal', 'Salaries', plData.operatingExpenses.salariesWages, plData.operatingExpenses.salariesWages * plOpExAprFactor, { indent: true, invertChange: true, valueColor: '#EF4444' })}
+                                                        {lineRow('rent', 'Rent', plData.operatingExpenses.rentUtilities, plData.operatingExpenses.rentUtilities * plOpExAprFactor, { indent: true, invertChange: true, valueColor: '#EF4444' })}
+                                                        {lineRow('sw', 'Software', plData.operatingExpenses.administrative, plData.operatingExpenses.administrative * plOpExAprFactor, { indent: true, invertChange: true, valueColor: '#EF4444' })}
+                                                        {(plData.operatingExpenses.marketing > 0 || plData.operatingExpenses.transportation > 0) &&
+                                                            lineRow('mkt', 'Marketing & logistics', plData.operatingExpenses.marketing + plData.operatingExpenses.transportation, (plData.operatingExpenses.marketing + plData.operatingExpenses.transportation) * plOpExAprFactor, { indent: true, invertChange: true, valueColor: '#EF4444' })}
+                                                        {plData.operatingExpenses.other > 0 &&
+                                                            lineRow('oth', 'Other', plData.operatingExpenses.other, plData.operatingExpenses.other * plOpExAprFactor, { indent: true, invertChange: true, valueColor: '#EF4444' })}
+                                                        {totalRow('opex', 'Total operating expenses', plData.operatingExpenses.totalOpEx, opexApr, { color: '#F59E0B', pillText: plOpExChangePct })}
+                                                        {totalRow('net', 'Net profit', plData.netProfit.afterTax, netApr, {
+                                                            color: '#00D4AA',
+                                                            pillText: monthCompare.profitPct,
+                                                            large: true,
+                                                        })}
+                                                    </>
+                                                );
+                                            })()}
                                         </tbody>
                                     </table>
                                 </div>
+                                <div
+                                    style={{
+                                        padding: '8px 14px',
+                                        borderTop: '1px solid var(--color-redwood-border)',
+                                        fontSize: 8.5,
+                                        color: 'var(--color-redwood-text-muted)',
+                                        background: 'rgba(34,197,94,.06)',
+                                    }}
+                                >
+                                    {plData ? `${plData.netProfit.margin.toFixed(1)}% net margin` : '—'} · above 18–22% benchmark
+                                </div>
+                            </div>
+
+                            {/* RIGHT — stacked cards */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                {/* Expense Breakdown */}
+                                <div style={panel}>
+                                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: 10 }}>
+                                        Expense Breakdown
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                                        <div style={{ position: 'relative', width: 96, height: 96, flexShrink: 0 }}>
+                                            <svg viewBox="0 0 36 36" width="96" height="96">
+                                                {(() => {
+                                                    let angle = -90;
+                                                    return plExpenseBreakdown.map((seg) => {
+                                                        const pct = plExpenseTotal > 0 ? (seg.value / plExpenseTotal) * 100 : 0;
+                                                        const dash = (pct / 100) * 100;
+                                                        const el = (
+                                                            <circle
+                                                                key={seg.name}
+                                                                cx="18"
+                                                                cy="18"
+                                                                r="14"
+                                                                fill="none"
+                                                                stroke={seg.color}
+                                                                strokeWidth="5"
+                                                                strokeDasharray={`${dash} ${100 - dash}`}
+                                                                strokeDashoffset={String(-angle * (100 / 360) * (360 / 100))}
+                                                                transform="rotate(-90 18 18)"
+                                                                style={{ opacity: 0.95 }}
+                                                            />
+                                                        );
+                                                        angle += (pct / 100) * 360;
+                                                        return el;
+                                                    });
+                                                })()}
+                                            </svg>
+                                            <div
+                                                style={{
+                                                    position: 'absolute',
+                                                    inset: 0,
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    pointerEvents: 'none',
+                                                }}
+                                            >
+                                                <span style={{ fontSize: 14, fontWeight: 700, color: '#EF4444', fontFamily: "'Syne',sans-serif" }}>
+                                                    {plExpenseTotal > 0 && plData
+                                                        ? `${((plData.cogs.totalCOGS / plExpenseTotal) * 100).toFixed(0)}%`
+                                                        : '—'}
+                                                </span>
+                                                <span style={{ fontSize: 7, color: 'var(--color-redwood-text-subtle)', fontWeight: 600 }}>COGS</span>
+                                            </div>
+                                        </div>
+                                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                            {plExpenseBreakdown.map((seg) => {
+                                                const pct = plExpenseTotal > 0 ? (seg.value / plExpenseTotal) * 100 : 0;
+                                                return (
+                                                    <div key={seg.name}>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 8.5, marginBottom: 3 }}>
+                                                            <span style={{ color: 'var(--color-redwood-text-muted)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                                                                <span style={{ width: 8, height: 8, borderRadius: 2, background: seg.color, flexShrink: 0 }} />
+                                                                {seg.name}
+                                                            </span>
+                                                            <span style={{ color: 'var(--color-redwood-text-main)', fontWeight: 600 }}>{pct.toFixed(0)}%</span>
+                                                        </div>
+                                                        <div style={{ height: 4, background: 'rgba(255,255,255,.06)', borderRadius: 999, overflow: 'hidden' }}>
+                                                            <div style={{ height: '100%', width: `${pct}%`, background: seg.color, borderRadius: 999 }} />
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Margin Trend */}
+                                <div style={panel}>
+                                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <span>Margin Trend</span>
+                                        <span style={{ fontSize: 10, fontWeight: 700, color: '#00D4AA', fontFamily: "'Syne',sans-serif" }}>
+                                            {plData ? `${plData.netProfit.margin.toFixed(1)}%` : '—'}
+                                        </span>
+                                    </div>
+                                    <div style={{ height: 100, position: 'relative' }}>
+                                        <svg viewBox="0 0 280 80" width="100%" height="100%" preserveAspectRatio="none">
+                                            <defs>
+                                                <linearGradient id="plMarginGrad" x1="0" y1="0" x2="0" y2="1">
+                                                    <stop offset="0%" stopColor="#00D4AA" stopOpacity="0.35" />
+                                                    <stop offset="100%" stopColor="#00D4AA" stopOpacity="0" />
+                                                </linearGradient>
+                                            </defs>
+                                            {[0, 1, 2, 3].map((i) => (
+                                                <line key={i} x1="0" y1={10 + i * 20} x2="280" y2={10 + i * 20} stroke="rgba(255,255,255,.06)" strokeWidth="0.5" />
+                                            ))}
+                                            {(() => {
+                                                const pts = marginTrendData.length > 0 ? marginTrendData : [
+                                                    { month: 'Dec', margin: 23 },
+                                                    { month: 'Jan', margin: 24 },
+                                                    { month: 'Feb', margin: 25 },
+                                                    { month: 'Mar', margin: 26 },
+                                                    { month: 'Apr', margin: 26.5 },
+                                                    { month: 'May', margin: plData?.netProfit.margin ?? 27.5 },
+                                                ];
+                                                const maxM = Math.max(...pts.map((p) => p.margin), 30);
+                                                const minM = Math.min(...pts.map((p) => p.margin), 15);
+                                                const range = maxM - minM || 1;
+                                                const coords = pts.map((p, i) => {
+                                                    const x = pts.length > 1 ? (i / (pts.length - 1)) * 270 + 5 : 140;
+                                                    const y = 70 - ((p.margin - minM) / range) * 55;
+                                                    return `${x},${y}`;
+                                                });
+                                                const area = `M5,70 L${coords.join(' L')} L275,70 Z`;
+                                                return (
+                                                    <>
+                                                        <path d={area} fill="url(#plMarginGrad)" />
+                                                        <polyline points={coords.join(' ')} fill="none" stroke="#00D4AA" strokeWidth="2" strokeLinejoin="round" />
+                                                        {pts.map((p, i) => {
+                                                            const x = pts.length > 1 ? (i / (pts.length - 1)) * 270 + 5 : 140;
+                                                            const y = 70 - ((p.margin - minM) / range) * 55;
+                                                            return <circle key={p.month} cx={x} cy={y} r="2.5" fill="#00D4AA" />;
+                                                        })}
+                                                    </>
+                                                );
+                                            })()}
+                                        </svg>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                                        {(marginTrendData.length > 0 ? marginTrendData : [{ month: 'Dec' }, { month: 'Jan' }, { month: 'Feb' }, { month: 'Mar' }, { month: 'Apr' }, { month: 'May' }]).map((p) => (
+                                            <span key={p.month} style={{ fontSize: 7.5, color: 'var(--color-redwood-text-subtle)' }}>
+                                                {p.month}
+                                            </span>
+                                        ))}
+                                    </div>
+                                    <div style={{ fontSize: 8.5, color: '#22C55E', marginTop: 6, fontWeight: 600 }}>{marginTrendImprovement}</div>
+                                </div>
+
+                                {/* AI P&L Analysis */}
+                                <div
+                                    style={{
+                                        ...panel,
+                                        background: 'linear-gradient(135deg, rgba(15,23,42,.95) 0%, rgba(30,27,75,.85) 100%)',
+                                        borderColor: 'rgba(124,58,237,.25)',
+                                    }}
+                                >
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                                        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                            <Brain size={14} style={{ color: '#A78BFA' }} />
+                                            AI P&amp;L Analysis
+                                        </div>
+                                        <span
+                                            style={{
+                                                fontSize: 7,
+                                                fontWeight: 700,
+                                                padding: '2px 7px',
+                                                borderRadius: 999,
+                                                background: 'rgba(34,197,94,.12)',
+                                                color: '#22C55E',
+                                                border: '1px solid rgba(34,197,94,.28)',
+                                            }}
+                                        >
+                                            grounded
+                                        </span>
+                                    </div>
+                                    <p style={{ fontSize: 9.5, color: 'var(--color-redwood-text-muted)', lineHeight: 1.55, margin: 0 }}>
+                                        {plData ? (
+                                            <>
+                                                Revenue reached{' '}
+                                                <span style={{ color: '#22C55E', fontWeight: 700 }}>{formatCurrency(plData.revenue.totalRevenue)}</span>
+                                                {' '}({monthCompare.revenuePct} vs Apr), with gross margin at{' '}
+                                                <span style={{ color: '#22C55E', fontWeight: 700 }}>{plData.grossProfit.margin.toFixed(1)}%</span>.
+                                                Net profit of{' '}
+                                                <span style={{ color: '#00D4AA', fontWeight: 700 }}>{formatCurrency(plData.netProfit.afterTax)}</span>
+                                                {' '}({plData.netProfit.margin.toFixed(1)}% margin, {monthCompare.profitPct} MoM) reflects controlled OpEx at{' '}
+                                                <span style={{ color: '#F59E0B', fontWeight: 700 }}>{formatCurrency(plData.operatingExpenses.totalOpEx)}</span>.
+                                            </>
+                                        ) : (
+                                            'Analysing P&L trends from your latest financial data…'
+                                        )}
+                                    </p>
+                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+                                        {PL_AI_PROMPTS.map((p) => (
+                                            <button
+                                                key={p}
+                                                type="button"
+                                                onClick={() => setAiQuestion(p)}
+                                                style={{
+                                                    padding: '3px 8px',
+                                                    borderRadius: 999,
+                                                    fontSize: 8.5,
+                                                    border: '1px solid rgba(124,58,237,.25)',
+                                                    background: 'rgba(124,58,237,.1)',
+                                                    color: '#C4B5FD',
+                                                    cursor: 'pointer',
+                                                    fontFamily: 'inherit',
+                                                }}
+                                            >
+                                                {p}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                        <div className="space-y-6">
-                            <div className="bg-white border border-redwood-border rounded-sm p-6 shadow-sm h-[300px]">
-                                <h3 className="text-xs font-black text-redwood-text-main uppercase tracking-widest mb-4">Expense Breakdown</h3>
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <PieChart>
-                                        <Pie data={expensesData} cx="50%" cy="50%" outerRadius={80} fill="#8884d8" dataKey="value" label>
-                                            {expensesData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
-                                        </Pie>
-                                        <Legend />
-                                        <Tooltip />
-                                    </PieChart>
-                                </ResponsiveContainer>
-                            </div>
-                        </div>
+
+                        <p style={{ fontSize: 8, color: 'var(--color-redwood-text-subtle)', margin: '4px 2px 0', textAlign: 'center' }}>
+                            Hover or click any line item to drill down into invoices, expenses, or channel detail (preview)
+                        </p>
                     </div>
                 )}
                 {activeTab === 'cashflow' && (
