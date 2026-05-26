@@ -7,7 +7,11 @@ import {
     CheckCircle, XCircle, ArrowRight
 } from 'lucide-react';
 import { getProducts } from '../../services/productService';
-import { formatCurrency } from '../../services/settingsService';
+
+// Amazon revenue/prices are always in marketplace currency (USD/AED), never PKR.
+// formatCurrency() reads system-wide PKR setting — wrong for Amazon. Use fmtUSD instead.
+const fmtUSD = (n: number) =>
+    '$' + Number(n ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // ── Types ─────────────────────────────────────────────────────
 interface AmazonConfig {
@@ -122,7 +126,7 @@ const ORDER_STATUS: Record<string, string> = {
 function generateMockListings(products: any[]): AmazonListing[] {
     return products.slice(0, 8).map((p, i) => ({
         id: `LST-${i+1}`,
-        asin: `B0${String(Date.now()).slice(-9)}${i}`.toUpperCase().slice(0,10),
+        asin: 'B0' + (Math.random().toString(36).substring(2, 9) + 'XXXX').substring(0, 8).toUpperCase(),
         sku: p.sku || `BT-${p.name?.slice(0,6).replace(/\s/g,'').toUpperCase() || i}`,
         title: `${p.name || 'Soltol'} - Premium Lubricant`,
         price: (p.pricing?.sellingPrice || 35) * 1.4,
@@ -172,6 +176,9 @@ export default function AmazonIntegration() {
     const [showCredentials, setShowCredentials] = useState(false);
 
     useEffect(() => {
+        // Clear stale listings cached with the old static-ASIN generator so unique
+        // B0XXXXXXXX ASINs are regenerated. Safe — listings are mock data only.
+        localStorage.removeItem('bettano_amazon_listings');
         setSyncLogs(getSyncLogs());
         getProducts().then(prods => {
             const existing = getListings();
@@ -485,7 +492,7 @@ export default function AmazonIntegration() {
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         {[
                             {icon:'📋', label:'Active Listings', value: activeListings, sub:`${fbaListings} FBA · ${fbmListings} FBM`, stripe:'#4F8EF7', valueColor:'#4F8EF7'},
-                            {icon:'💰', label:'Revenue (7 days)', value: formatCurrency(totalRevenue7d), sub:'Across all channels', stripe:'#22C55E', valueColor:'#22C55E'},
+                            {icon:'💰', label:'Revenue (7 days)', value: fmtUSD(totalRevenue7d), sub:'Across all channels', stripe:'#22C55E', valueColor:'#22C55E'},
                             {icon:'🛒', label:'Pending Orders', value: pendingOrders, sub:`${unsyncedOrders} need ERP sync`, stripe:'#F59E0B', valueColor:'#F59E0B'},
                             {icon:'🔄', label:'Unsynced Orders', value: unsyncedOrders, sub:'Click Orders → Sync to ERP', stripe:'#EF4444', valueColor:'#EF4444'},
                         ].map((k, i) => (
@@ -763,8 +770,23 @@ export default function AmazonIntegration() {
                     <div className="flex items-center justify-between flex-wrap gap-3">
                         <p className="text-xs font-semibold text-gray-500 ">{listings.length} Products Listed on Amazon</p>
                         <div className="flex gap-2">
-                            <a href="https://sellercentral.amazon.com/inventory" target="_blank" rel="noopener noreferrer"
-                                className="flex items-center gap-1.5 px-4 py-2 bg-orange-500 text-white rounded-xl text-xs font-semibold hover:bg-orange-600 transition-all">
+                            <a
+                                href="https://sellercentral.amazon.com/inventory"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{
+                                    background: 'transparent',
+                                    border: '0.5px solid var(--color-border-secondary)',
+                                    color: 'var(--color-text-secondary)',
+                                    borderRadius: 8,
+                                    padding: '5px 11px',
+                                    fontSize: 11,
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 5,
+                                }}
+                            >
                                 Open Seller Central <ExternalLink size={11} />
                             </a>
                         </div>
@@ -793,7 +815,7 @@ export default function AmazonIntegration() {
                                         <td className="px-4 py-3">
                                             <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${l.fulfillment==='FBA'?'bg-orange-100 text-orange-700':'bg-blue-100 text-blue-700'}`}>{l.fulfillment}</span>
                                         </td>
-                                        <td className="px-4 py-3 text-sm font-semibold font-mono text-emerald-600">{l.revenue_7d ? formatCurrency(l.revenue_7d) : '—'}</td>
+                                        <td className="px-4 py-3 text-sm font-semibold font-mono text-emerald-600">{l.revenue_7d ? fmtUSD(l.revenue_7d) : '—'}</td>
                                         <td className="px-4 py-3 text-center">{l.buybox_winner ? '🏆' : '—'}</td>
                                         <td className="px-4 py-3">
                                             <a href={`https://www.amazon.com/dp/${l.asin}`} target="_blank" rel="noopener noreferrer"
@@ -841,7 +863,7 @@ export default function AmazonIntegration() {
                                         </td>
                                         <td className="px-4 py-3 text-xs text-gray-600">{o.buyer}</td>
                                         <td className="px-4 py-3 text-sm font-semibold text-gray-700">{o.qty}</td>
-                                        <td className="px-4 py-3 text-sm font-semibold font-mono text-gray-900">{formatCurrency(o.price)}</td>
+                                        <td className="px-4 py-3 text-sm font-semibold font-mono text-gray-900">{fmtUSD(o.price)}</td>
                                         <td className="px-4 py-3">
                                             <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full capitalize ${ORDER_STATUS[o.status]}`}>{o.status}</span>
                                         </td>
