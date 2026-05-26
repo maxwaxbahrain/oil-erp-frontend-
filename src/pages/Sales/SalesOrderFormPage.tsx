@@ -425,7 +425,13 @@ export default function SalesOrderFormPage() {
 
   const customerInsightPanel = (
     <aside className="w-full lg:w-[40%] lg:shrink-0">
-      <div className="lg:sticky lg:top-4 rounded-2xl border border-gray-200 bg-white shadow-sm p-5 md:p-6 space-y-8">
+      <div
+        className="lg:sticky lg:top-4 rounded-2xl shadow-sm p-5 md:p-6 space-y-8"
+        style={{
+            background: 'var(--color-background-primary)',
+            border: '0.5px solid var(--color-border-tertiary)',
+        }}
+      >
         {!selectedCustomer ? (
           <div className="text-center py-12 px-4">
             <p className="text-sm font-black text-gray-400  leading-relaxed">
@@ -481,7 +487,11 @@ export default function SalesOrderFormPage() {
               ) : (
                 <ul className="space-y-4">
                   {panelStats.recentThree.map((o) => (
-                    <li key={o.id} className="rounded-xl border border-gray-100 p-4 bg-gray-50/50 space-y-2">
+                    <li
+                      key={o.id}
+                      className="rounded-xl border border-gray-100 p-4 space-y-2"
+                      style={{ background: 'var(--color-background-secondary)' }}
+                    >
                       <div className="flex justify-between items-start gap-2">
                         <p className="font-mono font-black text-gray-900 text-sm">{o.so_number}</p>
                         <span
@@ -795,7 +805,10 @@ export default function SalesOrderFormPage() {
       <div className={sectionCard}>
         <h2 className="text-xs font-black text-gray-500 ">Line items</h2>
         {lines.length === 0 ? (
-          <p className="text-sm text-gray-500 py-10 text-center border-2 border-dashed border-gray-200 rounded-xl bg-gray-50/50 font-semibold">
+          <p
+            className="text-sm text-gray-500 py-10 text-center border-2 border-dashed border-gray-200 rounded-xl font-semibold"
+            style={{ background: 'var(--color-background-secondary)' }}
+          >
             No lines yet — search and select a product above.
           </p>
         ) : (
@@ -854,7 +867,10 @@ export default function SalesOrderFormPage() {
         />
       </div>
 
-      <div className={`${sectionCard} border-dashed border-gray-200 bg-gray-50/40`}>
+      <div
+        className={`${sectionCard} border-dashed border-gray-200`}
+        style={{ background: 'var(--color-background-secondary)' }}
+      >
         <h2 className="text-xs font-black text-gray-500 ">Payment terms</h2>
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
@@ -911,7 +927,13 @@ export default function SalesOrderFormPage() {
         <span className="text-2xl font-black tabular-nums text-gray-900">{formatMoney(total)}</span>
       </div>
 
-      <div className="sticky bottom-0 z-20 -mx-1 px-1 pt-4 pb-2 bg-[#F8F9FA] border-t border-gray-200/80 mt-2 shadow-[0_-4px_12px_rgba(0,0,0,0.06)]">
+      <div
+        className="sticky bottom-0 z-20 -mx-1 px-1 pt-4 pb-2 mt-2 shadow-[0_-4px_12px_rgba(0,0,0,0.06)]"
+        style={{
+            background: 'var(--color-background-primary)',
+            borderTop: '0.5px solid var(--color-border-tertiary)',
+        }}
+      >
         <div className="flex flex-col sm:flex-row gap-3">
           <button
             type="button"
