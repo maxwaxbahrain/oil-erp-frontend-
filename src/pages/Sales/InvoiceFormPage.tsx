@@ -655,7 +655,22 @@ export default function InvoiceFormPage() {
     };
 
     return (
-        <div className="p-6 max-w-7xl mx-auto space-y-6">
+        <div style={{
+            display: 'flex',
+            gap: 16,
+            alignItems: 'flex-start',
+            padding: '16px 18px',
+            maxWidth: 1280,
+            margin: '0 auto',
+        }}>
+            {/* ── LEFT COLUMN — form content ── */}
+            <div style={{
+                flex: 1,
+                minWidth: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 16,
+            }}>
             {/* FIX 1 — success banner (non-blocking) */}
             {savedNotice && (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center gap-3 shadow-sm">
@@ -1282,28 +1297,38 @@ export default function InvoiceFormPage() {
                             </div>
                         )}
                     </div>
+
+                    {/* Notes & terms — moved inside Payment & notes section */}
+                    <div className="mt-6">
+                        <label className="block text-xs font-semibold text-gray-500 mb-3">
+                            Notes &amp; terms
+                        </label>
+                        <textarea
+                            value={formData.notes}
+                            onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
+                            rows={6}
+                            placeholder="Add terms & conditions, delivery notes, or internal comments..."
+                            className="w-full border-2 border-gray-300 rounded-xl px-4 py-3 text-sm font-medium focus:border-[#4F8EF7] focus:ring-4 focus:ring-[#4F8EF7]/5 outline-none resize-none transition-all shadow-inner bg-gray-50/50"
+                        />
+                    </div>
                 </div>
 
-                {/* Totals & Summary */}
-                <div className="border-t-2 border-gray-200 pt-8">
-                    <div className="flex flex-col md:flex-row gap-8 justify-between">
-                        {/* Notes Area */}
-                        <div className="w-full md:w-1/2">
-                            <label className="block text-xs font-semibold text-gray-500 mb-3">
-                                Notes &amp; terms
-                            </label>
-                            <textarea
-                                value={formData.notes}
-                                onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
-                                rows={6}
-                                placeholder="Add terms & conditions, delivery notes, or internal comments..."
-                                className="w-full border-2 border-gray-300 rounded-xl px-4 py-3 text-sm font-medium focus:border-[#4F8EF7] focus:ring-4 focus:ring-[#4F8EF7]/5 outline-none resize-none transition-all shadow-inner bg-gray-50/50"
-                            />
-                        </div>
+            </div>
+            {/* ── /form card ── */}
+            </div>
+            {/* ── /LEFT COLUMN ── */}
 
+            {/* ── RIGHT COLUMN — sticky summary panel ── */}
+            <div style={{
+                width: 300,
+                flexShrink: 0,
+                position: 'sticky',
+                top: 16,
+                alignSelf: 'flex-start',
+            }}>
                         {/* Totals Card */}
                         <div
-                            className="w-full md:w-5/12 bg-white rounded-2xl overflow-hidden shadow-2xl skew-y-0 translate-z-0"
+                            className="w-full bg-white rounded-2xl overflow-hidden shadow-2xl skew-y-0 translate-z-0"
                             style={{ border: '0.5px solid var(--color-border-tertiary)' }}
                         >
                             <div
@@ -1542,7 +1567,7 @@ export default function InvoiceFormPage() {
                             </div>
                         </div>
                     </div>
-                </div>
+                {/* ── /RIGHT COLUMN ── */}
             </div>
         </div>
     );
