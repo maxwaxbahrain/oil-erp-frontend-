@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileText, Plus, Calendar, User, DollarSign, Package, Search, Filter } from 'lucide-react';
+import { FileText, Plus, Search, Filter } from 'lucide-react';
 import { getSalesOrders, hydrateSalesOrdersWithCustomers, type SalesOrder } from '../../services/salesService';
+
+const THEME_PRIMARY = '#4F8EF7';
 
 export default function Quotations() {
     const navigate = useNavigate();
@@ -30,13 +32,23 @@ export default function Quotations() {
         }
     }
 
-    const getStatusColor = (status: string) => {
-        if (status === 'draft' || status === 'pending') return 'bg-slate-200 text-slate-800 border-slate-300';
-        if (status === 'confirmed' || status === 'approved') return 'bg-blue-100 text-blue-800 border-blue-300';
-        if (status === 'delivered') return 'bg-emerald-100 text-emerald-800 border-emerald-300';
-        if (status === 'invoiced') return 'bg-violet-100 text-violet-800 border-violet-300';
-        if (status === 'cancelled') return 'bg-red-100 text-red-700 border-red-300';
-        return 'bg-gray-100 text-gray-700 border-gray-300';
+    // Status badge — inline-style, CSS-var driven
+    const STATUS_BADGE = (status: string) => {
+        const s = (status ?? '').toLowerCase();
+        const styles: Record<string, CSSProperties> = {
+            draft:     { background: 'var(--color-background-secondary)', color: 'var(--color-text-secondary)' },
+            confirmed: { background: 'var(--color-background-info)',      color: 'var(--color-text-info)'      },
+            delivered: { background: 'var(--color-background-success)',   color: 'var(--color-text-success)'   },
+            invoiced:  { background: 'rgba(124,58,237,.12)',              color: '#7C3AED'                     },
+            cancelled: { background: 'var(--color-background-danger)',    color: 'var(--color-text-danger)'    },
+        };
+        return (
+            <span style={{ fontSize: 9, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
+                           display: 'inline-block', textTransform: 'capitalize',
+                           ...(styles[s] ?? styles.draft) }}>
+                {status}
+            </span>
+        );
     };
 
     // TC-36 — Apply search + status filter.  Search matches order
@@ -53,116 +65,161 @@ export default function Quotations() {
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+            <div className="min-h-screen flex items-center justify-center"
+                 style={{ background: 'var(--color-background-secondary)' }}>
                 <div className="text-center">
-                    <div className="w-16 h-16 border-4 border-[#800020] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                    <p className="text-sm font-bold text-gray-600">Loading quotations...</p>
+                    <div className="w-12 h-12 border-2 rounded-full animate-spin mx-auto mb-3"
+                         style={{ borderColor: THEME_PRIMARY, borderTopColor: 'transparent' }} />
+                    <p style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-secondary)' }}>
+                        Loading quotations...
+                    </p>
                 </div>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-gray-50 p-6">
-            <div className="max-w-[1600px] mx-auto space-y-6">
-                {/* Header */}
-                <div className="bg-white rounded-xl shadow-lg border-2 border-[#800020] p-6">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                            <div className="w-16 h-16 bg-[#800020] rounded-xl flex items-center justify-center shadow-lg">
-                                <FileText size={32} className="text-white" />
-                            </div>
-                            <div>
-                                <h1 className="text-3xl font-black text-gray-900">SALES QUOTATIONS</h1>
-                                <p className="text-sm text-[#800020] font-black mt-1">ALL SALES ORDERS & QUOTATIONS</p>
-                            </div>
+        <div className="min-h-screen p-6" style={{ background: 'var(--color-background-secondary)' }}>
+            <div className="max-w-[1600px] mx-auto space-y-4">
+                {/* Header — Soltol dark nav */}
+                <div style={{
+                    background: 'var(--color-background-primary)',
+                    borderBottom: '0.5px solid var(--color-border-tertiary)',
+                    padding: '13px 18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    borderRadius: 12,
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+                        <div style={{
+                            width: 36, height: 36, borderRadius: 9,
+                            background: 'rgba(74,143,245,.12)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            flexShrink: 0,
+                        }}>
+                            <FileText size={18} style={{ color: THEME_PRIMARY }} />
                         </div>
-                        <button
-                            onClick={() => navigate('/sales/orders/new')}
-                            className="px-8 py-4 bg-[#800020] text-white text-sm font-black uppercase rounded-xl hover:brightness-110 shadow-2xl transition-all flex items-center gap-3"
-                        >
-                            <Plus size={20} />
-                            Create New Order
-                        </button>
+                        <div style={{ minWidth: 0 }}>
+                            <h1 style={{ fontSize: 17, fontWeight: 500, color: 'var(--color-text-primary)',
+                                         margin: 0, lineHeight: 1.2 }}>
+                                Sales orders
+                            </h1>
+                            <p style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginTop: 2, margin: 0 }}>
+                                All orders · Draft → Confirmed → Delivered → Invoiced
+                            </p>
+                        </div>
                     </div>
+                    <button
+                        onClick={() => navigate('/sales/orders/new')}
+                        style={{
+                            background: THEME_PRIMARY,
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: 8,
+                            padding: '7px 14px',
+                            fontSize: 11,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            flexShrink: 0,
+                        }}
+                    >
+                        <Plus size={14} /> New sales order
+                    </button>
                 </div>
 
-                {/* Stats Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                    <div className="bg-white rounded-xl shadow-md p-6 border-2 border-[#800020]">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <p className="text-xs font-black text-gray-500 uppercase">Total Orders</p>
-                                <p className="text-3xl font-black text-[#800020] mt-2">{salesOrders.length}</p>
+                {/* KPI Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                    {[
+                        { label: 'Total Orders', value: salesOrders.length, sub: 'all time',
+                          stripe: '#4F8EF7', valueColor: '#4F8EF7' },
+                        { label: 'Draft',
+                          value: salesOrders.filter(o => o.status === 'draft').length,
+                          sub: 'awaiting confirmation',
+                          stripe: '#8BA3C7',
+                          valueColor: 'var(--color-text-secondary)' },
+                        { label: 'Confirmed',
+                          value: salesOrders.filter(o => o.status === 'confirmed').length,
+                          sub: 'ready to dispatch',
+                          stripe: '#22C55E',
+                          valueColor: '#22C55E' },
+                        { label: 'Total Value',
+                          value: '$' + salesOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0).toLocaleString(),
+                          sub: 'confirmed orders',
+                          stripe: '#22C55E',
+                          valueColor: '#22C55E' },
+                    ].map(k => (
+                        <div key={k.label} style={{
+                            background: 'var(--color-background-primary)',
+                            border: '0.5px solid var(--color-border-tertiary)',
+                            borderRadius: 10,
+                            padding: '11px 13px',
+                            position: 'relative',
+                            overflow: 'hidden',
+                        }}>
+                            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2.5,
+                                          background: k.stripe }} />
+                            <div style={{ fontSize: 9, color: 'var(--color-text-secondary)', fontWeight: 600,
+                                          textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 4 }}>
+                                {k.label}
                             </div>
-                            <div className="w-12 h-12 bg-[#800020]/10 rounded-lg flex items-center justify-center">
-                                <FileText size={24} className="text-[#800020]" />
+                            <div style={{ fontSize: 20, fontWeight: 500, lineHeight: 1,
+                                          marginBottom: 2, color: k.valueColor }}>
+                                {k.value}
                             </div>
+                            <div style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>{k.sub}</div>
                         </div>
-                    </div>
-
-                    <div className="bg-white rounded-xl shadow-md p-6 border-2 border-amber-200">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <p className="text-xs font-black text-gray-500 uppercase">Draft</p>
-                                <p className="text-3xl font-black text-amber-700 mt-2">
-                                    {salesOrders.filter(o => o.status === 'draft').length}
-                                </p>
-                            </div>
-                            <div className="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center">
-                                <Package size={24} className="text-amber-600" />
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="bg-white rounded-xl shadow-md p-6 border-2 border-emerald-200">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <p className="text-xs font-black text-gray-500 uppercase">Confirmed</p>
-                                <p className="text-3xl font-black text-emerald-700 mt-2">
-                                    {salesOrders.filter(o => o.status === 'confirmed').length}
-                                </p>
-                            </div>
-                            <div className="w-12 h-12 bg-emerald-100 rounded-lg flex items-center justify-center">
-                                <DollarSign size={24} className="text-emerald-600" />
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="bg-white rounded-xl shadow-md p-6 border-2 border-[#800020]">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <p className="text-xs font-black text-gray-500 uppercase">Total Value</p>
-                                <p className="text-2xl font-black text-[#800020] mt-2 font-mono">
-                                    ${salesOrders.reduce((sum, o) => sum + o.total, 0).toLocaleString()}
-                                </p>
-                            </div>
-                            <div className="w-12 h-12 bg-[#800020]/10 rounded-lg flex items-center justify-center">
-                                <DollarSign size={24} className="text-[#800020]" />
-                            </div>
-                        </div>
-                    </div>
+                    ))}
                 </div>
 
                 {/* TC-36 — Filter strip */}
-                <div className="bg-white rounded-xl shadow-md p-4 border border-gray-200 flex flex-col md:flex-row gap-3">
-                    <div className="flex-1 relative">
-                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <div style={{
+                    display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center',
+                }}>
+                    <div style={{
+                        flex: 1, minWidth: 160, height: 32,
+                        background: 'var(--color-background-secondary)',
+                        border: '0.5px solid var(--color-border-secondary)',
+                        borderRadius: 8, display: 'flex', alignItems: 'center',
+                        padding: '0 10px', gap: 6, fontSize: 11, color: 'var(--color-text-secondary)',
+                    }}>
+                        <Search size={14} />
                         <input
                             type="text"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             placeholder="Search by order number or customer name…"
-                            className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#800020]"
+                            style={{
+                                background: 'transparent', border: 'none', outline: 'none',
+                                color: 'var(--color-text-primary)', fontSize: 11, width: '100%',
+                            }}
                         />
+                        {searchTerm && (
+                            <span onClick={() => setSearchTerm('')}
+                                  style={{ cursor: 'pointer', fontSize: 13, color: 'var(--color-text-secondary)' }}>×</span>
+                        )}
                     </div>
-                    <div className="flex items-center gap-2">
-                        <Filter size={16} className="text-gray-400" />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <Filter size={14} style={{ color: 'var(--color-text-secondary)' }} />
                         <select
                             value={statusFilter}
                             onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-                            className="px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold focus:outline-none focus:border-[#800020]"
                             aria-label="Filter by status"
+                            style={{
+                                height: 32,
+                                background: statusFilter !== 'All' ? 'var(--color-background-info)' : 'var(--color-background-secondary)',
+                                border: '0.5px solid',
+                                borderColor: statusFilter !== 'All' ? 'var(--color-border-info)' : 'var(--color-border-secondary)',
+                                color: statusFilter !== 'All' ? 'var(--color-text-info)' : 'var(--color-text-secondary)',
+                                borderRadius: 8,
+                                padding: '0 10px',
+                                fontSize: 11,
+                                fontWeight: 500,
+                                cursor: 'pointer',
+                            }}
                         >
                             <option value="All">All statuses</option>
                             <option value="draft">Draft</option>
@@ -174,98 +231,247 @@ export default function Quotations() {
                     </div>
                 </div>
 
-                {/* Orders List */}
-                <div className="bg-white rounded-xl shadow-md border-2 border-[#800020] overflow-hidden">
-                    <div className="px-8 py-5 bg-gradient-to-r from-[#800020] to-[#a00028]">
-                        <h2 className="text-sm font-black text-white uppercase flex items-center gap-3">
-                            <FileText size={20} className="text-white/80" />
-                            Sales Orders ({filteredOrders.length}{filteredOrders.length !== salesOrders.length ? ` of ${salesOrders.length}` : ''})
-                        </h2>
+                {/* Section header — subtle */}
+                <div style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '12px 0 8px',
+                    borderBottom: '0.5px solid var(--color-border-tertiary)',
+                    marginBottom: 4,
+                }}>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-primary)',
+                                  display: 'flex', alignItems: 'center', gap: 6 }}>
+                        Sales orders
+                        <span style={{
+                            fontSize: 10,
+                            background: 'var(--color-background-secondary)',
+                            border: '0.5px solid var(--color-border-tertiary)',
+                            borderRadius: 20,
+                            padding: '1px 8px',
+                            color: 'var(--color-text-secondary)',
+                        }}>
+                            {filteredOrders.length}{filteredOrders.length !== salesOrders.length ? ` of ${salesOrders.length}` : ''}
+                        </span>
                     </div>
+                    <span style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>
+                        Total:{' '}
+                        <strong style={{ color: '#22C55E' }}>
+                            ${(salesOrders ?? []).reduce((s, o) => s + (Number(o.total) || 0), 0).toLocaleString()}
+                        </strong>
+                    </span>
+                </div>
 
-                    {filteredOrders.length === 0 ? (
-                        <div className="p-24 text-center bg-gray-50/50">
-                            <div className="w-20 h-20 bg-[#800020]/10 rounded-full flex items-center justify-center mx-auto mb-6">
-                                <FileText size={40} className="text-[#800020]" />
-                            </div>
-                            <h3 className="text-sm font-black text-gray-400 uppercase mb-2">
-                                {salesOrders.length === 0 ? 'No orders found' : 'No orders match your filter'}
-                            </h3>
-                            <p className="text-xs text-gray-500 font-bold max-w-xs mx-auto mb-6">
-                                {salesOrders.length === 0
-                                    ? 'Start by creating your first sales order.'
-                                    : 'Try a different search term or status.'}
-                            </p>
-                            <button
-                                onClick={() => salesOrders.length === 0
-                                    ? navigate('/sales/orders/new')
-                                    : (setSearchTerm(''), setStatusFilter('All'))}
-                                className="px-8 py-3 bg-[#800020] text-white text-xs font-black uppercase rounded-lg hover:brightness-110 transition-all inline-flex items-center gap-2"
-                            >
-                                {salesOrders.length === 0 ? <><Plus size={16} /> Create First Order</> : 'Clear filters'}
-                            </button>
+                {/* Orders list */}
+                {filteredOrders.length === 0 ? (
+                    <div style={{
+                        background: 'var(--color-background-primary)',
+                        border: '0.5px solid var(--color-border-tertiary)',
+                        borderRadius: 12,
+                        padding: '60px 20px',
+                        textAlign: 'center',
+                    }}>
+                        <div style={{
+                            width: 56, height: 56, borderRadius: '50%',
+                            background: 'rgba(74,143,245,.12)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            margin: '0 auto 14px',
+                        }}>
+                            <FileText size={26} style={{ color: THEME_PRIMARY }} />
                         </div>
-                    ) : (
-                        <div className="divide-y divide-gray-200">
-                            {filteredOrders.map((order) => (
-                                <div key={order.id} className="p-6 hover:bg-gray-50 transition-colors">
-                                    <div className="flex items-start justify-between">
-                                        <div className="flex-1">
-                                            <div className="flex items-center gap-4 mb-3">
-                                                <h3 className="text-lg font-black text-gray-900 font-mono">
-                                                    {order.so_number}
-                                                </h3>
-                                                <span className={`px-4 py-1.5 rounded-full text-xs font-black uppercase border-2 ${getStatusColor(order.status)}`}>
-                                                    {order.status}
-                                                </span>
-                                            </div>
-
-                                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
-                                                <div className="flex items-center gap-2">
-                                                    <User size={16} className="text-gray-400" />
-                                                    <div>
-                                                        <span className="text-[10px] font-bold text-gray-500 uppercase block">Customer</span>
-                                                        <span className="font-black text-gray-900">
-                                                            {order.customer_name || order.customer?.name || 'Customer #' + order.customer_id}
-                                                        </span>
-                                                    </div>
-                                                </div>
-
-                                                <div className="flex items-center gap-2">
-                                                    <Calendar size={16} className="text-gray-400" />
-                                                    <div>
-                                                        <span className="text-[10px] font-bold text-gray-500 uppercase block">Order Date</span>
-                                                        <span className="font-black text-gray-900">
-                                                            {new Date(order.order_date).toLocaleDateString()}
-                                                        </span>
-                                                    </div>
-                                                </div>
-
-                                                <div className="flex items-center gap-2">
-                                                    <Package size={16} className="text-gray-400" />
-                                                    <div>
-                                                        <span className="text-[10px] font-bold text-gray-500 uppercase block">Items</span>
-                                                        <span className="font-black text-gray-900">{order.items.length} items</span>
-                                                    </div>
-                                                </div>
-
-                                                <div className="flex items-center gap-2">
-                                                    <DollarSign size={16} className="text-gray-400" />
-                                                    <div>
-                                                        <span className="text-[10px] font-bold text-gray-500 uppercase block">Total</span>
-                                                        <span className="font-black text-gray-900 font-mono">
-                                                            ${order.total.toLocaleString()}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            </div>
+                        <h3 style={{
+                            fontSize: 13, fontWeight: 500, color: 'var(--color-text-primary)',
+                            margin: 0, marginBottom: 6,
+                        }}>
+                            {salesOrders.length === 0 ? 'No orders found' : 'No orders match your filter'}
+                        </h3>
+                        <p style={{
+                            fontSize: 11, color: 'var(--color-text-secondary)', maxWidth: 260,
+                            margin: '0 auto 16px',
+                        }}>
+                            {salesOrders.length === 0
+                                ? 'Start by creating your first sales order.'
+                                : 'Try a different search term or status.'}
+                        </p>
+                        <button
+                            onClick={() => salesOrders.length === 0
+                                ? navigate('/sales/orders/new')
+                                : (setSearchTerm(''), setStatusFilter('All'))}
+                            style={{
+                                background: THEME_PRIMARY,
+                                color: '#fff',
+                                border: 'none',
+                                borderRadius: 8,
+                                padding: '7px 14px',
+                                fontSize: 11,
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 6,
+                            }}
+                        >
+                            {salesOrders.length === 0 ? <><Plus size={14} /> Create first order</> : 'Clear filters'}
+                        </button>
+                    </div>
+                ) : (
+                    <div>
+                        {filteredOrders.map((order) => {
+                            const totalNum = Number(order.total) || 0;
+                            const isZero = totalNum === 0;
+                            const status = String(order.status ?? '').toLowerCase();
+                            return (
+                                <div
+                                    key={order.id}
+                                    onClick={() => navigate(`/sales/orders/${order.id}`)}
+                                    style={{
+                                        background: 'var(--color-background-primary)',
+                                        border: isZero
+                                            ? '0.5px solid var(--color-border-warning)'
+                                            : '0.5px solid var(--color-border-tertiary)',
+                                        borderRadius: 10,
+                                        padding: '12px 14px',
+                                        marginBottom: 8,
+                                        cursor: 'pointer',
+                                    }}
+                                    onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--color-border-info)'; }}
+                                    onMouseLeave={e => {
+                                        e.currentTarget.style.borderColor = isZero
+                                            ? 'var(--color-border-warning)'
+                                            : 'var(--color-border-tertiary)';
+                                    }}
+                                >
+                                    {/* Top row: SO# + status + total */}
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <span style={{
+                                                fontSize: 13, fontWeight: 500,
+                                                color: 'var(--color-text-info)',
+                                                fontFamily: 'var(--font-mono)',
+                                            }}>
+                                                {order.so_number ?? order.id ?? '—'}
+                                            </span>
+                                            {STATUS_BADGE(order.status)}
                                         </div>
+                                        <span style={{ fontSize: 15, fontWeight: 500, color: 'var(--color-text-primary)' }}>
+                                            ${totalNum.toLocaleString()}
+                                        </span>
+                                    </div>
+
+                                    {/* $0 warning */}
+                                    {isZero && (
+                                        <div style={{
+                                            fontSize: 10, color: 'var(--color-text-warning)',
+                                            display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6,
+                                        }}>
+                                            ⚠ Order total is $0.00 — no products added
+                                        </div>
+                                    )}
+
+                                    {/* 4-col meta grid */}
+                                    <div style={{
+                                        display: 'grid', gridTemplateColumns: 'repeat(4,1fr)',
+                                        borderTop: '0.5px solid var(--color-border-tertiary)', paddingTop: 8,
+                                    }}>
+                                        {[
+                                            { label: 'Customer',
+                                              value: order.customer_name ?? order.customer?.name ?? `Customer #${order.customer_id}` },
+                                            { label: 'Order date',
+                                              value: order.order_date
+                                                  ? new Date(order.order_date).toLocaleDateString()
+                                                  : '—' },
+                                            { label: 'Items',
+                                              value: (() => {
+                                                  const n = (order.items ?? []).length;
+                                                  return `${n} item${n !== 1 ? 's' : ''}`;
+                                              })() },
+                                            { label: 'Salesman',
+                                              value: order.salesman_name ?? 'Unassigned' },
+                                        ].map((f, i) => (
+                                            <div key={f.label}
+                                                 style={{
+                                                     padding: i === 0 ? '0 10px 0 0' : '0 10px',
+                                                     borderRight: i < 3 ? '0.5px solid var(--color-border-tertiary)' : 'none',
+                                                 }}>
+                                                <div style={{
+                                                    fontSize: 9, color: 'var(--color-text-secondary)', fontWeight: 500,
+                                                    textTransform: 'uppercase', letterSpacing: '.3px', marginBottom: 3,
+                                                }}>
+                                                    {f.label}
+                                                </div>
+                                                <div style={{
+                                                    fontSize: 12, fontWeight: 500, color: 'var(--color-text-primary)',
+                                                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                                }}>
+                                                    {f.value}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {/* Action buttons row */}
+                                    <div style={{
+                                        display: 'flex', gap: 5, marginTop: 8, paddingTop: 8,
+                                        borderTop: '0.5px solid var(--color-border-tertiary)',
+                                    }}>
+                                        <button
+                                            onClick={e => { e.stopPropagation(); navigate(`/sales/orders/${order.id}`); }}
+                                            style={{
+                                                height: 26, padding: '0 10px', borderRadius: 6, cursor: 'pointer',
+                                                background: 'var(--color-background-info)',
+                                                border: '0.5px solid var(--color-border-info)',
+                                                color: 'var(--color-text-info)', fontSize: 10, fontWeight: 500,
+                                                display: 'flex', alignItems: 'center', gap: 4,
+                                            }}
+                                        >
+                                            View
+                                        </button>
+
+                                        {isZero && (
+                                            <button
+                                                onClick={e => { e.stopPropagation(); navigate(`/sales/orders/${order.id}`); }}
+                                                style={{
+                                                    height: 26, padding: '0 10px', borderRadius: 6, cursor: 'pointer',
+                                                    background: 'var(--color-background-warning)',
+                                                    border: '0.5px solid var(--color-border-warning)',
+                                                    color: 'var(--color-text-warning)', fontSize: 10, fontWeight: 500,
+                                                    display: 'flex', alignItems: 'center', gap: 4,
+                                                }}
+                                            >
+                                                Fix order
+                                            </button>
+                                        )}
+
+                                        {status === 'delivered' && (
+                                            <button
+                                                onClick={e => { e.stopPropagation(); navigate(`/sales/orders/${order.id}`); }}
+                                                style={{
+                                                    height: 26, padding: '0 10px', borderRadius: 6, cursor: 'pointer',
+                                                    background: 'var(--color-background-success)',
+                                                    border: '0.5px solid var(--color-border-success)',
+                                                    color: 'var(--color-text-success)', fontSize: 10, fontWeight: 500,
+                                                    display: 'flex', alignItems: 'center', gap: 4,
+                                                }}
+                                            >
+                                                Convert to invoice
+                                            </button>
+                                        )}
+
+                                        {status === 'invoiced' && order.linked_invoice_number && (
+                                            <span style={{
+                                                height: 26, padding: '0 10px', borderRadius: 6,
+                                                background: 'var(--color-background-secondary)',
+                                                border: '0.5px solid var(--color-border-tertiary)',
+                                                color: 'var(--color-text-secondary)', fontSize: 10,
+                                                display: 'flex', alignItems: 'center', gap: 4,
+                                            }}>
+                                                {order.linked_invoice_number} →
+                                            </span>
+                                        )}
                                     </div>
                                 </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
         </div>
     );
