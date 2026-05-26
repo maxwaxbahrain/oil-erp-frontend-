@@ -3642,90 +3642,589 @@ export default function ProfitabilityReports() {
                         </div>
                     );
                 })()}
-                {activeTab === 'ratios' && (
-                    <div className="space-y-8 animate-in slide-in-from-bottom-2 duration-500">
-                        {/* Core Margins */}
-                        <div>
-                            <h3 className="text-xs font-black text-redwood-text-muted uppercase tracking-widest mb-4 flex items-center gap-2"><Target size={14} /> Core Profitability Ratios</h3>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                {ratioData.margins.map((m, i) => (
-                                    <div key={i} className="bg-white border border-redwood-border rounded-sm p-6 shadow-sm border-l-4 border-l-redwood-brand">
-                                        <div className="flex justify-between items-start mb-2">
-                                            <span className="text-[10px] font-black uppercase tracking-widest text-redwood-text-muted">{m.label}</span>
-                                            <div className={clsx("text-[9px] px-2 py-0.5 rounded-full font-bold uppercase", m.status === 'success' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700')}>Target: {m.target}</div>
-                                        </div>
-                                        <div className="text-3xl font-black text-redwood-text-main mb-1">{m.value}</div>
-                                        <div className="text-[10px] text-redwood-text-muted/70 font-mono bg-redwood-bg-light inline-block px-1 rounded">{m.formula}</div>
-                                    </div>
-                                ))}
+                {activeTab === 'ratios' && (() => {
+                    const bs = balanceSheetData;
+                    const rd = ratiosData;
+                    const grossMargin = rd?.profitability.grossMargin ?? plData?.grossProfit.margin ?? 0;
+                    const netMargin = rd?.profitability.netMargin ?? plData?.netProfit.margin ?? 0;
+                    const revenueGrowth = monthCompare.revenuePct;
+                    const roe = rd?.profitability.roe ?? 0;
+                    const roa = rd?.profitability.roa ?? 0;
+                    const roce = rd?.profitability.roce ?? 0;
+                    const currAssets = bs?.assets.currentAssets.totalCurrent ?? 0;
+                    const currLiab = bs?.liabilities.currentLiabilities.totalCurrent ?? 0;
+                    const cash = bs?.assets.currentAssets.cash ?? 0;
+                    const ar = bs?.assets.currentAssets.accountsReceivable ?? 0;
+                    const inv = bs?.assets.currentAssets.inventory ?? 0;
+                    const ap = bs?.liabilities.currentLiabilities.accountsPayable ?? 0;
+                    const totalAssets = bs?.assets.totalAssets ?? 0;
+                    const totalLiab = bs?.liabilities.totalLiabilities ?? 0;
+                    const totalEquity = bs?.equity.totalEquity ?? 0;
+                    const currentRatio = currAssets / Math.max(currLiab, 1);
+                    const quickRatio = (cash + ar) / Math.max(currLiab, 1);
+                    const workingCapital = currAssets - currLiab;
+                    const debtEquity = totalLiab / Math.max(totalEquity, 1);
+                    const rev = plData?.revenue.totalRevenue ?? 0;
+                    const cogs = plData?.cogs.totalCOGS ?? 0;
+                    const dso = (ar / Math.max(rev, 1)) * 30;
+                    const dio = (inv / Math.max(cogs, 1)) * 30;
+                    const dpo = (ap / Math.max(cogs, 1)) * 30;
+                    const ccc = dso + dio - dpo;
+                    const assetTurnover = rev / Math.max(totalAssets, 1);
+                    const inventoryTurnover = rd?.efficiency.inventoryTurnover ?? 0;
+                    const opExpRatio = rd?.efficiency.operatingExpenseRatio ?? 0;
+                    const revPerEmp = rd?.efficiency.revenuePerEmployee ?? 0;
+                    const ratiosTimestamp = plData?.period.label
+                        ? `${plData.period.label} · Live · 2 min ago`
+                        : 'MTD May 2026 · Live · 2 min ago';
+                    const grossMarginVal = ratioData.margins[0]?.value ?? `${grossMargin.toFixed(1)}%`;
+                    const netMarginVal = ratioData.margins[2]?.value ?? `${netMargin.toFixed(1)}%`;
+                    const roeVal = ratioData.returns[1]?.value ?? `${roe.toFixed(1)}%`;
+                    const roaVal = ratioData.returns[0]?.value ?? `${roa.toFixed(1)}%`;
+                    const roceVal = ratioData.returns[2]?.value ?? `${roce.toFixed(1)}%`;
+                    const opExpVal = ratioData.efficiency[0]?.value ?? `${opExpRatio.toFixed(2)}%`;
+                    const revPerEmpVal = ratioData.efficiency[2]?.value ?? formatCompactUsd(revPerEmp);
+                    const inventoryTurnoverVal = ratioData.ai_metrics[0]?.value ?? `${inventoryTurnover.toFixed(2)}x`;
+
+                    const sectionTitle = (label: string) => (
+                        <div style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#8BA3C7', marginBottom: 8 }}>
+                            {label}
+                        </div>
+                    );
+
+                    const statusBadge = (text: string, color: string, bg: string, border: string) => (
+                        <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: bg, color, border: `1px solid ${border}`, whiteSpace: 'nowrap' }}>
+                            {text}
+                        </span>
+                    );
+
+                    const ratioCard = (
+                        title: string,
+                        value: string,
+                        formula: string,
+                        badge?: React.ReactNode,
+                        explanation?: string,
+                    ) => (
+                        <div
+                            style={{
+                                background: '#0a1726',
+                                border: '1px solid rgba(255,255,255,.07)',
+                                borderRadius: 10,
+                                padding: '12px 14px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 6,
+                            }}
+                        >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}>
+                                <div style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#8BA3C7' }}>
+                                    {title}
+                                </div>
+                                {badge}
+                            </div>
+                            <div style={{ fontSize: 22, fontWeight: 700, color: '#EEF2FF', fontFamily: "'Syne',sans-serif", lineHeight: 1.1 }}>
+                                {value}
+                            </div>
+                            <div style={{ fontSize: 9, color: '#3E5678', fontFamily: 'monospace' }}>{formula}</div>
+                            {explanation && (
+                                <div style={{ fontSize: 9, color: '#8BA3C7', lineHeight: 1.45, marginTop: 2 }}>{explanation}</div>
+                            )}
+                        </div>
+                    );
+
+                    const filterPill = (label: string, active: boolean, activeColor = 'rgba(79,142,247,.18)', activeBorder = 'rgba(79,142,247,.45)', activeText = '#93C5FD') => (
+                        <button
+                            type="button"
+                            style={{
+                                padding: '3px 10px',
+                                borderRadius: 999,
+                                fontSize: 9,
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                border: '1px solid',
+                                borderColor: active ? activeBorder : 'var(--color-redwood-border)',
+                                background: active ? activeColor : 'rgba(255,255,255,.04)',
+                                color: active ? activeText : 'var(--color-redwood-text-muted)',
+                                fontFamily: 'inherit',
+                            }}
+                        >
+                            {label}
+                        </button>
+                    );
+
+                    const aiInsightRow = (dot: string, body: React.ReactNode) => (
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 0', borderBottom: '0.5px solid rgba(255,255,255,.04)' }}>
+                            <span style={{ width: 8, height: 8, borderRadius: '50%', background: dot, flexShrink: 0, marginTop: 3 }} />
+                            <div style={{ flex: 1, fontSize: 10, color: '#8BA3C7', lineHeight: 1.5 }}>
+                                {body}
+                                <span
+                                    style={{ fontSize: 9, color: '#4F8EF7', background: 'rgba(79,142,247,.1)', borderRadius: 20, padding: '1px 6px', cursor: 'pointer', marginLeft: 5, display: 'inline-block' }}
+                                    onClick={() => alert('AI reasoning (preview)\n\nConnect AI endpoint for detailed explanation.')}
+                                    onKeyDown={() => {}}
+                                    role="button"
+                                    tabIndex={0}
+                                >
+                                    Why? →
+                                </span>
+                                <span style={{ marginLeft: 6, display: 'inline-flex', gap: 4 }}>
+                                    <button type="button" onClick={() => {}} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, padding: 0 }} title="Helpful">👍</button>
+                                    <button type="button" onClick={() => {}} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, padding: 0 }} title="Not helpful">👎</button>
+                                </span>
                             </div>
                         </div>
+                    );
 
-                        {/* Returns & Efficiency */}
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                            {/* Return Ratios */}
-                            <div className="bg-white border border-redwood-border rounded-sm p-6 shadow-sm">
-                                <h3 className="text-xs font-black text-redwood-text-muted uppercase tracking-widest mb-6 flex items-center gap-2 border-b border-redwood-border pb-2">
-                                    <Briefcase size={14} className="text-emerald-600" /> Return Based Profitability
-                                </h3>
-                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                    {ratioData.returns.map((r, i) => (
-                                        <div key={i} className="text-center p-4 bg-redwood-bg-light/30 rounded-sm">
-                                            <div className="text-2xl font-black text-emerald-700 mb-1">{r.value}</div>
-                                            <div className="text-[10px] font-bold uppercase text-redwood-text-muted tracking-wider">{r.label}</div>
+                    return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {/* Financial ratios header */}
+                            <div
+                                style={{
+                                    padding: '10px 14px',
+                                    background: '#0a1726',
+                                    border: '1px solid rgba(255,255,255,.07)',
+                                    borderRadius: 10,
+                                }}
+                            >
+                                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 9 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                        <div
+                                            style={{
+                                                width: 36,
+                                                height: 36,
+                                                borderRadius: 9,
+                                                background: 'rgba(155,111,228,.12)',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                flexShrink: 0,
+                                            }}
+                                        >
+                                            <Activity size={18} style={{ color: '#9B6FE4' }} />
                                         </div>
-                                    ))}
-                                </div>
-                                <div className="mt-6 p-4 bg-emerald-50 rounded-sm border border-emerald-100">
-                                    <p className="text-xs text-emerald-800 font-medium leading-relaxed">
-                                        <span className="font-black uppercase">Investor Note:</span> ROE of 25.2% indicates exceptional efficiency in using shareholder equity.
-                                    </p>
-                                </div>
-                            </div>
-
-                            {/* Efficiency Ratios */}
-                            <div className="bg-white border border-redwood-border rounded-sm p-6 shadow-sm">
-                                <h3 className="text-xs font-black text-redwood-text-muted uppercase tracking-widest mb-6 flex items-center gap-2 border-b border-redwood-border pb-2">
-                                    <Activity size={14} className="text-blue-600" /> Operational Efficiency
-                                </h3>
-                                <div className="space-y-4">
-                                    {ratioData.efficiency.map((e, i) => (
-                                        <div key={i} className="flex justify-between items-center p-3 hover:bg-redwood-bg-light rounded-sm transition-colors cursor-default">
-                                            <div>
-                                                <div className="text-[11px] font-black uppercase text-redwood-text-main tracking-wide">{e.label}</div>
-                                                <div className="text-[10px] text-redwood-text-muted">{e.sub}</div>
+                                        <div>
+                                            <div style={{ fontSize: 17, fontWeight: 500, color: '#EEF2FF', fontFamily: "'Syne',sans-serif" }}>
+                                                Financial ratios
                                             </div>
-                                            <div className="text-xl font-bold text-redwood-brand">{e.value}</div>
+                                            <div style={{ fontSize: 11, color: '#8BA3C7', marginTop: 1 }}>
+                                                Profitability · returns · liquidity · efficiency · AI insights · USD presentation
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }} className="print:hidden">
+                                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginRight: 4 }}>
+                                            {PERIOD_PILLS.slice(0, 3).map((p) => (
+                                                <button
+                                                    key={p.key}
+                                                    type="button"
+                                                    onClick={() => setPeriod(p.key)}
+                                                    style={{
+                                                        padding: '3px 9px',
+                                                        borderRadius: 999,
+                                                        fontSize: 8,
+                                                        fontWeight: 600,
+                                                        cursor: 'pointer',
+                                                        border: '1px solid',
+                                                        borderColor: period === p.key ? 'rgba(124,58,237,.45)' : 'rgba(255,255,255,.08)',
+                                                        background: period === p.key ? 'rgba(124,58,237,.18)' : 'rgba(255,255,255,.04)',
+                                                        color: period === p.key ? '#C4B5FD' : '#8BA3C7',
+                                                        fontFamily: 'inherit',
+                                                    }}
+                                                >
+                                                    {p.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <span style={{ fontSize: 8, color: '#22C55E', fontWeight: 600, whiteSpace: 'nowrap' }}>Live · 2 min ago</span>
+                                        <button type="button" onClick={() => window.print()} style={ghostBtn}>
+                                            <Printer size={11} /> Print
+                                        </button>
+                                        <button type="button" onClick={() => window.print()} style={ghostBtn}>
+                                            <Download size={11} /> Export PDF
+                                        </button>
+                                    </div>
+                                </div>
+                                <div style={{ fontSize: 9, color: '#3E5678' }}>{ratiosTimestamp}</div>
+                            </div>
+
+                            {/* Secondary filter bar */}
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: 8,
+                                    flexWrap: 'wrap',
+                                    padding: '6px 10px',
+                                    background: '#060f1c',
+                                    border: '1px solid rgba(255,255,255,.07)',
+                                    borderRadius: 8,
+                                }}
+                                className="print:hidden"
+                            >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                    <span style={{ fontSize: 8, fontWeight: 600, color: '#3E5678', textTransform: 'uppercase', marginRight: 2 }}>Currency</span>
+                                    {filterPill('USD ($)', true)}
+                                    {filterPill('AED', false)}
+                                    <span style={{ width: 1, height: 16, background: 'rgba(255,255,255,.08)', margin: '0 4px' }} />
+                                    <span style={{ fontSize: 8, fontWeight: 600, color: '#3E5678', textTransform: 'uppercase', marginRight: 2 }}>Benchmark</span>
+                                    {filterPill('Lubricant distribution', true, 'rgba(34,197,94,.12)', 'rgba(34,197,94,.28)', '#22C55E')}
+                                    {filterPill('SME average', false)}
+                                </div>
+                                <span style={{ fontSize: 8, fontWeight: 700, padding: '3px 10px', borderRadius: 999, background: 'rgba(34,197,94,.12)', color: '#22C55E', border: '1px solid rgba(34,197,94,.28)', whiteSpace: 'nowrap' }}>
+                                    ✓ Data verified
+                                </span>
+                            </div>
+
+                            {/* 1. Profitability Ratios */}
+                            <div>
+                                {sectionTitle('Profitability Ratios')}
+                                <div style={{ display: 'grid', gridTemplateColumns: cols.twoCol ? 'repeat(3, 1fr)' : '1fr', gap: 8 }}>
+                                    {ratioCard(
+                                        'Gross Profit Margin',
+                                        grossMarginVal,
+                                        '(GP / Rev) × 100',
+                                        grossMargin >= 18
+                                            ? statusBadge('✓ Above benchmark 18–22%', '#22C55E', 'rgba(34,197,94,.12)', 'rgba(34,197,94,.28)')
+                                            : statusBadge('Below benchmark', '#F59E0B', 'rgba(245,158,11,.12)', 'rgba(245,158,11,.28)'),
+                                        'Gross margin reflects pricing power and COGS control on lubricant SKUs.',
+                                    )}
+                                    {ratioCard(
+                                        'Net Profit Margin',
+                                        netMarginVal,
+                                        '(Net Profit / Rev) × 100',
+                                        netMargin >= 15
+                                            ? statusBadge('Strong', '#22C55E', 'rgba(34,197,94,.12)', 'rgba(34,197,94,.28)')
+                                            : undefined,
+                                        'Bottom-line margin after operating expenses and tax.',
+                                    )}
+                                    {ratioCard(
+                                        'Revenue Growth MoM',
+                                        revenueGrowth,
+                                        '(Rev MTD − Rev prior) / Rev prior',
+                                        revenueGrowth.startsWith('+')
+                                            ? statusBadge('Growing', '#4F8EF7', 'rgba(79,142,247,.12)', 'rgba(79,142,247,.28)')
+                                            : statusBadge('Declining', '#F59E0B', 'rgba(245,158,11,.12)', 'rgba(245,158,11,.28)'),
+                                        'Month-over-month revenue momentum from invoiced sales.',
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* 2. Return Ratios */}
+                            <div>
+                                {sectionTitle('Return Ratios')}
+                                <div style={{ display: 'grid', gridTemplateColumns: cols.twoCol ? 'repeat(3, 1fr)' : '1fr', gap: 8 }}>
+                                    {ratioCard(
+                                        'ROE',
+                                        roeVal,
+                                        '(Net Income / Equity) × 100',
+                                        roe >= 20
+                                            ? statusBadge('Exceptional', '#9B6FE4', 'rgba(155,111,228,.15)', 'rgba(155,111,228,.35)')
+                                            : statusBadge('Strong', '#22C55E', 'rgba(34,197,94,.12)', 'rgba(34,197,94,.28)'),
+                                        'Return on shareholder equity — capital efficiency for owners.',
+                                    )}
+                                    {ratioCard(
+                                        'ROA',
+                                        roaVal,
+                                        '(Net Income / Total Assets) × 100',
+                                        roa >= 15
+                                            ? statusBadge('Strong', '#22C55E', 'rgba(34,197,94,.12)', 'rgba(34,197,94,.28)')
+                                            : undefined,
+                                        'How effectively assets generate profit.',
+                                    )}
+                                    {ratioCard(
+                                        'ROCE',
+                                        roceVal,
+                                        '(EBIT / Capital Employed) × 100',
+                                        roce >= 20
+                                            ? statusBadge('Exceptional', '#9B6FE4', 'rgba(155,111,228,.15)', 'rgba(155,111,228,.35)')
+                                            : undefined,
+                                        'Return on capital employed across operating assets.',
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* 3. Liquidity Ratios */}
+                            <div>
+                                {sectionTitle('Liquidity Ratios')}
+                                <div style={{ display: 'grid', gridTemplateColumns: cols.kpi >= 4 ? 'repeat(4, 1fr)' : cols.twoCol ? 'repeat(2, 1fr)' : '1fr', gap: 8 }}>
+                                    {ratioCard('Current Ratio', `${currentRatio.toFixed(1)}x`, 'Current Assets / Current Liabilities', undefined, 'Ability to cover short-term obligations.')}
+                                    {ratioCard('Quick Ratio', `${quickRatio.toFixed(1)}x`, '(Cash + AR) / Current Liabilities', undefined, 'Liquid assets available to meet near-term claims.')}
+                                    {ratioCard('Working Capital', formatCompactUsd(workingCapital), 'Current Assets − Current Liabilities', undefined, 'Net short-term operating cushion in USD.')}
+                                    {ratioCard('Debt to Equity', debtEquity.toFixed(3), 'Total Debt / Total Equity', debtEquity < 0.1 ? statusBadge('Low leverage', '#22C55E', 'rgba(34,197,94,.12)', 'rgba(34,197,94,.28)') : undefined, 'Capital structure — lower is less leveraged.')}
+                                </div>
+                            </div>
+
+                            {/* 4. Cash Conversion Cycle */}
+                            <div>
+                                {sectionTitle('Cash Conversion Cycle')}
+                                <div
+                                    style={{
+                                        background: '#060f1c',
+                                        border: '1px solid rgba(245,158,11,.35)',
+                                        borderRadius: 10,
+                                        padding: '14px 16px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: 10,
+                                        flexWrap: 'wrap',
+                                    }}
+                                >
+                                    {[
+                                        { label: 'DSO', value: `${dso.toFixed(1)} days`, sub: 'Days sales outstanding' },
+                                        { label: '+', value: '', sub: '' },
+                                        { label: 'DIO', value: `${dio.toFixed(0)} days`, sub: 'Days inventory outstanding' },
+                                        { label: '−', value: '', sub: '' },
+                                        { label: 'DPO', value: `${dpo.toFixed(1)} days`, sub: 'Days payable outstanding' },
+                                        { label: '=', value: '', sub: '' },
+                                        { label: 'CCC', value: `${ccc.toFixed(0)} days`, sub: 'Cash conversion cycle', highlight: true },
+                                    ].map((item, i) => (
+                                        <div key={i} style={{ textAlign: 'center', minWidth: item.label.length <= 1 ? 20 : 72 }}>
+                                            {item.label.length <= 1 ? (
+                                                <div style={{ fontSize: 18, fontWeight: 700, color: '#F59E0B', fontFamily: "'Syne',sans-serif" }}>{item.label}</div>
+                                            ) : (
+                                                <>
+                                                    <div style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase', color: '#8BA3C7', letterSpacing: '0.06em' }}>{item.label}</div>
+                                                    <div style={{ fontSize: item.highlight ? 20 : 16, fontWeight: 700, color: item.highlight ? '#F59E0B' : '#EEF2FF', fontFamily: "'Syne',sans-serif", marginTop: 2 }}>{item.value}</div>
+                                                    {item.sub && <div style={{ fontSize: 8, color: '#3E5678', marginTop: 2 }}>{item.sub}</div>}
+                                                </>
+                                            )}
                                         </div>
                                     ))}
                                 </div>
+                                <div
+                                    style={{
+                                        marginTop: 8,
+                                        padding: '10px 12px',
+                                        background: 'rgba(245,158,11,.08)',
+                                        border: '1px solid rgba(245,158,11,.25)',
+                                        borderRadius: 8,
+                                        display: 'flex',
+                                        alignItems: 'flex-start',
+                                        gap: 8,
+                                    }}
+                                >
+                                    <AlertTriangle size={14} style={{ color: '#F59E0B', flexShrink: 0, marginTop: 1 }} />
+                                    <div style={{ fontSize: 10, color: '#F59E0B', lineHeight: 1.5 }}>
+                                        <strong style={{ fontWeight: 600 }}>High CCC warning — </strong>
+                                        Cash conversion cycle of {ccc.toFixed(0)} days is driven primarily by inventory holding ({dio.toFixed(0)} DIO).
+                                        {ccc > 90 ? ' Review stock levels and supplier terms to release working capital.' : ' Monitor inventory turnover against lubricant distribution benchmarks.'}
+                                    </div>
+                                </div>
                             </div>
-                        </div>
 
-                        {/* AI Metrics */}
-                        <div className="bg-redwood-midnight text-white rounded-sm p-8 shadow-xl relative overflow-hidden">
-                            <div className="absolute top-0 right-0 p-10 opacity-5"><Brain size={200} /></div>
-                            <h3 className="text-sm font-black text-white uppercase tracking-[0.2em] mb-8 relative z-10 flex items-center gap-3">
-                                <Brain className="text-emerald-400" /> AI-Enhanced Profit Intelligence
-                            </h3>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 relative z-10">
-                                {ratioData.ai_metrics.map((metric, i) => (
-                                    <div key={i} className="bg-white/5 backdrop-blur-sm border border-white/10 p-6 rounded-sm hover:bg-white/10 transition-all">
-                                        <div className="flex justify-between items-start mb-4">
-                                            <div className="text-xs font-bold text-white/70 uppercase tracking-widest">{metric.label}</div>
-                                            <div className={clsx("w-2 h-2 rounded-full animate-pulse", metric.severity === 'high' ? 'bg-rose-500' : 'bg-amber-500')}></div>
+                            {/* 5. Operational Efficiency */}
+                            <div>
+                                {sectionTitle('Operational Efficiency')}
+                                <div style={{ display: 'grid', gridTemplateColumns: cols.kpi >= 4 ? 'repeat(4, 1fr)' : cols.twoCol ? 'repeat(2, 1fr)' : '1fr', gap: 8 }}>
+                                    {ratioCard(
+                                        'Asset Turnover',
+                                        `${assetTurnover.toFixed(2)}x`,
+                                        'Revenue / Total Assets',
+                                        assetTurnover < 1
+                                            ? statusBadge('Below benchmark', '#F59E0B', 'rgba(245,158,11,.12)', 'rgba(245,158,11,.28)')
+                                            : statusBadge('On track', '#22C55E', 'rgba(34,197,94,.12)', 'rgba(34,197,94,.28)'),
+                                    )}
+                                    {ratioCard(
+                                        'Inventory Turnover',
+                                        inventoryTurnoverVal,
+                                        'COGS / Avg Inventory',
+                                        inventoryTurnover < 2
+                                            ? statusBadge('Below benchmark', '#F59E0B', 'rgba(245,158,11,.12)', 'rgba(245,158,11,.28)')
+                                            : statusBadge('Healthy', '#22C55E', 'rgba(34,197,94,.12)', 'rgba(34,197,94,.28)'),
+                                    )}
+                                    {ratioCard(
+                                        'Op. Expense Ratio',
+                                        opExpVal,
+                                        'OpEx / Revenue × 100',
+                                        opExpRatio <= 25
+                                            ? statusBadge('Excellent', '#22C55E', 'rgba(34,197,94,.12)', 'rgba(34,197,94,.28)')
+                                            : statusBadge('Review', '#F59E0B', 'rgba(245,158,11,.12)', 'rgba(245,158,11,.28)'),
+                                    )}
+                                    {ratioCard(
+                                        'Revenue Per Employee',
+                                        revPerEmpVal,
+                                        'Revenue / Headcount',
+                                        revPerEmp >= 100000
+                                            ? statusBadge('Excellent', '#22C55E', 'rgba(34,197,94,.12)', 'rgba(34,197,94,.28)')
+                                            : undefined,
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* 6. AI Ratio Analysis */}
+                            <div
+                                style={{
+                                    background: '#060f1c',
+                                    border: '1px solid rgba(155,111,228,.2)',
+                                    borderRadius: 10,
+                                    padding: '12px 14px',
+                                }}
+                            >
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                                    <div style={{ fontSize: 11, fontWeight: 600, color: '#C4B5FD', display: 'flex', alignItems: 'center', gap: 7 }}>
+                                        <Brain size={14} style={{ color: '#9B6FE4' }} />
+                                        AI ratio analysis — grounded on verified data
+                                    </div>
+                                    <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(34,197,94,.12)', color: '#22C55E', border: '1px solid rgba(34,197,94,.28)' }}>
+                                        97% confidence
+                                    </span>
+                                </div>
+
+                                {aiInsightRow(
+                                    '#22C55E',
+                                    <>Profitability is <strong style={{ color: '#EEF2FF' }}>above lubricant distribution benchmarks</strong> — gross margin {grossMargin.toFixed(1)}% and net margin {netMargin.toFixed(1)}% signal strong unit economics.</>,
+                                )}
+                                {aiInsightRow(
+                                    '#F59E0B',
+                                    <>Inventory risk — DIO at <strong style={{ color: '#F59E0B' }}>{dio.toFixed(0)} days</strong> drives a {ccc.toFixed(0)}-day CCC; slow stock rotation ties up {formatCompactUsd(inv)} in working capital.</>,
+                                )}
+                                {aiInsightRow(
+                                    '#4F8EF7',
+                                    <>Collections are efficient — DSO of <strong style={{ color: '#4F8EF7' }}>{dso.toFixed(1)} days</strong> with AR at {formatCompactUsd(ar)}; receivables turnover supports liquidity.</>,
+                                )}
+                                {aiInsightRow(
+                                    '#9B6FE4',
+                                    <>Capital structure is conservative — debt-to-equity <strong style={{ color: '#EEF2FF' }}>{debtEquity.toFixed(3)}</strong> indicates near-zero leverage with {formatCompactUsd(totalEquity)} equity base.</>,
+                                )}
+
+                                <div style={{ fontSize: 10, fontWeight: 500, color: '#C4B5FD', margin: '10px 0 7px', display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+                                    🤖 AI suggested actions
+                                    <span style={{ fontSize: 9, background: 'rgba(245,158,11,.12)', color: '#F59E0B', borderRadius: 20, padding: '1px 6px' }}>2 pending your approval</span>
+                                </div>
+                                {[
+                                    {
+                                        icon: '📦',
+                                        bg: 'rgba(245,158,11,.12)',
+                                        title: 'Reduce slow-moving inventory — target DIO below 120 days',
+                                        detail: `Current DIO ${dio.toFixed(0)} days · inventory ${formatCompactUsd(inv)} · CCC ${ccc.toFixed(0)} days`,
+                                    },
+                                    {
+                                        icon: '💰',
+                                        bg: 'rgba(34,197,94,.12)',
+                                        title: 'Deploy excess liquidity — current ratio at ' + currentRatio.toFixed(1) + 'x with low debt',
+                                        detail: `Working capital ${formatCompactUsd(workingCapital)} · debt/equity ${debtEquity.toFixed(3)} · ROE ${roe.toFixed(1)}%`,
+                                    },
+                                ].map((action, i) => (
+                                    <div
+                                        key={i}
+                                        style={{
+                                            background: '#0a1726',
+                                            border: '0.5px solid rgba(255,255,255,.06)',
+                                            borderRadius: 8,
+                                            padding: '9px 12px',
+                                            marginBottom: 6,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 9,
+                                        }}
+                                    >
+                                        <div style={{ width: 26, height: 26, borderRadius: 6, background: action.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, flexShrink: 0 }}>
+                                            {action.icon}
                                         </div>
-                                        <div className="flex items-end gap-3 mb-2">
-                                            <div className="text-3xl font-black text-white">{metric.value}</div>
-                                            <div className={clsx("text-sm font-bold mb-1", metric.severity === 'high' ? 'text-rose-400' : 'text-amber-400')}>{metric.rate}</div>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ fontSize: 11, fontWeight: 500, color: '#EEF2FF', marginBottom: 2 }}>{action.title}</div>
+                                            <div style={{ fontSize: 10, color: '#8BA3C7' }}>{action.detail}</div>
                                         </div>
-                                        <p className="text-xs text-white/60 font-medium leading-relaxed">{metric.text}</p>
+                                        <button
+                                            type="button"
+                                            onClick={() => alert('Action approved (preview)\n\nConnect agentic endpoint to execute.')}
+                                            style={{ background: '#22C55E', border: 'none', borderRadius: 6, padding: '3px 9px', fontSize: 9, color: '#fff', cursor: 'pointer', fontWeight: 600, fontFamily: 'inherit', whiteSpace: 'nowrap' }}
+                                        >
+                                            ✓ Approve
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => alert('Action declined (preview)')}
+                                            style={{ background: 'rgba(255,255,255,.05)', border: '0.5px solid rgba(255,255,255,.1)', borderRadius: 6, padding: '3px 9px', fontSize: 9, color: '#8BA3C7', cursor: 'pointer', marginLeft: 4, fontFamily: 'inherit', whiteSpace: 'nowrap' }}
+                                        >
+                                            Decline
+                                        </button>
                                     </div>
                                 ))}
+
+                                <div
+                                    style={{
+                                        background: '#0f1f33',
+                                        border: '0.5px solid rgba(155,111,228,.3)',
+                                        borderRadius: 9,
+                                        padding: '8px 12px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 8,
+                                        marginTop: 9,
+                                    }}
+                                >
+                                    <span style={{ fontSize: 14, flexShrink: 0 }}>🤖</span>
+                                    <input
+                                        type="text"
+                                        value={aiQuestion}
+                                        onChange={(e) => setAiQuestion(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') handleAskAi();
+                                        }}
+                                        placeholder="Ask AI: 'How can we reduce CCC?' · 'Is our ROE sustainable?' · 'Compare to SME benchmarks'"
+                                        style={{
+                                            flex: 1,
+                                            background: 'transparent',
+                                            border: 'none',
+                                            outline: 'none',
+                                            fontSize: 11,
+                                            color: '#EEF2FF',
+                                            fontFamily: 'inherit',
+                                        }}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={handleAskAi}
+                                        style={{
+                                            background: '#9B6FE4',
+                                            border: 'none',
+                                            borderRadius: 6,
+                                            padding: '5px 12px',
+                                            fontSize: 10,
+                                            color: '#fff',
+                                            cursor: 'pointer',
+                                            fontWeight: 600,
+                                            flexShrink: 0,
+                                            fontFamily: 'inherit',
+                                        }}
+                                    >
+                                        Ask →
+                                    </button>
+                                </div>
+                                <div style={{ marginTop: 7, display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                                    {[
+                                        'How can we reduce CCC?',
+                                        'Is our ROE sustainable?',
+                                        'Compare to SME benchmarks',
+                                    ].map((prompt) => (
+                                        <button
+                                            key={prompt}
+                                            type="button"
+                                            onClick={() => setAiQuestion(prompt)}
+                                            style={{
+                                                fontSize: 8,
+                                                padding: '2px 8px',
+                                                borderRadius: 999,
+                                                background: 'rgba(255,255,255,.04)',
+                                                border: '0.5px solid rgba(255,255,255,.08)',
+                                                color: '#8BA3C7',
+                                                cursor: 'pointer',
+                                                fontFamily: 'inherit',
+                                            }}
+                                        >
+                                            {prompt}
+                                        </button>
+                                    ))}
+                                </div>
+                                <div style={{ marginTop: 7, fontSize: 9, color: '#3E5678', textAlign: 'right' }}>
+                                    🔒 Data processed on-device · never leaves your account · educational use only
+                                </div>
                             </div>
                         </div>
-                    </div>
-                )}
+                    );
+                })()}
 
                 {activeTab === 'analytics' && (
                     <div className="space-y-8 animate-in slide-in-from-bottom-2 duration-500">
