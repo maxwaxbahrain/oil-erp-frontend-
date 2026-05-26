@@ -347,13 +347,13 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
             <button
               onClick={() => receiptSnapshot && generatePaymentReceiptPDF(receiptSnapshot)}
               disabled={!receiptSnapshot}
-              className="flex items-center justify-center gap-2 px-6 py-3 bg-gray-900 hover:bg-black text-white text-xs font-black uppercase tracking-widest rounded-xl shadow-lg disabled:opacity-50"
+              className="flex items-center justify-center gap-2 px-6 py-3 bg-gray-900 hover:bg-black text-white text-xs font-black  rounded-xl shadow-lg disabled:opacity-50"
             >
               <Download size={16} /> Download Receipt
             </button>
             <button
               onClick={onBack}
-              className="px-6 py-3 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 text-xs font-black uppercase tracking-widest rounded-xl"
+              className="px-6 py-3 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 text-xs font-black  rounded-xl"
             >
               Done
             </button>
@@ -364,53 +364,125 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header - QuickBooks Style */}
-      <div className="bg-white rounded-xl shadow-lg border-2 border-[#45B854] p-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-16 h-16 bg-[#45B854] rounded-xl flex items-center justify-center shadow-lg">
-              <DollarSign size={32} className="text-white" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-black text-gray-900 uppercase tracking-tight">Receive Payment</h1>
-              <p className="text-sm text-gray-600 font-semibold mt-1">Record customer payment</p>
-            </div>
+    <div style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr 280px',
+        gap: 0,
+        minHeight: 400,
+    }}>
+      {/* ── LEFT — form content ── */}
+      <div style={{
+          padding: '16px 18px',
+          borderRight: '0.5px solid var(--color-border-tertiary)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 14,
+      }}>
+      {/* Header — Soltol dark nav style */}
+      <div style={{
+          background: 'var(--color-background-primary)',
+          borderBottom: '0.5px solid var(--color-border-tertiary)',
+          padding: '13px 18px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+      }}>
+        <div className="flex items-center gap-3">
+          <div style={{
+              width: 36, height: 36, borderRadius: 9,
+              background: 'rgba(74,143,245,.12)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0,
+          }}>
+            <DollarSign size={18} style={{ color: '#4F8EF7' }} />
           </div>
-          <button
-            onClick={onBack}
-            className="px-6 py-3 bg-white border-2 border-gray-300 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
-          >
-            Back
-          </button>
+          <div>
+            <h1 style={{ fontSize: 17, fontWeight: 500, color: 'var(--color-text-primary)', margin: 0 }}>
+              Receive Payment
+            </h1>
+            <p style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginTop: 2 }}>
+              Record customer payment
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={onBack}
+          style={{
+              background: 'transparent',
+              border: '0.5px solid var(--color-border-secondary)',
+              borderRadius: 8,
+              padding: '6px 12px',
+              fontSize: 11,
+              cursor: 'pointer',
+              color: 'var(--color-text-secondary)',
+              fontFamily: 'inherit',
+          }}
+        >
+          Back
+        </button>
+      </div>
+
+      {/* Customer Info Card — Soltol pill style */}
+      <div style={{
+          background: 'var(--color-background-secondary)',
+          border: '0.5px solid var(--color-border-tertiary)',
+          borderRadius: 10,
+          padding: '12px 14px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          marginBottom: 14,
+      }}>
+        {/* Initials avatar — visual only */}
+        <div style={{
+            width: 38, height: 38, borderRadius: '50%',
+            background: 'var(--color-background-warning)',
+            color: 'var(--color-text-warning)',
+            fontSize: 13, fontWeight: 500,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            flexShrink: 0,
+        }}>
+          {(customer.name ?? 'CU').trim().split(/\s+/).slice(0, 2).map((w: string) => w[0] ?? '').join('').toUpperCase()}
+        </div>
+
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--color-text-primary)', marginBottom: 2 }}>
+            {customer.name}
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>
+            {(customer as any).code ?? `CUST-${customer.id}`}
+            {(customer as any).payment_terms ? ` · ${(customer as any).payment_terms}` : ''}
+          </div>
+        </div>
+
+        {/* Outstanding balance */}
+        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+          <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 3 }}>
+            Outstanding balance
+          </div>
+          <div style={{
+              fontSize: 16, fontWeight: 500,
+              color: Number((customer as any).balance ?? 0) > 0
+                ? 'var(--color-text-warning)'
+                : 'var(--color-text-success)',
+          }}>
+            ${Number((customer as any).balance ?? 0).toLocaleString()}
+          </div>
         </div>
       </div>
 
-      {/* Customer Info Card */}
-      <div className="bg-white rounded-xl shadow-md border-2 border-gray-200 p-6">
-        <h3 className="text-xs font-black text-gray-500 uppercase tracking-widest mb-4">Customer Information</h3>
-        <div className="grid grid-cols-2 gap-6">
-          <div>
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Customer Name</label>
-            <div className="text-lg font-black text-gray-900 mt-1">{customer.name}</div>
+      {/* Available advance balance — kept as separate row when present */}
+      {advanceBalance > 0 && (
+        <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 mb-4">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-black text-blue-700 uppercase">Available Advance Balance</span>
+            <span className="text-2xl font-mono font-black text-blue-900">${advanceBalance.toLocaleString()}</span>
           </div>
-          <div>
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Customer Code</label>
-            <div className="text-lg font-mono font-black text-gray-700 mt-1">{customer.id}</div>
-          </div>
-          {advanceBalance > 0 && (
-            <div className="col-span-2 bg-blue-50 border-2 border-blue-200 rounded-lg p-4">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black text-blue-700 uppercase">Available Advance Balance</span>
-                <span className="text-2xl font-mono font-black text-blue-900">${advanceBalance.toLocaleString()}</span>
-              </div>
-            </div>
-          )}
         </div>
-      </div>
+      )}
 
       {/* Payment Form */}
-      <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-md border-2 border-gray-200 p-8 space-y-8">
+      <form id="payment-form" onSubmit={handleSubmit} className="bg-white rounded-xl shadow-md border-2 border-gray-200 p-8 space-y-8">
         {/* Payment Type Toggle */}
         <div className="bg-gray-50 border-2 border-gray-200 rounded-xl p-6">
           <label className="flex items-center gap-3 cursor-pointer group">
@@ -425,11 +497,11 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
                   setAmount(0);
                 }
               }}
-              className="w-5 h-5 rounded border-2 border-gray-300 text-[#45B854] focus:ring-2 focus:ring-[#45B854] focus:ring-offset-2"
+              className="w-5 h-5 rounded border-2 border-gray-300 text-[#4F8EF7] focus:ring-2 focus:ring-[#4F8EF7] focus:ring-offset-2"
             />
             <div>
               {/* ITEM 5G — Relabeled to cover opening-balance-only customers. */}
-              <span className="text-sm font-black text-gray-900 group-hover:text-[#45B854] transition-colors">
+              <span className="text-sm font-black text-gray-900 group-hover:text-[#4F8EF7] transition-colors">
                 Advance / Opening Balance Payment (no invoice link)
               </span>
               <p className="text-xs text-gray-500 font-medium mt-1">
@@ -454,15 +526,15 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
         {!isAdvancePayment && (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <label className="block text-xs font-black text-gray-600 uppercase tracking-widest">
+              <label className="block text-xs font-black text-gray-600 ">
                 Select Invoice(s) <span className="text-red-500">*</span>
               </label>
               {openInvoices.length > 0 && (
-                <div className="flex items-center gap-3 text-[10px] font-black text-gray-500 uppercase tracking-widest">
+                <div className="flex items-center gap-3 text-[10px] font-black text-gray-500 ">
                   <button
                     type="button"
                     onClick={() => setSelectedInvoiceIds(openInvoices.map(i => String(i.id)))}
-                    className="hover:text-[#45B854]"
+                    className="hover:text-[#4F8EF7]"
                   >
                     Select all
                   </button>
@@ -505,11 +577,11 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
                             setSelectedInvoiceIds(prev => prev.filter(x => x !== idStr));
                           }
                         }}
-                        className="w-5 h-5 rounded border-2 border-gray-300 text-[#45B854] focus:ring-2 focus:ring-[#45B854]"
+                        className="w-5 h-5 rounded border-2 border-gray-300 text-[#4F8EF7] focus:ring-2 focus:ring-[#4F8EF7]"
                       />
                       <div className="flex-1">
                         <div className="font-bold text-sm text-gray-900">{inv.invoiceNumber}</div>
-                        <div className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">
+                        <div className="text-[10px] text-gray-400 font-bold  mt-0.5">
                           {inv.invoiceDate ? new Date(inv.invoiceDate).toLocaleDateString() : '—'}
                           {inv.dueDate ? ` · Due ${new Date(inv.dueDate).toLocaleDateString()}` : ''}
                           {' · Total ' + Number(inv.grandTotal ?? 0).toFixed(2)}
@@ -527,7 +599,7 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
 
             {selectedInvoiceIds.length > 0 && (
               <div className="bg-emerald-50 border-2 border-emerald-200 rounded-lg p-3 flex items-center justify-between">
-                <span className="text-xs font-black text-emerald-800 uppercase tracking-widest">
+                <span className="text-xs font-black text-emerald-800 ">
                   {selectedInvoiceIds.length} invoice{selectedInvoiceIds.length === 1 ? '' : 's'} selected
                 </span>
                 <span className="font-mono font-black text-emerald-900">
@@ -541,7 +613,7 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
         {/* Payment Details */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-3">
-            <label className="block text-xs font-black text-gray-600 uppercase tracking-widest">
+            <label className="block text-xs font-black text-gray-600 ">
               Payment Amount <span className="text-red-500">*</span>
             </label>
             <div className="relative">
@@ -560,19 +632,19 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
                 className={`w-full pl-4 pr-4 py-3 border-2 rounded-lg text-lg font-mono font-black outline-none transition-all ${
                     selectedInvoiceIds.length > 1
                         ? 'border-emerald-300 bg-emerald-50 text-emerald-900 cursor-not-allowed'
-                        : 'border-gray-300 focus:border-[#45B854] focus:ring-4 focus:ring-[#45B854]/10'
+                        : 'border-gray-300 focus:border-[#4F8EF7] focus:ring-4 focus:ring-[#4F8EF7]/10'
                 }`}
               />
             </div>
             {selectedInvoiceIds.length > 1 && (
-                <p className="text-[10px] text-emerald-700 font-bold mt-1 uppercase tracking-widest">
+                <p className="text-[10px] text-emerald-700 font-bold mt-1 ">
                     Auto-summed from {selectedInvoiceIds.length} selected invoices · each invoice gets its full balance
                 </p>
             )}
           </div>
 
           <div className="space-y-3">
-            <label className="block text-xs font-black text-gray-600 uppercase tracking-widest">
+            <label className="block text-xs font-black text-gray-600 ">
               Payment Date <span className="text-red-500">*</span>
             </label>
             <input
@@ -580,7 +652,7 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
               value={paymentDate}
               onChange={(e) => setPaymentDate(e.target.value)}
               required
-              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-sm font-bold focus:border-[#45B854] focus:ring-4 focus:ring-[#45B854]/10 outline-none transition-all"
+              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-sm font-bold focus:border-[#4F8EF7] focus:ring-4 focus:ring-[#4F8EF7]/10 outline-none transition-all"
             />
           </div>
 
@@ -590,7 +662,7 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
               "≈ BASE 12,345.67" preview so they can sanity-check the
               conversion before posting. */}
           <div className="space-y-3">
-            <label className="block text-xs font-black text-gray-600 uppercase tracking-widest">
+            <label className="block text-xs font-black text-gray-600 ">
               Currency <span className="text-red-500">*</span>
             </label>
             <select
@@ -601,7 +673,7 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
                 if (e.target.value === baseCurrencyCode) setExchangeRate(1);
               }}
               required
-              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-sm font-bold focus:border-[#45B854] focus:ring-4 focus:ring-[#45B854]/10 outline-none transition-all bg-white"
+              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-sm font-bold focus:border-[#4F8EF7] focus:ring-4 focus:ring-[#4F8EF7]/10 outline-none transition-all bg-white"
             >
               {WORLD_CURRENCIES.map(c => (
                 <option key={c.code} value={c.code}>{c.code} — {c.name}</option>
@@ -611,7 +683,7 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
 
           {isForeignCurrency && (
             <div className="space-y-3 md:col-span-2">
-              <label className="block text-xs font-black text-gray-600 uppercase tracking-widest">
+              <label className="block text-xs font-black text-gray-600 ">
                 Exchange Rate ({currency} → {baseCurrencyCode}) <span className="text-red-500">*</span>
               </label>
               <input
@@ -631,14 +703,14 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
           )}
 
           <div className="space-y-3">
-            <label className="block text-xs font-black text-gray-600 uppercase tracking-widest">
+            <label className="block text-xs font-black text-gray-600 ">
               Payment Method <span className="text-red-500">*</span>
             </label>
             <select
               value={paymentMethod}
               onChange={(e) => setPaymentMethod(e.target.value)}
               required
-              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-sm font-bold focus:border-[#45B854] focus:ring-4 focus:ring-[#45B854]/10 outline-none transition-all bg-white"
+              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-sm font-bold focus:border-[#4F8EF7] focus:ring-4 focus:ring-[#4F8EF7]/10 outline-none transition-all bg-white"
             >
               {paymentMethods.map(method => (
                 <option key={method} value={method}>{method}</option>
@@ -651,7 +723,7 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
               which account received the cash. Empty state when no
               sub-accounts are set up under 1110. */}
           <div className="space-y-3">
-            <label className="block text-xs font-black text-gray-600 uppercase tracking-widest">
+            <label className="block text-xs font-black text-gray-600 ">
               Deposit To Account <span className="text-red-500">*</span>
             </label>
             {bankAccounts.length === 0 ? (
@@ -663,7 +735,7 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
                     value={depositAccountId}
                     onChange={(e) => setDepositAccountId(e.target.value)}
                     required
-                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-sm font-bold focus:border-[#45B854] focus:ring-4 focus:ring-[#45B854]/10 outline-none transition-all bg-white"
+                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-sm font-bold focus:border-[#4F8EF7] focus:ring-4 focus:ring-[#4F8EF7]/10 outline-none transition-all bg-white"
                 >
                     {bankAccounts.map(a => (
                         <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
@@ -673,7 +745,7 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
           </div>
 
           <div className="space-y-3">
-            <label className="block text-xs font-black text-gray-600 uppercase tracking-widest">
+            <label className="block text-xs font-black text-gray-600 ">
               Reference / Cheque No.
             </label>
             <input
@@ -681,14 +753,14 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
               value={reference}
               onChange={(e) => setReference(e.target.value)}
               placeholder="Enter reference number..."
-              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-sm font-medium focus:border-[#45B854] focus:ring-4 focus:ring-[#45B854]/10 outline-none transition-all"
+              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-sm font-medium focus:border-[#4F8EF7] focus:ring-4 focus:ring-[#4F8EF7]/10 outline-none transition-all"
             />
           </div>
         </div>
 
         {/* Notes */}
         <div className="space-y-3">
-          <label className="block text-xs font-black text-gray-600 uppercase tracking-widest">
+          <label className="block text-xs font-black text-gray-600 ">
             Notes / Memo
           </label>
           <textarea
@@ -696,7 +768,7 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
             onChange={(e) => setNotes(e.target.value)}
             rows={3}
             placeholder="Add any additional notes about this payment..."
-            className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-sm font-medium focus:border-[#45B854] focus:ring-4 focus:ring-[#45B854]/10 outline-none resize-none transition-all"
+            className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-sm font-medium focus:border-[#4F8EF7] focus:ring-4 focus:ring-[#4F8EF7]/10 outline-none resize-none transition-all"
           />
         </div>
 
@@ -725,13 +797,219 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
           <button
             type="submit"
             disabled={loading}
-            className="px-12 py-3 bg-[#45B854] text-white rounded-lg text-sm font-black uppercase tracking-widest hover:bg-[#3A9D47] shadow-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-3"
+            style={{
+                background: '#4F8EF7',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 8,
+                padding: '8px 20px',
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                opacity: loading ? 0.5 : 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontFamily: 'inherit',
+            }}
           >
-            <CreditCard size={18} />
+            <CreditCard size={14} />
             {loading ? 'Recording...' : 'Record Payment'}
           </button>
         </div>
       </form>
+      </div>
+      {/* ── /LEFT ── */}
+
+      {/* ── RIGHT — sticky balance preview panel ── */}
+      <div style={{
+          padding: 16,
+          background: 'var(--color-background-secondary)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+      }}>
+        {/* Payment summary */}
+        <div style={{
+            background: 'var(--color-background-primary)',
+            border: '0.5px solid var(--color-border-tertiary)',
+            borderRadius: 12,
+            padding: 12,
+        }}>
+          <div style={{
+              fontSize: 10, fontWeight: 500, color: 'var(--color-text-secondary)',
+              textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 10,
+          }}>
+            Payment summary
+          </div>
+
+          {selectedInvoiceIds.length > 0 && unpaidInvoices
+            .filter(inv => selectedInvoiceIds.includes(String(inv.id)))
+            .map(inv => (
+              <div
+                key={inv.id}
+                style={{
+                    display: 'flex', justifyContent: 'space-between',
+                    padding: '5px 0',
+                    borderBottom: '1px solid rgba(255,255,255,.04)',
+                    fontSize: 11,
+                }}
+              >
+                <span style={{ color: 'var(--color-text-secondary)' }}>
+                  {inv.invoiceNumber ?? inv.id}
+                </span>
+                <span style={{ color: 'var(--color-text-danger)', fontWeight: 500 }}>
+                  ${Number(inv.remaining_balance ?? inv.grandTotal ?? 0).toFixed(2)}
+                </span>
+              </div>
+            ))}
+
+          {isAdvancePayment && (
+            <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', padding: '5px 0' }}>
+              Advance payment (no invoice)
+            </div>
+          )}
+
+          <div style={{ height: 1, background: 'var(--color-border-tertiary)', margin: '8px 0' }} />
+
+          <div style={{
+              fontSize: 10, fontWeight: 500, color: 'var(--color-text-secondary)',
+              textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8,
+          }}>
+            Balance preview
+          </div>
+
+          {[
+            {
+              label: 'Before payment',
+              value: `$${Number((customer as any).balance ?? 0).toFixed(2)}`,
+              color: Number((customer as any).balance ?? 0) > 0
+                ? 'var(--color-text-warning)'
+                : 'var(--color-text-success)',
+            },
+            {
+              label: 'This payment',
+              value: `− $${Number(amount).toFixed(2)}`,
+              color: 'var(--color-text-success)',
+            },
+          ].map(row => (
+            <div
+              key={row.label}
+              style={{
+                  display: 'flex', justifyContent: 'space-between',
+                  padding: '5px 0',
+                  borderBottom: '1px solid rgba(255,255,255,.04)',
+                  fontSize: 11,
+              }}
+            >
+              <span style={{ color: 'var(--color-text-secondary)' }}>{row.label}</span>
+              <span style={{ color: row.color, fontWeight: 500 }}>{row.value}</span>
+            </div>
+          ))}
+
+          {/* After-payment box */}
+          {(() => {
+            const after = Number((customer as any).balance ?? 0) - Number(amount ?? 0);
+            const isCleared = after <= 0;
+            const display = Math.max(0, after);
+            return (
+              <div style={{
+                  marginTop: 8, padding: 10, textAlign: 'center',
+                  background: isCleared ? 'var(--color-background-success)' : 'var(--color-background-warning)',
+                  border: `0.5px solid ${isCleared ? 'var(--color-border-success)' : 'var(--color-border-warning)'}`,
+                  borderRadius: 8,
+              }}>
+                <div style={{
+                    fontSize: 10,
+                    color: isCleared ? 'var(--color-text-success)' : 'var(--color-text-warning)',
+                    marginBottom: 4,
+                }}>
+                  Balance after payment
+                </div>
+                <div style={{
+                    fontSize: 20, fontWeight: 500,
+                    color: isCleared ? 'var(--color-text-success)' : 'var(--color-text-warning)',
+                }}>
+                  ${display.toFixed(2)}
+                </div>
+                {isCleared && (
+                  <div style={{ fontSize: 9, color: 'var(--color-text-success)', marginTop: 3 }}>
+                    Account fully cleared ✓
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+
+        {/* Customer mini card */}
+        <div style={{
+            background: 'var(--color-background-primary)',
+            border: '0.5px solid var(--color-border-tertiary)',
+            borderRadius: 10,
+            padding: 12,
+        }}>
+          <div style={{
+              fontSize: 10, fontWeight: 500, color: 'var(--color-text-secondary)',
+              textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8,
+          }}>
+            Customer
+          </div>
+          {[
+            { label: 'Name',     value: customer.name ?? '—',                                                          color: 'var(--color-text-primary)' },
+            { label: 'Code',     value: (customer as any).code ?? `CUST-${customer.id}`,                               color: 'var(--color-text-info)' },
+            { label: 'Terms',    value: (customer as any).payment_terms ?? (customer as any).paymentTerms ?? 'COD',    color: 'var(--color-text-primary)' },
+            { label: 'Currency', value: currency,                                                                       color: 'var(--color-text-primary)' },
+          ].map(r => (
+            <div
+              key={r.label}
+              style={{
+                  display: 'flex', justifyContent: 'space-between',
+                  padding: '5px 0',
+                  borderBottom: '1px solid rgba(255,255,255,.04)',
+                  fontSize: 11,
+              }}
+            >
+              <span style={{ color: 'var(--color-text-secondary)' }}>{r.label}</span>
+              <span style={{ color: r.color, fontWeight: 500 }}>{r.value}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Repeated action buttons */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <button
+            type="submit"
+            form="payment-form"
+            disabled={loading}
+            style={{
+                width: '100%', background: '#4F8EF7', color: '#fff', border: 'none',
+                borderRadius: 8, padding: '9px 14px', fontSize: 12, fontWeight: 600,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                opacity: loading ? 0.7 : 1,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                fontFamily: 'inherit',
+            }}
+          >
+            {loading ? 'Recording...' : '✓ Record payment'}
+          </button>
+          <button
+            type="button"
+            onClick={onBack}
+            style={{
+                width: '100%', background: 'transparent',
+                border: '0.5px solid var(--color-border-secondary)',
+                borderRadius: 8, padding: '8px 14px', fontSize: 11,
+                color: 'var(--color-text-secondary)',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+      {/* ── /RIGHT ── */}
     </div>
   );
 }
