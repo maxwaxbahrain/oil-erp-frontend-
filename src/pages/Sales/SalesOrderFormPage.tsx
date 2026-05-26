@@ -12,7 +12,7 @@ import SearchableSelect from '../../components/common/SearchableSelect';
 // ITEM 16 — Escape closes the New Salesman inline modal.
 import { useEscape } from '../../hooks/useEscape';
 
-const THEME_PRIMARY = '#800020';
+const THEME_PRIMARY = '#4F8EF7';
 
 interface CartLine extends SalesOrderItem {
   key: string;
@@ -428,7 +428,7 @@ export default function SalesOrderFormPage() {
       <div className="lg:sticky lg:top-4 rounded-2xl border border-gray-200 bg-white shadow-sm p-5 md:p-6 space-y-8">
         {!selectedCustomer ? (
           <div className="text-center py-12 px-4">
-            <p className="text-sm font-black text-gray-400 uppercase tracking-[0.2em] leading-relaxed">
+            <p className="text-sm font-black text-gray-400  leading-relaxed">
               Select a customer to see their history and smart suggestions
             </p>
           </div>
@@ -437,7 +437,7 @@ export default function SalesOrderFormPage() {
         ) : (
           <>
             <section>
-              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.25em] mb-4">Customer balance</h3>
+              <h3 className="text-[10px] font-black text-gray-400  mb-4">Customer balance</h3>
               <dl className="space-y-3 text-sm">
                 <div className="flex justify-between gap-2 items-baseline">
                   <dt className="font-bold text-gray-500">Outstanding</dt>
@@ -475,7 +475,7 @@ export default function SalesOrderFormPage() {
             </section>
 
             <section>
-              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.25em] mb-4">Recent orders</h3>
+              <h3 className="text-[10px] font-black text-gray-400  mb-4">Recent orders</h3>
               {panelStats.recentThree.length === 0 ? (
                 <p className="text-sm font-semibold text-gray-500">No prior orders yet.</p>
               ) : (
@@ -485,7 +485,7 @@ export default function SalesOrderFormPage() {
                       <div className="flex justify-between items-start gap-2">
                         <p className="font-mono font-black text-gray-900 text-sm">{o.so_number}</p>
                         <span
-                          className={`shrink-0 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${orderStatusBadgeClass(o.status)}`}
+                          className={`shrink-0 px-2 py-0.5 rounded-full text-[9px] font-black  ${orderStatusBadgeClass(o.status)}`}
                         >
                           {orderStatusLabel(o.status)}
                         </span>
@@ -495,7 +495,7 @@ export default function SalesOrderFormPage() {
                       <button
                         type="button"
                         onClick={() => handleReorder(o)}
-                        className="w-full min-h-[40px] rounded-lg border-2 text-xs font-black uppercase tracking-wide flex items-center justify-center gap-1.5 hover:bg-white transition-colors"
+                        className="w-full min-h-[40px] rounded-lg border-2 text-xs font-black  flex items-center justify-center gap-1.5 hover:bg-white transition-colors"
                         style={{ borderColor: THEME_PRIMARY, color: THEME_PRIMARY }}
                       >
                         <Copy size={14} />
@@ -508,7 +508,7 @@ export default function SalesOrderFormPage() {
             </section>
 
             <section>
-              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.25em] mb-4">Smart suggestions</h3>
+              <h3 className="text-[10px] font-black text-gray-400  mb-4">Smart suggestions</h3>
               {panelStats.suggestions.length === 0 ? (
                 <p className="text-sm font-semibold text-gray-500">Not enough history to suggest products.</p>
               ) : (
@@ -525,7 +525,7 @@ export default function SalesOrderFormPage() {
                       <button
                         type="button"
                         onClick={() => handleAddSuggestion(s)}
-                        className="min-h-[38px] rounded-lg text-white text-xs font-black uppercase tracking-wide flex items-center justify-center gap-1 shadow-sm hover:brightness-110"
+                        className="min-h-[38px] rounded-lg text-white text-xs font-black  flex items-center justify-center gap-1 shadow-sm hover:brightness-110"
                         style={{ backgroundColor: THEME_PRIMARY }}
                       >
                         <Plus size={16} strokeWidth={2.5} />
@@ -544,40 +544,63 @@ export default function SalesOrderFormPage() {
 
   const formColumn = (
     <div className="w-full lg:w-[60%] lg:max-w-none space-y-8">
-      {/* Page header */}
-      <div className="bg-white p-8 md:p-10 rounded-3xl border border-gray-100 shadow-sm relative overflow-hidden">
-        <div className="absolute top-0 right-0 p-6 opacity-[0.06] pointer-events-none">
-          <ShoppingCart size={140} className="text-gray-900" />
-        </div>
-        <div className="relative flex flex-wrap items-start justify-between gap-4">
-          <div className="flex items-start gap-4 min-w-0">
-            <button
-              type="button"
-              onClick={() => navigate('/sales/orders')}
-              className="p-2.5 rounded-xl border border-gray-200 bg-white shadow-sm hover:bg-gray-50 transition-colors shrink-0"
-              aria-label="Back"
-            >
-              <ArrowLeft size={20} className="text-gray-600" />
-            </button>
-            <div className="min-w-0">
-              <h1 className="text-2xl md:text-3xl font-black text-gray-900 uppercase tracking-tight">New sales order</h1>
-              <p className="text-[11px] font-black text-gray-400 uppercase tracking-[0.25em] mt-2">
-                Draft or confirm — mobile-friendly layout
-              </p>
-            </div>
-          </div>
-          <div
-            className="hidden sm:flex w-14 h-14 rounded-2xl items-center justify-center text-white shadow-md shrink-0"
-            style={{ backgroundColor: THEME_PRIMARY }}
+      {/* Page header — Soltol dark nav style */}
+      <div style={{
+          background: 'var(--color-background-primary)',
+          borderBottom: '0.5px solid var(--color-border-tertiary)',
+          padding: '13px 18px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+      }}>
+        <div className="flex items-center gap-3 min-w-0">
+          <button
+            type="button"
+            onClick={() => navigate('/sales/orders')}
+            aria-label="Back"
+            style={{
+                background: 'transparent',
+                border: '0.5px solid var(--color-border-secondary)',
+                borderRadius: 8,
+                padding: '5px 8px',
+                cursor: 'pointer',
+                color: 'var(--color-text-secondary)',
+                display: 'flex', alignItems: 'center',
+                fontFamily: 'inherit',
+            }}
           >
-            <ShoppingCart size={26} strokeWidth={2} />
+            <ArrowLeft size={16} />
+          </button>
+          <div style={{
+              width: 36, height: 36, borderRadius: 9,
+              background: 'rgba(74,143,245,.12)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0,
+          }}>
+            <ShoppingCart size={18} style={{ color: '#4F8EF7' }} />
+          </div>
+          <div className="min-w-0">
+            <h1 style={{
+                fontSize: 17, fontWeight: 500,
+                color: 'var(--color-text-primary)',
+                margin: 0,
+            }}>
+              New sales order
+            </h1>
+            <p style={{
+                fontSize: 11,
+                color: 'var(--color-text-secondary)',
+                marginTop: 2,
+            }}>
+              Draft or confirm — mobile-friendly layout
+            </p>
           </div>
         </div>
       </div>
 
       <div className={`${sectionCard}`}>
         <div className="flex items-center justify-between mb-2">
-          <label className="block text-xs font-black text-gray-500 uppercase tracking-wider">Salesman</label>
+          <label className="block text-xs font-black text-gray-500 ">Salesman</label>
           {/* ITEM 12 — Quick-add salesman, mirrors the Invoice form pattern. */}
           <button
             type="button"
@@ -597,7 +620,7 @@ export default function SalesOrderFormPage() {
         {showNewSalesman && (
           <div className="mt-2 p-3 bg-orange-50 border border-orange-200 rounded-xl space-y-2">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-black text-orange-700 uppercase">New Salesman</p>
+              <p className="text-xs font-black text-orange-700 ">New Salesman</p>
               <button type="button" onClick={() => setShowNewSalesman(false)} className="text-gray-400 hover:text-gray-600"><X size={14}/></button>
             </div>
             <input
@@ -639,7 +662,7 @@ export default function SalesOrderFormPage() {
       </div>
 
       <div className={`${sectionCard}`}>
-        <label className="block text-xs font-black text-gray-500 uppercase tracking-wider">Customer</label>
+        <label className="block text-xs font-black text-gray-500 ">Customer</label>
         {selectedCustomer ? (
           <div
             className="rounded-xl border-2 bg-gray-50/80 p-4 flex justify-between items-center gap-2"
@@ -651,7 +674,7 @@ export default function SalesOrderFormPage() {
             </div>
             <button
               type="button"
-              className="text-sm font-black shrink-0 uppercase tracking-wide"
+              className="text-sm font-black shrink-0 "
               style={{ color: THEME_PRIMARY }}
               onClick={() => setSelectedCustomer(null)}
             >
@@ -667,7 +690,7 @@ export default function SalesOrderFormPage() {
                 value={customerQuery}
                 onChange={(e) => setCustomerQuery(e.target.value)}
                 placeholder="Search name, phone, ID…"
-                className="w-full min-h-[50px] pl-4 pr-11 rounded-xl border border-gray-200 text-sm font-semibold bg-white shadow-inner focus:ring-2 focus:ring-[#800020]/25 focus:border-[#800020] outline-none transition-shadow"
+                className="w-full min-h-[50px] pl-4 pr-11 rounded-xl border border-gray-200 text-sm font-semibold bg-white shadow-inner focus:ring-2 focus:ring-[#4F8EF7]/25 focus:border-[#4F8EF7] outline-none transition-shadow"
               />
             </div>
             <ul className="mt-2 rounded-xl border border-gray-100 bg-white shadow-md max-h-48 overflow-y-auto overscroll-y-contain divide-y divide-gray-100">
@@ -691,8 +714,56 @@ export default function SalesOrderFormPage() {
         )}
       </div>
 
+      {/* FIX 5 — Credit limit warning banner (display-only IIFE, reads
+          existing selectedCustomer + panelStats + lines state). No new
+          state, no new API calls, no submit-blocking. */}
+      {selectedCustomer && (() => {
+        const outstanding = Number((selectedCustomer as any).balance ?? panelStats?.outstanding ?? 0);
+        const creditLimit = Number((selectedCustomer as any).credit_limit ?? panelStats?.creditLimit ?? 0);
+        const orderTotal = lines.reduce((s, l) => s + l.total, 0);
+        const newTotal = outstanding + orderTotal;
+        const usedPct = creditLimit > 0
+          ? Math.min(100, Math.round((newTotal / creditLimit) * 100))
+          : 0;
+
+        if (outstanding === 0 && creditLimit === 0 && orderTotal === 0) return null;
+
+        const isDanger = creditLimit > 0 && usedPct > 100;
+        const isWarning = creditLimit > 0 && usedPct > 80;
+
+        return (
+          <div style={{
+            margin: '8px 0 12px',
+            padding: '8px 12px',
+            borderRadius: 8,
+            border: `1px solid ${isDanger ? 'rgba(239,68,68,.3)' : isWarning ? 'rgba(245,158,11,.3)' : 'rgba(74,143,245,.2)'}`,
+            background: isDanger ? 'rgba(239,68,68,.07)' : isWarning ? 'rgba(245,158,11,.07)' : 'rgba(74,143,245,.07)',
+            display: 'flex', alignItems: 'flex-start', gap: 8,
+            fontSize: 11,
+            color: isDanger ? '#EF4444' : isWarning ? '#F59E0B' : '#4F8EF7',
+          }}>
+            <span style={{ flexShrink: 0 }}>
+              {isDanger ? '🚨' : isWarning ? '⚠️' : 'ℹ️'}
+            </span>
+            <div>
+              <strong>
+                {isDanger ? 'Over credit limit: '
+                 : isWarning ? 'Credit warning: '
+                 : 'Credit notice: '}
+              </strong>
+              {selectedCustomer.name} has ${outstanding.toLocaleString()} outstanding.
+              {creditLimit > 0 && orderTotal > 0
+                ? ` This order adds $${orderTotal.toFixed(2)} → new total $${newTotal.toFixed(2)} (${usedPct}% of $${creditLimit.toLocaleString()} limit).`
+                : creditLimit > 0
+                  ? ` Credit limit: $${creditLimit.toLocaleString()}.`
+                  : ' No credit limit set.'}
+            </div>
+          </div>
+        );
+      })()}
+
       <div className={`${sectionCard} relative z-20`}>
-        <label className="block text-xs font-black text-gray-500 uppercase tracking-wider">Add products</label>
+        <label className="block text-xs font-black text-gray-500 ">Add products</label>
         <div className="relative">
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={20} />
           <input
@@ -700,7 +771,7 @@ export default function SalesOrderFormPage() {
             value={productQuery}
             onChange={(e) => setProductQuery(e.target.value)}
             placeholder="Search product or SKU…"
-            className="w-full min-h-[50px] pl-4 pr-11 rounded-xl border border-gray-200 text-sm font-semibold bg-white shadow-inner focus:ring-2 focus:ring-[#800020]/25 focus:border-[#800020] outline-none transition-shadow"
+            className="w-full min-h-[50px] pl-4 pr-11 rounded-xl border border-gray-200 text-sm font-semibold bg-white shadow-inner focus:ring-2 focus:ring-[#4F8EF7]/25 focus:border-[#4F8EF7] outline-none transition-shadow"
           />
         </div>
         {productQuery.trim() ? (
@@ -722,7 +793,7 @@ export default function SalesOrderFormPage() {
       </div>
 
       <div className={sectionCard}>
-        <h2 className="text-xs font-black text-gray-500 uppercase tracking-wider">Line items</h2>
+        <h2 className="text-xs font-black text-gray-500 ">Line items</h2>
         {lines.length === 0 ? (
           <p className="text-sm text-gray-500 py-10 text-center border-2 border-dashed border-gray-200 rounded-xl bg-gray-50/50 font-semibold">
             No lines yet — search and select a product above.
@@ -773,21 +844,21 @@ export default function SalesOrderFormPage() {
       </div>
 
       <div className={sectionCard}>
-        <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-2">Notes</label>
+        <label className="block text-xs font-black text-gray-500  mb-2">Notes</label>
         <textarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={3}
-          className="w-full rounded-xl border border-gray-200 p-3 text-sm font-medium focus:ring-2 focus:ring-[#800020]/25 focus:border-[#800020] outline-none bg-white"
+          className="w-full rounded-xl border border-gray-200 p-3 text-sm font-medium focus:ring-2 focus:ring-[#4F8EF7]/25 focus:border-[#4F8EF7] outline-none bg-white"
           placeholder="Delivery instructions, etc."
         />
       </div>
 
       <div className={`${sectionCard} border-dashed border-gray-200 bg-gray-50/40`}>
-        <h2 className="text-xs font-black text-gray-500 uppercase tracking-wider">Payment terms</h2>
+        <h2 className="text-xs font-black text-gray-500 ">Payment terms</h2>
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <label className="block text-[10px] font-black text-gray-500 uppercase tracking-wider mb-1.5">Payment method</label>
+            <label className="block text-[10px] font-black text-gray-500  mb-1.5">Payment method</label>
             <select
               value={paymentMethod}
               onChange={(e) => {
@@ -795,7 +866,7 @@ export default function SalesOrderFormPage() {
                 setPaymentMethod(v);
                 if (v === 'Cash') setPaymentDueDays(0);
               }}
-              className="w-full min-h-[48px] rounded-xl border border-gray-200 px-3 text-sm font-bold bg-white shadow-sm focus:ring-2 focus:ring-[#800020]/25 focus:border-[#800020] outline-none"
+              className="w-full min-h-[48px] rounded-xl border border-gray-200 px-3 text-sm font-bold bg-white shadow-sm focus:ring-2 focus:ring-[#4F8EF7]/25 focus:border-[#4F8EF7] outline-none"
             >
               <option value="Cash">Cash</option>
               <option value="Credit">Credit</option>
@@ -803,12 +874,12 @@ export default function SalesOrderFormPage() {
             </select>
           </div>
           <div>
-            <label className="block text-[10px] font-black text-gray-500 uppercase tracking-wider mb-1.5">Payment due (days)</label>
+            <label className="block text-[10px] font-black text-gray-500  mb-1.5">Payment due (days)</label>
             <select
               value={paymentMethod === 'Cash' ? 0 : paymentDueDays}
               disabled={paymentMethod === 'Cash'}
               onChange={(e) => setPaymentDueDays(Number(e.target.value))}
-              className="w-full min-h-[48px] rounded-xl border border-gray-200 px-3 text-sm font-bold bg-white shadow-sm disabled:bg-gray-100 disabled:text-gray-500 focus:ring-2 focus:ring-[#800020]/25 focus:border-[#800020] outline-none"
+              className="w-full min-h-[48px] rounded-xl border border-gray-200 px-3 text-sm font-bold bg-white shadow-sm disabled:bg-gray-100 disabled:text-gray-500 focus:ring-2 focus:ring-[#4F8EF7]/25 focus:border-[#4F8EF7] outline-none"
             >
               {paymentMethod === 'Cash' ? (
                 <option value={0}>0 (Cash)</option>
@@ -824,19 +895,19 @@ export default function SalesOrderFormPage() {
           </div>
         </div>
         <div>
-          <label className="block text-[10px] font-black text-gray-500 uppercase tracking-wider mb-1.5">Notes for payment</label>
+          <label className="block text-[10px] font-black text-gray-500  mb-1.5">Notes for payment</label>
           <textarea
             value={paymentNotes}
             onChange={(e) => setPaymentNotes(e.target.value)}
             rows={2}
-            className="w-full rounded-xl border border-gray-200 p-3 text-sm font-medium focus:ring-2 focus:ring-[#800020]/25 focus:border-[#800020] outline-none bg-white"
+            className="w-full rounded-xl border border-gray-200 p-3 text-sm font-medium focus:ring-2 focus:ring-[#4F8EF7]/25 focus:border-[#4F8EF7] outline-none bg-white"
             placeholder="e.g. Payable to company account, cheque favouring…"
           />
         </div>
       </div>
 
       <div className="rounded-2xl border border-gray-100 bg-white shadow-sm p-5 flex justify-between items-center">
-        <span className="font-black text-gray-800 uppercase tracking-wide text-sm">Total</span>
+        <span className="font-black text-gray-800  text-sm">Total</span>
         <span className="text-2xl font-black tabular-nums text-gray-900">{formatMoney(total)}</span>
       </div>
 
@@ -847,17 +918,42 @@ export default function SalesOrderFormPage() {
             disabled={submitting && submittingStatus !== 'draft'}
             aria-busy={submittingStatus === 'draft'}
             onClick={() => submit('draft')}
-            className="flex-1 min-h-[50px] rounded-xl border-2 border-gray-900 text-gray-900 font-black text-sm uppercase tracking-wide bg-white hover:bg-gray-50 disabled:opacity-50 transition-colors"
+            style={{
+                flex: 1,
+                background: 'transparent',
+                border: '0.5px solid var(--color-border-secondary)',
+                borderRadius: 8,
+                padding: '9px 14px',
+                fontSize: 12,
+                fontWeight: 500,
+                color: 'var(--color-text-secondary)',
+                cursor: submitting ? 'not-allowed' : 'pointer',
+                opacity: (submitting && submittingStatus !== 'draft') ? 0.5 : 1,
+                fontFamily: 'inherit',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
           >
-            {submittingStatus === 'draft' ? <Loader2 className="animate-spin mx-auto" size={22} /> : 'Save as draft'}
+            {submittingStatus === 'draft' ? <Loader2 className="animate-spin" size={18} /> : 'Save as draft'}
           </button>
           <button
             type="button"
             disabled={submitting && submittingStatus !== 'confirmed'}
             aria-busy={submittingStatus === 'confirmed'}
             onClick={() => submit('confirmed')}
-            className="flex-1 min-h-[50px] rounded-xl text-white font-black text-sm uppercase tracking-wide hover:brightness-110 disabled:opacity-50 shadow-md transition-all"
-            style={{ backgroundColor: THEME_PRIMARY }}
+            style={{
+                flex: 1,
+                background: '#4F8EF7',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 8,
+                padding: '9px 14px',
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: submitting ? 'not-allowed' : 'pointer',
+                opacity: (submitting && submittingStatus !== 'confirmed') ? 0.5 : 1,
+                fontFamily: 'inherit',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
           >
             {submittingStatus === 'confirmed' ? <Loader2 className="animate-spin mx-auto text-white" size={22} /> : 'Confirm order'}
           </button>
