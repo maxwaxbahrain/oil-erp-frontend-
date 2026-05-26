@@ -1,19 +1,107 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CalendarClock, FileText, Plus, Printer, X, Edit2 } from 'lucide-react';
+import { FileText, Loader2, Plus, RefreshCw, Search, X } from 'lucide-react';
 import { getCreditNotes, getCreditNoteStats, updateCreditNote, applyCreditToInvoice, type CreditNote } from '../../services/creditNoteService';
 import { getCustomerInvoices, type Invoice } from '../../services/api';
 
-const THEME = '#800020';
-type FilterTab = 'all' | 'draft' | 'issued' | 'used' | 'expired';
+type FilterTab = 'all' | 'draft' | 'issued' | 'used' | 'expired' | 'cancelled';
 
-function badgeClass(status: string): string {
-  if (status === 'draft') return 'bg-gray-100 text-gray-700';
-  if (status === 'issued') return 'bg-blue-100 text-blue-700';
-  if (status === 'partially_used') return 'bg-orange-100 text-orange-700';
-  if (status === 'fully_used') return 'bg-green-100 text-green-700';
-  if (status === 'cancelled') return 'bg-red-100 text-red-700';
-  return 'bg-gray-100 text-gray-700';
+const panelStyle: CSSProperties = {
+  background: 'var(--color-redwood-bg-surface)',
+  border: '1px solid var(--color-redwood-border)',
+  borderRadius: '14px',
+  padding: '14px 16px',
+};
+
+function formatMoney(n: number) {
+  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatIssueDate(raw: string): string {
+  if (!raw) return '—';
+  try {
+    const d = new Date(raw.includes('T') ? raw : `${raw}T12:00:00`);
+    if (Number.isNaN(d.getTime())) return raw;
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  } catch {
+    return raw;
+  }
+}
+
+function reasonBadgeStyle(reason: string): CSSProperties {
+  const map: Record<string, CSSProperties> = {
+    overcharge: {
+      background: 'var(--color-badge-red-bg)',
+      color: 'var(--color-brand-red-tint)',
+      border: '1px solid rgba(239,68,68,.2)',
+    },
+    return: {
+      background: 'var(--color-badge-amber-bg)',
+      color: 'var(--color-brand-amber-tint)',
+      border: '1px solid rgba(245,158,11,.28)',
+    },
+    price_adjustment: {
+      background: 'var(--color-badge-blue-bg)',
+      color: 'var(--color-brand-blue-tint)',
+      border: '1px solid rgba(79,142,247,.28)',
+    },
+    goodwill: {
+      background: 'var(--color-badge-green-bg)',
+      color: 'var(--color-brand-green-tint)',
+      border: '1px solid rgba(34,197,94,.28)',
+    },
+    other: {
+      background: 'rgba(124,58,237,.12)',
+      color: '#C4B5FD',
+      border: '1px solid rgba(124,58,237,.28)',
+    },
+  };
+  return map[reason] ?? map.other;
+}
+
+function ReasonBadge({ reason }: { reason: string }) {
+  return (
+    <span
+      style={{
+        fontSize: 9,
+        fontWeight: 600,
+        padding: '2px 8px',
+        borderRadius: 20,
+        display: 'inline-block',
+        whiteSpace: 'nowrap',
+        ...reasonBadgeStyle(reason),
+      }}
+    >
+      {reason.replace('_', ' ')}
+    </span>
+  );
+}
+
+function StatusExampleBadge({
+  label,
+  style,
+  faded,
+}: {
+  label: string;
+  style: CSSProperties;
+  faded?: boolean;
+}) {
+  return (
+    <span
+      style={{
+        fontSize: 9,
+        fontWeight: 600,
+        padding: '2px 8px',
+        borderRadius: 20,
+        display: 'inline-block',
+        whiteSpace: 'nowrap',
+        opacity: faded ? 0.5 : 1,
+        ...style,
+      }}
+    >
+      {label}
+    </span>
+  );
 }
 
 // CLEANUP-1 — Removed bumpCachedCustomerBalance. Backend is authoritative
@@ -21,18 +109,11 @@ function badgeClass(status: string): string {
 // the backend already reconciles. No localStorage cache merge happens on
 // getCustomers(), so the optimistic write was a dead operation.
 
-function reasonClass(reason: string): string {
-  if (reason === 'overcharge') return 'bg-red-100 text-red-700';
-  if (reason === 'return') return 'bg-orange-100 text-orange-700';
-  if (reason === 'price_adjustment') return 'bg-blue-100 text-blue-700';
-  if (reason === 'goodwill') return 'bg-green-100 text-green-700';
-  return 'bg-gray-100 text-gray-700';
-}
-
 export default function CreditNotes() {
   const navigate = useNavigate();
   const [rows, setRows] = useState<CreditNote[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState<FilterTab>('all');
   const [stats, setStats] = useState<{ totalIssuedThisMonth: number; totalUsed: number; pendingUnused: number; expiringSoon: number } | null>(null);
@@ -58,6 +139,17 @@ export default function CreditNotes() {
   }
   useEffect(() => { void load(); }, []);
 
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      const [notes, st] = await Promise.all([getCreditNotes(), getCreditNoteStats()]);
+      setRows(notes);
+      setStats(st);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
     const now = new Date();
@@ -74,10 +166,61 @@ export default function CreditNotes() {
         (tab === 'draft' && r.status === 'draft') ||
         (tab === 'issued' && r.status === 'issued') ||
         (tab === 'used' && used) ||
-        (tab === 'expired' && expired);
+        (tab === 'expired' && expired) ||
+        (tab === 'cancelled' && r.status === 'cancelled');
       return matchesQ && matchesTab;
     });
   }, [rows, query, tab]);
+
+  const nonCancelledNotes = useMemo(
+    () => rows.filter((r) => r.status !== 'cancelled'),
+    [rows],
+  );
+
+  const tabCounts = useMemo(() => {
+    const now = new Date();
+    let draft = 0;
+    let issued = 0;
+    let used = 0;
+    let expired = 0;
+    let cancelled = 0;
+    for (const r of rows) {
+      if (r.status === 'draft') draft += 1;
+      if (r.status === 'issued') issued += 1;
+      if (r.status === 'partially_used' || r.status === 'fully_used') used += 1;
+      if (!!r.expiryDate && new Date(r.expiryDate) < now && r.remainingCredit > 0) expired += 1;
+      if (r.status === 'cancelled') cancelled += 1;
+    }
+    return { all: rows.length, draft, issued, used, expired, cancelled };
+  }, [rows]);
+
+  const availableCredit = useMemo(
+    () =>
+      filtered
+        .filter((r) => r.status !== 'cancelled')
+        .reduce((sum, r) => sum + r.remainingCredit, 0),
+    [filtered],
+  );
+
+  const filteredTotalSum = useMemo(
+    () => filtered.reduce((sum, r) => sum + r.totalCreditAmount, 0),
+    [filtered],
+  );
+
+  const filteredUsedSum = useMemo(
+    () => filtered.reduce((sum, r) => sum + r.usedAmount, 0),
+    [filtered],
+  );
+
+  const activeCount = useMemo(
+    () => rows.filter((r) => r.status !== 'cancelled').length,
+    [rows],
+  );
+
+  const cancelledCount = useMemo(
+    () => rows.filter((r) => r.status === 'cancelled').length,
+    [rows],
+  );
 
   async function cancelNote(note: CreditNote) {
     if (!window.confirm(`Cancel ${note.creditNoteNumber}?`)) return;
@@ -205,143 +348,782 @@ export default function CreditNotes() {
     w.print();
   }
 
+  const ghostBtn: CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '6px 11px',
+    borderRadius: '6px',
+    fontSize: '10.5px',
+    fontWeight: 500,
+    cursor: 'pointer',
+    border: '1px solid var(--color-redwood-border)',
+    background: 'rgba(255,255,255,.04)',
+    color: 'var(--color-redwood-text-muted)',
+    fontFamily: "'DM Sans',sans-serif",
+    transition: '.12s',
+  };
+
+  const primaryBtn: CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '6px 11px',
+    borderRadius: '6px',
+    fontSize: '10.5px',
+    fontWeight: 500,
+    cursor: 'pointer',
+    border: 'none',
+    background: '#4F8EF7',
+    color: '#fff',
+    fontFamily: "'DM Sans',sans-serif",
+    transition: '.12s',
+  };
+
+  const thStyle: CSSProperties = {
+    padding: '10px 12px',
+    fontSize: 9,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '.4px',
+    color: 'var(--color-redwood-text-muted)',
+    whiteSpace: 'nowrap',
+  };
+
+  const tdStyle: CSSProperties = {
+    padding: '11px 12px',
+    fontSize: 12,
+    color: 'var(--color-redwood-text-main)',
+    verticalAlign: 'middle',
+  };
+
+  const filterTabs: { key: FilterTab; label: string; showCount?: boolean }[] = [
+    { key: 'all', label: 'All', showCount: true },
+    { key: 'draft', label: 'Draft' },
+    { key: 'issued', label: 'Issued' },
+    { key: 'used', label: 'Used' },
+    { key: 'expired', label: 'Expired' },
+    { key: 'cancelled', label: 'Cancelled' },
+  ];
+
+  // Preserved handlers — used from detail page / print flows
+  void cancelNote;
+  void printCreditNote;
+
+  if (loading) {
+    return (
+      <div style={{ paddingBottom: '40px' }}>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '80px 16px',
+            color: 'var(--color-redwood-text-muted)',
+          }}
+        >
+          <div
+            className="w-12 h-12 border-2 rounded-full animate-spin mb-3"
+            style={{ borderColor: '#4F8EF7', borderTopColor: 'transparent' }}
+          />
+          <p style={{ fontSize: 12, fontWeight: 500 }}>Loading credit notes…</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="p-6 space-y-6">
-      <div className="bg-white rounded-2xl border border-gray-100 p-6 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-xl text-white flex items-center justify-center" style={{ backgroundColor: THEME }}>
-            <FileText size={28} />
+    <div style={{ paddingBottom: '40px' }}>
+      <div className="space-y-3">
+        {/* Page header */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '12px',
+            flexWrap: 'wrap',
+            gap: 12,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+            <div
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 10,
+                background: 'var(--color-badge-blue-bg)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <FileText size={20} style={{ color: '#4F8EF7' }} />
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div
+                style={{
+                  fontFamily: "'Syne',sans-serif",
+                  fontSize: '20px',
+                  fontWeight: 600,
+                  letterSpacing: '-.5px',
+                  color: 'var(--color-brand-blue)',
+                }}
+              >
+                Credit notes
+              </div>
+              <div
+                style={{
+                  fontSize: '11px',
+                  color: 'var(--color-redwood-text-subtle)',
+                  marginTop: '2px',
+                }}
+              >
+                Manage customer credits · apply to invoices · track balances
+              </div>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-black uppercase">Credit Notes</h1>
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">Manage customer credits & adjustments</p>
-          </div>
-        </div>
-        <button onClick={() => navigate('/sales/credit-notes/new')} className="px-5 py-3 rounded-xl text-white font-black text-sm flex items-center gap-2" style={{ backgroundColor: THEME }}>
-          <Plus size={16} /> New Credit Note
-        </button>
-      </div>
-
-      {stats && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-white rounded-xl border p-4"><p className="text-xs text-gray-500 font-black uppercase">Total Credits Issued</p><p className="text-2xl font-black">${stats.totalIssuedThisMonth.toLocaleString()}</p></div>
-          <div className="bg-white rounded-xl border p-4"><p className="text-xs text-gray-500 font-black uppercase">Total Credits Used</p><p className="text-2xl font-black">${stats.totalUsed.toLocaleString()}</p></div>
-          <div className="bg-white rounded-xl border p-4"><p className="text-xs text-gray-500 font-black uppercase">Pending / Unused</p><p className="text-2xl font-black">${stats.pendingUnused.toLocaleString()}</p></div>
-          <div className="bg-white rounded-xl border p-4"><p className="text-xs text-gray-500 font-black uppercase">Expiring Soon</p><p className="text-2xl font-black">{stats.expiringSoon}</p></div>
-        </div>
-      )}
-
-      <div className="bg-white rounded-xl border p-4 space-y-3">
-        <div className="flex flex-wrap gap-2">
-          {(['all', 'draft', 'issued', 'used', 'expired'] as FilterTab[]).map((k) => (
-            <button key={k} onClick={() => setTab(k)} className={`px-4 py-2 rounded-lg text-xs font-black uppercase ${tab === k ? 'text-white' : 'bg-gray-100 text-gray-600'}`} style={tab === k ? { backgroundColor: THEME } : undefined}>
-              {k}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            <button
+              type="button"
+              onClick={() => void handleRefresh()}
+              style={ghostBtn}
+              disabled={refreshing}
+            >
+              <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+              Refresh
             </button>
-          ))}
+            <button
+              type="button"
+              onClick={() => navigate('/sales/credit-notes/new')}
+              style={primaryBtn}
+            >
+              <Plus size={14} /> New credit note
+            </button>
+          </div>
         </div>
-        <div className="relative">
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search CN number, customer, invoice" className="w-full border rounded-lg pr-3 py-2.5 text-sm" />
-        </div>
-      </div>
 
-      <div className="bg-white rounded-xl border overflow-x-auto">
-        <table className="w-full min-w-[1100px]">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="text-left p-3 text-xs uppercase">CN</th><th className="text-left p-3 text-xs uppercase">Customer</th><th className="text-left p-3 text-xs uppercase">Invoice</th><th className="text-left p-3 text-xs uppercase">Issue</th><th className="text-left p-3 text-xs uppercase">Reason</th><th className="text-right p-3 text-xs uppercase">Total</th><th className="text-right p-3 text-xs uppercase">Used</th><th className="text-right p-3 text-xs uppercase">Remaining</th><th className="text-center p-3 text-xs uppercase">Status</th><th className="text-center p-3 text-xs uppercase">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? <tr><td colSpan={10} className="p-8 text-center">Loading...</td></tr> : filtered.map((r) => {
-              // TASK 6 — Expired flag: issued CN past its expiry with credit still
-              // unused. We don't auto-cancel (per the brief) — just surface a red
-              // "Expired" badge so the user can take action.
-              const isExpired = r.status === 'issued'
-                && !!r.expiryDate
-                && new Date(r.expiryDate) < new Date()
-                && r.remainingCredit > 0;
-              return (
-              <tr key={r.id} className={`border-t ${isExpired ? 'bg-red-50/40' : ''}`}>
-                <td className="p-3 font-black">{r.creditNoteNumber}</td>
-                <td className="p-3">{r.customerName}</td>
-                <td className="p-3">{r.originalInvoiceNumber || '-'}</td>
-                <td className="p-3">{r.issueDate}</td>
-                <td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${reasonClass(r.reason)}`}>{r.reason.replace('_', ' ')}</span></td>
-                <td className="p-3 text-right font-mono">${r.totalCreditAmount.toLocaleString()}</td>
-                <td className="p-3 text-right font-mono">${r.usedAmount.toLocaleString()}</td>
-                <td className={`p-3 text-right font-mono font-black ${r.remainingCredit > 0 ? 'text-orange-600' : ''}`}>${r.remainingCredit.toLocaleString()}</td>
-                <td className="p-3 text-center">
-                  <div className="flex items-center justify-center gap-1 flex-wrap">
-                    <span className={`px-2 py-1 rounded text-xs font-black uppercase ${badgeClass(r.status)}`}>{r.status.replace('_', ' ')}</span>
-                    {/* TASK 6 — Expiry warning badge. Sits next to the status
-                        badge so users see both the official status AND the
-                        passed-expiry signal without losing existing context. */}
-                    {isExpired && (
-                      <span
-                        className="px-2 py-1 rounded text-xs font-black uppercase bg-red-100 text-red-700 border border-red-200"
-                        title={`Expired ${new Date(r.expiryDate!).toLocaleDateString()} with $${r.remainingCredit.toLocaleString()} unused`}
+        {/* KPI cards */}
+        {stats && (
+          <div className="grid grid-cols-2 lg:grid-cols-4" style={{ gap: '10px', marginBottom: '12px' }}>
+            {[
+              {
+                label: 'Total Issued',
+                value: `$${formatMoney(stats.totalIssuedThisMonth)}`,
+                sub: `${nonCancelledNotes.length} credit note${nonCancelledNotes.length !== 1 ? 's' : ''}`,
+                stripe: 'linear-gradient(90deg,#4F8EF7,#93C5FD)',
+                valueColor: 'var(--color-brand-blue)',
+                subColor: 'var(--color-redwood-text-subtle)',
+              },
+              {
+                label: 'Total Used',
+                value: `$${formatMoney(stats.totalUsed)}`,
+                sub: 'applied to invoices',
+                stripe: 'linear-gradient(90deg,#64748B,#94A3B8)',
+                valueColor: 'var(--color-redwood-text-main)',
+                subColor: 'var(--color-redwood-text-subtle)',
+              },
+              {
+                label: 'Pending / Unused',
+                value: `$${formatMoney(stats.pendingUnused)}`,
+                sub: 'available to apply',
+                stripe: 'linear-gradient(90deg,#22C55E,#86EFAC)',
+                valueColor: 'var(--color-brand-green)',
+                subColor: 'var(--color-brand-green-tint)',
+              },
+              {
+                label: 'Expiring Soon',
+                value: String(stats.expiringSoon),
+                sub: 'within 30 days',
+                stripe: 'linear-gradient(90deg,#F59E0B,#FCD34D)',
+                valueColor: 'var(--color-brand-amber)',
+                subColor: 'var(--color-brand-amber-tint)',
+              },
+            ].map((k) => (
+              <div
+                key={k.label}
+                style={{
+                  background: 'var(--color-redwood-bg-surface)',
+                  border: '1px solid var(--color-redwood-border)',
+                  borderRadius: '14px',
+                  padding: '13px 14px',
+                  position: 'relative',
+                  overflow: 'hidden',
+                }}
+              >
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: '2px',
+                    borderRadius: '14px 14px 0 0',
+                    background: k.stripe,
+                  }}
+                />
+                <div
+                  style={{
+                    fontSize: '10.5px',
+                    color: 'var(--color-redwood-text-muted)',
+                    fontWeight: 500,
+                    marginBottom: '6px',
+                  }}
+                >
+                  {k.label}
+                </div>
+                <div
+                  style={{
+                    fontFamily: "'Syne',sans-serif",
+                    fontSize: '22px',
+                    fontWeight: 600,
+                    letterSpacing: '-.5px',
+                    marginBottom: '3px',
+                    lineHeight: '1.1',
+                    color: k.valueColor,
+                  }}
+                >
+                  {k.value}
+                </div>
+                <div style={{ fontSize: '10px', color: k.subColor }}>{k.sub}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Search */}
+        <div style={panelStyle}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Search size={16} style={{ color: 'var(--color-redwood-text-muted)', flexShrink: 0 }} />
+            <input
+              type="search"
+              placeholder="Search CN number, customer, invoice..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              style={{
+                background: 'var(--color-redwood-row-bg)',
+                border: '1px solid var(--color-redwood-border)',
+                borderRadius: 8,
+                outline: 'none',
+                color: 'var(--color-redwood-text-main)',
+                fontSize: 12,
+                width: '100%',
+                padding: '8px 12px',
+              }}
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery('')}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: 'var(--color-redwood-text-muted)',
+                  fontSize: 16,
+                }}
+                aria-label="Clear search"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Filter pills */}
+        <div
+          style={{
+            ...panelStyle,
+            padding: 6,
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 4,
+            alignItems: 'center',
+          }}
+        >
+          {filterTabs.map((t) => {
+            const active = tab === t.key;
+            const count = tabCounts[t.key];
+            return (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setTab(t.key)}
+                style={{
+                  padding: '7px 14px',
+                  fontSize: 11,
+                  fontWeight: 500,
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  background: active ? 'var(--color-badge-blue-bg)' : 'transparent',
+                  color: active ? 'var(--color-brand-blue-tint)' : 'var(--color-redwood-text-muted)',
+                  border: active
+                    ? '1px solid rgba(79,142,247,.28)'
+                    : '1px solid transparent',
+                  transition: 'all .15s ease',
+                }}
+              >
+                {t.label}
+                {t.showCount ? ` (${count})` : ''}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Section header */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '8px 0 10px',
+            borderBottom: '1px solid var(--color-redwood-border)',
+            flexWrap: 'wrap',
+            gap: 8,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              color: 'var(--color-redwood-text-main)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            Credit notes
+            <span
+              style={{
+                fontSize: 11,
+                background: 'var(--color-redwood-row-bg)',
+                border: '1px solid var(--color-redwood-border)',
+                borderRadius: 20,
+                padding: '2px 10px',
+                color: 'var(--color-redwood-text-muted)',
+                fontWeight: 600,
+              }}
+            >
+              {filtered.length}
+              {filtered.length !== rows.length ? ` of ${rows.length}` : ''}
+            </span>
+          </div>
+          <span style={{ fontSize: 12, color: 'var(--color-redwood-text-muted)' }}>
+            Available credit:{' '}
+            <strong style={{ color: 'var(--color-brand-green)' }}>
+              ${formatMoney(availableCredit)}
+            </strong>
+          </span>
+        </div>
+
+        {/* Table */}
+        {filtered.length === 0 ? (
+          <div style={{ ...panelStyle, padding: '60px 20px', textAlign: 'center' }}>
+            <div
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: '50%',
+                background: 'var(--color-badge-blue-bg)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 14px',
+              }}
+            >
+              <FileText size={26} style={{ color: '#4F8EF7' }} />
+            </div>
+            <h3
+              style={{
+                fontSize: 14,
+                fontWeight: 600,
+                color: 'var(--color-redwood-text-main)',
+                margin: '0 0 6px',
+              }}
+            >
+              {rows.length === 0 ? 'No credit notes yet' : 'No credit notes match your filter'}
+            </h3>
+            <p
+              style={{
+                fontSize: 12,
+                color: 'var(--color-redwood-text-muted)',
+                maxWidth: 280,
+                margin: '0 auto 16px',
+              }}
+            >
+              {rows.length === 0
+                ? 'Create a credit note to manage customer credits.'
+                : 'Try a different search term or status filter.'}
+            </p>
+            <button
+              type="button"
+              onClick={() =>
+                rows.length === 0
+                  ? navigate('/sales/credit-notes/new')
+                  : (setQuery(''), setTab('all'))
+              }
+              style={primaryBtn}
+            >
+              {rows.length === 0 ? (
+                <>
+                  <Plus size={14} /> New credit note
+                </>
+              ) : (
+                'Clear filters'
+              )}
+            </button>
+          </div>
+        ) : (
+          <div
+            style={{
+              ...panelStyle,
+              padding: 0,
+              overflow: 'hidden',
+            }}
+          >
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', minWidth: 960, borderCollapse: 'collapse', textAlign: 'left' }}>
+                <thead>
+                  <tr
+                    style={{
+                      background: 'var(--color-redwood-row-bg)',
+                      borderBottom: '1px solid var(--color-redwood-border)',
+                    }}
+                  >
+                    {[
+                      'CN #',
+                      'Customer',
+                      'Salesman',
+                      'Invoice',
+                      'Issue date',
+                      'Reason',
+                      'Total',
+                      'Used',
+                    ].map((col) => (
+                      <th
+                        key={col}
+                        style={{
+                          ...thStyle,
+                          textAlign: col === 'Total' || col === 'Used' ? 'right' : 'left',
+                        }}
                       >
-                        Expired
-                      </span>
-                    )}
-                  </div>
-                </td>
-                <td className="p-3">
-                  <div className="flex items-center justify-center gap-2 flex-wrap">
-                    <button className="text-xs font-bold underline" onClick={() => navigate(`/sales/credit-notes/${r.id}`)}>View</button>
-                    <button className="flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800" onClick={() => printCreditNote(r)}><Printer size={11}/>Print</button>
-                    {/* FIX W2-6 — Edit only allowed for Draft + Issued (not used or cancelled). */}
-                    {(r.status === 'draft' || r.status === 'issued') && (
-                      <button
-                        className="flex items-center gap-1 text-xs font-bold text-gray-600 hover:text-gray-900"
-                        onClick={() => navigate(`/sales/credit-notes/edit/${r.id}`)}
+                        {col}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((r) => {
+                    const isCancelled = r.status === 'cancelled';
+                    return (
+                      <tr
+                        key={r.id}
+                        onClick={() => navigate(`/sales/credit-notes/${r.id}`)}
+                        style={{
+                          borderBottom: '1px solid var(--color-redwood-border)',
+                          cursor: 'pointer',
+                          transition: '.12s',
+                          opacity: isCancelled ? 0.5 : 1,
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = 'var(--color-redwood-row-hover)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'transparent';
+                        }}
                       >
-                        <Edit2 size={11} /> Edit
-                      </button>
-                    )}
-                    {/* FIX W5-1 — Apply opens the allocation modal. Only shown
-                        when there's credit left and the CN is in a usable state. */}
-                    {r.remainingCredit > 0 && r.status !== 'cancelled' && r.status !== 'draft' && (
-                      <button
-                        className="text-xs font-bold text-emerald-700 hover:text-emerald-900 underline"
-                        onClick={() => setApplyingCN(r)}
-                      >
-                        Apply
-                      </button>
-                    )}
-                    {r.status !== 'cancelled' && <button className="flex items-center gap-1 text-xs font-bold text-red-600 hover:text-red-800" onClick={() => void cancelNote(r)}><X size={11}/>Cancel</button>}
-                  </div>
-                </td>
-              </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                        <td style={tdStyle}>
+                          <span
+                            style={{
+                              fontFamily: 'ui-monospace, monospace',
+                              fontSize: 12,
+                              fontWeight: 600,
+                              color: isCancelled
+                                ? 'var(--color-redwood-text-muted)'
+                                : 'var(--color-brand-green-tint)',
+                            }}
+                          >
+                            {r.creditNoteNumber}
+                          </span>
+                        </td>
+                        <td
+                          style={{
+                            ...tdStyle,
+                            maxWidth: 160,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {r.customerName}
+                        </td>
+                        <td style={{ ...tdStyle, color: 'var(--color-redwood-text-muted)' }}>
+                          Unassigned
+                        </td>
+                        <td style={tdStyle} onClick={(e) => e.stopPropagation()}>
+                          {r.originalInvoiceNumber ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (r.originalInvoiceId) {
+                                  navigate(`/sales/invoices/${r.originalInvoiceId}`);
+                                } else {
+                                  navigate(`/sales/credit-notes/${r.id}`);
+                                }
+                              }}
+                              style={{
+                                background: 'transparent',
+                                border: 'none',
+                                padding: 0,
+                                cursor: 'pointer',
+                                fontFamily: 'ui-monospace, monospace',
+                                fontSize: 12,
+                                fontWeight: 600,
+                                color: 'var(--color-brand-blue-tint)',
+                              }}
+                            >
+                              {r.originalInvoiceNumber}
+                            </button>
+                          ) : (
+                            <span style={{ color: 'var(--color-redwood-text-subtle)' }}>—</span>
+                          )}
+                        </td>
+                        <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
+                          {formatIssueDate(r.issueDate)}
+                        </td>
+                        <td style={tdStyle}>
+                          <ReasonBadge reason={r.reason} />
+                        </td>
+                        <td
+                          style={{
+                            ...tdStyle,
+                            textAlign: 'right',
+                            fontFamily: 'ui-monospace, monospace',
+                            fontWeight: 600,
+                          }}
+                        >
+                          ${formatMoney(r.totalCreditAmount)}
+                        </td>
+                        <td
+                          style={{
+                            ...tdStyle,
+                            textAlign: 'right',
+                            fontFamily: 'ui-monospace, monospace',
+                            fontWeight: 600,
+                          }}
+                        >
+                          ${formatMoney(r.usedAmount)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Table footer */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '12px 16px',
+                borderTop: '1px solid var(--color-redwood-border)',
+                flexWrap: 'wrap',
+                gap: 8,
+                fontSize: 11,
+                color: 'var(--color-redwood-text-muted)',
+              }}
+            >
+              <span>
+                Showing {filtered.length} of {rows.length} credit notes · {activeCount} active ·{' '}
+                {cancelledCount} cancelled
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                <span>
+                  Total:{' '}
+                  <strong style={{ color: 'var(--color-redwood-text-main)' }}>
+                    ${formatMoney(filteredTotalSum)}
+                  </strong>
+                </span>
+                <span>
+                  Used:{' '}
+                  <strong style={{ color: 'var(--color-redwood-text-main)' }}>
+                    ${formatMoney(filteredUsedSum)}
+                  </strong>
+                </span>
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Status examples */}
+        <div style={{ ...panelStyle, marginTop: 4 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              marginBottom: 14,
+            }}
+          >
+            <span
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: 'var(--color-redwood-text-main)',
+              }}
+            >
+              Status examples
+            </span>
+            <span
+              style={{
+                fontSize: 9,
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: '.4px',
+                padding: '2px 8px',
+                borderRadius: 20,
+                background: 'var(--color-badge-blue-bg)',
+                color: 'var(--color-brand-blue-tint)',
+                border: '1px solid rgba(79,142,247,.28)',
+              }}
+            >
+              Guide
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+            <StatusExampleBadge
+              label="Draft"
+              style={{
+                background: 'var(--color-badge-blue-bg)',
+                color: 'var(--color-brand-blue-tint)',
+                border: '1px solid rgba(79,142,247,.28)',
+              }}
+            />
+            <StatusExampleBadge
+              label="Issued"
+              style={{
+                background: 'var(--color-badge-green-bg)',
+                color: 'var(--color-brand-green-tint)',
+                border: '1px solid rgba(34,197,94,.28)',
+              }}
+            />
+            <StatusExampleBadge
+              label="Used"
+              style={{
+                background: 'rgba(124,58,237,.12)',
+                color: '#C4B5FD',
+                border: '1px solid rgba(124,58,237,.28)',
+              }}
+            />
+            <StatusExampleBadge
+              label="Expiring"
+              style={{
+                background: 'var(--color-badge-amber-bg)',
+                color: 'var(--color-brand-amber-tint)',
+                border: '1px solid rgba(245,158,11,.28)',
+              }}
+            />
+            <StatusExampleBadge
+              label="Expired"
+              style={{
+                background: 'var(--color-badge-red-bg)',
+                color: 'var(--color-brand-red-tint)',
+                border: '1px solid rgba(239,68,68,.2)',
+              }}
+            />
+            <StatusExampleBadge
+              label="Cancelled"
+              faded
+              style={{
+                background: 'rgba(148,163,184,.12)',
+                color: 'var(--color-redwood-text-muted)',
+                border: '1px solid var(--color-redwood-border)',
+              }}
+            />
+          </div>
+
+          <p
+            style={{
+              fontSize: 11,
+              color: 'var(--color-redwood-text-muted)',
+              marginTop: 14,
+              lineHeight: 1.5,
+            }}
+          >
+            Status badges appear on the credit note detail page. Cancelled notes are shown at 50%
+            opacity in the list.
+          </p>
+        </div>
       </div>
-      <div className="text-xs text-gray-400 flex items-center gap-2"><CalendarClock size={14} /> Theme-aligned credit tracking</div>
 
       {/* FIX W5-1 — Success banner after applying credit. */}
       {applySuccess && (
-        <div className="fixed top-6 right-6 z-50 bg-emerald-50 border-l-4 border-emerald-500 px-5 py-3 rounded-r-lg shadow-lg max-w-md">
-          <p className="text-sm font-bold text-emerald-900">{applySuccess}</p>
+        <div
+          className="fixed top-6 right-6 z-50 px-5 py-3 rounded-lg shadow-lg max-w-md"
+          style={{
+            background: 'var(--color-badge-green-bg)',
+            borderLeft: '4px solid var(--color-brand-green)',
+          }}
+        >
+          <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-brand-green-tint)' }}>
+            {applySuccess}
+          </p>
         </div>
       )}
 
       {/* FIX W5-1 — Apply Credit to Invoice modal. */}
       {applyingCN && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-          <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden">
-            <div className="px-6 py-5 border-b border-gray-100 flex items-start justify-between" style={{ background: THEME, color: 'white' }}>
+          <div
+            className="w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden"
+            style={{
+              background: 'var(--color-redwood-bg-surface)',
+              border: '1px solid var(--color-redwood-border)',
+            }}
+          >
+            <div
+              className="px-6 py-5 flex items-start justify-between"
+              style={{
+                background: 'var(--color-redwood-row-bg)',
+                borderBottom: '1px solid var(--color-redwood-border)',
+              }}
+            >
               <div>
-                <p className="text-[10px] font-black uppercase tracking-widest opacity-80">Apply Credit Note</p>
-                <h3 className="text-xl font-black mt-1">{applyingCN.creditNoteNumber}</h3>
-                <p className="text-xs opacity-90 mt-1">
+                <p
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '.4px',
+                    color: 'var(--color-redwood-text-muted)',
+                  }}
+                >
+                  Apply Credit Note
+                </p>
+                <h3
+                  style={{
+                    fontFamily: "'Syne',sans-serif",
+                    fontSize: 20,
+                    fontWeight: 600,
+                    marginTop: 4,
+                    color: 'var(--color-redwood-text-main)',
+                  }}
+                >
+                  {applyingCN.creditNoteNumber}
+                </h3>
+                <p style={{ fontSize: 12, color: 'var(--color-redwood-text-muted)', marginTop: 4 }}>
                   {applyingCN.customerName} · Available credit: ${applyingCN.remainingCredit.toFixed(2)}
                 </p>
               </div>
               <button
                 onClick={() => setApplyingCN(null)}
-                className="p-2 rounded-lg hover:bg-white/10"
+                className="p-2 rounded-lg"
+                style={{ color: 'var(--color-redwood-text-muted)' }}
                 aria-label="Close"
               >
                 <X size={20} />
@@ -350,22 +1132,59 @@ export default function CreditNotes() {
 
             <div className="p-6 space-y-5">
               <div>
-                <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    color: 'var(--color-redwood-text-muted)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '.4px',
+                    marginBottom: 8,
+                  }}
+                >
                   Select Invoice
                 </label>
                 {applyInvoices.length === 0 ? (
-                  <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: 'var(--color-redwood-text-muted)',
+                      background: 'var(--color-redwood-row-bg)',
+                      border: '1px solid var(--color-redwood-border)',
+                      borderRadius: 8,
+                      padding: 16,
+                    }}
+                  >
                     {applyError ? applyError : 'No open invoices found for this customer.'}
                   </div>
                 ) : (
-                  <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-64 overflow-y-auto">
-                    {applyInvoices.map(inv => {
+                  <div
+                    style={{
+                      border: '1px solid var(--color-redwood-border)',
+                      borderRadius: 8,
+                      maxHeight: 256,
+                      overflowY: 'auto',
+                    }}
+                  >
+                    {applyInvoices.map((inv, idx) => {
                       const bal = Number(inv.remaining_balance ?? inv.grandTotal ?? 0);
                       const selected = String(inv.id) === String(applyInvoiceId);
                       return (
                         <label
                           key={inv.id}
-                          className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors ${selected ? 'bg-emerald-50' : 'hover:bg-gray-50'}`}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 12,
+                            padding: '12px 16px',
+                            cursor: 'pointer',
+                            background: selected ? 'var(--color-badge-green-bg)' : 'transparent',
+                            borderBottom:
+                              idx < applyInvoices.length - 1
+                                ? '1px solid var(--color-redwood-border)'
+                                : 'none',
+                          }}
                         >
                           <input
                             type="radio"
@@ -373,15 +1192,51 @@ export default function CreditNotes() {
                             checked={selected}
                             onChange={() => pickApplyInvoice(String(inv.id))}
                           />
-                          <div className="flex-1">
-                            <div className="text-sm font-bold text-gray-900">{inv.invoiceNumber || `#${inv.id}`}</div>
-                            <div className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">
+                          <div style={{ flex: 1 }}>
+                            <div
+                              style={{
+                                fontSize: 13,
+                                fontWeight: 600,
+                                color: 'var(--color-redwood-text-main)',
+                              }}
+                            >
+                              {inv.invoiceNumber || `#${inv.id}`}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: 10,
+                                color: 'var(--color-redwood-text-muted)',
+                                fontWeight: 600,
+                                textTransform: 'uppercase',
+                                letterSpacing: '.4px',
+                                marginTop: 2,
+                              }}
+                            >
                               {inv.invoiceDate ? new Date(inv.invoiceDate).toLocaleDateString() : '—'} · Total ${Number(inv.grandTotal ?? 0).toFixed(2)}
                             </div>
                           </div>
-                          <div className="text-right">
-                            <div className="text-sm font-mono font-black text-red-600">${bal.toFixed(2)}</div>
-                            <div className="text-[9px] text-gray-400 uppercase font-bold tracking-widest">Outstanding</div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div
+                              style={{
+                                fontSize: 13,
+                                fontFamily: 'ui-monospace, monospace',
+                                fontWeight: 600,
+                                color: 'var(--color-brand-red-tint)',
+                              }}
+                            >
+                              ${bal.toFixed(2)}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: 9,
+                                color: 'var(--color-redwood-text-muted)',
+                                textTransform: 'uppercase',
+                                fontWeight: 700,
+                                letterSpacing: '.4px',
+                              }}
+                            >
+                              Outstanding
+                            </div>
                           </div>
                         </label>
                       );
@@ -392,17 +1247,37 @@ export default function CreditNotes() {
 
               {applyInvoiceId && (
                 <div>
-                  <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">
+                  <label
+                    style={{
+                      display: 'block',
+                      fontSize: 10,
+                      fontWeight: 700,
+                      color: 'var(--color-redwood-text-muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '.4px',
+                      marginBottom: 8,
+                    }}
+                  >
                     Amount to Apply
                   </label>
-                  <div className="flex items-center gap-3">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <input
                       type="number"
                       min="0"
                       step="0.01"
                       value={applyAmount}
                       onChange={(e) => { setApplyAmount(parseFloat(e.target.value) || 0); setApplyError(null); }}
-                      className="flex-1 px-4 py-3 border border-gray-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                      style={{
+                        flex: 1,
+                        padding: '12px 16px',
+                        border: '1px solid var(--color-redwood-border)',
+                        borderRadius: 8,
+                        fontSize: 13,
+                        fontFamily: 'ui-monospace, monospace',
+                        background: 'var(--color-redwood-row-bg)',
+                        color: 'var(--color-redwood-text-main)',
+                        outline: 'none',
+                      }}
                     />
                     <button
                       type="button"
@@ -415,12 +1290,19 @@ export default function CreditNotes() {
                         );
                         setApplyAmount(Number(max.toFixed(2)));
                       }}
-                      className="px-4 py-3 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-black uppercase tracking-widest"
+                      style={{
+                        ...ghostBtn,
+                        padding: '12px 16px',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        letterSpacing: '.4px',
+                      }}
                     >
                       Apply Max
                     </button>
                   </div>
-                  <p className="text-[10px] text-gray-400 mt-2">
+                  <p style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)', marginTop: 8 }}>
                     Max allowed: ${Math.min(
                       applyingCN.remainingCredit,
                       Number(applyInvoices.find(i => String(i.id) === String(applyInvoiceId))?.remaining_balance ?? applyInvoices.find(i => String(i.id) === String(applyInvoiceId))?.grandTotal ?? 0)
@@ -430,31 +1312,73 @@ export default function CreditNotes() {
               )}
 
               {applyError && (
-                <div className="text-xs font-bold text-red-700 bg-red-50 border border-red-100 rounded-lg p-3">
+                <div
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: 'var(--color-brand-red-tint)',
+                    background: 'var(--color-badge-red-bg)',
+                    border: '1px solid rgba(239,68,68,.2)',
+                    borderRadius: 8,
+                    padding: 12,
+                  }}
+                >
                   {applyError}
                 </div>
               )}
 
-              <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-3">
+              <p
+                style={{
+                  fontSize: 10,
+                  color: 'var(--color-brand-amber-tint)',
+                  background: 'var(--color-badge-amber-bg)',
+                  border: '1px solid rgba(245,158,11,.28)',
+                  borderRadius: 8,
+                  padding: 12,
+                }}
+              >
                 ℹ️ This will record a ledger entry with payment method "Credit Note" linking the CN to the invoice. The invoice's outstanding balance will reduce by the amount applied.
               </p>
             </div>
 
-            <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex gap-3">
+            <div
+              className="px-6 py-4 flex gap-3"
+              style={{
+                background: 'var(--color-redwood-row-bg)',
+                borderTop: '1px solid var(--color-redwood-border)',
+              }}
+            >
               <button
                 onClick={() => setApplyingCN(null)}
                 disabled={applying}
-                className="flex-1 py-3 bg-white border border-gray-200 text-xs font-black uppercase tracking-widest text-gray-600 rounded-lg hover:bg-gray-100 disabled:opacity-50"
+                style={{
+                  ...ghostBtn,
+                  flex: 1,
+                  justifyContent: 'center',
+                  padding: '12px 16px',
+                  opacity: applying ? 0.5 : 1,
+                }}
               >
                 Cancel
               </button>
               <button
                 onClick={confirmApplyCredit}
                 disabled={applying || !applyInvoiceId || applyAmount <= 0}
-                className="flex-[2] py-3 text-white text-xs font-black uppercase tracking-widest rounded-lg shadow-lg hover:opacity-90 disabled:opacity-40"
-                style={{ background: THEME }}
+                style={{
+                  ...primaryBtn,
+                  flex: 2,
+                  justifyContent: 'center',
+                  padding: '12px 16px',
+                  opacity: applying || !applyInvoiceId || applyAmount <= 0 ? 0.4 : 1,
+                }}
               >
-                {applying ? 'Applying…' : 'Apply Credit'}
+                {applying ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" /> Applying…
+                  </>
+                ) : (
+                  'Apply Credit'
+                )}
               </button>
             </div>
           </div>
