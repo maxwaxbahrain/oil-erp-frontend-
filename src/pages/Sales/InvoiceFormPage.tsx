@@ -1566,7 +1566,6 @@ export default function InvoiceFormPage() {
                                 </div>
                             </div>
                         </div>
-                    </div>
                 {/* ── /RIGHT COLUMN ── */}
             </div>
         </div>
