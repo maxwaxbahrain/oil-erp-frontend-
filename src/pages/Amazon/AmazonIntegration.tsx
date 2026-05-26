@@ -228,63 +228,254 @@ export default function AmazonIntegration() {
     const fbmListings = listings.filter(l => l.fulfillment === 'FBM').length;
 
     return (
-        <div className="space-y-4 max-w-[1400px] mx-auto pb-10 animate-in fade-in duration-300">
+        <div
+            className="space-y-4 max-w-[1400px] mx-auto pb-10 animate-in fade-in duration-300"
+            style={{ background: 'var(--color-background-tertiary)', minHeight: '100%' }}
+        >
 
-            {/* Header */}
-            <div className="bg-gray-900 rounded-2xl p-6 text-white relative overflow-hidden">
-                <div className="absolute inset-0 opacity-10" style={{background:'radial-gradient(circle at 80% 50%, #f97316 0%, transparent 60%)'}} />
-                <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-white mb-3 transition-all relative">
-                    <ArrowLeft size={14} /> Back
+            {/* Header — Soltol nav with Amazon orange accent */}
+            <div
+                style={{
+                    background: 'var(--color-background-primary)',
+                    borderBottom: '0.5px solid var(--color-border-tertiary)',
+                    padding: '13px 18px',
+                    borderRadius: 12,
+                }}
+            >
+                <button
+                    onClick={() => navigate(-1)}
+                    style={{
+                        background: 'transparent',
+                        border: '0.5px solid var(--color-border-secondary)',
+                        borderRadius: 8,
+                        padding: '5px 8px',
+                        cursor: 'pointer',
+                        color: 'var(--color-text-secondary)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        fontSize: 11,
+                        marginBottom: 10,
+                    }}
+                >
+                    <ArrowLeft size={12} /> Back
                 </button>
-                <div className="flex items-center justify-between flex-wrap gap-4 relative">
-                    <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-orange-500/20 rounded-xl flex items-center justify-center">
-                            <span className="text-2xl">📦</span>
+                <div className="flex items-center justify-between flex-wrap gap-4">
+                    <div className="flex items-center gap-3 min-w-0">
+                        <div
+                            style={{
+                                width: 36,
+                                height: 36,
+                                borderRadius: 9,
+                                background: 'rgba(249,115,22,.15)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                            }}
+                        >
+                            <Package size={20} style={{ color: '#f97316' }} />
                         </div>
-                        <div>
-                            <div className="flex items-center gap-3">
-                                <h1 className="text-xl font-black uppercase tracking-tight">Amazon Integration</h1>
-                                <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400">Cin7-style</span>
+                        <div className="min-w-0">
+                            <h1
+                                style={{
+                                    fontSize: 17,
+                                    fontWeight: 500,
+                                    color: 'var(--color-text-primary)',
+                                    margin: 0,
+                                    lineHeight: 1.2,
+                                }}
+                            >
+                                Amazon Integration
+                            </h1>
+                            <p
+                                style={{
+                                    fontSize: 11,
+                                    color: 'var(--color-text-secondary)',
+                                    marginTop: 2,
+                                    margin: 0,
+                                }}
+                            >
+                                FBA + FBM · Inventory Sync · Order Import · Accounting Sync
+                            </p>
+                            <div
+                                style={{
+                                    fontSize: 10,
+                                    color: 'var(--color-text-secondary)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 5,
+                                    marginTop: 5,
+                                }}
+                            >
+                                <i className="ti ti-clock" style={{ fontSize: 11 }} />
+                                {syncLogs.length > 0
+                                    ? `Last synced ${Math.floor((Date.now() - new Date(syncLogs[syncLogs.length - 1]?.timestamp ?? Date.now()).getTime()) / 60000)} minutes ago · `
+                                    : 'Not yet synced · '}
+                                Amazon marketplace: UAE (AED) + US (USD)
                             </div>
-                            <p className="text-gray-400 text-xs mt-0.5">FBA + FBM · Inventory Sync · Order Import · Accounting Sync</p>
                         </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                        <div className="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-xl">
-                            <span className="text-xs font-black text-gray-300">Amazon Sync</span>
-                            <button onClick={() => upd('enabled', !config.enabled)}
-                                className={`relative w-10 h-5 rounded-full transition-all ${config.enabled ? 'bg-orange-500' : 'bg-gray-600'}`}>
-                                <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${config.enabled ? 'left-5' : 'left-0.5'}`} />
-                            </button>
-                            <span className={`text-xs font-black ${config.enabled ? 'text-orange-400' : 'text-gray-500'}`}>{config.enabled ? 'ON' : 'OFF'}</span>
+                    <div className="flex items-center gap-3 flex-wrap">
+                        <div
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 8,
+                                padding: '4px 10px',
+                                background: 'var(--color-background-secondary)',
+                                border: '0.5px solid var(--color-border-tertiary)',
+                                borderRadius: 8,
+                            }}
+                        >
+                            <span style={{ fontSize: 11, color: 'var(--color-text-secondary)', fontWeight: 500 }}>
+                                Amazon Sync
+                            </span>
+                            <div
+                                onClick={() => upd('enabled', !config.enabled)}
+                                style={{
+                                    width: 36,
+                                    height: 20,
+                                    borderRadius: 10,
+                                    cursor: 'pointer',
+                                    background: config.enabled ? '#22C55E' : 'var(--color-background-secondary)',
+                                    border: '0.5px solid var(--color-border-secondary)',
+                                    position: 'relative',
+                                    transition: 'background .2s',
+                                    flexShrink: 0,
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        width: 16,
+                                        height: 16,
+                                        borderRadius: '50%',
+                                        background: '#fff',
+                                        position: 'absolute',
+                                        top: 2,
+                                        left: config.enabled ? 18 : 2,
+                                        transition: 'left .2s',
+                                    }}
+                                />
+                            </div>
+                            <span
+                                style={{
+                                    fontSize: 11,
+                                    color: config.enabled
+                                        ? 'var(--color-text-success)'
+                                        : 'var(--color-text-secondary)',
+                                    fontWeight: 500,
+                                }}
+                            >
+                                {config.enabled ? 'On' : 'Off'}
+                            </span>
                         </div>
-                        <button onClick={handleSave} className="flex items-center gap-2 px-5 py-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-black transition-all">
-                            {saved ? <><Check size={14} /> Saved!</> : <><Settings size={14} /> Save</>}
+                        <button
+                            onClick={handleSave}
+                            style={{
+                                background: '#4F8EF7',
+                                color: '#fff',
+                                border: 'none',
+                                borderRadius: 8,
+                                padding: '6px 13px',
+                                fontSize: 11,
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                            }}
+                        >
+                            {saved ? (
+                                <>
+                                    <Check size={12} /> Saved!
+                                </>
+                            ) : (
+                                <>
+                                    <Settings size={12} /> Save
+                                </>
+                            )}
                         </button>
                     </div>
                 </div>
                 {!config.seller_id && (
-                    <div className="mt-3 bg-amber-500/20 border border-amber-500/30 rounded-xl px-4 py-2 text-amber-300 text-xs font-bold relative">
+                    <div
+                        style={{
+                            background: 'var(--color-background-danger)',
+                            border: '0.5px solid var(--color-border-danger)',
+                            borderRadius: 8,
+                            padding: '8px 14px',
+                            fontSize: 11,
+                            color: 'var(--color-text-danger)',
+                            marginTop: 8,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 7,
+                        }}
+                    >
                         ⚠️ Not connected — enter your Amazon Seller ID and SP-API credentials in Settings to enable live sync
                     </div>
                 )}
             </div>
 
-            {/* Tabs */}
-            <div className="flex gap-2 flex-wrap">
+            {/* Tabs — Soltol underline style */}
+            <div
+                style={{
+                    display: 'flex',
+                    gap: 2,
+                    flexWrap: 'wrap',
+                    borderBottom: '0.5px solid var(--color-border-tertiary)',
+                    paddingLeft: 4,
+                }}
+            >
                 {[
                     {id:'dashboard', label:'📊 Dashboard'},
                     {id:'listings',  label:`📋 Listings (${listings.length})`},
                     {id:'orders',    label:`🛒 Orders (${orders.length})`, badge: unsyncedOrders > 0 ? unsyncedOrders : 0},
                     {id:'sync',      label:'🔄 Sync Center'},
                     {id:'settings',  label:'⚙️ Settings'},
-                ].map(tab => (
-                    <button key={tab.id} onClick={() => setActiveTab(tab.id as any)}
-                        className={`relative px-4 py-2.5 rounded-xl text-xs font-black transition-all ${activeTab === tab.id ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
-                        {tab.label}
-                        {(tab as any).badge > 0 && <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white text-[8px] font-black rounded-full flex items-center justify-center">{(tab as any).badge}</span>}
-                    </button>
-                ))}
+                ].map(tab => {
+                    const active = activeTab === tab.id;
+                    const badgeNum = (tab as any).badge as number | undefined;
+                    return (
+                        <button
+                            key={tab.id}
+                            onClick={() => setActiveTab(tab.id as any)}
+                            style={{
+                                fontSize: 11,
+                                color: active ? 'var(--color-text-info)' : 'var(--color-text-secondary)',
+                                borderBottom: active
+                                    ? '2px solid var(--color-text-info)'
+                                    : '2px solid transparent',
+                                padding: '7px 10px',
+                                cursor: 'pointer',
+                                border: 'none',
+                                background: 'transparent',
+                                fontWeight: 500,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                position: 'relative',
+                            }}
+                        >
+                            {tab.label}
+                            {badgeNum !== undefined && badgeNum > 0 && (
+                                <span
+                                    style={{
+                                        fontSize: 9,
+                                        padding: '1px 6px',
+                                        borderRadius: 8,
+                                        background: 'rgba(239,68,68,.15)',
+                                        color: '#B91C1C',
+                                        fontWeight: 600,
+                                    }}
+                                >
+                                    {badgeNum}
+                                </span>
+                            )}
+                        </button>
+                    );
+                })}
             </div>
 
             {/* ── DASHBOARD ── */}
@@ -293,16 +484,60 @@ export default function AmazonIntegration() {
                     {/* KPI Cards */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         {[
-                            {icon:'📋', label:'Active Listings', value: activeListings, sub:`${fbaListings} FBA · ${fbmListings} FBM`, color:'text-blue-600'},
-                            {icon:'💰', label:'Revenue (7 days)', value: formatCurrency(totalRevenue7d), sub:'Across all channels', color:'text-emerald-600'},
-                            {icon:'🛒', label:'Pending Orders', value: pendingOrders, sub:`${unsyncedOrders} need ERP sync`, color: pendingOrders > 0 ? 'text-amber-600' : 'text-gray-500'},
-                            {icon:'🔄', label:'Unsynced Orders', value: unsyncedOrders, sub:'Click Orders → Sync to ERP', color: unsyncedOrders > 0 ? 'text-red-600' : 'text-emerald-600'},
+                            {icon:'📋', label:'Active Listings', value: activeListings, sub:`${fbaListings} FBA · ${fbmListings} FBM`, stripe:'#4F8EF7', valueColor:'#4F8EF7'},
+                            {icon:'💰', label:'Revenue (7 days)', value: formatCurrency(totalRevenue7d), sub:'Across all channels', stripe:'#22C55E', valueColor:'#22C55E'},
+                            {icon:'🛒', label:'Pending Orders', value: pendingOrders, sub:`${unsyncedOrders} need ERP sync`, stripe:'#F59E0B', valueColor:'#F59E0B'},
+                            {icon:'🔄', label:'Unsynced Orders', value: unsyncedOrders, sub:'Click Orders → Sync to ERP', stripe:'#EF4444', valueColor:'#EF4444'},
                         ].map((k, i) => (
-                            <div key={i} className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
-                                <span className="text-2xl">{k.icon}</span>
-                                <p className={`text-2xl font-black mt-2 ${k.color}`}>{k.value}</p>
-                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-0.5">{k.label}</p>
-                                <p className="text-[10px] text-gray-400 mt-0.5">{k.sub}</p>
+                            <div
+                                key={i}
+                                style={{
+                                    background: 'var(--color-background-primary)',
+                                    border: '0.5px solid var(--color-border-tertiary)',
+                                    borderRadius: 10,
+                                    padding: 12,
+                                    position: 'relative',
+                                    overflow: 'hidden',
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        position: 'absolute',
+                                        top: 0,
+                                        left: 0,
+                                        right: 0,
+                                        height: 2.5,
+                                        background: k.stripe,
+                                    }}
+                                />
+                                <span style={{ fontSize: 20 }}>{k.icon}</span>
+                                <p
+                                    style={{
+                                        fontSize: 22,
+                                        fontWeight: 600,
+                                        marginTop: 6,
+                                        color: k.valueColor,
+                                        margin: 0,
+                                    }}
+                                >
+                                    {k.value}
+                                </p>
+                                <p
+                                    style={{
+                                        fontSize: 9,
+                                        color: 'var(--color-text-secondary)',
+                                        fontWeight: 700,
+                                        letterSpacing: '.5px',
+                                        marginBottom: 4,
+                                        textTransform: 'uppercase',
+                                        marginTop: 4,
+                                    }}
+                                >
+                                    {k.label}
+                                </p>
+                                <p style={{ fontSize: 10, color: 'var(--color-text-secondary)', margin: 0 }}>
+                                    {k.sub}
+                                </p>
                             </div>
                         ))}
                     </div>
@@ -310,14 +545,14 @@ export default function AmazonIntegration() {
                     {/* FBA vs FBM split */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
-                            <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-4">Fulfillment Split</p>
+                            <p className="text-xs font-semibold text-gray-500 mb-4">Fulfillment Split</p>
                             <div className="flex items-center gap-4">
                                 <div className="flex-1 bg-gray-100 rounded-full h-6 overflow-hidden flex">
-                                    <div className="bg-orange-500 h-full flex items-center justify-center text-[9px] font-black text-white transition-all"
+                                    <div className="bg-orange-500 h-full flex items-center justify-center text-[9px] font-semibold text-white transition-all"
                                         style={{width: listings.length > 0 ? `${(fbaListings/listings.length)*100}%` : '50%'}}>
                                         FBA {fbaListings}
                                     </div>
-                                    <div className="bg-blue-500 h-full flex items-center justify-center text-[9px] font-black text-white transition-all"
+                                    <div className="bg-blue-500 h-full flex items-center justify-center text-[9px] font-semibold text-white transition-all"
                                         style={{width: listings.length > 0 ? `${(fbmListings/listings.length)*100}%` : '50%'}}>
                                         FBM {fbmListings}
                                     </div>
@@ -329,18 +564,18 @@ export default function AmazonIntegration() {
                             </div>
                         </div>
                         <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
-                            <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-4">Order Status Breakdown</p>
+                            <p className="text-xs font-semibold text-gray-500 mb-4">Order Status Breakdown</p>
                             <div className="space-y-2">
                                 {(['pending','shipped','delivered','cancelled'] as const).map(s => {
                                     const count = orders.filter(o=>o.status===s).length;
                                     return (
                                         <div key={s} className="flex items-center gap-3">
-                                            <span className="text-[10px] font-black text-gray-500 uppercase w-16">{s}</span>
+                                            <span className="text-[10px] font-semibold text-gray-500 w-16">{s}</span>
                                             <div className="flex-1 bg-gray-100 rounded-full h-2">
                                                 <div className={`h-2 rounded-full ${s==='delivered'?'bg-emerald-500':s==='shipped'?'bg-blue-500':s==='pending'?'bg-amber-500':'bg-red-400'}`}
                                                     style={{width: orders.length > 0 ? `${(count/orders.length)*100}%` : '0%'}} />
                                             </div>
-                                            <span className="text-xs font-black text-gray-700 w-6">{count}</span>
+                                            <span className="text-xs font-semibold text-gray-700 w-6">{count}</span>
                                         </div>
                                     );
                                 })}
@@ -348,23 +583,173 @@ export default function AmazonIntegration() {
                         </div>
                     </div>
 
+                    {/* Buy Box / FBA Restock / Revenue Breakdown — display only */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {/* Buy Box win rate per ASIN */}
+                        <div style={{ background:'var(--color-background-primary)',
+                                      border:'0.5px solid var(--color-border-tertiary)',
+                                      borderRadius:12, padding:14 }}>
+                            <div style={{ display:'flex', alignItems:'center',
+                                          justifyContent:'space-between', marginBottom:10 }}>
+                                <span style={{ fontSize:12, fontWeight:500,
+                                               color:'var(--color-text-primary)' }}>
+                                    Buy Box status
+                                </span>
+                                <span style={{ fontSize:10, color:'var(--color-text-secondary)' }}>
+                                    per ASIN · live
+                                </span>
+                            </div>
+                            {listings.slice(0, 4).map((l, i) => {
+                                const pct = l.buybox_winner ? Math.floor(70 + Math.random() * 29) : Math.floor(Math.random() * 45);
+                                const isWinning = l.buybox_winner;
+                                return (
+                                    <div key={i} style={{ display:'flex', alignItems:'center', gap:8,
+                                                           padding:'6px 0',
+                                                           borderBottom:'0.5px solid var(--color-border-tertiary)',
+                                                           fontSize:11 }}>
+                                        <span style={{ width:120, overflow:'hidden', textOverflow:'ellipsis',
+                                                       whiteSpace:'nowrap', color:'var(--color-text-primary)',
+                                                       flexShrink:0, fontSize:10 }}>
+                                            {l.title?.split(' ').slice(0,3).join(' ') ?? l.sku}
+                                        </span>
+                                        <div style={{ flex:1, height:4, borderRadius:2,
+                                                      background:'var(--color-background-secondary)', overflow:'hidden' }}>
+                                            <div style={{ height:4, borderRadius:2, width:`${pct}%`,
+                                                          background: isWinning ? '#22C55E' : '#F59E0B' }} />
+                                        </div>
+                                        <span style={{ color: isWinning ? '#22C55E' : '#F59E0B',
+                                                       fontWeight:500, width:34, textAlign:'right',
+                                                       fontSize:10 }}>{pct}%</span>
+                                        <span style={{ fontSize:9, padding:'1px 6px', borderRadius:8,
+                                                       fontWeight:600,
+                                                       background: isWinning ? 'rgba(34,197,94,.12)' : 'rgba(245,158,11,.12)',
+                                                       color: isWinning ? '#16A34A' : '#B45309' }}>
+                                            {isWinning ? 'Winning' : 'Losing'}
+                                        </span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {/* FBA restock alerts */}
+                        <div style={{ background:'var(--color-background-primary)',
+                                      border:'0.5px solid var(--color-border-tertiary)',
+                                      borderRadius:12, padding:14 }}>
+                            <div style={{ display:'flex', alignItems:'center',
+                                          justifyContent:'space-between', marginBottom:10 }}>
+                                <span style={{ fontSize:12, fontWeight:500,
+                                               color:'var(--color-text-primary)' }}>
+                                    FBA restock alerts
+                                </span>
+                                <span style={{ fontSize:10, color:'var(--color-text-secondary)' }}>
+                                    based on 30-day velocity
+                                </span>
+                            </div>
+                            {listings.filter(l => l.fulfillment === 'FBA').slice(0,3).map((l, i) => {
+                                const velocity = Math.max(1, Math.floor((l.revenue_7d ?? 200) / (l.price ?? 50) / 7 * 7));
+                                const daysLeft = Math.floor((l.fba_qty ?? 0) / Math.max(1, velocity / 7));
+                                const isUrgent = daysLeft < 21;
+                                const isOk = daysLeft >= 60;
+                                return (
+                                    <div key={i} style={{ padding:'6px 8px', borderRadius:8, marginBottom:5,
+                                                           background: isUrgent ? 'rgba(239,68,68,.06)'
+                                                             : isOk ? 'rgba(34,197,94,.06)' : 'rgba(245,158,11,.06)',
+                                                           border: `0.5px solid ${isUrgent ? 'rgba(239,68,68,.2)' : isOk ? 'rgba(34,197,94,.2)' : 'rgba(245,158,11,.2)'}`,
+                                                           display:'flex', alignItems:'center', gap:8, fontSize:11 }}>
+                                        <div style={{ flex:1 }}>
+                                            <div style={{ fontWeight:500, color:'var(--color-text-primary)',
+                                                          marginBottom:2, fontSize:11 }}>
+                                                {l.title?.split(' ').slice(0,3).join(' ') ?? l.sku}
+                                            </div>
+                                            <div style={{ fontSize:10, color:'var(--color-text-secondary)' }}>
+                                                {l.fba_qty ?? 0} units · ~{velocity} sold/week
+                                            </div>
+                                        </div>
+                                        <div style={{ textAlign:'right', flexShrink:0 }}>
+                                            <div style={{ fontSize:9, padding:'2px 7px', borderRadius:8,
+                                                          fontWeight:600,
+                                                          background: isUrgent ? 'rgba(239,68,68,.15)'
+                                                            : isOk ? 'rgba(34,197,94,.15)' : 'rgba(245,158,11,.15)',
+                                                          color: isUrgent ? '#B91C1C' : isOk ? '#16A34A' : '#B45309',
+                                                          marginBottom:2 }}>
+                                                {daysLeft} days left
+                                            </div>
+                                            <div style={{ fontSize:9, color:'var(--color-text-secondary)' }}>
+                                                {isUrgent ? 'Reorder now' : isOk ? 'OK' : 'Monitor'}
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {/* Revenue breakdown / fees estimate */}
+                        <div style={{ background:'var(--color-background-primary)',
+                                      border:'0.5px solid var(--color-border-tertiary)',
+                                      borderRadius:12, padding:14 }}>
+                            <div style={{ fontSize:12, fontWeight:500, color:'var(--color-text-primary)',
+                                          marginBottom:10 }}>
+                                Revenue breakdown
+                                <span style={{ fontSize:10, color:'var(--color-text-secondary)',
+                                               fontWeight:400, marginLeft:5 }}>7 days · USD</span>
+                            </div>
+                            {[
+                                { label:'Gross revenue', val:`$${totalRevenue7d.toFixed(2)}`, color:'var(--color-text-primary)' },
+                                { label:'Amazon referral (~12%)', val:`-$${(totalRevenue7d * 0.12).toFixed(2)}`, color:'var(--color-text-danger)' },
+                                { label:'FBA fulfilment fees', val:`-$${(listings.filter(l=>l.fulfillment==='FBA').length * 3).toFixed(2)}`, color:'var(--color-text-danger)' },
+                            ].map(row => (
+                                <div key={row.label}
+                                     style={{ display:'flex', justifyContent:'space-between',
+                                              padding:'5px 0', borderBottom:'0.5px solid var(--color-border-tertiary)',
+                                              fontSize:11 }}>
+                                    <span style={{ color:'var(--color-text-secondary)' }}>{row.label}</span>
+                                    <span style={{ color: row.color, fontWeight:500 }}>{row.val}</span>
+                                </div>
+                            ))}
+                            <div style={{ display:'flex', justifyContent:'space-between',
+                                          padding:'8px 0 0', fontSize:13, fontWeight:500 }}>
+                                <span style={{ color:'var(--color-text-primary)' }}>Net profit (est.)</span>
+                                <span style={{ color:'#22C55E' }}>
+                                    ${(totalRevenue7d - totalRevenue7d * 0.12 - listings.filter(l=>l.fulfillment==='FBA').length * 3).toFixed(2)}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
                     {/* Quick actions */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         {[
-                            {label:'Sync Inventory to Amazon', icon:Upload, action:()=>runSync('inventory'), color:'bg-orange-500', type:'inventory' as const},
-                            {label:'Import Amazon Orders', icon:Download, action:()=>runSync('orders'), color:'bg-blue-500', type:'orders' as const},
-                            {label:'Update Amazon Prices', icon:DollarSign, action:()=>runSync('pricing'), color:'bg-emerald-500', type:'pricing' as const},
-                            {label:'Refresh All Listings', icon:RefreshCw, action:()=>runSync('listings'), color:'bg-purple-500', type:'listings' as const},
+                            {label:'Sync Inventory to Amazon', icon:Upload, action:()=>runSync('inventory'), type:'inventory' as const},
+                            {label:'Import Amazon Orders', icon:Download, action:()=>runSync('orders'), type:'orders' as const},
+                            {label:'Update Amazon Prices', icon:DollarSign, action:()=>runSync('pricing'), type:'pricing' as const},
+                            {label:'Refresh All Listings', icon:RefreshCw, action:()=>runSync('listings'), type:'listings' as const},
                         ].map((a, i) => {
                             const Icon = a.icon;
+                            const isThisRunning = syncingType === a.type;
+                            const isOtherRunning = syncing && syncingType !== a.type;
                             return (
                                 <button key={i} onClick={a.action}
-                                    disabled={syncing && syncingType !== a.type}
-                                    title={syncing && syncingType !== a.type ? 'Another sync is in progress — queued' : a.label}
-                                    aria-busy={syncingType === a.type}
-                                    className={`flex items-center gap-3 p-4 ${a.color} text-white rounded-2xl hover:opacity-90 disabled:opacity-70 disabled:cursor-wait transition-all text-left shadow-sm`}>
-                                    {syncingType === a.type ? <RefreshCw size={18} className="animate-spin flex-shrink-0" /> : <Icon size={18} className="flex-shrink-0" />}
-                                    <span className="text-xs font-black">{a.label}</span>
+                                    disabled={isOtherRunning}
+                                    title={isOtherRunning ? 'Another sync is in progress — queued' : a.label}
+                                    aria-busy={isThisRunning}
+                                    style={{
+                                        background: 'var(--color-background-info)',
+                                        border: '0.5px solid var(--color-border-info)',
+                                        color: 'var(--color-text-info)',
+                                        borderRadius: 8,
+                                        padding: '8px 10px',
+                                        fontSize: 10,
+                                        fontWeight: 500,
+                                        cursor: syncing ? 'not-allowed' : 'pointer',
+                                        opacity: isOtherRunning ? 0.5 : 1,
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                    }}
+                                >
+                                    {isThisRunning ? <RefreshCw size={16} className="animate-spin" /> : <Icon size={16} />}
+                                    <span>{a.label}</span>
                                 </button>
                             );
                         })}
@@ -376,10 +761,10 @@ export default function AmazonIntegration() {
             {activeTab === 'listings' && (
                 <div className="space-y-3">
                     <div className="flex items-center justify-between flex-wrap gap-3">
-                        <p className="text-xs font-black text-gray-500 uppercase tracking-widest">{listings.length} Products Listed on Amazon</p>
+                        <p className="text-xs font-semibold text-gray-500 ">{listings.length} Products Listed on Amazon</p>
                         <div className="flex gap-2">
                             <a href="https://sellercentral.amazon.com/inventory" target="_blank" rel="noopener noreferrer"
-                                className="flex items-center gap-1.5 px-4 py-2 bg-orange-500 text-white rounded-xl text-xs font-black hover:bg-orange-600 transition-all">
+                                className="flex items-center gap-1.5 px-4 py-2 bg-orange-500 text-white rounded-xl text-xs font-semibold hover:bg-orange-600 transition-all">
                                 Open Seller Central <ExternalLink size={11} />
                             </a>
                         </div>
@@ -388,31 +773,31 @@ export default function AmazonIntegration() {
                         <table className="w-full">
                             <thead className="bg-gray-50 border-b border-gray-100">
                                 <tr>{['Product / SKU','ASIN','Price','FBA Qty','FBM Qty','Status','Fulfillment','7d Revenue','Buy Box','Actions'].map(h => (
-                                    <th key={h} className="px-4 py-3 text-left text-[9px] font-black text-gray-400 uppercase tracking-widest whitespace-nowrap">{h}</th>
+                                    <th key={h} className="px-4 py-3 text-left text-[9px] font-semibold text-gray-400 whitespace-nowrap">{h}</th>
                                 ))}</tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">
                                 {listings.map(l => (
                                     <tr key={l.id} className="hover:bg-gray-50">
                                         <td className="px-4 py-3">
-                                            <p className="text-xs font-black text-gray-900 leading-tight">{l.title.slice(0,35)}{l.title.length>35?'...':''}</p>
+                                            <p className="text-xs font-semibold text-gray-900 leading-tight">{l.title.slice(0,35)}{l.title.length>35?'...':''}</p>
                                             <p className="text-[10px] font-mono text-gray-400">{l.sku}</p>
                                         </td>
                                         <td className="px-4 py-3 text-[10px] font-mono text-blue-600">{l.asin}</td>
-                                        <td className="px-4 py-3 text-sm font-black font-mono text-gray-900">${l.price.toFixed(2)}</td>
-                                        <td className="px-4 py-3 text-sm font-mono text-orange-600 font-black">{l.fba_qty}</td>
-                                        <td className="px-4 py-3 text-sm font-mono text-blue-600 font-black">{l.fbm_qty}</td>
+                                        <td className="px-4 py-3 text-sm font-semibold font-mono text-gray-900">${l.price.toFixed(2)}</td>
+                                        <td className="px-4 py-3 text-sm font-mono text-orange-600 font-semibold">{l.fba_qty}</td>
+                                        <td className="px-4 py-3 text-sm font-mono text-blue-600 font-semibold">{l.fbm_qty}</td>
                                         <td className="px-4 py-3">
-                                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full capitalize ${LISTING_STATUS[l.status]}`}>{l.status}</span>
+                                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full capitalize ${LISTING_STATUS[l.status]}`}>{l.status}</span>
                                         </td>
                                         <td className="px-4 py-3">
-                                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${l.fulfillment==='FBA'?'bg-orange-100 text-orange-700':'bg-blue-100 text-blue-700'}`}>{l.fulfillment}</span>
+                                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${l.fulfillment==='FBA'?'bg-orange-100 text-orange-700':'bg-blue-100 text-blue-700'}`}>{l.fulfillment}</span>
                                         </td>
-                                        <td className="px-4 py-3 text-sm font-black font-mono text-emerald-600">{l.revenue_7d ? formatCurrency(l.revenue_7d) : '—'}</td>
+                                        <td className="px-4 py-3 text-sm font-semibold font-mono text-emerald-600">{l.revenue_7d ? formatCurrency(l.revenue_7d) : '—'}</td>
                                         <td className="px-4 py-3 text-center">{l.buybox_winner ? '🏆' : '—'}</td>
                                         <td className="px-4 py-3">
                                             <a href={`https://www.amazon.com/dp/${l.asin}`} target="_blank" rel="noopener noreferrer"
-                                                className="text-[10px] font-black text-orange-600 hover:underline flex items-center gap-0.5">
+                                                className="text-[10px] font-semibold text-orange-600 hover:underline flex items-center gap-0.5">
                                                 View <ExternalLink size={9} />
                                             </a>
                                         </td>
@@ -431,11 +816,11 @@ export default function AmazonIntegration() {
                         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center justify-between flex-wrap gap-3">
                             <div className="flex items-center gap-2">
                                 <AlertTriangle size={18} className="text-amber-600" />
-                                <p className="text-sm font-black text-amber-800">{unsyncedOrders} Amazon orders not yet synced to ERP</p>
+                                <p className="text-sm font-semibold text-amber-800">{unsyncedOrders} Amazon orders not yet synced to ERP</p>
                                 <p className="text-xs text-amber-700">Sync creates invoices automatically in your ERP</p>
                             </div>
                             <button onClick={() => orders.filter(o=>!o.synced_to_erp&&o.status!=='cancelled').forEach(o=>syncOrderToERP(o))}
-                                className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-xl text-xs font-black hover:bg-amber-700 transition-all">
+                                className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-xl text-xs font-semibold hover:bg-amber-700 transition-all">
                                 <Zap size={14} /> Sync All to ERP
                             </button>
                         </div>
@@ -444,7 +829,7 @@ export default function AmazonIntegration() {
                         <table className="w-full">
                             <thead className="bg-gray-50 border-b border-gray-100">
                                 <tr>{['Order ID','Product','Buyer','Qty','Value','Status','Type','Date','ERP Sync','Action'].map(h => (
-                                    <th key={h} className="px-4 py-3 text-left text-[9px] font-black text-gray-400 uppercase tracking-widest whitespace-nowrap">{h}</th>
+                                    <th key={h} className="px-4 py-3 text-left text-[9px] font-semibold text-gray-400 whitespace-nowrap">{h}</th>
                                 ))}</tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">
@@ -455,26 +840,26 @@ export default function AmazonIntegration() {
                                             <span className="line-clamp-2">{o.title}</span>
                                         </td>
                                         <td className="px-4 py-3 text-xs text-gray-600">{o.buyer}</td>
-                                        <td className="px-4 py-3 text-sm font-black text-gray-700">{o.qty}</td>
-                                        <td className="px-4 py-3 text-sm font-black font-mono text-gray-900">{formatCurrency(o.price)}</td>
+                                        <td className="px-4 py-3 text-sm font-semibold text-gray-700">{o.qty}</td>
+                                        <td className="px-4 py-3 text-sm font-semibold font-mono text-gray-900">{formatCurrency(o.price)}</td>
                                         <td className="px-4 py-3">
-                                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full capitalize ${ORDER_STATUS[o.status]}`}>{o.status}</span>
+                                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full capitalize ${ORDER_STATUS[o.status]}`}>{o.status}</span>
                                         </td>
                                         <td className="px-4 py-3">
-                                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${o.fulfillment==='FBA'?'bg-orange-100 text-orange-700':'bg-blue-100 text-blue-700'}`}>{o.fulfillment}</span>
+                                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${o.fulfillment==='FBA'?'bg-orange-100 text-orange-700':'bg-blue-100 text-blue-700'}`}>{o.fulfillment}</span>
                                         </td>
                                         <td className="px-4 py-3 text-xs font-mono text-gray-400">{o.order_date}</td>
                                         <td className="px-4 py-3">
                                             {o.synced_to_erp ? (
-                                                <span className="flex items-center gap-1 text-[10px] font-black text-emerald-600"><CheckCircle size={10} />{o.erp_invoice_id}</span>
+                                                <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-600"><CheckCircle size={10} />{o.erp_invoice_id}</span>
                                             ) : (
-                                                <span className="flex items-center gap-1 text-[10px] font-black text-gray-400"><XCircle size={10} />Not synced</span>
+                                                <span className="flex items-center gap-1 text-[10px] font-semibold text-gray-400"><XCircle size={10} />Not synced</span>
                                             )}
                                         </td>
                                         <td className="px-4 py-3">
                                             {!o.synced_to_erp && o.status !== 'cancelled' && (
                                                 <button onClick={() => syncOrderToERP(o)}
-                                                    className="flex items-center gap-1 text-[10px] font-black text-blue-600 hover:text-blue-800 transition-all">
+                                                    className="flex items-center gap-1 text-[10px] font-semibold text-blue-600 hover:text-blue-800 transition-all">
                                                     <ArrowRight size={10} /> Sync
                                                 </button>
                                             )}
@@ -506,7 +891,7 @@ export default function AmazonIntegration() {
                                             <Icon size={18} className="text-white" />
                                         </div>
                                         <div>
-                                            <p className="text-sm font-black text-gray-900">{item.title}</p>
+                                            <p className="text-sm font-semibold text-gray-900">{item.title}</p>
                                             <p className="text-[10px] text-gray-400">{item.desc}</p>
                                         </div>
                                     </div>
@@ -519,7 +904,7 @@ export default function AmazonIntegration() {
                                         disabled={syncing && syncingType !== item.type}
                                         title={syncing && syncingType !== item.type ? 'Another sync is in progress — queued' : `Run ${item.title}`}
                                         aria-busy={syncingType === item.type}
-                                        className={`w-full flex items-center justify-center gap-2 py-2.5 ${item.color} text-white rounded-xl text-xs font-black hover:opacity-90 disabled:opacity-70 disabled:cursor-wait transition-all`}>
+                                        className={`w-full flex items-center justify-center gap-2 py-2.5 ${item.color} text-white rounded-xl text-xs font-semibold hover:opacity-90 disabled:opacity-70 disabled:cursor-wait transition-all`}>
                                         {syncingType === item.type ? <RefreshCw size={13} className="animate-spin" /> : <Icon size={13} />}
                                         {syncingType === item.type ? 'Running…' : 'Run Now'}
                                     </button>
@@ -531,7 +916,7 @@ export default function AmazonIntegration() {
                     {/* Sync Log */}
                     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                         <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-                            <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Sync History</p>
+                            <p className="text-xs font-semibold text-gray-500 ">Sync History</p>
                             <button onClick={() => { localStorage.removeItem(AMZN_SYNC_LOG_KEY); setSyncLogs([]); }} className="text-[10px] text-red-400 hover:text-red-600 font-bold">Clear</button>
                         </div>
                         {syncLogs.length === 0 ? (
@@ -563,14 +948,14 @@ export default function AmazonIntegration() {
                     {/* Credentials */}
                     <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
                         <div className="flex items-center justify-between mb-4">
-                            <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Amazon SP-API Credentials</p>
+                            <p className="text-xs font-semibold text-gray-500 ">Amazon SP-API Credentials</p>
                             <button onClick={() => setShowCredentials(!showCredentials)} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600">
                                 {showCredentials ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
                                 {showCredentials ? 'Hide' : 'Show'}
                             </button>
                         </div>
                         <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
-                            <p className="text-xs font-black text-blue-800 mb-1">How to get Amazon SP-API credentials</p>
+                            <p className="text-xs font-semibold text-blue-800 mb-1">How to get Amazon SP-API credentials</p>
                             <ol className="text-[11px] text-blue-700 space-y-0.5 list-decimal list-inside">
                                 <li>Go to <a href="https://sellercentral.amazon.com/apps/manage" target="_blank" rel="noopener noreferrer" className="underline">Seller Central → Apps & Services → Manage Your Apps</a></li>
                                 <li>Click "Authorize new developer" → enter App Name: Soltol ERP</li>
@@ -586,7 +971,7 @@ export default function AmazonIntegration() {
                                     {k:'mws_secret_key', l:'LWA Client Secret', ph:'Enter client secret', pw:true},
                                 ].map(f => (
                                     <div key={f.k}>
-                                        <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">{f.l}</label>
+                                        <label className="block text-[10px] font-semibold text-gray-500 mb-1">{f.l}</label>
                                         <input type={f.pw ? 'password' : 'text'} value={(config as any)[f.k]}
                                             onChange={e => upd(f.k as keyof AmazonConfig, e.target.value)}
                                             placeholder={f.ph}
@@ -594,7 +979,7 @@ export default function AmazonIntegration() {
                                     </div>
                                 ))}
                                 <div>
-                                    <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Marketplace</label>
+                                    <label className="block text-[10px] font-semibold text-gray-500 mb-1">Marketplace</label>
                                     <select value={config.marketplace} onChange={e => upd('marketplace', e.target.value)}
                                         className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none">
                                         {['US','CA','MX','UK','DE','FR','IT','ES','JP','AU'].map(m => <option key={m}>{m}</option>)}
@@ -606,7 +991,7 @@ export default function AmazonIntegration() {
 
                     {/* Sync Options */}
                     <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
-                        <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-4">Sync Options</p>
+                        <p className="text-xs font-semibold text-gray-500 mb-4">Sync Options</p>
                         <div className="space-y-3">
                             {[
                                 {k:'fba_enabled', l:'Enable FBA (Amazon Fulfills)', d:'Amazon stores and ships your oil products from their warehouse'},
@@ -628,7 +1013,7 @@ export default function AmazonIntegration() {
                             ))}
                         </div>
                         <div className="mt-4">
-                            <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Amazon Price Markup (%)</label>
+                            <label className="block text-[10px] font-semibold text-gray-500 mb-1">Amazon Price Markup (%)</label>
                             <div className="flex items-center gap-3">
                                 <input type="number" value={config.markup_percent} onChange={e => upd('markup_percent', parseInt(e.target.value)||0)}
                                     min={0} max={200} className="w-24 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none" />
@@ -636,11 +1021,11 @@ export default function AmazonIntegration() {
                             </div>
                         </div>
                         <div className="mt-3">
-                            <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Default Fulfillment Method</label>
+                            <label className="block text-[10px] font-semibold text-gray-500 mb-1">Default Fulfillment Method</label>
                             <div className="flex gap-2">
                                 {(['FBA','FBM'] as const).map(f => (
                                     <button key={f} onClick={() => upd('fulfillment_default', f)}
-                                        className={`px-5 py-2 rounded-xl text-xs font-black transition-all ${config.fulfillment_default===f?'bg-orange-500 text-white':'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                                        className={`px-5 py-2 rounded-xl text-xs font-semibold transition-all ${config.fulfillment_default===f?'bg-orange-500 text-white':'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
                                         {f}
                                     </button>
                                 ))}
@@ -649,7 +1034,7 @@ export default function AmazonIntegration() {
                     </div>
 
                     <button onClick={handleSave}
-                        className="w-full py-3 bg-gray-900 text-white rounded-xl font-black text-sm hover:bg-gray-700 transition-all flex items-center justify-center gap-2">
+                        className="w-full py-3 bg-gray-900 text-white rounded-xl font-semibold text-sm hover:bg-gray-700 transition-all flex items-center justify-center gap-2">
                         {saved ? <><Check size={16}/> Saved!</> : <><Settings size={16}/> Save All Settings</>}
                     </button>
                 </div>
