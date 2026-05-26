@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     ArrowLeft, RefreshCw, Check, ExternalLink, AlertTriangle,
     Package, ShoppingCart, Zap, Download, Upload,
     DollarSign, Settings, ChevronDown, ChevronUp,
-    CheckCircle, XCircle, ArrowRight
+    CheckCircle, XCircle, ArrowRight, Search
 } from 'lucide-react';
 import { getProducts } from '../../services/productService';
 
@@ -114,12 +114,12 @@ const LISTING_STATUS_STYLE: Record<string, { background: string; color: string }
     suppressed: { background: 'var(--color-background-danger)',    color: 'var(--color-text-danger)'    },
     pending:    { background: 'var(--color-background-warning)',   color: 'var(--color-text-warning)'   },
 };
-const ORDER_STATUS: Record<string, string> = {
-    pending:   'bg-amber-100 text-amber-700',
-    shipped:   'bg-blue-100 text-blue-700',
-    delivered: 'bg-emerald-100 text-emerald-700',
-    cancelled: 'bg-red-100 text-red-600',
-    refunded:  'bg-purple-100 text-purple-700',
+const ORDER_STATUS_STYLE: Record<string, CSSProperties> = {
+    pending:   { background: 'var(--color-background-warning)', color: 'var(--color-text-warning)' },
+    shipped:   { background: 'var(--color-background-info)',    color: 'var(--color-text-info)'    },
+    delivered: { background: 'var(--color-background-success)', color: 'var(--color-text-success)' },
+    cancelled: { background: 'var(--color-background-danger)',  color: 'var(--color-text-danger)'  },
+    refunded:  { background: 'rgba(124,58,237,.12)',            color: '#7C3AED'                   },
 };
 
 // ── Mock data generator ───────────────────────────────────────
@@ -174,6 +174,10 @@ export default function AmazonIntegration() {
     const [syncingType, setSyncingType] = useState<string>('');
     const [saved, setSaved] = useState(false);
     const [showCredentials, setShowCredentials] = useState(false);
+    const [orderSearch, setOrderSearch] = useState('');
+    const [orderStatusFilter, setOrderStatusFilter] = useState('');
+    const [orderTypeFilter, setOrderTypeFilter] = useState('');
+    const [orderSort, setOrderSort] = useState<'date_desc' | 'date_asc' | 'value_desc'>('date_desc');
 
     useEffect(() => {
         // Clear stale listings cached with the old static-ASIN generator so unique
@@ -225,6 +229,28 @@ export default function AmazonIntegration() {
         localStorage.setItem(AMZN_ORDERS_KEY, JSON.stringify(updated));
         setOrders(updated);
     };
+
+    // Orders search + filter + sort (display-only — does not mutate `orders` state)
+    const displayedOrders = useMemo(() => {
+        let result = [...orders];
+        if (orderSearch) {
+            const q = orderSearch.toLowerCase();
+            result = result.filter(o =>
+                o.order_id.toLowerCase().includes(q) ||
+                o.title.toLowerCase().includes(q) ||
+                o.buyer.toLowerCase().includes(q)
+            );
+        }
+        if (orderStatusFilter) result = result.filter(o => o.status === orderStatusFilter);
+        if (orderTypeFilter)   result = result.filter(o => o.fulfillment === orderTypeFilter);
+        result.sort((a, b) => {
+            if (orderSort === 'value_desc') return (b.price * b.qty) - (a.price * a.qty);
+            if (orderSort === 'date_asc')
+                return new Date(a.order_date).getTime() - new Date(b.order_date).getTime();
+            return new Date(b.order_date).getTime() - new Date(a.order_date).getTime();
+        });
+        return result;
+    }, [orders, orderSearch, orderStatusFilter, orderTypeFilter, orderSort]);
 
     // KPIs
     const activeListings = listings.filter(l => l.status === 'active').length;
@@ -856,60 +882,250 @@ export default function AmazonIntegration() {
             {activeTab === 'orders' && (
                 <div className="space-y-3">
                     {unsyncedOrders > 0 && (
-                        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center justify-between flex-wrap gap-3">
+                        <div
+                            style={{
+                                background: 'var(--color-background-warning)',
+                                border: '0.5px solid var(--color-border-warning)',
+                                borderRadius: 10,
+                                padding: '9px 14px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                flexWrap: 'wrap',
+                                gap: 10,
+                                marginBottom: 10,
+                            }}
+                        >
                             <div className="flex items-center gap-2">
-                                <AlertTriangle size={18} className="text-amber-600" />
-                                <p className="text-sm font-semibold text-amber-800">{unsyncedOrders} Amazon orders not yet synced to ERP</p>
-                                <p className="text-xs text-amber-700">Sync creates invoices automatically in your ERP</p>
+                                <AlertTriangle size={18} style={{ color: 'var(--color-text-warning)' }} />
+                                <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-warning)', margin: 0 }}>
+                                    {unsyncedOrders} Amazon orders not yet synced to ERP
+                                </p>
+                                <p style={{ fontSize: 10, color: 'var(--color-text-warning)', opacity: 0.8, margin: 0 }}>
+                                    Sync creates invoices automatically in your ERP
+                                </p>
                             </div>
-                            <button onClick={() => orders.filter(o=>!o.synced_to_erp&&o.status!=='cancelled').forEach(o=>syncOrderToERP(o))}
-                                className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-xl text-xs font-semibold hover:bg-amber-700 transition-all">
+                            <button
+                                onClick={() => {
+                                    const updated = orders.map(o =>
+                                        (!o.synced_to_erp && o.status !== 'cancelled')
+                                            ? { ...o, synced_to_erp: true,
+                                                erp_invoice_id: `INV-AMZ-${o.order_id.slice(-6)}` }
+                                            : o
+                                    );
+                                    localStorage.setItem('bettano_amazon_orders', JSON.stringify(updated));
+                                    setOrders(updated);
+                                }}
+                                style={{
+                                    background: '#4F8EF7',
+                                    color: '#fff',
+                                    border: 'none',
+                                    borderRadius: 8,
+                                    padding: '6px 13px',
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 5,
+                                }}
+                            >
                                 <Zap size={14} /> Sync All to ERP
                             </button>
                         </div>
                     )}
-                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+
+                    {/* Search + filter bar */}
+                    <div style={{ display:'flex', gap:7, padding:'10px 0 10px', alignItems:'center', flexWrap:'wrap' }}>
+                        <div style={{ flex:1, minWidth:140, height:30,
+                                      background:'var(--color-background-secondary)',
+                                      border:'0.5px solid var(--color-border-secondary)',
+                                      borderRadius:7, display:'flex', alignItems:'center',
+                                      padding:'0 9px', gap:6, fontSize:11, color:'var(--color-text-secondary)' }}>
+                            <Search size={12} />
+                            <input
+                                type="text"
+                                value={orderSearch}
+                                onChange={e => setOrderSearch(e.target.value)}
+                                placeholder="Search by order ID, product, or buyer..."
+                                style={{ background:'transparent', border:'none', outline:'none',
+                                         color:'var(--color-text-primary)', fontSize:11, width:'100%' }}
+                            />
+                            {orderSearch && (
+                                <span onClick={() => setOrderSearch('')}
+                                      style={{ cursor:'pointer', fontSize:13, color:'var(--color-text-secondary)' }}>×</span>
+                            )}
+                        </div>
+                        {['','pending','shipped','delivered','cancelled'].map(s => (
+                            <button key={s || 'all'}
+                                onClick={() => setOrderStatusFilter(s)}
+                                style={{
+                                    fontSize: 10, padding: '3px 9px', borderRadius: 20, cursor: 'pointer',
+                                    border: '0.5px solid',
+                                    borderColor: orderStatusFilter === s ? 'var(--color-border-info)' : 'var(--color-border-tertiary)',
+                                    background: orderStatusFilter === s ? 'var(--color-background-info)' : 'var(--color-background-secondary)',
+                                    color: orderStatusFilter === s ? 'var(--color-text-info)' : 'var(--color-text-secondary)',
+                                }}>
+                                {s === '' ? `All (${orders.length})` : `${s.charAt(0).toUpperCase() + s.slice(1)}`}
+                            </button>
+                        ))}
+                        <select
+                            value={orderTypeFilter}
+                            onChange={e => setOrderTypeFilter(e.target.value)}
+                            style={{ height:30, background:'var(--color-background-secondary)',
+                                     border:'0.5px solid var(--color-border-secondary)',
+                                     borderRadius:7, padding:'0 7px', fontSize:11,
+                                     color:'var(--color-text-secondary)' }}>
+                            <option value="">All types</option>
+                            <option value="FBA">FBA only</option>
+                            <option value="FBM">FBM only</option>
+                        </select>
+                        <select
+                            value={orderSort}
+                            onChange={e => setOrderSort(e.target.value as typeof orderSort)}
+                            style={{ height:30, background:'var(--color-background-secondary)',
+                                     border:'0.5px solid var(--color-border-secondary)',
+                                     borderRadius:7, padding:'0 7px', fontSize:11,
+                                     color:'var(--color-text-secondary)' }}>
+                            <option value="date_desc">Newest first</option>
+                            <option value="date_asc">Oldest first</option>
+                            <option value="value_desc">Highest value</option>
+                        </select>
+                    </div>
+
+                    <div style={{
+                        background: 'var(--color-background-primary)',
+                        border: '0.5px solid var(--color-border-tertiary)',
+                        borderRadius: 12,
+                        overflow: 'hidden',
+                    }}>
                         <table className="w-full">
-                            <thead className="bg-gray-50 border-b border-gray-100">
+                            <thead style={{ background: 'var(--color-background-secondary)',
+                                            borderBottom: '0.5px solid var(--color-border-tertiary)' }}>
                                 <tr>{['Order ID','Product','Buyer','Qty','Value','Status','Type','Date','ERP Sync','Action'].map(h => (
-                                    <th key={h} className="px-4 py-3 text-left text-[9px] font-semibold text-gray-400 whitespace-nowrap">{h}</th>
+                                    <th key={h}
+                                        className="px-4 py-3 text-left text-[9px] font-semibold whitespace-nowrap"
+                                        style={{ color: 'var(--color-text-secondary)' }}>
+                                        {h}
+                                    </th>
                                 ))}</tr>
                             </thead>
-                            <tbody className="divide-y divide-gray-50">
-                                {orders.map(o => (
-                                    <tr key={o.id} className="hover:bg-gray-50">
-                                        <td className="px-4 py-3 font-mono text-[10px] text-gray-700 font-bold">{o.order_id}</td>
-                                        <td className="px-4 py-3 text-xs font-bold text-gray-900 max-w-[150px]">
+                            <tbody style={{ borderTop: 'none' }}>
+                                {displayedOrders.map(o => (
+                                    <tr
+                                        key={o.id}
+                                        style={{ opacity: o.status === 'cancelled' ? 0.55 : 1 }}
+                                        onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-background-secondary)'; }}
+                                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                                    >
+                                        <td className="px-4 py-3"
+                                            style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 500 }}>
+                                            {o.order_id}
+                                        </td>
+                                        <td className="px-4 py-3 text-xs max-w-[150px]"
+                                            style={{ color: 'var(--color-text-primary)', fontWeight: 500 }}>
                                             <span className="line-clamp-2">{o.title}</span>
                                         </td>
-                                        <td className="px-4 py-3 text-xs text-gray-600">{o.buyer}</td>
-                                        <td className="px-4 py-3 text-sm font-semibold text-gray-700">{o.qty}</td>
-                                        <td className="px-4 py-3 text-sm font-semibold font-mono text-gray-900">{fmtUSD(o.price)}</td>
-                                        <td className="px-4 py-3">
-                                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full capitalize ${ORDER_STATUS[o.status]}`}>{o.status}</span>
+                                        <td className="px-4 py-3 text-xs"
+                                            style={{ color: 'var(--color-text-secondary)' }}>
+                                            {o.buyer}
+                                        </td>
+                                        <td className="px-4 py-3 text-sm"
+                                            style={{ color: 'var(--color-text-primary)', fontWeight: 500 }}>
+                                            {o.qty}
+                                        </td>
+                                        <td className="px-4 py-3 text-sm font-mono"
+                                            style={{ color: 'var(--color-text-primary)', fontWeight: 500 }}>
+                                            {fmtUSD(o.price)}
                                         </td>
                                         <td className="px-4 py-3">
-                                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${o.fulfillment==='FBA'?'bg-orange-100 text-orange-700':'bg-blue-100 text-blue-700'}`}>{o.fulfillment}</span>
+                                            <span style={{
+                                                fontSize: 9, fontWeight: 600, padding: '2px 7px', borderRadius: 20,
+                                                display: 'inline-block', textTransform: 'capitalize',
+                                                ...(ORDER_STATUS_STYLE[o.status] ?? { background: 'var(--color-background-secondary)', color: 'var(--color-text-secondary)' })
+                                            }}>
+                                                {o.status}
+                                            </span>
                                         </td>
-                                        <td className="px-4 py-3 text-xs font-mono text-gray-400">{o.order_date}</td>
+                                        <td className="px-4 py-3">
+                                            <span style={o.fulfillment === 'FBA'
+                                                ? { background: 'rgba(249,115,22,.15)', color: '#EA580C',
+                                                    fontSize: 9, fontWeight: 600, padding: '2px 7px', borderRadius: 20 }
+                                                : { background: 'var(--color-background-info)', color: 'var(--color-text-info)',
+                                                    fontSize: 9, fontWeight: 600, padding: '2px 7px', borderRadius: 20 }
+                                            }>
+                                                {o.fulfillment}
+                                            </span>
+                                        </td>
+                                        <td className="px-4 py-3 font-mono"
+                                            style={{ color: 'var(--color-text-secondary)', fontSize: 10 }}>
+                                            {o.order_date}
+                                        </td>
                                         <td className="px-4 py-3">
                                             {o.synced_to_erp ? (
-                                                <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-600"><CheckCircle size={10} />{o.erp_invoice_id}</span>
+                                                <span className="flex items-center gap-1 text-[10px] font-semibold"
+                                                      style={{ color: 'var(--color-text-success)' }}>
+                                                    <CheckCircle size={10} />{o.erp_invoice_id}
+                                                </span>
                                             ) : (
-                                                <span className="flex items-center gap-1 text-[10px] font-semibold text-gray-400"><XCircle size={10} />Not synced</span>
+                                                <span className="flex items-center gap-1 text-[10px] font-semibold"
+                                                      style={{ color: 'var(--color-text-secondary)' }}>
+                                                    <XCircle size={10} />Not synced
+                                                </span>
                                             )}
                                         </td>
-                                        <td className="px-4 py-3">
-                                            {!o.synced_to_erp && o.status !== 'cancelled' && (
-                                                <button onClick={() => syncOrderToERP(o)}
-                                                    className="flex items-center gap-1 text-[10px] font-semibold text-blue-600 hover:text-blue-800 transition-all">
+                                        <td style={{ padding: '8px 10px' }}>
+                                            {o.status === 'cancelled' && o.erp_invoice_id ? (
+                                                <span style={{ fontSize: 9, padding: '2px 7px', borderRadius: 6,
+                                                               background: 'var(--color-background-danger)',
+                                                               color: 'var(--color-text-danger)',
+                                                               border: '0.5px solid var(--color-border-danger)',
+                                                               cursor: 'pointer', fontWeight: 500 }}>
+                                                    Void {o.erp_invoice_id}
+                                                </span>
+                                            ) : !o.synced_to_erp && o.status !== 'cancelled' ? (
+                                                <button
+                                                    onClick={() => syncOrderToERP(o)}
+                                                    style={{ background:'var(--color-background-info)',
+                                                             border:'0.5px solid var(--color-border-info)',
+                                                             color:'var(--color-text-info)', borderRadius:6,
+                                                             padding:'3px 8px', fontSize:10, fontWeight:500,
+                                                             cursor:'pointer', display:'flex', alignItems:'center', gap:3 }}>
                                                     <ArrowRight size={10} /> Sync
                                                 </button>
-                                            )}
+                                            ) : null}
                                         </td>
                                     </tr>
                                 ))}
                             </tbody>
+                            <tfoot>
+                                <tr style={{ background:'var(--color-background-secondary)',
+                                             borderTop:'0.5px solid var(--color-border-secondary)' }}>
+                                    <td colSpan={3}
+                                        style={{ padding:'8px 10px', fontSize:11,
+                                                 color:'var(--color-text-secondary)' }}>
+                                        Showing {displayedOrders.length} of {orders.length} orders ·{' '}
+                                        {orders.filter(o => o.synced_to_erp).length} synced ·{' '}
+                                        {unsyncedOrders} pending sync
+                                    </td>
+                                    <td style={{ padding:'8px 10px', fontWeight:500,
+                                                 color:'var(--color-text-primary)' }}>
+                                        {displayedOrders.filter(o=>o.status!=='cancelled').reduce((s,o)=>s+o.qty,0)}
+                                    </td>
+                                    <td style={{ padding:'8px 10px', fontWeight:500,
+                                                 color:'var(--color-text-success)' }}>
+                                        ${displayedOrders
+                                            .filter(o => o.status !== 'cancelled')
+                                            .reduce((s, o) => s + o.price * o.qty, 0)
+                                            .toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 })}
+                                    </td>
+                                    <td colSpan={5}
+                                        style={{ padding:'8px 10px', fontSize:10,
+                                                 color:'var(--color-text-secondary)', textAlign:'right' }}>
+                                        Total value shown · excl. cancelled
+                                    </td>
+                                </tr>
+                            </tfoot>
                         </table>
                     </div>
                 </div>
