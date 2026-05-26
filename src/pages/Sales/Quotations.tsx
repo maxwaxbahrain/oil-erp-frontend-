@@ -3,12 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { FileText, Plus, Search, RefreshCw, ChevronDown } from 'lucide-react';
 import { getSalesOrders, hydrateSalesOrdersWithCustomers, type SalesOrder } from '../../services/salesService';
 
-const THEME_PRIMARY = '#4F8EF7';
-const PAGE_BG = '#EEF1F6';
-const CARD_BG = '#FFFFFF';
-const BORDER = '#E2E8F0';
-const TEXT_PRIMARY = '#0F172A';
-const TEXT_SECONDARY = '#64748B';
+/* ── Shared style tokens — mirror SalesDashboard / theme.css redwood tokens ── */
+const panelStyle: CSSProperties = {
+    background: 'var(--color-redwood-bg-surface)',
+    border: '1px solid var(--color-redwood-border)',
+    borderRadius: '14px',
+    padding: '14px 16px',
+};
 
 type StatusFilter = 'All' | 'draft' | 'confirmed' | 'delivered' | 'invoiced' | 'cancelled';
 type SortOrder = 'newest' | 'oldest';
@@ -110,18 +111,38 @@ export default function Quotations() {
     const STATUS_BADGE = (status: string) => {
         const s = (status ?? '').toLowerCase();
         const styles: Record<string, CSSProperties> = {
-            draft: { background: '#F1F5F9', color: '#475569' },
-            confirmed: { background: '#DBEAFE', color: '#1D4ED8' },
-            delivered: { background: '#DCFCE7', color: '#15803D' },
-            invoiced: { background: '#EDE9FE', color: '#7C3AED' },
-            cancelled: { background: '#FEE2E2', color: '#B91C1C' },
+            draft: {
+                background: 'var(--color-redwood-row-bg)',
+                color: 'var(--color-redwood-text-muted)',
+                border: '1px solid var(--color-redwood-border)',
+            },
+            confirmed: {
+                background: 'var(--color-badge-blue-bg)',
+                color: 'var(--color-brand-blue-tint)',
+                border: '1px solid rgba(79,142,247,.28)',
+            },
+            delivered: {
+                background: 'var(--color-badge-green-bg)',
+                color: 'var(--color-brand-green-tint)',
+                border: '1px solid rgba(34,197,94,.2)',
+            },
+            invoiced: {
+                background: 'var(--color-badge-teal-bg)',
+                color: 'var(--color-brand-teal)',
+                border: '1px solid rgba(0,212,170,.28)',
+            },
+            cancelled: {
+                background: 'var(--color-badge-red-bg)',
+                color: 'var(--color-brand-red-tint)',
+                border: '1px solid rgba(239,68,68,.2)',
+            },
         };
         return (
             <span
                 style={{
-                    fontSize: 10,
+                    fontSize: 9,
                     fontWeight: 600,
-                    padding: '3px 10px',
+                    padding: '2px 7px',
                     borderRadius: 20,
                     display: 'inline-block',
                     textTransform: 'capitalize',
@@ -134,33 +155,59 @@ export default function Quotations() {
     };
 
     const ghostBtn: CSSProperties = {
-        height: 34,
-        padding: '0 14px',
-        borderRadius: 8,
-        cursor: 'pointer',
-        background: CARD_BG,
-        border: `1px solid ${BORDER}`,
-        color: TEXT_SECONDARY,
-        fontSize: 11,
-        fontWeight: 600,
-        display: 'inline-flex',
+        display: 'flex',
         alignItems: 'center',
-        gap: 6,
+        gap: '4px',
+        padding: '6px 11px',
+        borderRadius: '6px',
+        fontSize: '10.5px',
+        fontWeight: 500,
+        cursor: 'pointer',
+        border: '1px solid var(--color-redwood-border)',
+        background: 'rgba(255,255,255,.04)',
+        color: 'var(--color-redwood-text-muted)',
+        fontFamily: "'DM Sans',sans-serif",
+        transition: '.12s',
     };
 
     const primaryBtn: CSSProperties = {
-        ...ghostBtn,
-        background: THEME_PRIMARY,
+        display: 'flex',
+        alignItems: 'center',
+        gap: '4px',
+        padding: '6px 11px',
+        borderRadius: '6px',
+        fontSize: '10.5px',
+        fontWeight: 500,
+        cursor: 'pointer',
         border: 'none',
+        background: '#4F8EF7',
         color: '#fff',
+        fontFamily: "'DM Sans',sans-serif",
+        transition: '.12s',
     };
 
     const cardActionBtn = (variant: 'default' | 'warning' | 'success' | 'neutral'): CSSProperties => {
         const map = {
-            default: { bg: '#EFF6FF', border: '#BFDBFE', color: '#2563EB' },
-            warning: { bg: '#FFFBEB', border: '#FDE68A', color: '#B45309' },
-            success: { bg: '#F0FDF4', border: '#BBF7D0', color: '#15803D' },
-            neutral: { bg: '#F8FAFC', border: BORDER, color: TEXT_SECONDARY },
+            default: {
+                bg: 'rgba(255,255,255,.04)',
+                border: 'rgba(79,142,247,.28)',
+                color: 'var(--color-brand-blue-tint)',
+            },
+            warning: {
+                bg: 'rgba(255,255,255,.04)',
+                border: 'rgba(245,158,11,.28)',
+                color: 'var(--color-brand-amber-tint)',
+            },
+            success: {
+                bg: 'rgba(255,255,255,.04)',
+                border: 'rgba(34,197,94,.28)',
+                color: 'var(--color-brand-green-tint)',
+            },
+            neutral: {
+                bg: 'rgba(255,255,255,.04)',
+                border: 'var(--color-redwood-border)',
+                color: 'var(--color-redwood-text-muted)',
+            },
         };
         const v = map[variant];
         return {
@@ -181,37 +228,37 @@ export default function Quotations() {
 
     if (loading) {
         return (
-            <div
-                className="min-h-screen flex items-center justify-center"
-                style={{ background: PAGE_BG }}
-            >
-                <div className="text-center">
+            <div style={{ paddingBottom: '40px' }}>
+                <div
+                    style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: '80px 16px',
+                        color: 'var(--color-redwood-text-muted)',
+                    }}
+                >
                     <div
-                        className="w-12 h-12 border-2 rounded-full animate-spin mx-auto mb-3"
-                        style={{ borderColor: THEME_PRIMARY, borderTopColor: 'transparent' }}
+                        className="w-12 h-12 border-2 rounded-full animate-spin mb-3"
+                        style={{ borderColor: '#4F8EF7', borderTopColor: 'transparent' }}
                     />
-                    <p style={{ fontSize: 12, fontWeight: 500, color: TEXT_SECONDARY }}>
-                        Loading quotations...
-                    </p>
+                    <p style={{ fontSize: 12, fontWeight: 500 }}>Loading quotations...</p>
                 </div>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen p-4 md:p-6" style={{ background: PAGE_BG }}>
-            <div className="max-w-[1600px] mx-auto space-y-4">
-                {/* Page header */}
+        <div style={{ paddingBottom: '40px' }}>
+            <div className="space-y-3">
+                {/* Page header — SalesDashboard .pgh pattern (no card wrapper, inherits app bg) */}
                 <div
                     style={{
-                        background: CARD_BG,
-                        border: `1px solid ${BORDER}`,
-                        padding: '14px 18px',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
-                        borderRadius: 12,
-                        boxShadow: '0 1px 2px rgba(15,23,42,.04)',
+                        marginBottom: '12px',
                     }}
                 >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
@@ -220,30 +267,39 @@ export default function Quotations() {
                                 width: 40,
                                 height: 40,
                                 borderRadius: 10,
-                                background: 'rgba(79,142,247,.12)',
+                                background: 'var(--color-badge-blue-bg)',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
                                 flexShrink: 0,
                             }}
                         >
-                            <FileText size={20} style={{ color: THEME_PRIMARY }} />
+                            <FileText size={20} style={{ color: '#4F8EF7' }} />
                         </div>
                         <div style={{ minWidth: 0 }}>
-                            <h1
+                            <div
                                 style={{
-                                    fontSize: 20,
+                                    fontFamily: "'Syne',sans-serif",
+                                    fontSize: '20px',
                                     fontWeight: 600,
-                                    color: TEXT_PRIMARY,
-                                    margin: 0,
-                                    lineHeight: 1.2,
+                                    letterSpacing: '-.5px',
+                                    color: 'var(--color-brand-blue)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
                                 }}
                             >
                                 Sales orders
-                            </h1>
-                            <p style={{ fontSize: 12, color: TEXT_SECONDARY, margin: '4px 0 0' }}>
+                            </div>
+                            <div
+                                style={{
+                                    fontSize: '11px',
+                                    color: 'var(--color-redwood-text-subtle)',
+                                    marginTop: '2px',
+                                }}
+                            >
                                 All orders · Draft → Confirmed → Delivered → Invoiced
-                            </p>
+                            </div>
                         </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
@@ -266,48 +322,53 @@ export default function Quotations() {
                     </div>
                 </div>
 
-                {/* KPI cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {/* KPI cards — SalesDashboard .kpi pattern */}
+                <div className="grid grid-cols-2 lg:grid-cols-4" style={{ gap: '10px', marginBottom: '12px' }}>
                     {[
                         {
                             label: 'Total Orders',
                             value: String(salesOrders.length),
                             sub: 'all time',
-                            stripe: '#4F8EF7',
-                            valueColor: '#4F8EF7',
+                            stripe: 'linear-gradient(90deg,#4F8EF7,#93C5FD)',
+                            valueColor: 'var(--color-brand-blue)',
+                            subColor: 'var(--color-redwood-text-subtle)',
                         },
                         {
                             label: 'Draft',
                             value: String(salesOrders.filter((o) => o.status === 'draft').length),
                             sub: 'awaiting confirmation',
-                            stripe: '#94A3B8',
-                            valueColor: TEXT_SECONDARY,
+                            stripe: 'linear-gradient(90deg,#3E5678,#8BA3C7)',
+                            valueColor: 'var(--color-redwood-text-main)',
+                            subColor: 'var(--color-redwood-text-subtle)',
                         },
                         {
                             label: 'Confirmed',
                             value: String(salesOrders.filter((o) => o.status === 'confirmed').length),
                             sub: 'ready to dispatch',
-                            stripe: '#22C55E',
-                            valueColor: '#22C55E',
+                            stripe: 'linear-gradient(90deg,#22C55E,#86EFAC)',
+                            valueColor: 'var(--color-brand-green)',
+                            subColor: 'var(--color-brand-green-tint)',
                         },
                         {
                             label: 'Total Value',
                             value: `$${formatMoney(confirmedTotal)}`,
                             sub: 'confirmed orders',
-                            stripe: '#22C55E',
-                            valueColor: '#22C55E',
+                            stripe: 'linear-gradient(90deg,#22C55E,#86EFAC)',
+                            valueColor: 'var(--color-brand-green)',
+                            subColor: 'var(--color-brand-green-tint)',
                         },
                     ].map((k) => (
                         <div
                             key={k.label}
                             style={{
-                                background: CARD_BG,
-                                border: `1px solid ${BORDER}`,
-                                borderRadius: 12,
-                                padding: '14px 16px',
+                                background: 'var(--color-redwood-bg-surface)',
+                                border: '1px solid var(--color-redwood-border)',
+                                borderRadius: '14px',
+                                padding: '13px 14px',
                                 position: 'relative',
                                 overflow: 'hidden',
-                                boxShadow: '0 1px 2px rgba(15,23,42,.04)',
+                                transition: '.18s',
+                                cursor: 'default',
                             }}
                         >
                             <div
@@ -316,90 +377,86 @@ export default function Quotations() {
                                     top: 0,
                                     left: 0,
                                     right: 0,
-                                    height: 3,
+                                    height: '2px',
+                                    borderRadius: '14px 14px 0 0',
                                     background: k.stripe,
                                 }}
                             />
                             <div
                                 style={{
-                                    fontSize: 10,
-                                    color: TEXT_SECONDARY,
-                                    fontWeight: 700,
-                                    textTransform: 'uppercase',
-                                    letterSpacing: '.5px',
-                                    marginBottom: 6,
+                                    fontSize: '10.5px',
+                                    color: 'var(--color-redwood-text-muted)',
+                                    fontWeight: 500,
+                                    marginBottom: '6px',
                                 }}
                             >
                                 {k.label}
                             </div>
                             <div
                                 style={{
-                                    fontSize: 26,
+                                    fontFamily: "'Syne',sans-serif",
+                                    fontSize: '22px',
                                     fontWeight: 600,
-                                    lineHeight: 1,
-                                    marginBottom: 4,
+                                    letterSpacing: '-.5px',
+                                    marginBottom: '3px',
+                                    lineHeight: '1.1',
                                     color: k.valueColor,
                                 }}
                             >
                                 {k.value}
                             </div>
-                            <div style={{ fontSize: 11, color: TEXT_SECONDARY }}>{k.sub}</div>
+                            <div style={{ fontSize: '10px', color: k.subColor }}>{k.sub}</div>
                         </div>
                     ))}
                 </div>
 
                 {/* Search */}
-                <div
-                    style={{
-                        background: CARD_BG,
-                        border: `1px solid ${BORDER}`,
-                        borderRadius: 10,
-                        padding: '10px 12px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        boxShadow: '0 1px 2px rgba(15,23,42,.04)',
-                    }}
-                >
-                    <Search size={16} style={{ color: TEXT_SECONDARY, flexShrink: 0 }} />
-                    <input
-                        type="text"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        placeholder="Search by order number or customer name..."
-                        style={{
-                            background: 'transparent',
-                            border: 'none',
-                            outline: 'none',
-                            color: TEXT_PRIMARY,
-                            fontSize: 12,
-                            width: '100%',
-                        }}
-                    />
-                    {searchTerm && (
-                        <button
-                            type="button"
-                            onClick={() => setSearchTerm('')}
+                <div style={panelStyle}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Search size={16} style={{ color: 'var(--color-redwood-text-muted)', flexShrink: 0 }} />
+                        <input
+                            type="text"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            placeholder="Search by order number or customer name..."
                             style={{
-                                background: 'transparent',
-                                border: 'none',
-                                cursor: 'pointer',
-                                color: TEXT_SECONDARY,
-                                fontSize: 16,
+                                background: 'var(--color-redwood-row-bg)',
+                                border: '1px solid var(--color-redwood-border)',
+                                borderRadius: 8,
+                                outline: 'none',
+                                color: 'var(--color-redwood-text-main)',
+                                fontSize: 12,
+                                width: '100%',
+                                padding: '8px 12px',
                             }}
-                            aria-label="Clear search"
-                        >
-                            ×
-                        </button>
-                    )}
+                        />
+                        {searchTerm && (
+                            <button
+                                type="button"
+                                onClick={() => setSearchTerm('')}
+                                style={{
+                                    background: 'transparent',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    color: 'var(--color-redwood-text-muted)',
+                                    fontSize: 16,
+                                }}
+                                aria-label="Clear search"
+                            >
+                                ×
+                            </button>
+                        )}
+                    </div>
                 </div>
 
                 {/* Status chips */}
                 <div
                     style={{
+                        ...panelStyle,
+                        padding: 6,
                         display: 'flex',
                         flexWrap: 'wrap',
-                        gap: 8,
+                        gap: 4,
                         alignItems: 'center',
                     }}
                 >
@@ -412,15 +469,17 @@ export default function Quotations() {
                                 type="button"
                                 onClick={() => setStatusFilter(chip.key)}
                                 style={{
-                                    padding: '8px 14px',
+                                    padding: '7px 14px',
                                     fontSize: 11,
-                                    fontWeight: 600,
-                                    borderRadius: 20,
+                                    fontWeight: 500,
+                                    borderRadius: 8,
                                     cursor: 'pointer',
-                                    background: active ? THEME_PRIMARY : CARD_BG,
-                                    color: active ? '#fff' : TEXT_SECONDARY,
-                                    border: active ? 'none' : `1px solid ${BORDER}`,
-                                    boxShadow: active ? 'none' : '0 1px 2px rgba(15,23,42,.04)',
+                                    background: active ? 'var(--color-badge-blue-bg)' : 'transparent',
+                                    color: active ? 'var(--color-brand-blue-tint)' : 'var(--color-redwood-text-muted)',
+                                    border: active
+                                        ? '1px solid rgba(79,142,247,.28)'
+                                        : '1px solid transparent',
+                                    transition: 'all .15s ease',
                                 }}
                             >
                                 {chip.label}
@@ -440,13 +499,13 @@ export default function Quotations() {
                             width: '100%',
                             height: 36,
                             appearance: 'none',
-                            background: CARD_BG,
-                            border: `1px solid ${BORDER}`,
+                            background: 'var(--color-redwood-row-bg)',
+                            border: '1px solid var(--color-redwood-border)',
                             borderRadius: 8,
                             padding: '0 32px 0 12px',
                             fontSize: 12,
                             fontWeight: 500,
-                            color: TEXT_PRIMARY,
+                            color: 'var(--color-redwood-text-main)',
                             cursor: 'pointer',
                         }}
                     >
@@ -461,7 +520,7 @@ export default function Quotations() {
                             top: '50%',
                             transform: 'translateY(-50%)',
                             pointerEvents: 'none',
-                            color: TEXT_SECONDARY,
+                            color: 'var(--color-redwood-text-muted)',
                         }}
                     />
                 </div>
@@ -473,14 +532,14 @@ export default function Quotations() {
                         alignItems: 'center',
                         justifyContent: 'space-between',
                         padding: '8px 0 10px',
-                        borderBottom: `1px solid ${BORDER}`,
+                        borderBottom: '1px solid var(--color-redwood-border)',
                     }}
                 >
                     <div
                         style={{
                             fontSize: 13,
                             fontWeight: 600,
-                            color: TEXT_PRIMARY,
+                            color: 'var(--color-redwood-text-main)',
                             display: 'flex',
                             alignItems: 'center',
                             gap: 8,
@@ -490,11 +549,11 @@ export default function Quotations() {
                         <span
                             style={{
                                 fontSize: 11,
-                                background: '#F1F5F9',
-                                border: `1px solid ${BORDER}`,
+                                background: 'var(--color-redwood-row-bg)',
+                                border: '1px solid var(--color-redwood-border)',
                                 borderRadius: 20,
                                 padding: '2px 10px',
-                                color: TEXT_SECONDARY,
+                                color: 'var(--color-redwood-text-muted)',
                                 fontWeight: 600,
                             }}
                         >
@@ -504,41 +563,47 @@ export default function Quotations() {
                                 : ''}
                         </span>
                     </div>
-                    <span style={{ fontSize: 12, color: TEXT_SECONDARY }}>
+                    <span style={{ fontSize: 12, color: 'var(--color-redwood-text-muted)' }}>
                         Total:{' '}
-                        <strong style={{ color: '#22C55E' }}>${formatMoney(filteredTotal)}</strong>
+                        <strong style={{ color: 'var(--color-brand-green)' }}>${formatMoney(filteredTotal)}</strong>
                     </span>
                 </div>
 
                 {/* Orders list */}
                 {filteredOrders.length === 0 ? (
-                    <div
-                        style={{
-                            background: CARD_BG,
-                            border: `1px solid ${BORDER}`,
-                            borderRadius: 12,
-                            padding: '60px 20px',
-                            textAlign: 'center',
-                        }}
-                    >
+                    <div style={{ ...panelStyle, padding: '60px 20px', textAlign: 'center' }}>
                         <div
                             style={{
                                 width: 56,
                                 height: 56,
                                 borderRadius: '50%',
-                                background: 'rgba(79,142,247,.12)',
+                                background: 'var(--color-badge-blue-bg)',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
                                 margin: '0 auto 14px',
                             }}
                         >
-                            <FileText size={26} style={{ color: THEME_PRIMARY }} />
+                            <FileText size={26} style={{ color: '#4F8EF7' }} />
                         </div>
-                        <h3 style={{ fontSize: 14, fontWeight: 600, color: TEXT_PRIMARY, margin: '0 0 6px' }}>
+                        <h3
+                            style={{
+                                fontSize: 14,
+                                fontWeight: 600,
+                                color: 'var(--color-redwood-text-main)',
+                                margin: '0 0 6px',
+                            }}
+                        >
                             {salesOrders.length === 0 ? 'No orders found' : 'No orders match your filter'}
                         </h3>
-                        <p style={{ fontSize: 12, color: TEXT_SECONDARY, maxWidth: 280, margin: '0 auto 16px' }}>
+                        <p
+                            style={{
+                                fontSize: 12,
+                                color: 'var(--color-redwood-text-muted)',
+                                maxWidth: 280,
+                                margin: '0 auto 16px',
+                            }}
+                        >
                             {salesOrders.length === 0
                                 ? 'Start by creating your first sales order.'
                                 : 'Try a different search term or status.'}
@@ -562,7 +627,7 @@ export default function Quotations() {
                         </button>
                     </div>
                 ) : (
-                    <div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                         {filteredOrders.map((order) => {
                             const totalNum = Number(order.total) || 0;
                             const isZero = totalNum === 0;
@@ -572,13 +637,19 @@ export default function Quotations() {
                                     key={order.id}
                                     onClick={() => navigate(`/sales/orders/${order.id}`)}
                                     style={{
-                                        background: CARD_BG,
-                                        border: isZero ? '1px solid #F59E0B' : `1px solid ${BORDER}`,
+                                        ...panelStyle,
                                         borderRadius: 12,
-                                        padding: '14px 16px',
-                                        marginBottom: 10,
+                                        border: isZero
+                                            ? '1px solid rgba(245,158,11,.4)'
+                                            : '1px solid var(--color-redwood-border)',
                                         cursor: 'pointer',
-                                        boxShadow: '0 1px 2px rgba(15,23,42,.04)',
+                                        transition: '.12s',
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        e.currentTarget.style.background = 'var(--color-redwood-row-hover)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        e.currentTarget.style.background = 'var(--color-redwood-bg-surface)';
                                     }}
                                 >
                                     <div
@@ -594,7 +665,7 @@ export default function Quotations() {
                                                 style={{
                                                     fontSize: 14,
                                                     fontWeight: 600,
-                                                    color: THEME_PRIMARY,
+                                                    color: '#4F8EF7',
                                                     fontFamily: 'ui-monospace, monospace',
                                                 }}
                                             >
@@ -602,7 +673,13 @@ export default function Quotations() {
                                             </span>
                                             {STATUS_BADGE(order.status)}
                                         </div>
-                                        <span style={{ fontSize: 18, fontWeight: 600, color: TEXT_PRIMARY }}>
+                                        <span
+                                            style={{
+                                                fontSize: 18,
+                                                fontWeight: 600,
+                                                color: 'var(--color-redwood-text-main)',
+                                            }}
+                                        >
                                             ${formatMoney(totalNum)}
                                         </span>
                                     </div>
@@ -611,7 +688,7 @@ export default function Quotations() {
                                         <div
                                             style={{
                                                 fontSize: 11,
-                                                color: '#B45309',
+                                                color: 'var(--color-brand-amber-tint)',
                                                 marginBottom: 8,
                                             }}
                                         >
@@ -624,7 +701,7 @@ export default function Quotations() {
                                             display: 'grid',
                                             gridTemplateColumns: 'repeat(2, 1fr)',
                                             gap: 12,
-                                            borderTop: `1px solid ${BORDER}`,
+                                            borderTop: '1px solid var(--color-redwood-border)',
                                             paddingTop: 12,
                                         }}
                                         className="md:grid-cols-4"
@@ -657,7 +734,7 @@ export default function Quotations() {
                                                 <div
                                                     style={{
                                                         fontSize: 9,
-                                                        color: TEXT_SECONDARY,
+                                                        color: 'var(--color-redwood-text-muted)',
                                                         fontWeight: 700,
                                                         textTransform: 'uppercase',
                                                         letterSpacing: '.4px',
@@ -670,7 +747,7 @@ export default function Quotations() {
                                                     style={{
                                                         fontSize: 12,
                                                         fontWeight: 600,
-                                                        color: TEXT_PRIMARY,
+                                                        color: 'var(--color-redwood-text-main)',
                                                         overflow: 'hidden',
                                                         textOverflow: 'ellipsis',
                                                         whiteSpace: 'nowrap',
@@ -689,7 +766,7 @@ export default function Quotations() {
                                             gap: 6,
                                             marginTop: 12,
                                             paddingTop: 12,
-                                            borderTop: `1px solid ${BORDER}`,
+                                            borderTop: '1px solid var(--color-redwood-border)',
                                         }}
                                     >
                                         <button
