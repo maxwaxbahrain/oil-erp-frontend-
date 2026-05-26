@@ -4,7 +4,7 @@ import {
     ArrowLeft, RefreshCw, Check, ExternalLink, AlertTriangle,
     Package, ShoppingCart, Zap, Download, Upload,
     DollarSign, Settings, ChevronDown, ChevronUp,
-    CheckCircle, XCircle, ArrowRight, Search
+    CheckCircle, XCircle, ArrowRight, Search, Clock
 } from 'lucide-react';
 import { getProducts } from '../../services/productService';
 
@@ -341,7 +341,7 @@ export default function AmazonIntegration() {
                                     marginTop: 5,
                                 }}
                             >
-                                <i className="ti ti-clock" style={{ fontSize: 11 }} />
+                                <Clock size={11} />
                                 {syncLogs.length > 0
                                     ? `Last synced ${Math.floor((Date.now() - new Date(syncLogs[syncLogs.length - 1]?.timestamp ?? Date.now()).getTime()) / 60000)} minutes ago · `
                                     : 'Not yet synced · '}
