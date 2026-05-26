@@ -108,11 +108,11 @@ function addSyncLog(log: Omit<SyncLog, 'id'>) {
 }
 
 // ── Status Styles ─────────────────────────────────────────────
-const LISTING_STATUS: Record<string, string> = {
-    active:     'bg-emerald-100 text-emerald-700',
-    inactive:   'bg-gray-100 text-gray-600',
-    suppressed: 'bg-red-100 text-red-700',
-    pending:    'bg-amber-100 text-amber-700',
+const LISTING_STATUS_STYLE: Record<string, { background: string; color: string }> = {
+    active:     { background: 'var(--color-background-success)',   color: 'var(--color-text-success)'   },
+    inactive:   { background: 'var(--color-background-secondary)', color: 'var(--color-text-secondary)' },
+    suppressed: { background: 'var(--color-background-danger)',    color: 'var(--color-text-danger)'    },
+    pending:    { background: 'var(--color-background-warning)',   color: 'var(--color-text-warning)'   },
 };
 const ORDER_STATUS: Record<string, string> = {
     pending:   'bg-amber-100 text-amber-700',
@@ -768,7 +768,7 @@ export default function AmazonIntegration() {
             {activeTab === 'listings' && (
                 <div className="space-y-3">
                     <div className="flex items-center justify-between flex-wrap gap-3">
-                        <p className="text-xs font-semibold text-gray-500 ">{listings.length} Products Listed on Amazon</p>
+                        <p style={{ color: 'var(--color-text-secondary)', fontSize: 12, fontWeight: 500 }}>{listings.length} Products Listed on Amazon</p>
                         <div className="flex gap-2">
                             <a
                                 href="https://sellercentral.amazon.com/inventory"
@@ -791,35 +791,56 @@ export default function AmazonIntegration() {
                             </a>
                         </div>
                     </div>
-                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <div style={{ background: 'var(--color-background-primary)', border: '0.5px solid var(--color-border-tertiary)', borderRadius: 12, overflow: 'hidden' }}>
                         <table className="w-full">
-                            <thead className="bg-gray-50 border-b border-gray-100">
+                            <thead style={{ background: 'var(--color-background-secondary)', borderBottom: '0.5px solid var(--color-border-tertiary)' }}>
                                 <tr>{['Product / SKU','ASIN','Price','FBA Qty','FBM Qty','Status','Fulfillment','7d Revenue','Buy Box','Actions'].map(h => (
-                                    <th key={h} className="px-4 py-3 text-left text-[9px] font-semibold text-gray-400 whitespace-nowrap">{h}</th>
+                                    <th key={h} className="px-4 py-3 text-left text-[9px] font-semibold whitespace-nowrap" style={{ color: 'var(--color-text-secondary)' }}>{h}</th>
                                 ))}</tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">
                                 {listings.map(l => (
-                                    <tr key={l.id} className="hover:bg-gray-50">
+                                    <tr
+                                        key={l.id}
+                                        onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-background-secondary)')}
+                                        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                                    >
                                         <td className="px-4 py-3">
-                                            <p className="text-xs font-semibold text-gray-900 leading-tight">{l.title.slice(0,35)}{l.title.length>35?'...':''}</p>
-                                            <p className="text-[10px] font-mono text-gray-400">{l.sku}</p>
+                                            <p className="text-xs leading-tight" style={{ color: 'var(--color-text-primary)', fontWeight: 500 }}>{l.title.slice(0,35)}{l.title.length>35?'...':''}</p>
+                                            <p className="font-mono" style={{ color: 'var(--color-text-secondary)', fontSize: 10 }}>{l.sku}</p>
                                         </td>
                                         <td className="px-4 py-3 text-[10px] font-mono text-blue-600">{l.asin}</td>
-                                        <td className="px-4 py-3 text-sm font-semibold font-mono text-gray-900">${l.price.toFixed(2)}</td>
-                                        <td className="px-4 py-3 text-sm font-mono text-orange-600 font-semibold">{l.fba_qty}</td>
-                                        <td className="px-4 py-3 text-sm font-mono text-blue-600 font-semibold">{l.fbm_qty}</td>
+                                        <td className="px-4 py-3 text-sm font-semibold font-mono" style={{ color: 'var(--color-text-primary)' }}>${l.price.toFixed(2)}</td>
+                                        <td className="px-4 py-3 text-sm" style={{ color: l.fba_qty < 20 ? 'var(--color-text-danger)' : l.fba_qty < 50 ? 'var(--color-text-warning)' : 'var(--color-text-success)', fontWeight: 500, fontFamily: 'var(--font-mono)' }}>{l.fba_qty}</td>
+                                        <td className="px-4 py-3 text-sm" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)' }}>{l.fbm_qty}</td>
                                         <td className="px-4 py-3">
-                                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full capitalize ${LISTING_STATUS[l.status]}`}>{l.status}</span>
+                                            <span
+                                                className="text-[10px] font-semibold px-2 py-0.5 rounded-full capitalize"
+                                                style={LISTING_STATUS_STYLE[l.status] ?? { background: 'var(--color-background-secondary)', color: 'var(--color-text-secondary)' }}
+                                            >
+                                                {l.status}
+                                            </span>
                                         </td>
                                         <td className="px-4 py-3">
-                                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${l.fulfillment==='FBA'?'bg-orange-100 text-orange-700':'bg-blue-100 text-blue-700'}`}>{l.fulfillment}</span>
+                                            <span
+                                                style={
+                                                    l.fulfillment === 'FBA'
+                                                        ? { background: 'rgba(249,115,22,.15)', color: '#EA580C', fontSize: 9, fontWeight: 600, padding: '2px 7px', borderRadius: 20 }
+                                                        : { background: 'var(--color-background-info)', color: 'var(--color-text-info)', fontSize: 9, fontWeight: 600, padding: '2px 7px', borderRadius: 20 }
+                                                }
+                                            >
+                                                {l.fulfillment}
+                                            </span>
                                         </td>
                                         <td className="px-4 py-3 text-sm font-semibold font-mono text-emerald-600">{l.revenue_7d ? fmtUSD(l.revenue_7d) : '—'}</td>
                                         <td className="px-4 py-3 text-center">{l.buybox_winner ? '🏆' : '—'}</td>
                                         <td className="px-4 py-3">
-                                            <a href={`https://www.amazon.com/dp/${l.asin}`} target="_blank" rel="noopener noreferrer"
-                                                className="text-[10px] font-semibold text-orange-600 hover:underline flex items-center gap-0.5">
+                                            <a
+                                                href={`https://www.amazon.com/dp/${l.asin}`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                style={{ fontSize: 10, fontWeight: 500, color: 'var(--color-text-info)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 3 }}
+                                            >
                                                 View <ExternalLink size={9} />
                                             </a>
                                         </td>
