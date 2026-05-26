@@ -675,12 +675,25 @@ export default function SalesOrderFormPage() {
         <label className="block text-xs font-black text-gray-500 ">Customer</label>
         {selectedCustomer ? (
           <div
-            className="rounded-xl border-2 bg-gray-50/80 p-4 flex justify-between items-center gap-2"
-            style={{ borderColor: THEME_PRIMARY }}
+            className="rounded-xl p-4 flex justify-between items-center gap-2"
+            style={{
+                background: 'var(--color-background-secondary)',
+                border: '0.5px solid var(--color-border-info)',
+            }}
           >
             <div className="min-w-0">
-              <p className="font-black text-gray-900 truncate text-base">{selectedCustomer.name}</p>
-              <p className="text-xs font-bold text-gray-500 mt-0.5">ID {selectedCustomer.id}</p>
+              <p
+                className="font-black truncate text-base"
+                style={{ color: 'var(--color-text-primary)' }}
+              >
+                {selectedCustomer.name}
+              </p>
+              <p
+                className="text-xs font-bold mt-0.5"
+                style={{ color: 'var(--color-text-secondary)' }}
+              >
+                ID {selectedCustomer.id}
+              </p>
             </div>
             <button
               type="button"
