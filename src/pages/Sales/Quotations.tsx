@@ -463,7 +463,7 @@ export default function Quotations() {
                                                 color: 'var(--color-text-secondary)', fontSize: 10,
                                                 display: 'flex', alignItems: 'center', gap: 4,
                                             }}>
-                                                {order.linked_invoice_number} →
+                                                View invoice →
                                             </span>
                                         )}
                                     </div>
