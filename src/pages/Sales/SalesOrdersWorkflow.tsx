@@ -10,7 +10,7 @@ import {
   type SalesOrderStatus,
 } from '../../services/salesService';
 
-const THEME_PRIMARY = '#800020';
+const THEME_PRIMARY = '#4F8EF7';
 
 const STATUS_STYLES: Record<SalesOrderStatus, string> = {
   draft: 'bg-gray-100 text-gray-800 border border-gray-200',
@@ -18,14 +18,6 @@ const STATUS_STYLES: Record<SalesOrderStatus, string> = {
   delivered: 'bg-emerald-50 text-emerald-900 border border-emerald-200',
   invoiced: 'bg-violet-50 text-violet-900 border border-violet-200',
   cancelled: 'bg-red-50 text-red-900 border border-red-200',
-};
-
-const STATUS_LEFT_BORDER: Record<SalesOrderStatus, string> = {
-  draft: 'border-l-gray-400',
-  confirmed: 'border-l-blue-600',
-  delivered: 'border-l-emerald-600',
-  invoiced: 'border-l-violet-600',
-  cancelled: 'border-l-red-500',
 };
 
 function formatMoney(n: number) {
@@ -132,11 +124,26 @@ function InsightSection({
 }) {
   return (
     <section
-      className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden"
-      style={{ borderTopWidth: 4, borderTopColor: borderColor }}
+      style={{
+        background: 'var(--color-background-primary)',
+        border: '0.5px solid var(--color-border-tertiary)',
+        borderTop: `2px solid ${borderColor}`,
+        borderRadius: 12,
+        overflow: 'hidden',
+      }}
     >
-      <div className="p-5 md:p-6">
-        <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.25em] mb-4">{title}</h3>
+      <div style={{ padding: 16 }}>
+        <h3
+          style={{
+            fontSize: 11,
+            fontWeight: 500,
+            color: 'var(--color-text-secondary)',
+            margin: 0,
+            marginBottom: 12,
+          }}
+        >
+          {title}
+        </h3>
         {children}
       </div>
     </section>
@@ -150,6 +157,8 @@ export default function SalesOrdersWorkflow() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<SalesOrderStatus | 'all'>('all');
   const [convertingId, setConvertingId] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [salesmanFilter, setSalesmanFilter] = useState<string>('all');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -172,6 +181,31 @@ export default function SalesOrdersWorkflow() {
     if (filter === 'all') return orders;
     return orders.filter((o) => o.status === filter);
   }, [orders, filter]);
+
+  const salesmanOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const o of orders) {
+      const n = (o.salesman_name || '').trim();
+      if (n) set.add(n);
+    }
+    return [...set].sort();
+  }, [orders]);
+
+  const displayedOrders = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    return filtered.filter((o) => {
+      if (salesmanFilter !== 'all' && (o.salesman_name || '').trim() !== salesmanFilter) return false;
+      if (!q) return true;
+      const hay = [
+        o.customer_name || '',
+        o.so_number || '',
+        o.salesman_name || '',
+      ]
+        .join(' ')
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [filtered, searchTerm, salesmanFilter]);
 
   const insights = useMemo(() => {
     const today = startOfToday();
@@ -247,51 +281,121 @@ export default function SalesOrdersWorkflow() {
     <aside className="w-full lg:w-[35%] lg:shrink-0 space-y-5">
       <div className="lg:sticky lg:top-4 space-y-5">
         <InsightSection title="Order pipeline" borderColor="#9ca3af">
-          <ul className="space-y-3 text-sm">
-            <li className="flex items-center justify-between gap-2">
-              <span className="flex items-center gap-2 font-bold text-gray-700">
-                <span className="w-2.5 h-2.5 rounded-full bg-gray-400 shrink-0" />
-                Draft
-              </span>
-              <span className="font-black text-gray-900 tabular-nums">{insights.pipeline.draft}</span>
-            </li>
-            <li className="flex items-center justify-between gap-2">
-              <span className="flex items-center gap-2 font-bold text-gray-700">
-                <span className="w-2.5 h-2.5 rounded-full bg-blue-600 shrink-0" />
-                Confirmed
-              </span>
-              <span className="font-black text-gray-900 tabular-nums">{insights.pipeline.confirmed}</span>
-            </li>
-            <li className="flex items-center justify-between gap-2">
-              <span className="flex items-center gap-2 font-bold text-gray-700">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 shrink-0" />
-                Delivered
-              </span>
-              <span className="font-black text-gray-900 tabular-nums">{insights.pipeline.delivered}</span>
-            </li>
-            <li className="flex items-center justify-between gap-2">
-              <span className="flex items-center gap-2 font-bold text-gray-700">
-                <span className="w-2.5 h-2.5 rounded-full bg-violet-600 shrink-0" />
-                Invoiced
-              </span>
-              <span className="font-black text-gray-900 tabular-nums">{insights.pipeline.invoiced}</span>
-            </li>
+          <ul style={{ display: 'flex', flexDirection: 'column', gap: 10, margin: 0, padding: 0, listStyle: 'none' }}>
+            {[
+              { label: 'Draft', dot: '#9CA3AF', value: insights.pipeline.draft },
+              { label: 'Confirmed', dot: '#4F8EF7', value: insights.pipeline.confirmed },
+              { label: 'Delivered', dot: '#22C55E', value: insights.pipeline.delivered },
+              { label: 'Invoiced', dot: '#7C3AED', value: insights.pipeline.invoiced },
+            ].map((row) => (
+              <li
+                key={row.label}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                  fontSize: 12,
+                }}
+              >
+                <span
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    color: 'var(--color-text-secondary)',
+                    fontWeight: 500,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      background: row.dot,
+                      flexShrink: 0,
+                    }}
+                  />
+                  {row.label}
+                </span>
+                <span
+                  style={{
+                    color: 'var(--color-text-primary)',
+                    fontWeight: 600,
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  {row.value}
+                </span>
+              </li>
+            ))}
           </ul>
         </InsightSection>
 
-        <InsightSection title="Today's revenue" borderColor={THEME_PRIMARY}>
-          <dl className="space-y-3 text-sm">
-            <div className="flex justify-between gap-2 items-baseline">
-              <dt className="font-bold text-gray-500">Invoiced today</dt>
-              <dd className="font-black tabular-nums text-gray-900">{formatMoney(insights.invoicedTodayTotal)}</dd>
+        <InsightSection title="Today's revenue" borderColor="#22C55E">
+          <dl style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'baseline',
+                gap: 8,
+                fontSize: 12,
+              }}
+            >
+              <dt style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>Invoiced today</dt>
+              <dd
+                style={{
+                  margin: 0,
+                  color: 'var(--color-text-success)',
+                  fontWeight: 600,
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                {formatMoney(insights.invoicedTodayTotal)}
+              </dd>
             </div>
-            <div className="flex justify-between gap-2 items-baseline">
-              <dt className="font-bold text-gray-500">Orders today</dt>
-              <dd className="font-black tabular-nums text-gray-900">{insights.ordersTodayCount}</dd>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'baseline',
+                gap: 8,
+                fontSize: 12,
+              }}
+            >
+              <dt style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>Orders today</dt>
+              <dd
+                style={{
+                  margin: 0,
+                  color: 'var(--color-text-primary)',
+                  fontWeight: 600,
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                {insights.ordersTodayCount}
+              </dd>
             </div>
-            <div className="flex justify-between gap-2 items-baseline pt-1 border-t border-gray-100">
-              <dt className="font-bold text-gray-500">This week (invoiced)</dt>
-              <dd className="font-black tabular-nums" style={{ color: THEME_PRIMARY }}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'baseline',
+                gap: 8,
+                fontSize: 12,
+                paddingTop: 8,
+                borderTop: '0.5px solid var(--color-border-tertiary)',
+              }}
+            >
+              <dt style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>This week (invoiced)</dt>
+              <dd
+                style={{
+                  margin: 0,
+                  color: 'var(--color-text-success)',
+                  fontWeight: 600,
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
                 {formatMoney(insights.weekRevenue)}
               </dd>
             </div>
@@ -300,21 +404,59 @@ export default function SalesOrdersWorkflow() {
 
         <InsightSection title="Top selling products" borderColor="#6b7280">
           {insights.topProducts.length === 0 ? (
-            <p className="text-sm font-semibold text-gray-500">No invoiced line items in loaded orders.</p>
+            <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', margin: 0 }}>
+              No invoiced line items in loaded orders.
+            </p>
           ) : (
-            <ul className="space-y-4">
+            <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 14 }}>
               {insights.topProducts.map((p) => (
                 <li key={p.name}>
-                  <div className="flex justify-between gap-2 items-start mb-1.5">
-                    <span className="font-bold text-gray-900 text-sm leading-snug">{p.name}</span>
-                    <span className="text-xs font-black text-gray-500 tabular-nums shrink-0">{p.cases} cases</span>
-                  </div>
-                  <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition-all"
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'flex-start',
+                      gap: 8,
+                      marginBottom: 6,
+                    }}
+                  >
+                    <span
                       style={{
+                        fontSize: 12,
+                        fontWeight: 500,
+                        color: 'var(--color-text-primary)',
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      {p.name}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 500,
+                        color: 'var(--color-text-secondary)',
+                        fontVariantNumeric: 'tabular-nums',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {p.cases} cases
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      height: 6,
+                      borderRadius: 999,
+                      background: 'var(--color-background-secondary)',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <div
+                      style={{
+                        height: '100%',
+                        borderRadius: 999,
                         width: `${Math.min(100, (p.cases / insights.maxCases) * 100)}%`,
-                        backgroundColor: THEME_PRIMARY,
+                        background: THEME_PRIMARY,
+                        transition: 'width .3s ease',
                       }}
                     />
                   </div>
@@ -326,23 +468,64 @@ export default function SalesOrdersWorkflow() {
 
         <InsightSection title="Salesman leaderboard" borderColor="#374151">
           {insights.salesmen.length === 0 ? (
-            <p className="text-sm font-semibold text-gray-500">No salesman assigned on loaded orders.</p>
+            <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', margin: 0 }}>
+              No salesman assigned on loaded orders.
+            </p>
           ) : (
-            <ul className="space-y-3">
-              {insights.salesmen.map((s, i) => (
-                <li key={s.name} className="flex items-center gap-3">
-                  <span
-                    className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-black text-white shrink-0"
-                    style={{ backgroundColor: THEME_PRIMARY }}
-                  >
-                    {i + 1}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-bold text-gray-900 text-sm truncate">{s.name}</p>
-                    <p className="text-xs font-black text-gray-500 tabular-nums">{formatMoney(s.total)}</p>
-                  </div>
-                </li>
-              ))}
+            <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {insights.salesmen.map((s, i) => {
+                const isGold = i === 0;
+                return (
+                  <li key={s.name} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: 8,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        flexShrink: 0,
+                        background: isGold ? 'rgba(245,158,11,.15)' : 'var(--color-background-secondary)',
+                        color: isGold ? '#F59E0B' : 'var(--color-text-secondary)',
+                        border: isGold
+                          ? '0.5px solid rgba(245,158,11,.35)'
+                          : '0.5px solid var(--color-border-tertiary)',
+                      }}
+                    >
+                      {i + 1}
+                    </span>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <p
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 500,
+                          color: 'var(--color-text-primary)',
+                          margin: 0,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {s.name}
+                      </p>
+                      <p
+                        style={{
+                          fontSize: 11,
+                          color: 'var(--color-text-success)',
+                          margin: 0,
+                          fontVariantNumeric: 'tabular-nums',
+                          fontWeight: 500,
+                        }}
+                      >
+                        {formatMoney(s.total)}
+                      </p>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </InsightSection>
@@ -351,135 +534,472 @@ export default function SalesOrdersWorkflow() {
   );
 
   return (
-    <div className="min-h-screen bg-[#F8F9FA] pb-32 md:pb-10">
+    <div
+      className="min-h-screen pb-32 md:pb-10"
+      style={{ background: 'var(--color-background-secondary)' }}
+    >
       <div className="max-w-7xl mx-auto px-4 md:px-6 pt-6 flex flex-col lg:flex-row lg:items-start lg:gap-8">
         <div className="w-full lg:w-[65%] lg:min-w-0 space-y-6">
-          {/* Page header — ProductManagement-style hero */}
-          <div className="bg-white p-8 md:p-10 rounded-3xl border border-gray-100 shadow-sm relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-6 opacity-[0.06] pointer-events-none">
-              <ShoppingCart size={160} className="text-gray-900" />
-            </div>
-            <div className="relative flex flex-col sm:flex-row sm:items-start sm:justify-between gap-6">
-              <div className="flex items-start gap-5">
-                <div
-                  className="w-16 h-16 md:w-20 md:h-20 rounded-2xl flex items-center justify-center text-white shadow-lg shrink-0"
-                  style={{ backgroundColor: THEME_PRIMARY }}
-                >
-                  <ShoppingCart size={34} strokeWidth={2} />
-                </div>
-                <div>
-                  <h1 className="text-3xl md:text-4xl font-black text-gray-900 tracking-tight uppercase">Sales orders</h1>
-                  <p className="text-[11px] font-black text-gray-400 uppercase tracking-[0.25em] mt-2">
-                    Mobile workflow · Draft → Delivered → Invoice
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => load()}
-                className="shrink-0 self-start p-3 rounded-xl border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 shadow-sm transition-colors"
-                aria-label="Refresh"
+          {/* Page header — Soltol dark nav */}
+          <div
+            style={{
+              background: 'var(--color-background-primary)',
+              borderBottom: '0.5px solid var(--color-border-tertiary)',
+              padding: '13px 18px',
+              borderRadius: 12,
+            }}
+            className="flex items-center justify-between gap-4"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 10,
+                  background: 'rgba(74,143,245,.12)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
               >
-                <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
-              </button>
+                <ShoppingCart size={18} style={{ color: THEME_PRIMARY }} />
+              </div>
+              <div className="min-w-0">
+                <h1
+                  style={{
+                    fontSize: 17,
+                    fontWeight: 500,
+                    color: 'var(--color-text-primary)',
+                    margin: 0,
+                    lineHeight: 1.2,
+                  }}
+                >
+                  Sales orders
+                </h1>
+                <p
+                  style={{
+                    fontSize: 11,
+                    color: 'var(--color-text-secondary)',
+                    margin: 0,
+                    marginTop: 2,
+                  }}
+                >
+                  Mobile workflow · Draft → Delivered → Invoice
+                </p>
+              </div>
             </div>
+            <button
+              type="button"
+              onClick={() => load()}
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 8,
+                background: 'transparent',
+                border: '0.5px solid var(--color-border-tertiary)',
+                color: 'var(--color-text-secondary)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                flexShrink: 0,
+              }}
+              aria-label="Refresh"
+            >
+              <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+            </button>
           </div>
 
-          {/* Status filters — ProductManagement-style tab bar */}
-          <div className="bg-white p-2 rounded-2xl border border-gray-100 shadow-sm flex flex-wrap items-center gap-2">
-            {chips.map((c) => (
+          {/* Search + salesman filter bar */}
+          <div
+            style={{
+              background: 'var(--color-background-primary)',
+              border: '0.5px solid var(--color-border-tertiary)',
+              borderRadius: 10,
+              padding: '8px 10px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              flexWrap: 'wrap',
+            }}
+          >
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search customer, order # or salesman..."
+              style={{
+                flex: '1 1 220px',
+                minWidth: 200,
+                background: 'var(--color-background-secondary)',
+                border: '0.5px solid var(--color-border-tertiary)',
+                borderRadius: 8,
+                padding: '8px 12px',
+                fontSize: 12,
+                color: 'var(--color-text-primary)',
+                outline: 'none',
+              }}
+            />
+            <select
+              value={salesmanFilter}
+              onChange={(e) => setSalesmanFilter(e.target.value)}
+              style={{
+                background: 'var(--color-background-secondary)',
+                border: '0.5px solid var(--color-border-tertiary)',
+                borderRadius: 8,
+                padding: '8px 10px',
+                fontSize: 12,
+                color: 'var(--color-text-primary)',
+                outline: 'none',
+                cursor: 'pointer',
+              }}
+            >
+              <option value="all">All salesmen</option>
+              {salesmanOptions.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+            {(searchTerm || salesmanFilter !== 'all') && (
               <button
-                key={c.key}
                 type="button"
-                onClick={() => setFilter(c.key)}
-                className={clsx(
-                  'shrink-0 px-5 sm:px-7 py-3.5 text-[11px] font-black uppercase tracking-widest rounded-xl transition-all',
-                  filter === c.key
-                    ? 'text-white shadow-lg shadow-gray-200'
-                    : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'
-                )}
-                style={filter === c.key ? { backgroundColor: THEME_PRIMARY } : undefined}
+                onClick={() => {
+                  setSearchTerm('');
+                  setSalesmanFilter('all');
+                }}
+                style={{
+                  background: 'transparent',
+                  border: '0.5px solid var(--color-border-tertiary)',
+                  borderRadius: 8,
+                  padding: '8px 12px',
+                  fontSize: 11,
+                  color: 'var(--color-text-secondary)',
+                  cursor: 'pointer',
+                }}
               >
-                {c.label}
+                Clear
               </button>
-            ))}
+            )}
+          </div>
+
+          {/* Status filters — Soltol tab bar */}
+          <div
+            style={{
+              background: 'var(--color-background-primary)',
+              border: '0.5px solid var(--color-border-tertiary)',
+              borderRadius: 10,
+              padding: 6,
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 4,
+            }}
+          >
+            {chips.map((c) => {
+              const active = filter === c.key;
+              return (
+                <button
+                  key={c.key}
+                  type="button"
+                  onClick={() => setFilter(c.key)}
+                  style={{
+                    padding: '7px 14px',
+                    fontSize: 11,
+                    fontWeight: 500,
+                    borderRadius: 8,
+                    cursor: 'pointer',
+                    background: active ? 'var(--color-background-info)' : 'transparent',
+                    color: active ? 'var(--color-text-info)' : 'var(--color-text-secondary)',
+                    border: active
+                      ? '0.5px solid var(--color-border-info)'
+                      : '0.5px solid transparent',
+                    transition: 'all .15s ease',
+                  }}
+                >
+                  {c.label}
+                </button>
+              );
+            })}
           </div>
 
           <main className="space-y-4">
             {error && (
-              <div className="rounded-xl bg-red-50 text-red-800 text-sm font-bold px-4 py-3 border border-red-100">
+              <div
+                style={{
+                  background: 'var(--color-background-danger)',
+                  border: '0.5px solid var(--color-border-danger)',
+                  color: 'var(--color-text-danger)',
+                  borderRadius: 10,
+                  padding: '10px 14px',
+                  fontSize: 12,
+                  fontWeight: 500,
+                }}
+              >
                 {error}
               </div>
             )}
 
             {loading && orders.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-20 text-gray-500 gap-3 rounded-2xl bg-white border border-gray-100">
-                <Loader2 className="animate-spin text-[#800020]" size={36} />
-                <span className="text-sm font-bold">Loading orders…</span>
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 12,
+                  padding: '60px 16px',
+                  background: 'var(--color-background-primary)',
+                  border: '0.5px solid var(--color-border-tertiary)',
+                  borderRadius: 12,
+                  color: 'var(--color-text-secondary)',
+                }}
+              >
+                <Loader2 className="animate-spin" size={32} style={{ color: THEME_PRIMARY }} />
+                <span style={{ fontSize: 12, fontWeight: 500 }}>Loading orders…</span>
               </div>
-            ) : filtered.length === 0 ? (
-              <div className="text-center py-16 px-4 rounded-2xl bg-white border border-gray-200 shadow-sm">
-                <p className="text-gray-800 font-black uppercase tracking-wide text-sm">No orders in this view</p>
-                <p className="text-sm text-gray-500 font-semibold mt-2">Create a draft to get started.</p>
+            ) : displayedOrders.length === 0 ? (
+              <div
+                style={{
+                  textAlign: 'center',
+                  padding: '50px 16px',
+                  background: 'var(--color-background-primary)',
+                  border: '0.5px solid var(--color-border-tertiary)',
+                  borderRadius: 12,
+                }}
+              >
+                <p style={{ color: 'var(--color-text-primary)', fontWeight: 500, fontSize: 13, margin: 0 }}>
+                  No orders in this view
+                </p>
+                <p style={{ color: 'var(--color-text-secondary)', fontSize: 12, marginTop: 6 }}>
+                  Create a draft to get started.
+                </p>
               </div>
             ) : (
-              filtered.map((o) => (
-                <article
-                  key={o.id}
-                  className={clsx(
-                    'bg-white rounded-xl border border-gray-200 shadow-sm border-l-4 pl-5 pr-4 py-5 space-y-4',
-                    STATUS_LEFT_BORDER[o.status] || 'border-l-gray-400'
-                  )}
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-                    <div className="min-w-0 space-y-1">
-                      <p className="font-mono font-black text-gray-900 text-lg tracking-tight">{o.so_number}</p>
-                      <p className="text-base md:text-lg font-black text-gray-900 leading-snug">
-                        {o.customer_name || `Customer #${o.customer_id}`}
-                      </p>
-                      <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">
-                        {o.salesman_name || 'No salesman'}
-                      </p>
-                      <p className="text-xs font-semibold text-gray-600 pt-1">{formatOrderDate(o.order_date)}</p>
-                    </div>
-                    <div className="flex sm:flex-col items-center sm:items-end gap-3 sm:gap-2 shrink-0">
-                      <span
-                        className={clsx(
-                          'px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest',
-                          STATUS_STYLES[o.status] || 'bg-gray-100 text-gray-800 border border-gray-200'
-                        )}
+              displayedOrders.map((o) => {
+                const totalNum = Number(o.total) || 0;
+                const isZero = totalNum <= 0;
+                const isPaid = Boolean((o as unknown as { paid?: boolean }).paid)
+                  || String((o as unknown as { payment_status?: string }).payment_status || '').toLowerCase() === 'paid';
+                return (
+                  <article
+                    key={o.id}
+                    style={{
+                      background: 'var(--color-background-primary)',
+                      border: isZero
+                        ? '0.5px solid #F59E0B'
+                        : '0.5px solid var(--color-border-tertiary)',
+                      borderRadius: 12,
+                      padding: '14px 16px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 12,
+                    }}
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                      <div className="min-w-0" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <p
+                          style={{
+                            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                            fontSize: 13,
+                            fontWeight: 600,
+                            color: THEME_PRIMARY,
+                            margin: 0,
+                          }}
+                        >
+                          {o.so_number}
+                        </p>
+                        <p
+                          style={{
+                            fontSize: 14,
+                            fontWeight: 500,
+                            color: 'var(--color-text-primary)',
+                            margin: 0,
+                            lineHeight: 1.3,
+                          }}
+                        >
+                          {o.customer_name || `Customer #${o.customer_id}`}
+                        </p>
+                        <p
+                          style={{
+                            fontSize: 11,
+                            color: 'var(--color-text-secondary)',
+                            margin: 0,
+                          }}
+                        >
+                          {o.salesman_name || 'No salesman'}
+                        </p>
+                        <p
+                          style={{
+                            fontSize: 11,
+                            color: 'var(--color-text-tertiary)',
+                            margin: 0,
+                            marginTop: 2,
+                          }}
+                        >
+                          {formatOrderDate(o.order_date)}
+                        </p>
+                      </div>
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'flex-end',
+                          gap: 6,
+                          flexShrink: 0,
+                        }}
                       >
-                        {o.status}
-                      </span>
-                      <div className="text-right">
-                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider">Total</p>
-                        <p className="text-xl font-black text-gray-900 tabular-nums">{formatMoney(o.total)}</p>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                          <span
+                            className={clsx(
+                              'px-2.5 py-1 rounded-full text-[10px] font-medium',
+                              STATUS_STYLES[o.status] || 'bg-gray-100 text-gray-800 border border-gray-200'
+                            )}
+                          >
+                            {o.status}
+                          </span>
+                          {o.status === 'invoiced' && (
+                            <span
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 500,
+                                padding: '3px 8px',
+                                borderRadius: 999,
+                                background: isPaid
+                                  ? 'var(--color-background-success)'
+                                  : 'var(--color-background-warning)',
+                                color: isPaid
+                                  ? 'var(--color-text-success)'
+                                  : 'var(--color-text-warning)',
+                                border: isPaid
+                                  ? '0.5px solid var(--color-border-success)'
+                                  : '0.5px solid var(--color-border-warning)',
+                              }}
+                            >
+                              {isPaid ? 'Paid' : 'Unpaid'}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <p
+                            style={{
+                              fontSize: 10,
+                              color: 'var(--color-text-tertiary)',
+                              margin: 0,
+                            }}
+                          >
+                            Total
+                          </p>
+                          <p
+                            style={{
+                              fontSize: 18,
+                              fontWeight: 600,
+                              color: isZero ? '#F59E0B' : 'var(--color-text-primary)',
+                              margin: 0,
+                              fontVariantNumeric: 'tabular-nums',
+                            }}
+                          >
+                            {formatMoney(totalNum)}
+                          </p>
+                          {isZero && (
+                            <p
+                              style={{
+                                fontSize: 10,
+                                color: '#F59E0B',
+                                margin: 0,
+                                marginTop: 2,
+                              }}
+                            >
+                              ⚠ Zero total — review order
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-gray-100">
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/sales/orders/${o.id}`)}
-                      className="flex-1 min-h-[48px] rounded-lg border-2 font-black text-sm uppercase tracking-wide flex items-center justify-center gap-2 transition-colors hover:brightness-95 bg-white"
-                      style={{ borderColor: THEME_PRIMARY, color: THEME_PRIMARY }}
+                    {o.linked_invoice_number && (
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: 'var(--color-text-secondary)',
+                          paddingTop: 8,
+                          borderTop: '0.5px solid var(--color-border-tertiary)',
+                        }}
+                      >
+                        Linked invoice:{' '}
+                        <span
+                          style={{
+                            color: THEME_PRIMARY,
+                            fontWeight: 500,
+                            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                          }}
+                        >
+                          {o.linked_invoice_number}
+                        </span>
+                      </div>
+                    )}
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'row',
+                        gap: 8,
+                        paddingTop: 8,
+                        borderTop: '0.5px solid var(--color-border-tertiary)',
+                        flexWrap: 'wrap',
+                      }}
                     >
-                      <Eye size={20} /> View
-                    </button>
-                    {o.status === 'delivered' && o.pod_confirmed && o.signature_confirmed && !o.linked_invoice_number && (
                       <button
                         type="button"
-                        disabled={convertingId === o.id}
-                        onClick={() => handleConvert(o)}
-                        className="flex-1 min-h-[48px] rounded-lg bg-violet-700 text-white font-black text-sm uppercase tracking-wide flex items-center justify-center gap-2 hover:bg-violet-800 disabled:opacity-50 shadow-sm"
+                        onClick={() => navigate(`/sales/orders/${o.id}`)}
+                        style={{
+                          flex: 1,
+                          minWidth: 120,
+                          padding: '9px 14px',
+                          fontSize: 12,
+                          fontWeight: 500,
+                          borderRadius: 8,
+                          background: THEME_PRIMARY,
+                          color: '#fff',
+                          border: 'none',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 6,
+                        }}
                       >
-                        {convertingId === o.id ? <Loader2 className="animate-spin" size={20} /> : <FileInput size={20} />}
-                        Convert to invoice
+                        <Eye size={14} /> View
                       </button>
-                    )}
-                  </div>
-                </article>
-              ))
+                      {o.status === 'delivered' && o.pod_confirmed && o.signature_confirmed && !o.linked_invoice_number && (
+                        <button
+                          type="button"
+                          disabled={convertingId === o.id}
+                          onClick={() => handleConvert(o)}
+                          style={{
+                            flex: 1,
+                            minWidth: 120,
+                            padding: '9px 14px',
+                            fontSize: 12,
+                            fontWeight: 500,
+                            borderRadius: 8,
+                            background: '#7C3AED',
+                            color: '#fff',
+                            border: 'none',
+                            cursor: convertingId === o.id ? 'not-allowed' : 'pointer',
+                            opacity: convertingId === o.id ? 0.6 : 1,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                          }}
+                        >
+                          {convertingId === o.id ? <Loader2 className="animate-spin" size={14} /> : <FileInput size={14} />}
+                          Convert to invoice
+                        </button>
+                      )}
+                    </div>
+                  </article>
+                );
+              })
             )}
           </main>
 
@@ -487,10 +1007,23 @@ export default function SalesOrdersWorkflow() {
             <button
               type="button"
               onClick={() => navigate('/sales/orders/new')}
-              className="w-full min-h-[52px] rounded-xl text-white font-black text-sm uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg transition-transform hover:brightness-110"
-              style={{ backgroundColor: THEME_PRIMARY }}
+              style={{
+                width: '100%',
+                padding: '11px 18px',
+                fontSize: 13,
+                fontWeight: 500,
+                borderRadius: 10,
+                background: THEME_PRIMARY,
+                color: '#fff',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+              }}
             >
-              <Plus size={22} strokeWidth={2.5} /> New sales order
+              <Plus size={18} strokeWidth={2.2} /> New sales order
             </button>
           </div>
         </div>
@@ -498,14 +1031,39 @@ export default function SalesOrdersWorkflow() {
         {insightsPanel}
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur-md border-t border-gray-200 md:hidden">
+      <div
+        className="md:hidden"
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          padding: 14,
+          background: 'var(--color-background-primary)',
+          borderTop: '0.5px solid var(--color-border-tertiary)',
+          backdropFilter: 'blur(8px)',
+        }}
+      >
         <button
           type="button"
           onClick={() => navigate('/sales/orders/new')}
-          className="w-full min-h-[52px] rounded-xl text-white font-black text-sm uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-[0.99] transition-transform hover:brightness-110"
-          style={{ backgroundColor: THEME_PRIMARY }}
+          style={{
+            width: '100%',
+            padding: '12px 18px',
+            fontSize: 13,
+            fontWeight: 500,
+            borderRadius: 10,
+            background: THEME_PRIMARY,
+            color: '#fff',
+            border: 'none',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8,
+          }}
         >
-          <Plus size={22} strokeWidth={2.5} /> New sales order
+          <Plus size={18} strokeWidth={2.2} /> New sales order
         </button>
       </div>
     </div>
