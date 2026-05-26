@@ -11,6 +11,7 @@ import {
     Trash2,
     Search,
     Bot,
+    Brain,
     Sparkles,
     AlertTriangle,
     Upload,
@@ -259,6 +260,10 @@ export default function Banking() {
     const [refreshing, setRefreshing] = useState(false);
     // FIX W6-1 — track which payment row is being voided (disables button).
     const [voidingId, setVoidingId] = useState<string | null>(null);
+    const [bottomSectionTab, setBottomSectionTab] = useState<'ask-ai' | 'connect'>('ask-ai');
+    const [aiQuestion, setAiQuestion] = useState('');
+    const [aiResponse, setAiResponse] = useState('');
+    const [aiThinking, setAiThinking] = useState(false);
 
     const ghostBtn: CSSProperties = {
         display: 'flex',
@@ -582,6 +587,47 @@ export default function Banking() {
             `${reconciliationMatches.length} suggested matches · ${anomalies.length} anomalies flagged`,
         );
     };
+    const askBankingAI = async (question: string) => {
+        const q = question.trim();
+        if (!q) return;
+        setAiThinking(true);
+        await new Promise(r => setTimeout(r, 700));
+        const lower = q.toLowerCase();
+        let answer = '';
+        if (lower.includes('variance') || lower.includes('unreconciled')) {
+            answer =
+                `Unreconciled variance is ${formatUsd(unreconciledVariance)}.\n\n` +
+                `Bank balance: ${formatUsd(bankBalance)} · Cash on hand: ${formatUsd(cashBalance)} · Net cash: ${formatUsd(netBalance)}.\n` +
+                `${pendingPDC.length} pending cheque${pendingPDC.length !== 1 ? 's' : ''} may explain part of the gap until cleared.`;
+        } else if (lower.includes('cash') || lower.includes('position')) {
+            answer =
+                `Current cash position:\n` +
+                `• Cash on hand: ${formatUsd(cashBalance)}\n` +
+                `• Bank balance: ${formatUsd(bankBalance)}\n` +
+                `• Net cash: ${formatUsd(netBalance)}\n` +
+                `• Uncollected AR: ${formatUsd(outstandingAR)}\n\n` +
+                `Total in this period: ${formatUsd(totalCredits)} · Total out: ${formatUsd(totalDebits)}.`;
+        } else if (lower.includes('duplicate') || lower.includes('anomal')) {
+            answer = anomalies.length === 0
+                ? 'No anomalies flagged right now. Ledger looks clean.'
+                : anomalies.map(a => `• ${a.title}: ${a.detail}`).join('\n');
+        } else if (lower.includes('match') || lower.includes('reconcil')) {
+            answer = reconciliationMatches.length === 0
+                ? 'No suggested matches pending review.'
+                : `${reconciliationMatches.length} suggested matches:\n` +
+                  reconciliationMatches.slice(0, 4).map(m => `• ${formatUsd(m.amount)} — ${m.pct}% match (${m.book})`).join('\n');
+        } else {
+            answer =
+                `Based on your ledger:\n` +
+                `• ${filtered.length} visible transactions · Closing balance ${formatUsd(filtered[0]?.balance ?? netBalance)}\n` +
+                `• ${reconciliationMatches.length} AI matches · ${anomalies.length} anomalies\n` +
+                `• Expense health ${expenseHealthScore}% this month\n\n` +
+                `Try asking about variance, cash position, duplicates, or reconciliation matches.`;
+        }
+        setAiResponse(answer);
+        setAiThinking(false);
+    };
+
 
     const savePDCEntry = async () => {
         if (!pdcForm.chequeNo || !pdcForm.amount || !pdcForm.date) {
@@ -1062,8 +1108,131 @@ export default function Banking() {
                     </div>
                 </div>
 
-                <div style={panelStyle}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}><Link2 size={16} style={{ color: '#4F8EF7' }} /> Bank connection & import</div>
+                <div style={{ ...panelStyle, padding: 6 }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 10, padding: '0 4px' }}>
+                        {[
+                            { id: 'ask-ai' as const, label: 'Ask AI', icon: Sparkles },
+                            { id: 'connect' as const, label: 'Connect your bank', icon: Link2 },
+                        ].map((tab) => (
+                            <button
+                                key={tab.id}
+                                type="button"
+                                onClick={() => setBottomSectionTab(tab.id)}
+                                style={{
+                                    padding: '7px 14px',
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    borderRadius: 8,
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    background: bottomSectionTab === tab.id ? 'var(--color-badge-blue-bg)' : 'transparent',
+                                    color: bottomSectionTab === tab.id ? 'var(--color-brand-blue-tint)' : 'var(--color-redwood-text-muted)',
+                                    border: bottomSectionTab === tab.id ? '1px solid rgba(79,142,247,.28)' : '1px solid transparent',
+                                }}
+                            >
+                                <tab.icon size={13} /> {tab.label}
+                            </button>
+                        ))}
+                    </div>
+
+                    {bottomSectionTab === 'ask-ai' && (
+                        <div style={{ padding: '8px 10px 12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                                <div style={{ width: 32, height: 32, borderRadius: 8, background: 'linear-gradient(135deg,#7C3AED,#4F8EF7)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <Brain size={16} style={{ color: '#fff' }} />
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>Ask AI about your banking</div>
+                                    <div style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>Reconciliation, variance, cash position, and anomalies</div>
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+                                {[
+                                    'Why is there an unreconciled variance?',
+                                    'Explain my cash position',
+                                    'Which transactions need review?',
+                                    'Show reconciliation matches',
+                                ].map((prompt) => (
+                                    <button
+                                        key={prompt}
+                                        type="button"
+                                        onClick={() => { setAiQuestion(prompt); void askBankingAI(prompt); }}
+                                        style={{
+                                            padding: '6px 10px',
+                                            borderRadius: 20,
+                                            fontSize: 10,
+                                            fontWeight: 500,
+                                            cursor: 'pointer',
+                                            border: '1px solid rgba(124,58,237,.28)',
+                                            background: 'rgba(124,58,237,.08)',
+                                            color: '#C4B5FD',
+                                        }}
+                                    >
+                                        {prompt}
+                                    </button>
+                                ))}
+                            </div>
+
+                            <div style={{ display: 'flex', gap: 8, marginBottom: aiResponse ? 12 : 0 }}>
+                                <input
+                                    type="text"
+                                    value={aiQuestion}
+                                    onChange={(e) => setAiQuestion(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') void askBankingAI(aiQuestion); }}
+                                    placeholder="Ask about variance, cash flow, duplicates, or reconciliation…"
+                                    style={{
+                                        flex: 1,
+                                        padding: '10px 12px',
+                                        borderRadius: 10,
+                                        border: '1px solid var(--color-redwood-border)',
+                                        background: 'var(--color-redwood-row-bg)',
+                                        color: 'var(--color-redwood-text-main)',
+                                        fontSize: 12,
+                                    }}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => void askBankingAI(aiQuestion)}
+                                    disabled={aiThinking || !aiQuestion.trim()}
+                                    style={{
+                                        ...primaryBtn,
+                                        padding: '10px 16px',
+                                        background: 'linear-gradient(90deg,#7C3AED,#4F8EF7)',
+                                        opacity: aiThinking || !aiQuestion.trim() ? 0.5 : 1,
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 6,
+                                    }}
+                                >
+                                    {aiThinking ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                                    {aiThinking ? 'Thinking…' : 'Ask AI'}
+                                </button>
+                            </div>
+
+                            {aiResponse && (
+                                <div style={{
+                                    padding: '14px 16px',
+                                    borderRadius: 12,
+                                    border: '1px solid rgba(124,58,237,.28)',
+                                    background: 'rgba(124,58,237,.08)',
+                                }}>
+                                    <div style={{ fontSize: 10, fontWeight: 600, color: '#C4B5FD', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        <Bot size={14} /> AI Response
+                                    </div>
+                                    <p style={{ fontSize: 12, color: 'var(--color-redwood-text-main)', lineHeight: 1.55, whiteSpace: 'pre-line', margin: 0 }}>{aiResponse}</p>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {bottomSectionTab === 'connect' && (
+                        <div style={{ padding: '8px 10px 12px' }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <Link2 size={16} style={{ color: '#4F8EF7' }} /> Connect your bank account
+                            </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
                         {[{ name: 'Chase', color: '#117ACA' }, { name: 'Bank of America', color: '#E31837' }, { name: 'Wells Fargo', color: '#FFCD00' }, { name: 'Citi', color: '#056DAE' }].map(b => (
                             <div key={b.name} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1073,7 +1242,7 @@ export default function Banking() {
                         ))}
                     </div>
                     <div className="grid grid-cols-2 md:grid-cols-4" style={{ gap: 10 }}>
-                        {[{ label: 'CSV import', icon: FileSpreadsheet, ext: '.csv' }, { label: 'QFX / OFX / QBO', icon: FileText, ext: 'bank feeds' }, { label: 'PDF statements', icon: FileText, ext: '.pdf' }, { label: 'Connect bank', icon: Link2, ext: 'OAuth' }].map(card => (
+                        {[{ label: 'Import CSV statement', icon: FileSpreadsheet, ext: '.csv' }, { label: 'Import QFX / OFX / QBO', icon: FileText, ext: 'bank feeds' }, { label: 'Import PDF bank statement', icon: FileText, ext: '.pdf' }, { label: 'Connect bank', icon: Link2, ext: 'OAuth' }].map(card => (
                             <button key={card.label} type="button" onClick={() => alert(`${card.label} — connect your bank feed or drop a ${card.ext} file.`)} style={{ ...panelStyle, padding: '14px 12px', cursor: 'pointer', textAlign: 'left', background: 'var(--color-redwood-row-bg)' }}>
                                 <card.icon size={20} style={{ color: '#4F8EF7', marginBottom: 8 }} />
                                 <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>{card.label}</div>
@@ -1082,6 +1251,13 @@ export default function Banking() {
                             </button>
                         ))}
                     </div>
+                            <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--color-redwood-border)' }}>
+                                <div style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)', lineHeight: 1.6 }}>
+                                    1. Bank transactions imported automatically · 2. Matched / marked / flagged for your review · 3. Approve matches to reconcile your ledger
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
