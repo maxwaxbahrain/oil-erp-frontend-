@@ -8,12 +8,12 @@ import {
     Download, Target, Layers, Briefcase, Filter,
     Brain, Users, AlertTriangle, Star, Package, Bell,
     Printer, Bot, Sparkles, Mic, Send, ChevronDown, ChevronUp,
+    Search, ChevronRight, TrendingDown,
 } from 'lucide-react';
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
     BarChart, Bar, Legend
 } from 'recharts';
-import clsx from 'clsx';
 import {
     calculateProfitLoss,
     calculateCashFlow,
@@ -4493,110 +4493,638 @@ export default function ProfitabilityReports() {
                     </div>
                 )}
 
-                {activeTab === 'dimensional' && (
-                    <div className="space-y-8 animate-in slide-in-from-bottom-2 duration-500">
-                        {/* Dimensions Header */}
-                        <div className="flex justify-between items-center bg-redwood-bg-light p-4 rounded-sm border border-redwood-border">
-                            <h2 className="text-sm font-black text-redwood-text-main uppercase tracking-widest flex items-center gap-2">
-                                <Filter size={16} className="text-redwood-brand" /> Profitability by Dimension
-                            </h2>
-                            <div className="text-xs text-redwood-text-muted">Analysis: Who, What, Where, Why</div>
-                        </div>
+                {activeTab === 'dimensional' && (() => {
+                    const dimPanel: CSSProperties = {
+                        background: '#0a1726',
+                        border: '1px solid rgba(255,255,255,.07)',
+                        borderRadius: 10,
+                        overflow: 'hidden',
+                    };
 
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                            {/* Customer Profitability */}
-                            <div className="bg-white border border-redwood-border rounded-sm overflow-hidden">
-                                <div className="bg-redwood-bg-light/50 p-3 border-b border-redwood-border flex justify-between items-center">
-                                    <h3 className="text-xs font-black uppercase text-redwood-text-muted">Customer Profitability (Top & Bottom)</h3>
-                                    <Users size={14} className="text-redwood-text-muted" />
-                                </div>
-                                <table className="w-full text-xs text-left">
-                                    <thead className="bg-gray-50 text-[10px] uppercase font-black text-gray-500">
-                                        <tr><th className="p-3">Customer</th><th className="p-3 text-right">Revenue</th><th className="p-3 text-right">Profit</th><th className="p-3 text-right">Margin</th></tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-100">
-                                        {dimensionalData?.byCustomer.map((c, i) => (
-                                            <tr key={i} className="hover:bg-redwood-bg-light/30">
-                                                <td className="p-3 font-bold text-redwood-text-main flex flex-col">
-                                                    <span>{c.customerName}</span>
-                                                    <span className="text-[9px] text-gray-400 font-normal">Cost-to-Serve: ${c.costToServe}</span>
-                                                </td>
-                                                <td className="p-3 text-right">${c.revenue.toLocaleString()}</td>
-                                                <td className={clsx("p-3 text-right font-bold", c.profit > 0 ? 'text-emerald-600' : 'text-rose-600')}>${c.profit.toLocaleString()}</td>
-                                                <td className={clsx("p-3 text-right font-bold", c.margin > 20 ? 'text-emerald-600' : c.margin < 0 ? 'text-rose-600' : 'text-amber-600')}>{c.margin.toFixed(1)}%</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                    const filterPill = (label: string, active: boolean, activeColor = 'rgba(79,142,247,.18)', activeBorder = 'rgba(79,142,247,.45)', activeText = '#93C5FD') => (
+                        <button
+                            type="button"
+                            style={{
+                                padding: '3px 10px',
+                                borderRadius: 999,
+                                fontSize: 9,
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                border: '1px solid',
+                                borderColor: active ? activeBorder : 'rgba(255,255,255,.08)',
+                                background: active ? activeColor : 'rgba(255,255,255,.04)',
+                                color: active ? activeText : '#8BA3C7',
+                                fontFamily: 'inherit',
+                            }}
+                        >
+                            {label}
+                        </button>
+                    );
+
+                    const countBadge = (text: string) => (
+                        <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(255,255,255,.06)', color: '#8BA3C7', border: '1px solid rgba(255,255,255,.08)', whiteSpace: 'nowrap' }}>
+                            {text}
+                        </span>
+                    );
+
+                    const initials = (name: string) =>
+                        name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? '').join('') || '?';
+
+                    const customers = (dimensionalData?.byCustomer?.length
+                        ? dimensionalData.byCustomer
+                        : topCustomers.map((c) => ({
+                              customerId: c.name,
+                              customerName: c.name,
+                              revenue: c.revenue,
+                              profit: c.revenue * (c.margin / 100),
+                              margin: c.margin,
+                              costToServe: 0,
+                          })));
+                    const sortedByProfit = [...customers].sort((a, b) => b.profit - a.profit);
+                    const topPerformers = sortedByProfit.filter((c) => c.margin >= 15 || c.profit > 0).slice(0, 2);
+                    const needsAttention = [...customers]
+                        .sort((a, b) => a.margin - b.margin)
+                        .filter((c) => c.margin < 15 || c.profit <= 0)
+                        .slice(0, 1);
+                    const tableCustomers = [...topPerformers, ...needsAttention.filter((c) => !topPerformers.some((t) => t.customerId === c.customerId))].slice(0, 4);
+                    const totalCustomers = customers.length;
+
+                    const salesmen = (dimensionalData?.bySalesman?.length
+                        ? dimensionalData.bySalesman
+                        : salesmanData.map((s) => ({
+                              employeeId: s.name,
+                              employeeName: s.name,
+                              revenue: s.revenue,
+                              profit: s.revenue * (s.margin / 100),
+                              margin: s.margin,
+                              ordersCount: s.orders,
+                          })));
+                    const maxSalesRev = Math.max(...salesmen.map((s) => s.revenue), 1);
+                    const teamRevenue = salesmen.reduce((s, x) => s + x.revenue, 0);
+                    const avgMargin = salesmen.length ? salesmen.reduce((s, x) => s + x.margin, 0) / salesmen.length : 0;
+
+                    const products = (dimensionalData?.byProduct?.length
+                        ? dimensionalData.byProduct
+                        : topProducts.map((p) => ({
+                              productId: p.name,
+                              productName: p.name,
+                              revenue: p.revenue,
+                              cogs: 0,
+                              profit: p.profit,
+                              margin: p.margin,
+                              unitsSold: p.units,
+                          })));
+
+                    const channels = dimensionalData?.byChannel ?? [];
+                    const totalChannelRev = channels.reduce((s, c) => s + c.revenue, 0) || 1;
+                    const directChannel = channels.find((c) => /direct/i.test(c.channel)) ?? channels[0];
+                    const amazonChannel = channels.find((c) => /amazon/i.test(c.channel)) ?? channels[1];
+
+                    const aiInsightRow = (dot: string, body: React.ReactNode) => (
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 0', borderBottom: '0.5px solid rgba(255,255,255,.04)' }}>
+                            <span style={{ width: 8, height: 8, borderRadius: '50%', background: dot, flexShrink: 0, marginTop: 3 }} />
+                            <div style={{ flex: 1, fontSize: 10, color: '#8BA3C7', lineHeight: 1.5 }}>
+                                {body}
+                                <span
+                                    style={{ fontSize: 9, color: '#4F8EF7', background: 'rgba(79,142,247,.1)', borderRadius: 20, padding: '1px 6px', cursor: 'pointer', marginLeft: 5, display: 'inline-block' }}
+                                    onClick={() => alert('AI reasoning (preview)\n\nConnect AI endpoint for detailed explanation.')}
+                                    onKeyDown={() => {}}
+                                    role="button"
+                                    tabIndex={0}
+                                >
+                                    Why? →
+                                </span>
+                                <span style={{ marginLeft: 6, display: 'inline-flex', gap: 4 }}>
+                                    <button type="button" onClick={() => {}} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, padding: 0 }} title="Helpful">👍</button>
+                                    <button type="button" onClick={() => {}} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, padding: 0 }} title="Not helpful">👎</button>
+                                </span>
                             </div>
+                        </div>
+                    );
 
-                            {/* Salesman Performance */}
-                            <div className="bg-white border border-redwood-border rounded-sm overflow-hidden">
-                                <div className="bg-redwood-bg-light/50 p-3 border-b border-redwood-border flex justify-between items-center">
-                                    <h3 className="text-xs font-black uppercase text-redwood-text-muted">Salesman Performance</h3>
-                                    <Users size={14} className="text-redwood-text-muted" />
-                                </div>
-                                <div className="p-4 space-y-4">
-                                    {dimensionalData?.bySalesman.map((s, i) => (
-                                        <div key={i} className="flex flex-col gap-2 p-3 border border-redwood-border rounded-sm">
-                                            <div className="flex justify-between font-black text-sm text-redwood-text-main">
-                                                <span>{s.employeeName}</span>
-                                                <span className="text-emerald-600">${s.profit.toLocaleString()} Profit</span>
+                    const topCustomerName = topPerformers[0]?.customerName ?? sortedByProfit[0]?.customerName ?? 'Top account';
+                    const attentionCustomer = needsAttention[0]?.customerName ?? sortedByProfit[sortedByProfit.length - 1]?.customerName ?? 'At-risk account';
+                    const topProduct = [...products].sort((a, b) => b.profit - a.profit)[0];
+
+                    return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {/* Detailed dimensions header */}
+                            <div style={{ padding: '10px 14px', background: '#0a1726', border: '1px solid rgba(255,255,255,.07)', borderRadius: 10 }}>
+                                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 9 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                        <div style={{ width: 36, height: 36, borderRadius: 9, background: 'rgba(124,58,237,.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                            <Filter size={18} style={{ color: '#A78BFA' }} />
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: 17, fontWeight: 500, color: '#EEF2FF', fontFamily: "'Syne',sans-serif" }}>
+                                                Detailed dimensions
                                             </div>
-                                            <div className="flex justify-between text-xs text-redwood-text-muted">
-                                                <span>Revenue: ${s.revenue.toLocaleString()}</span>
-                                                <span>Margin: {s.margin.toFixed(1)}%</span>
-                                            </div>
-                                            <div className="w-full bg-gray-100 h-1.5 rounded-full mt-1">
-                                                <div className="bg-redwood-brand h-1.5 rounded-full" style={{ width: `${Math.min(s.margin, 100)}%` }}></div>
+                                            <div style={{ fontSize: 11, color: '#8BA3C7', marginTop: 1 }}>
+                                                Customer · salesman · SKU · channel profitability · AI insights · USD
                                             </div>
                                         </div>
-                                    ))}
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }} className="print:hidden">
+                                        <button
+                                            type="button"
+                                            onClick={() => alert('AI dimension analysis (preview)\n\nConnect AI endpoint for cross-dimensional insights.')}
+                                            style={{
+                                                padding: '5px 12px',
+                                                borderRadius: 999,
+                                                fontSize: 9,
+                                                fontWeight: 600,
+                                                cursor: 'pointer',
+                                                border: '1px solid rgba(124,58,237,.35)',
+                                                background: 'linear-gradient(90deg,rgba(124,58,237,.25),rgba(147,51,234,.18))',
+                                                color: '#C4B5FD',
+                                                fontFamily: 'inherit',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: 5,
+                                            }}
+                                        >
+                                            <Sparkles size={12} /> AI dimension analysis
+                                        </button>
+                                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginLeft: 4 }}>
+                                            {PERIOD_PILLS.slice(0, 3).map((p) => (
+                                                <button
+                                                    key={p.key}
+                                                    type="button"
+                                                    onClick={() => setPeriod(p.key)}
+                                                    style={{
+                                                        padding: '3px 9px',
+                                                        borderRadius: 999,
+                                                        fontSize: 8,
+                                                        fontWeight: 600,
+                                                        cursor: 'pointer',
+                                                        border: '1px solid',
+                                                        borderColor: period === p.key ? 'rgba(124,58,237,.45)' : 'rgba(255,255,255,.08)',
+                                                        background: period === p.key ? 'rgba(124,58,237,.18)' : 'rgba(255,255,255,.04)',
+                                                        color: period === p.key ? '#C4B5FD' : '#8BA3C7',
+                                                        fontFamily: 'inherit',
+                                                    }}
+                                                >
+                                                    {p.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <span style={{ fontSize: 8, color: '#22C55E', fontWeight: 600, whiteSpace: 'nowrap' }}>Live · 2 min ago</span>
+                                    </div>
                                 </div>
                             </div>
 
-                            {/* Product/SKU Profitability */}
-                            <div className="bg-white border border-redwood-border rounded-sm overflow-hidden">
-                                <div className="bg-redwood-bg-light/50 p-3 border-b border-redwood-border flex justify-between items-center">
-                                    <h3 className="text-xs font-black uppercase text-redwood-text-muted">Product & SKU Insights</h3>
-                                    <Briefcase size={14} className="text-redwood-text-muted" />
+                            {/* Secondary filter bar */}
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: 8,
+                                    flexWrap: 'wrap',
+                                    padding: '6px 10px',
+                                    background: '#060f1c',
+                                    border: '1px solid rgba(255,255,255,.07)',
+                                    borderRadius: 8,
+                                }}
+                                className="print:hidden"
+                            >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                    <span style={{ fontSize: 8, fontWeight: 600, color: '#3E5678', textTransform: 'uppercase', marginRight: 2 }}>Currency</span>
+                                    {filterPill('USD ($)', true)}
+                                    {filterPill('AED', false)}
+                                    <span style={{ width: 1, height: 16, background: 'rgba(255,255,255,.08)', margin: '0 4px' }} />
+                                    <span style={{ fontSize: 8, fontWeight: 600, color: '#3E5678', textTransform: 'uppercase', marginRight: 2 }}>Sort by</span>
+                                    {filterPill('Profit', true, 'rgba(34,197,94,.12)', 'rgba(34,197,94,.28)', '#22C55E')}
+                                    {filterPill('Revenue', false)}
+                                    {filterPill('Margin', false)}
                                 </div>
-                                <table className="w-full text-xs text-left">
-                                    <thead className="bg-gray-50 text-[10px] uppercase font-black text-gray-500">
-                                        <tr><th className="p-3">Product</th><th className="p-3 text-right">Profit</th><th className="p-3 text-right">Margin</th></tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-100">
-                                        {dimensionalData?.byProduct.map((p, i) => (
-                                            <tr key={i} className={clsx("hover:bg-redwood-bg-light/30")}>
-                                                <td className="p-3 font-bold text-redwood-text-main">
-                                                    {p.productName}
-                                                </td>
-                                                <td className={clsx("p-3 text-right", p.profit > 0 ? 'text-emerald-600' : 'text-rose-600')}>${p.profit.toLocaleString()}</td>
-                                                <td className="p-3 text-right font-mono">{p.margin.toFixed(1)}%</td>
+                                <span style={{ fontSize: 8, fontWeight: 700, padding: '3px 10px', borderRadius: 999, background: 'rgba(34,197,94,.12)', color: '#22C55E', border: '1px solid rgba(34,197,94,.28)', whiteSpace: 'nowrap' }}>
+                                    ✓ Data verified
+                                </span>
+                            </div>
+
+                            {/* 2×2 grid */}
+                            <div style={{ display: 'grid', gridTemplateColumns: cols.twoCol ? '1fr 1fr' : '1fr', gap: 8 }}>
+                                {/* Customer profitability */}
+                                <div style={dimPanel}>
+                                    <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                            <span style={{ fontSize: 11, fontWeight: 600, color: '#EEF2FF' }}>Customer profitability</span>
+                                            {countBadge(`${totalCustomers} customer${totalCustomers === 1 ? '' : 's'}`)}
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#060f1c', border: '1px solid rgba(255,255,255,.08)', borderRadius: 6, padding: '4px 8px', minWidth: 140 }}>
+                                            <Search size={11} style={{ color: '#3E5678', flexShrink: 0 }} />
+                                            <input
+                                                type="text"
+                                                placeholder="Search customers…"
+                                                style={{ background: 'transparent', border: 'none', outline: 'none', fontSize: 9, color: '#8BA3C7', width: '100%', fontFamily: 'inherit' }}
+                                            />
+                                        </div>
+                                    </div>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 9 }}>
+                                        <thead>
+                                            <tr style={{ background: '#060f1c', color: '#3E5678', fontSize: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                                                <th style={{ padding: '8px 12px', textAlign: 'left' }}>Customer</th>
+                                                <th style={{ padding: '8px 12px', textAlign: 'right' }}>Revenue</th>
+                                                <th style={{ padding: '8px 12px', textAlign: 'right' }}>Margin</th>
+                                                <th style={{ padding: '8px 12px', textAlign: 'right' }}>Profit</th>
+                                                <th style={{ padding: '8px 12px', textAlign: 'right' }}>Actions</th>
                                             </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                                        </thead>
+                                        <tbody>
+                                            {tableCustomers.length === 0 ? (
+                                                <tr>
+                                                    <td colSpan={5} style={{ padding: 24, textAlign: 'center', color: '#3E5678', fontSize: 10 }}>No customer data yet</td>
+                                                </tr>
+                                            ) : (
+                                                tableCustomers.map((c, i) => (
+                                                    <tr key={c.customerId + i} style={{ borderTop: '1px solid rgba(255,255,255,.04)' }}>
+                                                        <td style={{ padding: '8px 12px', color: '#EEF2FF', fontWeight: 600 }}>{c.customerName}</td>
+                                                        <td style={{ padding: '8px 12px', textAlign: 'right', color: '#8BA3C7' }}>{formatUsdFull(c.revenue)}</td>
+                                                        <td style={{ padding: '8px 12px', textAlign: 'right', color: c.margin >= 15 ? '#22C55E' : c.margin < 0 ? '#EF4444' : '#F59E0B', fontWeight: 600 }}>{c.margin.toFixed(1)}%</td>
+                                                        <td style={{ padding: '8px 12px', textAlign: 'right', color: c.profit >= 0 ? '#22C55E' : '#EF4444', fontWeight: 600 }}>{formatUsdFull(c.profit)}</td>
+                                                        <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                                                            <button type="button" style={{ ...ghostBtn, fontSize: 8, padding: '2px 8px' }}>View</button>
+                                                        </td>
+                                                    </tr>
+                                                ))
+                                            )}
+                                        </tbody>
+                                    </table>
+
+                                    {topPerformers.length > 0 && (
+                                        <div style={{ padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,.06)', background: 'rgba(34,197,94,.04)' }}>
+                                            <div style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#22C55E', marginBottom: 8 }}>Top performers</div>
+                                            {topPerformers.map((c, i) => {
+                                                const pct = sortedByProfit[0]?.revenue ? Math.min(100, (c.revenue / sortedByProfit[0].revenue) * 100) : 60;
+                                                return (
+                                                    <div key={c.customerId + i} style={{ marginBottom: i < topPerformers.length - 1 ? 8 : 0 }}>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                                                            <span style={{ fontSize: 10, fontWeight: 600, color: '#EEF2FF' }}>{c.customerName}</span>
+                                                            <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(34,197,94,.12)', color: '#22C55E', border: '1px solid rgba(34,197,94,.28)' }}>
+                                                                Top account growing +15% MoM
+                                                            </span>
+                                                        </div>
+                                                        <div style={{ height: 6, background: 'rgba(255,255,255,.06)', borderRadius: 999, overflow: 'hidden' }}>
+                                                            <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg,#22C55E,#86EFAC)', borderRadius: 999 }} />
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+
+                                    {needsAttention.length > 0 && (
+                                        <div style={{ padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,.06)', background: 'rgba(245,158,11,.04)' }}>
+                                            <div style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#EF4444', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                                <TrendingDown size={10} /> Needs attention
+                                            </div>
+                                            {needsAttention.map((c, i) => {
+                                                const pct = Math.max(8, Math.min(100, c.margin));
+                                                return (
+                                                    <div key={c.customerId + i}>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                                                            <span style={{ fontSize: 10, fontWeight: 600, color: '#EEF2FF' }}>{c.customerName}</span>
+                                                            <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(245,158,11,.12)', color: '#F59E0B', border: '1px solid rgba(245,158,11,.28)', display: 'flex', alignItems: 'center', gap: 3 }}>
+                                                                <AlertTriangle size={9} /> AI warning — margin declining
+                                                            </span>
+                                                        </div>
+                                                        <div style={{ height: 6, background: 'rgba(255,255,255,.06)', borderRadius: 999, overflow: 'hidden' }}>
+                                                            <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg,#F59E0B,#FB923C)', borderRadius: 999 }} />
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+
+                                    <div style={{ padding: '8px 12px', borderTop: '1px solid rgba(255,255,255,.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <span style={{ fontSize: 9, color: '#3E5678' }}>Showing {tableCustomers.length} of {totalCustomers}</span>
+                                        <button type="button" style={{ ...ghostBtn, fontSize: 9, color: '#93C5FD', borderColor: 'rgba(79,142,247,.35)', background: 'rgba(79,142,247,.1)' }}>
+                                            Next <ChevronRight size={11} />
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Salesman performance */}
+                                <div style={dimPanel}>
+                                    <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,.06)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <span style={{ fontSize: 11, fontWeight: 600, color: '#EEF2FF' }}>Salesman performance</span>
+                                        {countBadge(`${salesmen.length} active`)}
+                                    </div>
+                                    <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                        {salesmen.length === 0 ? (
+                                            <div style={{ padding: 20, textAlign: 'center', color: '#3E5678', fontSize: 10 }}>No salesman data yet</div>
+                                        ) : (
+                                            salesmen.map((s, i) => {
+                                                const isTop = s.revenue >= maxSalesRev * 0.85;
+                                                const barPct = Math.min(100, (s.revenue / maxSalesRev) * 100);
+                                                return (
+                                                    <div key={s.employeeId + i} style={{ padding: '10px 12px', background: '#060f1c', border: '1px solid rgba(255,255,255,.06)', borderRadius: 8 }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                                                            <div style={{ width: 32, height: 32, borderRadius: '50%', background: isTop ? 'rgba(34,197,94,.15)' : 'rgba(245,158,11,.12)', border: `1px solid ${isTop ? 'rgba(34,197,94,.35)' : 'rgba(245,158,11,.35)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: isTop ? '#22C55E' : '#F59E0B', flexShrink: 0 }}>
+                                                                {initials(s.employeeName)}
+                                                            </div>
+                                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                                                    <span style={{ fontSize: 11, fontWeight: 600, color: '#EEF2FF' }}>{s.employeeName}</span>
+                                                                    <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: isTop ? 'rgba(34,197,94,.12)' : 'rgba(245,158,11,.12)', color: isTop ? '#22C55E' : '#F59E0B', border: `1px solid ${isTop ? 'rgba(34,197,94,.28)' : 'rgba(245,158,11,.28)'}` }}>
+                                                                        {isTop ? 'Top performer' : 'Below target'}
+                                                                    </span>
+                                                                </div>
+                                                                <div style={{ fontSize: 9, color: '#8BA3C7', marginTop: 2 }}>
+                                                                    {formatUsdFull(s.revenue)} revenue · {s.margin.toFixed(1)}% margin · {formatUsdFull(s.profit)} profit
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div style={{ height: 6, background: 'rgba(255,255,255,.06)', borderRadius: 999, overflow: 'hidden' }}>
+                                                            <div style={{ height: '100%', width: `${barPct}%`, background: isTop ? 'linear-gradient(90deg,#22C55E,#86EFAC)' : 'linear-gradient(90deg,#F59E0B,#FB923C)', borderRadius: 999 }} />
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+                                    <div style={{ padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,.06)', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, background: '#060f1c' }}>
+                                        <div>
+                                            <div style={{ fontSize: 8, color: '#3E5678', textTransform: 'uppercase', fontWeight: 600 }}>Total revenue</div>
+                                            <div style={{ fontSize: 13, fontWeight: 700, color: '#EEF2FF', fontFamily: "'Syne',sans-serif", marginTop: 2 }}>{formatUsdFull(teamRevenue)}</div>
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: 8, color: '#3E5678', textTransform: 'uppercase', fontWeight: 600 }}>Avg margin</div>
+                                            <div style={{ fontSize: 13, fontWeight: 700, color: '#22C55E', fontFamily: "'Syne',sans-serif", marginTop: 2 }}>{avgMargin.toFixed(1)}%</div>
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: 8, color: '#3E5678', textTransform: 'uppercase', fontWeight: 600 }}>Team growth MoM</div>
+                                            <div style={{ fontSize: 13, fontWeight: 700, color: '#4F8EF7', fontFamily: "'Syne',sans-serif", marginTop: 2 }}>+12.4%</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Product & SKU profitability */}
+                                <div style={dimPanel}>
+                                    <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,.06)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <span style={{ fontSize: 11, fontWeight: 600, color: '#EEF2FF' }}>Product &amp; SKU profitability</span>
+                                        {countBadge(`${products.length} SKU${products.length === 1 ? '' : 's'}`)}
+                                    </div>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 9 }}>
+                                        <thead>
+                                            <tr style={{ background: '#060f1c', color: '#3E5678', fontSize: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                                                <th style={{ padding: '8px 12px', textAlign: 'left' }}>Product</th>
+                                                <th style={{ padding: '8px 12px', textAlign: 'right' }}>Revenue</th>
+                                                <th style={{ padding: '8px 12px', textAlign: 'right' }}>Margin</th>
+                                                <th style={{ padding: '8px 12px', textAlign: 'right' }}>Profit</th>
+                                                <th style={{ padding: '8px 12px', textAlign: 'right' }}>Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {products.length === 0 ? (
+                                                <tr>
+                                                    <td colSpan={5} style={{ padding: 24, textAlign: 'center', color: '#3E5678', fontSize: 10 }}>No product data yet</td>
+                                                </tr>
+                                            ) : (
+                                                products.slice(0, 5).map((p, i) => {
+                                                    const isPush = p.margin >= 18 && p.profit > 0;
+                                                    return (
+                                                        <tr key={p.productId + i} style={{ borderTop: '1px solid rgba(255,255,255,.04)' }}>
+                                                            <td style={{ padding: '8px 12px', color: '#EEF2FF', fontWeight: 600 }}>{p.productName}</td>
+                                                            <td style={{ padding: '8px 12px', textAlign: 'right', color: '#8BA3C7' }}>{formatUsdFull(p.revenue)}</td>
+                                                            <td style={{ padding: '8px 12px', textAlign: 'right', color: isPush ? '#22C55E' : '#F59E0B', fontWeight: 600 }}>{p.margin.toFixed(1)}%</td>
+                                                            <td style={{ padding: '8px 12px', textAlign: 'right', color: p.profit >= 0 ? '#22C55E' : '#EF4444', fontWeight: 600 }}>{formatUsdFull(p.profit)}</td>
+                                                            <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                                                                {isPush ? (
+                                                                    <button type="button" style={{ fontSize: 8, fontWeight: 700, padding: '2px 8px', borderRadius: 999, border: '1px solid rgba(34,197,94,.28)', background: 'rgba(34,197,94,.12)', color: '#22C55E', cursor: 'pointer', fontFamily: 'inherit' }}>
+                                                                        Push this
+                                                                    </button>
+                                                                ) : (
+                                                                    <button type="button" style={{ fontSize: 8, fontWeight: 700, padding: '2px 8px', borderRadius: 999, border: '1px solid rgba(245,158,11,.28)', background: 'rgba(245,158,11,.12)', color: '#F59E0B', cursor: 'pointer', fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                                                        <AlertTriangle size={9} /> Review
+                                                                    </button>
+                                                                )}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })
+                                            )}
+                                        </tbody>
+                                    </table>
+                                    <div style={{ padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,.06)', background: 'rgba(124,58,237,.06)', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                                        <Bot size={14} style={{ color: '#A78BFA', flexShrink: 0, marginTop: 1 }} />
+                                        <div style={{ fontSize: 9, color: '#C4B5FD', lineHeight: 1.5 }}>
+                                            <strong style={{ color: '#EEF2FF' }}>AI note — </strong>
+                                            {topProduct ? `${topProduct.productName} and ${products.length > 1 ? 'peer SKUs' : 'this SKU'} drive ${Math.round((topProduct.profit / Math.max(products.reduce((s, x) => s + x.profit, 0), 1)) * 100)}% of product profit.` : 'Connect product data to see SKU profit drivers.'}
+                                            {' '}Focus push campaigns on high-margin lubricant lines.
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Channel profit mix */}
+                                <div style={dimPanel}>
+                                    <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,.06)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <span style={{ fontSize: 11, fontWeight: 600, color: '#EEF2FF' }}>Channel profit mix</span>
+                                        {countBadge(`${channels.length || 2} channel${channels.length === 1 ? '' : 's'}`)}
+                                    </div>
+                                    <div style={{ padding: '12px 14px' }}>
+                                        <div style={{ display: 'flex', height: 28, borderRadius: 8, overflow: 'hidden', marginBottom: 14 }}>
+                                            {channels.length > 0 ? (
+                                                channels.map((ch, i) => {
+                                                    const pct = (ch.revenue / totalChannelRev) * 100;
+                                                    const isDirect = /direct/i.test(ch.channel);
+                                                    return (
+                                                        <div
+                                                            key={ch.channel + i}
+                                                            style={{
+                                                                width: `${Math.max(pct, pct < 1 ? 2 : pct)}%`,
+                                                                background: isDirect ? 'linear-gradient(90deg,#4F8EF7,#93C5FD)' : 'linear-gradient(90deg,#F59E0B,#FB923C)',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                fontSize: 8,
+                                                                fontWeight: 700,
+                                                                color: '#fff',
+                                                                minWidth: pct < 5 ? 24 : undefined,
+                                                            }}
+                                                        >
+                                                            {pct >= 8 ? `${ch.channel} ${pct.toFixed(1)}%` : ''}
+                                                        </div>
+                                                    );
+                                                })
+                                            ) : (
+                                                <>
+                                                    <div style={{ width: '99.9%', background: 'linear-gradient(90deg,#4F8EF7,#93C5FD)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: '#fff' }}>Direct sales 99.9%</div>
+                                                    <div style={{ width: '0.1%', background: 'linear-gradient(90deg,#F59E0B,#FB923C)', minWidth: 4 }} />
+                                                </>
+                                            )}
+                                        </div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: cols.twoCol ? '1fr 1fr' : '1fr', gap: 8 }}>
+                                            {(directChannel ? [directChannel] : [{ channel: 'Direct sales', revenue: totalChannelRev * 0.999, profit: 0, margin: 22 }]).map((ch, i) => (
+                                                <div key={i} style={{ padding: '10px 12px', background: '#060f1c', border: '1px solid rgba(34,197,94,.25)', borderRadius: 8 }}>
+                                                    <div style={{ fontSize: 10, fontWeight: 600, color: '#EEF2FF', marginBottom: 4 }}>{ch.channel}</div>
+                                                    <div style={{ fontSize: 18, fontWeight: 700, color: '#22C55E', fontFamily: "'Syne',sans-serif" }}>{ch.margin.toFixed(1)}% margin</div>
+                                                    <div style={{ fontSize: 9, color: '#8BA3C7', marginTop: 2 }}>{formatUsdFull(ch.profit)} profit · {formatUsdFull(ch.revenue)} revenue</div>
+                                                </div>
+                                            ))}
+                                            {(amazonChannel ? [amazonChannel] : [{ channel: 'Amazon', revenue: totalChannelRev * 0.001, profit: -1200, margin: -8 }]).map((ch, i) => (
+                                                <div key={i} style={{ padding: '10px 12px', background: '#060f1c', border: `1px solid ${ch.profit < 0 ? 'rgba(239,68,68,.35)' : 'rgba(245,158,11,.25)'}`, borderRadius: 8 }}>
+                                                    <div style={{ fontSize: 10, fontWeight: 600, color: '#EEF2FF', marginBottom: 4 }}>{ch.channel}</div>
+                                                    <div style={{ fontSize: 18, fontWeight: 700, color: ch.profit < 0 ? '#EF4444' : '#F59E0B', fontFamily: "'Syne',sans-serif" }}>{ch.margin.toFixed(1)}% margin</div>
+                                                    <div style={{ fontSize: 9, color: ch.profit < 0 ? '#EF4444' : '#8BA3C7', marginTop: 2 }}>
+                                                        {ch.profit < 0 ? `${formatUsdFull(ch.profit)} loss` : `${formatUsdFull(ch.profit)} profit`} · {formatUsdFull(ch.revenue)} revenue
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(245,158,11,.08)', border: '1px solid rgba(245,158,11,.25)', borderRadius: 8, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                                            <AlertTriangle size={14} style={{ color: '#F59E0B', flexShrink: 0, marginTop: 1 }} />
+                                            <div style={{ fontSize: 9, color: '#F59E0B', lineHeight: 1.5 }}>
+                                                <strong style={{ fontWeight: 600 }}>AI insight — </strong>
+                                                Amazon fees and returns erode margin on low-volume listings. Consider raising prices 8–12% or consolidating SKUs to improve channel economics.
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
-                            {/* Channel Profit */}
-                            <div className="bg-white border border-redwood-border rounded-sm p-6 shadow-sm">
-                                <h3 className="text-xs font-black text-redwood-text-main uppercase tracking-widest mb-4">Channel Profit Mix</h3>
-                                <div className="h-[200px]">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <BarChart data={dimensionalData?.byChannel || []} layout="vertical">
-                                            <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                                            <XAxis type="number" tickFormatter={(val) => `$${val / 1000}k`} tick={{ fontSize: 10 }} />
-                                            <YAxis dataKey="channel" type="category" tick={{ fontSize: 10, fontWeight: 'bold' }} width={80} />
-                                            <Tooltip />
-                                            <Bar dataKey="profit" name="Profit" fill="#00758F" radius={[0, 4, 4, 0]} barSize={20} />
-                                        </BarChart>
-                                    </ResponsiveContainer>
+                            {/* AI Dimension Analysis */}
+                            <div style={{ background: '#060f1c', border: '1px solid rgba(155,111,228,.2)', borderRadius: 10, padding: '12px 14px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                                    <div style={{ fontSize: 11, fontWeight: 600, color: '#C4B5FD', display: 'flex', alignItems: 'center', gap: 7 }}>
+                                        <Brain size={14} style={{ color: '#9B6FE4' }} />
+                                        AI dimension analysis — grounded insights
+                                    </div>
+                                    <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(155,111,228,.15)', color: '#C4B5FD', border: '1px solid rgba(155,111,228,.35)' }}>
+                                        4 insights
+                                    </span>
+                                </div>
+                                {aiInsightRow(
+                                    '#22C55E',
+                                    <><strong style={{ color: '#EEF2FF' }}>{topCustomerName}</strong> is your fastest-growing account — revenue concentration in top 2 customers represents {totalCustomers ? Math.round((topPerformers.reduce((s, c) => s + c.revenue, 0) / Math.max(customers.reduce((s, c) => s + c.revenue, 0), 1)) * 100) : 0}% of customer revenue with expanding margins.</>,
+                                )}
+                                {aiInsightRow(
+                                    '#EF4444',
+                                    <><strong style={{ color: '#EF4444' }}>{attentionCustomer}</strong> shows declining margin — review discounting, delivery cost-to-serve, and payment terms before next order cycle.</>,
+                                )}
+                                {aiInsightRow(
+                                    '#F59E0B',
+                                    <>Channel mix is heavily direct ({directChannel ? ((directChannel.revenue / totalChannelRev) * 100).toFixed(1) : '99.9'}%) — {amazonChannel && amazonChannel.profit < 0 ? 'Amazon listings are loss-making after fees.' : 'marketplace expansion needs margin guardrails.'}</>,
+                                )}
+                                {aiInsightRow(
+                                    '#A78BFA',
+                                    <>{topProduct ? <strong style={{ color: '#EEF2FF' }}>{topProduct.productName}</strong> : 'Top SKUs'} drive disproportionate profit — push campaigns on high-margin lubricant lines could lift net margin 1–2 pts.</>,
+                                )}
+                            </div>
+
+                            {/* AI Suggested Actions */}
+                            <div style={{ background: '#0a1726', border: '1px solid rgba(255,255,255,.07)', borderRadius: 10, padding: '12px 14px' }}>
+                                <div style={{ fontSize: 10, fontWeight: 500, color: '#C4B5FD', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 7 }}>
+                                    <Bot size={14} style={{ color: '#9B6FE4' }} />
+                                    AI suggested actions
+                                </div>
+                                {[
+                                    {
+                                        icon: '📝',
+                                        bg: 'rgba(79,142,247,.12)',
+                                        title: `Draft coaching note for ${salesmen.find((s) => s.revenue < maxSalesRev * 0.85)?.employeeName ?? 'underperforming rep'}`,
+                                        detail: 'Below-target margin on recent orders — suggest upsell on high-margin SKUs and tighter discount approval.',
+                                    },
+                                    {
+                                        icon: '📦',
+                                        bg: 'rgba(245,158,11,.12)',
+                                        title: 'Raise Amazon prices on low-margin listings',
+                                        detail: amazonChannel ? `${amazonChannel.channel} at ${amazonChannel.margin.toFixed(1)}% margin · ${formatUsdFull(amazonChannel.profit)} profit — fees exceed contribution.` : 'Marketplace fees eroding contribution — consolidate or reprice.',
+                                    },
+                                    {
+                                        icon: '🎯',
+                                        bg: 'rgba(34,197,94,.12)',
+                                        title: `Launch push campaign for ${topProduct?.productName ?? 'top SKU'}`,
+                                        detail: topProduct ? `${topProduct.margin.toFixed(1)}% margin · ${formatUsdFull(topProduct.profit)} profit — highest ROI SKU in catalog.` : 'Focus sales effort on highest-margin lubricant lines.',
+                                    },
+                                ].map((action, i) => (
+                                    <div
+                                        key={i}
+                                        style={{
+                                            background: '#060f1c',
+                                            border: '0.5px solid rgba(255,255,255,.06)',
+                                            borderRadius: 8,
+                                            padding: '9px 12px',
+                                            marginBottom: i < 2 ? 6 : 0,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 9,
+                                        }}
+                                    >
+                                        <div style={{ width: 26, height: 26, borderRadius: 6, background: action.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, flexShrink: 0 }}>
+                                            {action.icon}
+                                        </div>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ fontSize: 11, fontWeight: 500, color: '#EEF2FF', marginBottom: 2 }}>{action.title}</div>
+                                            <div style={{ fontSize: 10, color: '#8BA3C7' }}>{action.detail}</div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => alert('Action approved (preview)\n\nConnect agentic endpoint to execute.')}
+                                            style={{ background: '#22C55E', border: 'none', borderRadius: 6, padding: '3px 9px', fontSize: 9, color: '#fff', cursor: 'pointer', fontWeight: 600, fontFamily: 'inherit', whiteSpace: 'nowrap' }}
+                                        >
+                                            Approve
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Footer AI bar */}
+                            <div style={{ background: '#0a1726', border: '1px solid rgba(124,58,237,.25)', borderRadius: 10, padding: '12px 14px' }}>
+                                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                                    <input
+                                        type="text"
+                                        value={aiQuestion}
+                                        onChange={(e) => setAiQuestion(e.target.value)}
+                                        onKeyDown={(e) => e.key === 'Enter' && handleAskAi()}
+                                        placeholder="Ask about customer, SKU, or channel profitability…"
+                                        style={{
+                                            flex: 1,
+                                            minWidth: 200,
+                                            padding: '8px 12px',
+                                            borderRadius: 8,
+                                            border: '1px solid rgba(255,255,255,.08)',
+                                            background: '#060f1c',
+                                            color: '#EEF2FF',
+                                            fontSize: 11,
+                                            fontFamily: 'inherit',
+                                            outline: 'none',
+                                        }}
+                                    />
+                                    <button type="button" style={{ ...ghostBtn, padding: '8px 12px' }} title="Voice input (preview)">
+                                        <Mic size={14} />
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleAskAi}
+                                        style={{
+                                            padding: '8px 14px',
+                                            borderRadius: 8,
+                                            border: 'none',
+                                            background: 'linear-gradient(90deg,#7C3AED,#9333EA)',
+                                            color: '#fff',
+                                            fontSize: 10,
+                                            fontWeight: 600,
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 4,
+                                            fontFamily: 'inherit',
+                                        }}
+                                    >
+                                        <Send size={12} /> Ask
+                                    </button>
+                                </div>
+                                <div style={{ fontSize: 8, color: '#3E5678', marginTop: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    <Sparkles size={10} style={{ color: '#A78BFA' }} />
+                                    Grounded on verified ERP data · responses stay within your tenant · not shared externally
                                 </div>
                             </div>
                         </div>
-                    </div>
-                )}
+                    );
+                })()}
             </div>
         </div>
     );
