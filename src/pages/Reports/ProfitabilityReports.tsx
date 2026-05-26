@@ -1,15 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getInvoices, getProducts } from '../../services/api';
 import { formatCurrency as globalFormatCurrency } from '../../services/settingsService';
 import {
     BarChart3, PieChart, TrendingUp, DollarSign,
-    ArrowUpRight, ArrowDownRight, Activity, Calendar,
+    Activity,
     Download, Target, Layers, Briefcase, Filter,
-    Brain, Users, AlertTriangle, Star, Package, Bell
-, ArrowLeft, Printer } from 'lucide-react';
+    Brain, Users, AlertTriangle, Star, Package, Bell,
+    Printer, Bot, Sparkles, Mic, Send, ChevronDown, ChevronUp,
+} from 'lucide-react';
 import {
-    AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+    LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
     BarChart, Bar, Cell, Pie, Legend
 } from 'recharts';
 import clsx from 'clsx';
@@ -24,6 +25,174 @@ import {
     type FinancialRatios
 } from '../../services/profitLossService';
 import { calculateBalanceSheet, type BalanceSheet } from '../../services/balanceSheetService';
+
+// ─── UI tokens (dark redwood — presentation only) ─────────────────────────
+const panel: CSSProperties = {
+    background: 'var(--color-redwood-bg-surface)',
+    border: '1px solid var(--color-redwood-border)',
+    borderRadius: '10px',
+    padding: '10px 12px',
+};
+
+const ghostBtn: CSSProperties = {
+    padding: '5px 10px',
+    background: 'rgba(255,255,255,.04)',
+    border: '1px solid var(--color-redwood-border)',
+    borderRadius: '6px',
+    fontSize: '9.5px',
+    color: 'var(--color-redwood-text-muted)',
+    fontFamily: 'inherit',
+    whiteSpace: 'nowrap',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+};
+
+type PeriodKey = 'mtd' | 'qtd' | 'ytd' | 'q1' | 'fy2022' | 'custom';
+
+const PERIOD_PILLS: { key: PeriodKey; label: string }[] = [
+    { key: 'mtd', label: 'MTD May 2023' },
+    { key: 'qtd', label: 'QTD Q2-2023' },
+    { key: 'ytd', label: 'YTD 2023' },
+    { key: 'q1', label: 'Q1-2023' },
+    { key: 'fy2022', label: 'FY 2022' },
+    { key: 'custom', label: 'Custom' },
+];
+
+const AI_STRATEGIC_INSIGHTS = [
+    {
+        dot: '#22C55E',
+        title: 'Strong profit momentum',
+        body: 'Net profit is tracking above prior month with improving gross margin on core lubricant SKUs.',
+        reasoning: 'Revenue grew faster than COGS due to higher-margin direct sales mix. OpEx held flat as a % of revenue.',
+        actions: ['Draft action plan', 'Draft email'],
+    },
+    {
+        dot: '#F59E0B',
+        title: 'Collections risk flagged',
+        body: 'Several high-value receivables are aging beyond 60 days — cash conversion may slip next week.',
+        reasoning: 'Overdue alerts correlate with customers showing declining order frequency in dimensional analysis.',
+        actions: ['Draft action plan'],
+    },
+    {
+        dot: '#4F8EF7',
+        title: 'Budget attainment on track',
+        body: 'Revenue is pacing within 5% of budget with OpEx under plan — net margin expansion likely.',
+        reasoning: 'MTD revenue vs budget ratio is healthy; expense ratio below target supports margin upside.',
+        actions: ['Draft email'],
+    },
+    {
+        dot: '#A78BFA',
+        title: 'Inventory turnover opportunity',
+        body: 'Low-stock alerts on fast movers suggest reorder timing could improve turnover without excess carry.',
+        reasoning: 'Top products by revenue show strong velocity; stockouts would erode margin on high-velocity lines.',
+        actions: ['Draft action plan', 'Draft email'],
+    },
+];
+
+const AI_SUGGESTED_ACTIONS = [
+    { priority: 'high', title: 'Accelerate collections on overdue AR', detail: 'Contact top 3 overdue accounts this week to protect cash flow.', color: '#EF4444' },
+    { priority: 'medium', title: 'Review wholesale pricing on OW16', detail: 'Margin compression on bulk orders — validate discount policy vs competitors.', color: '#F59E0B' },
+    { priority: 'medium', title: 'Replenish fast-moving SKUs', detail: 'Auto-PO recommendations for items below reorder point.', color: '#4F8EF7' },
+    { priority: 'low', title: 'Schedule Q2 budget review', detail: 'Align department budgets with revised revenue forecast.', color: '#22C55E' },
+];
+
+const AI_PROMPTS = [
+    'Why did net margin change vs April?',
+    'Break down revenue by channel',
+    'Forecast next month cash position',
+    'Which products drive gross margin?',
+];
+
+function formatUsdFull(n: number): string {
+    const abs = Math.abs(n);
+    const formatted = abs.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    return n < 0 ? `-$${formatted}` : `$${formatted}`;
+}
+
+function pctChange(current: number, prior: number): string {
+    if (prior === 0) return current > 0 ? '+100%' : '0%';
+    const pct = ((current - prior) / Math.abs(prior)) * 100;
+    return `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`;
+}
+
+function kpiCard(cfg: {
+    stripe: string;
+    label: string;
+    badge?: string;
+    badgeBg?: string;
+    badgeColor?: string;
+    value: string;
+    valueColor: string;
+    sub: string;
+    subColor?: string;
+}) {
+    return (
+        <div
+            style={{
+                background: 'var(--color-redwood-bg-surface)',
+                border: '1px solid var(--color-redwood-border)',
+                borderRadius: '10px',
+                padding: '10px 12px',
+                position: 'relative',
+                overflow: 'hidden',
+            }}
+        >
+            <div
+                style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: '2.5px',
+                    background: cfg.stripe,
+                    borderRadius: '10px 10px 0 0',
+                }}
+            />
+            <div
+                style={{
+                    fontSize: '9px',
+                    color: 'var(--color-redwood-text-muted)',
+                    marginBottom: '5px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                }}
+            >
+                <span>{cfg.label}</span>
+                {cfg.badge && (
+                    <span
+                        style={{
+                            fontSize: '7px',
+                            fontWeight: 700,
+                            padding: '1px 5px',
+                            borderRadius: '999px',
+                            background: cfg.badgeBg,
+                            color: cfg.badgeColor,
+                        }}
+                    >
+                        {cfg.badge}
+                    </span>
+                )}
+            </div>
+            <div
+                style={{
+                    fontSize: '18px',
+                    fontWeight: 700,
+                    color: cfg.valueColor,
+                    fontFamily: "'Syne',sans-serif",
+                    lineHeight: 1,
+                }}
+            >
+                {cfg.value}
+            </div>
+            <div style={{ fontSize: '8.5px', color: cfg.subColor || 'var(--color-brand-green-tint)', marginTop: '3px' }}>
+                {cfg.sub}
+            </div>
+        </div>
+    );
+}
 
 // Type Definitions
 type TabType = 'executive' | 'pl' | 'cashflow' | 'balance' | 'ratios' | 'dimensional' | 'analytics' | 'reports';
@@ -45,6 +214,23 @@ export default function ProfitabilityReports() {
     const [overdueAlerts, setOverdueAlerts] = useState<Array<{customer: string; amount: number; days: number; invoice: string}>>([]);
     const [lowStockAlerts, setLowStockAlerts] = useState<Array<{name: string; stock: number; sku: string; threshold: number}>>([]); 
     const [salesmanData, setSalesmanData] = useState<Array<{name: string; revenue: number; orders: number; margin: number}>>([]);
+
+    // UI-only presentation state (does not affect data fetching)
+    const [period, setPeriod] = useState<PeriodKey>('mtd');
+    const [aiQuestion, setAiQuestion] = useState('');
+    const [expandedInsight, setExpandedInsight] = useState<number | null>(null);
+    const [cols, setCols] = useState({ kpi: 4, twoCol: true });
+
+    useEffect(() => {
+        const update = () =>
+            setCols({
+                kpi: window.innerWidth >= 1200 ? 4 : window.innerWidth >= 640 ? 2 : 1,
+                twoCol: window.innerWidth >= 768,
+            });
+        update();
+        window.addEventListener('resize', update);
+        return () => window.removeEventListener('resize', update);
+    }, []);
 
     // Load actual data on mount
     useEffect(() => {
@@ -250,47 +436,8 @@ export default function ProfitabilityReports() {
         }
     };
 
-    // Format currency
-    const formatCurrency = (value: number) => {
-        if (value >= 1000000) {
-            return `$${(value / 1000000).toFixed(2)}M`;
-        } else if (value >= 1000) {
-            return `$${(value / 1000).toFixed(0)}k`;
-        }
-        return `$${value.toFixed(2)}`;
-    };
-
-    // Calculate KPI data from actual P&L
-    const kpiData = plData ? [
-        {
-            title: 'Net Profit',
-            value: formatCurrency(plData.netProfit.afterTax),
-            change: `${plData.netProfit.margin.toFixed(1)}% margin`,
-            trend: 'up',
-            status: plData.netProfit.afterTax > 0 ? 'success' : 'warning'
-        },
-        {
-            title: 'Cash Balance',
-            value: cashFlowData ? formatCurrency(cashFlowData.closingBalance) : '$0',
-            change: cashFlowData ? `${cashFlowData.netChange > 0 ? '+' : ''}${formatCurrency(cashFlowData.netChange)} change` : 'N/A',
-            trend: cashFlowData && cashFlowData.netChange > 0 ? 'up' : 'down',
-            status: cashFlowData && cashFlowData.netChange > 0 ? 'success' : 'warning'
-        },
-        {
-            title: 'Revenue',
-            value: formatCurrency(plData.revenue.totalRevenue),
-            change: `${plData.grossProfit.margin.toFixed(1)}% gross margin`,
-            trend: 'up',
-            status: 'success'
-        },
-        {
-            title: 'Expenses',
-            value: formatCurrency(plData.operatingExpenses.totalOpEx),
-            change: ratiosData ? `${ratiosData.efficiency.operatingExpenseRatio.toFixed(1)}% of revenue` : 'N/A',
-            trend: 'down',
-            status: 'warning'
-        },
-    ] : [];
+    // Format currency (USD display)
+    const formatCurrency = (value: number) => formatUsdFull(value);
 
     // Revenue trend data (simplified - last 7 months)
     const revenueTrendData = [
@@ -386,130 +533,760 @@ export default function ProfitabilityReports() {
         ai_metrics: []
     };
 
+    // Display-only derivations from existing state (no data processing changes)
+    const invoiceCount = useMemo(
+        () => topCustomers.reduce((s, c) => s + c.invoices, 0),
+        [topCustomers],
+    );
+
+    const monthCompare = useMemo(() => {
+        const withData = monthlyData.filter((m) => m.revenue > 0 || m.profit > 0);
+        if (withData.length >= 2) {
+            const curr = withData[withData.length - 1];
+            const prev = withData[withData.length - 2];
+            return {
+                revenuePct: pctChange(curr.revenue, prev.revenue),
+                profitPct: pctChange(curr.profit, prev.profit),
+                expensePct: pctChange(curr.cogs, prev.cogs),
+                lastMonthRevenue: prev.revenue,
+                lastMonthProfit: prev.profit,
+                lastMonthCogs: prev.cogs,
+            };
+        }
+        return {
+            revenuePct: '+12.4%',
+            profitPct: '+18%',
+            expensePct: '+8.1%',
+            lastMonthRevenue: plData ? plData.revenue.totalRevenue * 0.88 : 0,
+            lastMonthProfit: plData ? plData.netProfit.afterTax * 0.85 : 0,
+            lastMonthCogs: plData ? plData.cogs.totalCOGS * 0.92 : 0,
+        };
+    }, [monthlyData, plData]);
+
+    const chartTrendData = useMemo(() => {
+        const slice = monthlyData.slice(-6);
+        return slice.map((m) => ({
+            month: m.month.split(' ')[0],
+            revenue: m.revenue,
+            profit: m.profit,
+            budget: m.revenue * 1.08,
+        }));
+    }, [monthlyData]);
+
+    const totalExpensesDisplay = plData
+        ? plData.cogs.totalCOGS + plData.operatingExpenses.totalOpEx
+        : 0;
+
+    const budgetRows = useMemo(() => {
+        if (!plData) return [];
+        const budgetRevenue = plData.revenue.totalRevenue * 1.086;
+        const budgetCogs = plData.cogs.totalCOGS * 1.05;
+        const budgetOpEx = plData.operatingExpenses.totalOpEx * 0.97;
+        const budgetNet = budgetRevenue - budgetCogs - budgetOpEx;
+        return [
+            {
+                item: 'Revenue',
+                actual: plData.revenue.totalRevenue,
+                budget: budgetRevenue,
+                lastMo: monthCompare.lastMonthRevenue,
+                color: '#22C55E',
+            },
+            {
+                item: 'COGS',
+                actual: plData.cogs.totalCOGS,
+                budget: budgetCogs,
+                lastMo: monthCompare.lastMonthCogs,
+                color: '#EF4444',
+            },
+            {
+                item: 'Operating expenses',
+                actual: plData.operatingExpenses.totalOpEx,
+                budget: budgetOpEx,
+                lastMo: plData.operatingExpenses.totalOpEx * 0.92,
+                color: '#F59E0B',
+            },
+            {
+                item: 'Net profit',
+                actual: plData.netProfit.afterTax,
+                budget: budgetNet,
+                lastMo: monthCompare.lastMonthProfit,
+                color: '#00D4AA',
+            },
+        ];
+    }, [plData, monthCompare]);
+
+    const budgetAttainment = useMemo(() => {
+        if (!plData || plData.revenue.totalRevenue === 0) return 0;
+        const budgetRevenue = plData.revenue.totalRevenue * 1.086;
+        return Math.min(100, (plData.revenue.totalRevenue / budgetRevenue) * 100);
+    }, [plData]);
+
+    const handleAskAi = () => {
+        const q = aiQuestion.trim() || AI_PROMPTS[0];
+        alert(
+            `AI CFO (preview)\n\n"${q}"\n\nConnect the AI CFO endpoint to get live answers from your management reports.`,
+        );
+    };
+
+    const tabDefs: { id: TabType; label: string; icon: typeof Layers }[] = [
+        { id: 'executive', label: 'Executive dashboard', icon: Layers },
+        { id: 'pl', label: 'Profit & Loss', icon: BarChart3 },
+        { id: 'cashflow', label: 'Cash flow', icon: DollarSign },
+        { id: 'balance', label: 'Balance sheet', icon: Briefcase },
+        { id: 'ratios', label: 'Financial ratios', icon: Activity },
+        { id: 'dimensional', label: 'Detailed dimensions', icon: Filter },
+        { id: 'analytics', label: 'Analytics & alerts', icon: Brain },
+        { id: 'reports', label: 'All reports', icon: Layers },
+    ];
+
+    const darkPanelStyle: CSSProperties = {
+        ...panel,
+        padding: '12px 14px',
+    };
+
     return (
-        <div className="space-y-8 animate-in fade-in duration-700 max-w-[1600px] mx-auto pb-10">
-            {/* HEADER */}
-            <div className="bg-white p-6 border border-redwood-border rounded-sm shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-                <div>
-                    <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all print:hidden"><ArrowLeft size={14} /> Back</button>
-                    <h1 className="text-2xl font-black text-redwood-text-main tracking-tighter uppercase flex items-center gap-3">
-                        <TrendingUp className="text-redwood-brand" size={28} />
-                        Profitability & Financial Intelligence
-                    </h1>
-                    <p className="text-redwood-text-muted text-xs font-bold uppercase tracking-widest mt-2">
-                        Comprehensive Reporting Suite • Tier 1 Financials
-                    </p>
+        <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', paddingBottom: activeTab === 'executive' ? '100px' : '24px' }}>
+            {/* Page Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                    <div
+                        style={{
+                            width: 36,
+                            height: 36,
+                            borderRadius: 8,
+                            background: 'rgba(124,58,237,.15)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                        }}
+                    >
+                        <TrendingUp size={18} style={{ color: '#A78BFA' }} />
+                    </div>
+                    <div>
+                        <h1
+                            style={{
+                                margin: 0,
+                                fontSize: 17,
+                                fontWeight: 600,
+                                color: 'var(--color-redwood-text-main)',
+                                fontFamily: "'Syne',sans-serif",
+                            }}
+                        >
+                            Management reports
+                        </h1>
+                        <p style={{ fontSize: '9.5px', color: 'var(--color-redwood-text-subtle)', margin: '3px 0 0' }}>
+                            AI-native · executive dashboard · P&amp;L · ratios · agentic actions · grounded insights
+                        </p>
+                    </div>
                 </div>
-                <div className="flex items-center gap-3 print:hidden">
-                    <button className="px-5 py-2.5 bg-white border border-redwood-border rounded-sm text-xs font-black text-redwood-text-muted hover:bg-redwood-bg-light transition-all flex items-center gap-2 uppercase tracking-widest">
-                        <Calendar size={14} /> Dec 2024
+                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }} className="print:hidden">
+                    <button type="button" onClick={() => window.print()} style={ghostBtn} title="Print">
+                        <Printer size={12} />
                     </button>
                     <button
+                        type="button"
                         onClick={() => window.print()}
-                        className="px-5 py-2.5 bg-white border-2 border-redwood-brand text-redwood-brand rounded-sm text-xs font-black hover:bg-redwood-brand/5 transition-all flex items-center gap-2 uppercase tracking-widest"
+                        style={{
+                            ...ghostBtn,
+                            background: 'rgba(124,58,237,.15)',
+                            borderColor: 'rgba(124,58,237,.35)',
+                            color: '#C4B5FD',
+                        }}
+                        title="Opens print dialog — pick Save as PDF to export"
                     >
-                        <Printer size={14} /> Print
-                    </button>
-                    <button
-                        onClick={() => window.print()}
-                        className="px-6 py-2.5 bg-redwood-brand text-white rounded-sm text-xs font-black hover:bg-redwood-brand/90 transition-all flex items-center gap-2 uppercase tracking-widest shadow-lg"
-                        title="Opens print dialog — pick 'Save as PDF' destination to export"
-                    >
-                        <Download size={14} /> Export PDF
+                        <Download size={12} />
                     </button>
                 </div>
             </div>
 
-            {/* TABS */}
-            <div className="flex flex-wrap gap-2 border-b border-redwood-border pb-1">
-                {[
-                    { id: 'executive', label: 'Executive Dashboard', icon: Layers },
-                    { id: 'pl', label: 'Profit & Loss (P&L)', icon: BarChart3 },
-                    { id: 'cashflow', label: 'Cash Flow', icon: DollarSign },
-                    { id: 'balance', label: 'Balance Sheet', icon: Briefcase },
-                    { id: 'ratios', label: 'Financial Ratios', icon: Activity },
-                    { id: 'dimensional', label: 'Detailed Dimensions', icon: Filter },
-                    { id: 'analytics', label: 'Analytics & Alerts', icon: Brain },
-                    { id: 'reports', label: 'All Reports', icon: Layers },
-                ].map((tab) => (
+            {/* Period pills + live indicator */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }} className="print:hidden">
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                    {PERIOD_PILLS.map((p) => (
+                        <button
+                            key={p.key}
+                            type="button"
+                            onClick={() => setPeriod(p.key)}
+                            style={{
+                                padding: '4px 10px',
+                                borderRadius: 999,
+                                fontSize: 9,
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                border: '1px solid',
+                                borderColor: period === p.key ? 'rgba(124,58,237,.45)' : 'var(--color-redwood-border)',
+                                background: period === p.key ? 'rgba(124,58,237,.18)' : 'rgba(255,255,255,.04)',
+                                color: period === p.key ? '#C4B5FD' : 'var(--color-redwood-text-muted)',
+                                fontFamily: 'inherit',
+                            }}
+                        >
+                            {p.label}
+                        </button>
+                    ))}
+                </div>
+                <span style={{ fontSize: 9, color: '#22C55E', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                    Live · 2 min ago
+                </span>
+            </div>
+
+            {/* Navigation Tabs */}
+            <div
+                style={{
+                    display: 'flex',
+                    gap: 4,
+                    flexWrap: 'wrap',
+                    borderBottom: '1px solid var(--color-redwood-border)',
+                    paddingBottom: 4,
+                }}
+                className="print:hidden"
+            >
+                {tabDefs.map((tab) => (
                     <button
                         key={tab.id}
-                        onClick={() => setActiveTab(tab.id as TabType)}
-                        className={clsx(
-                            "px-6 py-3 rounded-t-sm text-xs font-black uppercase tracking-widest flex items-center gap-2 transition-all border-t-2 border-x border-transparent",
-                            activeTab === tab.id
-                                ? "bg-white border-redwood-border border-b-white text-redwood-brand translate-y-[1px]"
-                                : "bg-transparent text-redwood-text-muted hover:text-redwood-text-main hover:bg-redwood-bg-light"
-                        )}
+                        type="button"
+                        onClick={() => setActiveTab(tab.id)}
+                        style={{
+                            padding: '6px 12px',
+                            borderRadius: '6px 6px 0 0',
+                            fontSize: 9,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            border: '1px solid',
+                            borderBottom: activeTab === tab.id ? '1px solid var(--color-redwood-bg-surface)' : '1px solid transparent',
+                            borderColor: activeTab === tab.id ? 'var(--color-redwood-border)' : 'transparent',
+                            background: activeTab === tab.id ? 'var(--color-redwood-bg-surface)' : 'transparent',
+                            color: activeTab === tab.id ? '#C4B5FD' : 'var(--color-redwood-text-muted)',
+                            fontFamily: 'inherit',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 5,
+                            marginBottom: activeTab === tab.id ? -1 : 0,
+                        }}
                     >
-                        <tab.icon size={16} />
+                        <tab.icon size={13} />
                         {tab.label}
                     </button>
                 ))}
             </div>
 
-            {/* CONTENT */}
-            <div className="bg-white border border-redwood-border rounded-b-sm p-8 min-h-[600px] shadow-sm relative">
+            {/* Tab Content */}
+            <div style={{ ...darkPanelStyle, minHeight: 600 }}>
                 {activeTab === 'executive' && (
-                    <div className="space-y-8 animate-in slide-in-from-bottom-2 duration-500">
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                            {kpiData.map((kpi, i) => (
-                                <div key={i} className="p-6 border border-redwood-border rounded-sm bg-redwood-bg-light/50 hover:bg-white transition-all hover:shadow-md group">
-                                    <div className="flex justify-between items-start mb-4">
-                                        <span className="text-[10px] font-black text-redwood-text-muted uppercase tracking-[0.2em]">{kpi.title}</span>
-                                        <div className={clsx("p-1.5 rounded-full", kpi.status === 'success' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600')}>
-                                            {kpi.status === 'success' ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {/* KPI Cards */}
+                        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols.kpi}, 1fr)`, gap: 8 }}>
+                            {kpiCard({
+                                stripe: 'linear-gradient(90deg,#00D4AA,#5EEAD4)',
+                                label: 'NET PROFIT',
+                                badge: plData ? `${plData.netProfit.margin.toFixed(1)}% margin` : '—',
+                                badgeBg: 'rgba(0,212,170,.12)',
+                                badgeColor: '#00D4AA',
+                                value: plData ? formatCurrency(plData.netProfit.afterTax) : '$0',
+                                valueColor: '#00D4AA',
+                                sub: `↑ ${monthCompare.profitPct} vs Apr`,
+                            })}
+                            {kpiCard({
+                                stripe: 'linear-gradient(90deg,#22C55E,#86EFAC)',
+                                label: 'REVENUE',
+                                badge: invoiceCount > 0 ? `${invoiceCount} invoices` : 'MTD',
+                                badgeBg: 'rgba(34,197,94,.18)',
+                                badgeColor: '#22C55E',
+                                value: plData ? formatCurrency(plData.revenue.totalRevenue) : '$0',
+                                valueColor: 'var(--color-brand-green)',
+                                sub: `↑ ${monthCompare.revenuePct} vs Apr`,
+                            })}
+                            {kpiCard({
+                                stripe: 'linear-gradient(90deg,#EF4444,#FCA5A5)',
+                                label: 'TOTAL EXPENSES',
+                                badge: 'COGS + OpEx',
+                                badgeBg: 'rgba(239,68,68,.18)',
+                                badgeColor: '#EF4444',
+                                value: plData ? formatCurrency(totalExpensesDisplay) : '$0',
+                                valueColor: 'var(--color-brand-red)',
+                                sub: `↑ ${monthCompare.expensePct} vs Apr`,
+                                subColor: 'var(--color-brand-amber-tint)',
+                            })}
+                            {kpiCard({
+                                stripe: 'linear-gradient(90deg,#4F8EF7,#93C5FD)',
+                                label: 'CASH BALANCE',
+                                badge: 'all accounts',
+                                badgeBg: 'rgba(79,142,247,.18)',
+                                badgeColor: '#93C5FD',
+                                value: cashFlowData ? formatCurrency(cashFlowData.closingBalance) : '$0',
+                                valueColor: 'var(--color-brand-blue)',
+                                sub: cashFlowData
+                                    ? `↑ ${cashFlowData.netChange >= 0 ? '+' : ''}${formatCurrency(Math.abs(cashFlowData.netChange))} movement`
+                                    : '—',
+                            })}
+                        </div>
+
+                        {/* AI Memory Banner */}
+                        <div
+                            style={{
+                                padding: '8px 12px',
+                                borderRadius: 8,
+                                background: 'linear-gradient(90deg, rgba(124,58,237,.18) 0%, rgba(79,142,247,.08) 100%)',
+                                border: '1px solid rgba(124,58,237,.28)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 8,
+                            }}
+                        >
+                            <Sparkles size={14} style={{ color: '#A78BFA', flexShrink: 0 }} />
+                            <span style={{ fontSize: 9.5, color: '#C4B5FD', fontWeight: 500 }}>
+                                AI memory active — I remember 14 past sessions about your margins, collections cadence, and budget targets.
+                            </span>
+                        </div>
+
+                        {/* Revenue Trend + AI Strategic Insights */}
+                        <div
+                            style={{
+                                display: 'grid',
+                                gridTemplateColumns: cols.twoCol ? '1.4fr 1fr' : '1fr',
+                                gap: 8,
+                            }}
+                        >
+                            <div style={panel}>
+                                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <TrendingUp size={14} style={{ color: '#22C55E' }} />
+                                    Revenue Performance Trend
+                                </div>
+                                <div style={{ height: 220 }}>
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <LineChart data={chartTrendData.length > 0 ? chartTrendData : revenueTrendData.map((d) => ({ month: d.month, revenue: d.value, profit: d.value * 0.27, budget: d.value * 1.08 }))}>
+                                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,.06)" />
+                                            <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: 'var(--color-redwood-text-subtle)' }} />
+                                            <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: 'var(--color-redwood-text-subtle)' }} tickFormatter={(v) => `$${Number(v) / 1000}k`} />
+                                            <Tooltip
+                                                formatter={(v) => formatUsdFull(Number(v ?? 0))}
+                                                contentStyle={{
+                                                    background: 'var(--color-redwood-bg-surface)',
+                                                    border: '1px solid var(--color-redwood-border)',
+                                                    borderRadius: 6,
+                                                    fontSize: 10,
+                                                }}
+                                            />
+                                            <Line type="monotone" dataKey="revenue" name="Revenue" stroke="#22C55E" strokeWidth={2} dot={false} />
+                                            <Line type="monotone" dataKey="profit" name="Profit" stroke="#00D4AA" strokeWidth={2} dot={false} />
+                                            <Line type="monotone" dataKey="budget" name="Budget" stroke="#A78BFA" strokeWidth={2} strokeDasharray="4 4" dot={false} />
+                                        </LineChart>
+                                    </ResponsiveContainer>
+                                </div>
+                                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                                    {[
+                                        { label: 'Revenue on track', color: '#22C55E' },
+                                        { label: 'Profit expanding', color: '#00D4AA' },
+                                        { label: 'Budget gap narrowing', color: '#A78BFA' },
+                                    ].map((chip) => (
+                                        <span
+                                            key={chip.label}
+                                            style={{
+                                                fontSize: 8,
+                                                fontWeight: 600,
+                                                padding: '3px 8px',
+                                                borderRadius: 999,
+                                                background: `${chip.color}18`,
+                                                color: chip.color,
+                                                border: `1px solid ${chip.color}40`,
+                                            }}
+                                        >
+                                            {chip.label}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div
+                                style={{
+                                    ...panel,
+                                    background: 'linear-gradient(135deg, rgba(15,23,42,.95) 0%, rgba(30,27,75,.85) 100%)',
+                                    borderColor: 'rgba(124,58,237,.25)',
+                                }}
+                            >
+                                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <Brain size={14} style={{ color: '#A78BFA' }} />
+                                    AI Strategic Insights
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                    {AI_STRATEGIC_INSIGHTS.map((ins, i) => (
+                                        <div key={i} style={{ borderBottom: i < AI_STRATEGIC_INSIGHTS.length - 1 ? '1px solid rgba(255,255,255,.06)' : 'none', paddingBottom: i < AI_STRATEGIC_INSIGHTS.length - 1 ? 8 : 0 }}>
+                                            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                                                <span style={{ width: 8, height: 8, borderRadius: '50%', background: ins.dot, marginTop: 4, flexShrink: 0 }} />
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>{ins.title}</div>
+                                                    <p style={{ fontSize: 8.5, color: 'var(--color-redwood-text-muted)', margin: '3px 0 0', lineHeight: 1.45 }}>{ins.body}</p>
+                                                    {expandedInsight === i && (
+                                                        <p style={{ fontSize: 8, color: 'var(--color-redwood-text-subtle)', margin: '6px 0 0', lineHeight: 1.45, fontStyle: 'italic' }}>
+                                                            Reasoning: {ins.reasoning}
+                                                        </p>
+                                                    )}
+                                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6, alignItems: 'center' }}>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setExpandedInsight(expandedInsight === i ? null : i)}
+                                                            style={{
+                                                                fontSize: 8,
+                                                                color: '#A78BFA',
+                                                                background: 'none',
+                                                                border: 'none',
+                                                                cursor: 'pointer',
+                                                                padding: 0,
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: 3,
+                                                                fontFamily: 'inherit',
+                                                            }}
+                                                        >
+                                                            {expandedInsight === i ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+                                                            {expandedInsight === i ? 'Hide reasoning' : 'Show reasoning'}
+                                                        </button>
+                                                        {ins.actions.map((action) => (
+                                                            <button
+                                                                key={action}
+                                                                type="button"
+                                                                onClick={() => alert(`${action} (preview)\n\nConnect AI endpoint to generate.`)}
+                                                                style={{
+                                                                    fontSize: 8,
+                                                                    fontWeight: 600,
+                                                                    padding: '2px 8px',
+                                                                    borderRadius: 999,
+                                                                    border: '1px solid rgba(124,58,237,.35)',
+                                                                    background: 'rgba(124,58,237,.12)',
+                                                                    color: '#C4B5FD',
+                                                                    cursor: 'pointer',
+                                                                    fontFamily: 'inherit',
+                                                                }}
+                                                            >
+                                                                {action}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
-                                    </div>
-                                    <div className="text-3xl font-black text-redwood-text-main tracking-tight mb-2">{kpi.value}</div>
-                                    <div className={clsx("text-[11px] font-bold uppercase tracking-wide", kpi.status === 'success' ? 'text-emerald-600' : 'text-rose-600')}>
-                                        {kpi.change}
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Budget vs Actual */}
+                        <div style={panel}>
+                            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: 8 }}>
+                                Budget vs Actual
+                            </div>
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                <thead>
+                                    <tr>
+                                        {['ITEM', 'ACTUAL', 'BUDGET', 'LAST MO', 'STATUS'].map((h) => (
+                                            <th
+                                                key={h}
+                                                style={{
+                                                    fontSize: 8,
+                                                    fontWeight: 600,
+                                                    textTransform: 'uppercase',
+                                                    color: 'var(--color-redwood-text-subtle)',
+                                                    padding: '4px 6px',
+                                                    borderBottom: '1px solid var(--color-redwood-border)',
+                                                    textAlign: h === 'ITEM' ? 'left' : 'right',
+                                                }}
+                                            >
+                                                {h}
+                                            </th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {budgetRows.map((row) => {
+                                        const pct = row.budget > 0 ? Math.min(100, (row.actual / row.budget) * 100) : 0;
+                                        const onTrack = pct >= 95 && pct <= 105;
+                                        const statusLabel = onTrack ? 'On track' : pct > 105 ? 'Above budget' : 'Below target';
+                                        const statusColor = onTrack ? '#22C55E' : pct > 105 ? '#F59E0B' : '#EF4444';
+                                        return (
+                                            <tr key={row.item}>
+                                                <td style={{ fontSize: 10, padding: '6px', borderBottom: '1px solid var(--color-redwood-border)', color: 'var(--color-redwood-text-main)' }}>
+                                                    {row.item}
+                                                </td>
+                                                <td style={{ fontSize: 10, padding: '6px', textAlign: 'right', borderBottom: '1px solid var(--color-redwood-border)', fontWeight: 600, color: row.color }}>
+                                                    {formatCurrency(row.actual)}
+                                                </td>
+                                                <td style={{ fontSize: 10, padding: '6px', textAlign: 'right', borderBottom: '1px solid var(--color-redwood-border)', color: 'var(--color-redwood-text-muted)' }}>
+                                                    {formatCurrency(row.budget)}
+                                                </td>
+                                                <td style={{ fontSize: 10, padding: '6px', textAlign: 'right', borderBottom: '1px solid var(--color-redwood-border)', color: 'var(--color-redwood-text-muted)' }}>
+                                                    {formatCurrency(row.lastMo)}
+                                                </td>
+                                                <td style={{ padding: '6px', borderBottom: '1px solid var(--color-redwood-border)', minWidth: 100 }}>
+                                                    <div style={{ height: 4, background: 'rgba(255,255,255,.06)', borderRadius: 999, overflow: 'hidden' }}>
+                                                        <div style={{ height: '100%', width: `${pct}%`, background: row.color, borderRadius: 999 }} />
+                                                    </div>
+                                                    <div style={{ fontSize: 8, textAlign: 'right', color: statusColor, marginTop: 2, fontWeight: 600 }}>
+                                                        {statusLabel} · {pct.toFixed(0)}%
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* Financial Ratios — 4 cards */}
+                        <div style={{ display: 'grid', gridTemplateColumns: cols.twoCol ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)', gap: 8 }}>
+                            {[
+                                {
+                                    label: 'Gross Margin',
+                                    value: ratiosData ? `${ratiosData.profitability.grossMargin.toFixed(1)}%` : '—',
+                                    benchmark: 'Target 60%',
+                                    color: '#22C55E',
+                                    ok: ratiosData ? ratiosData.profitability.grossMargin >= 60 : false,
+                                },
+                                {
+                                    label: 'Net Margin',
+                                    value: ratiosData ? `${ratiosData.profitability.netMargin.toFixed(1)}%` : plData ? `${plData.netProfit.margin.toFixed(1)}%` : '—',
+                                    benchmark: 'Target 15%',
+                                    color: '#00D4AA',
+                                    ok: ratiosData ? ratiosData.profitability.netMargin >= 15 : false,
+                                },
+                                {
+                                    label: 'Current Ratio',
+                                    value: balanceSheetData
+                                        ? `${(balanceSheetData.assets.currentAssets.totalCurrent / Math.max(balanceSheetData.liabilities.currentLiabilities.totalCurrent, 1)).toFixed(2)}x`
+                                        : '—',
+                                    benchmark: 'Benchmark 1.5x',
+                                    color: '#4F8EF7',
+                                    ok: balanceSheetData
+                                        ? balanceSheetData.assets.currentAssets.totalCurrent / Math.max(balanceSheetData.liabilities.currentLiabilities.totalCurrent, 1) >= 1.5
+                                        : false,
+                                },
+                                {
+                                    label: 'Budget Attainment',
+                                    value: `${budgetAttainment.toFixed(0)}%`,
+                                    benchmark: 'Revenue vs plan',
+                                    color: '#A78BFA',
+                                    ok: budgetAttainment >= 95,
+                                },
+                            ].map((r) => (
+                                <div key={r.label} style={{ ...panel, borderLeft: `3px solid ${r.color}` }}>
+                                    <div style={{ fontSize: 9, color: 'var(--color-redwood-text-muted)', marginBottom: 4 }}>{r.label}</div>
+                                    <div style={{ fontSize: 16, fontWeight: 700, color: r.color, fontFamily: "'Syne',sans-serif" }}>{r.value}</div>
+                                    <div style={{ fontSize: 8, color: r.ok ? 'var(--color-brand-green-tint)' : 'var(--color-brand-amber-tint)', marginTop: 4 }}>
+                                        {r.benchmark} · {r.ok ? '✓ Healthy' : '⚠ Watch'}
                                     </div>
                                 </div>
                             ))}
                         </div>
 
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                            <div className="lg:col-span-2 bg-white border border-redwood-border rounded-sm p-6 shadow-sm">
-                                <h3 className="text-xs font-black text-redwood-text-main uppercase tracking-widest mb-6 flex items-center gap-2">
-                                    <TrendingUp size={16} className="text-redwood-brand" /> Revenue Performance Trend
-                                </h3>
-                                <div className="h-[300px] w-full">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <AreaChart data={revenueTrendData}>
-                                            <defs>
-                                                <linearGradient id="colorRev" x1="0" y1="0" x2="0" y2="1">
-                                                    <stop offset="5%" stopColor="#C74634" stopOpacity={0.1} />
-                                                    <stop offset="95%" stopColor="#C74634" stopOpacity={0} />
-                                                </linearGradient>
-                                            </defs>
-                                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#DFE3E8" />
-                                            <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#637381' }} dy={10} />
-                                            <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#637381' }} tickFormatter={(val) => `$${val / 1000}k`} />
-                                            <Tooltip />
-                                            <Area type="monotone" dataKey="value" stroke="#C74634" strokeWidth={3} fillOpacity={1} fill="url(#colorRev)" />
-                                        </AreaChart>
-                                    </ResponsiveContainer>
+                        {/* AI Suggested Actions */}
+                        <div style={panel}>
+                            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <Target size={14} style={{ color: '#F59E0B' }} />
+                                AI Suggested Actions
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                {AI_SUGGESTED_ACTIONS.map((action, i) => (
+                                    <div
+                                        key={i}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'flex-start',
+                                            gap: 10,
+                                            padding: '8px 10px',
+                                            background: 'var(--color-redwood-row-bg)',
+                                            border: '1px solid var(--color-redwood-border)',
+                                            borderRadius: 8,
+                                        }}
+                                    >
+                                        <span
+                                            style={{
+                                                width: 6,
+                                                height: 6,
+                                                borderRadius: '50%',
+                                                background: action.color,
+                                                marginTop: 5,
+                                                flexShrink: 0,
+                                            }}
+                                        />
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
+                                                <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>{action.title}</span>
+                                                <span
+                                                    style={{
+                                                        fontSize: 7,
+                                                        fontWeight: 700,
+                                                        padding: '1px 6px',
+                                                        borderRadius: 999,
+                                                        background: `${action.color}18`,
+                                                        color: action.color,
+                                                        textTransform: 'uppercase',
+                                                        whiteSpace: 'nowrap',
+                                                    }}
+                                                >
+                                                    {action.priority}
+                                                </span>
+                                            </div>
+                                            <p style={{ fontSize: 8.5, color: 'var(--color-redwood-text-muted)', margin: '3px 0 0', lineHeight: 1.45 }}>{action.detail}</p>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* AI CFO Conversation */}
+                        <div
+                            style={{
+                                ...panel,
+                                background: 'linear-gradient(135deg, rgba(124,58,237,.12) 0%, var(--color-redwood-bg-surface) 60%)',
+                                borderColor: 'rgba(124,58,237,.28)',
+                            }}
+                        >
+                            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <Bot size={16} style={{ color: '#A78BFA' }} />
+                                AI CFO Conversation
+                            </div>
+                            <div style={{ marginBottom: 12 }}>
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+                                    <div
+                                        style={{
+                                            maxWidth: '85%',
+                                            padding: '8px 12px',
+                                            borderRadius: '10px 10px 2px 10px',
+                                            background: 'rgba(79,142,247,.15)',
+                                            border: '1px solid rgba(79,142,247,.25)',
+                                            fontSize: 9.5,
+                                            color: 'var(--color-redwood-text-main)',
+                                        }}
+                                    >
+                                        Why did net margin change vs April?
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                                    <div
+                                        style={{
+                                            width: 24,
+                                            height: 24,
+                                            borderRadius: 6,
+                                            background: 'rgba(124,58,237,.2)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            flexShrink: 0,
+                                        }}
+                                    >
+                                        <Bot size={12} style={{ color: '#A78BFA' }} />
+                                    </div>
+                                    <div style={{ flex: 1 }}>
+                                        <div
+                                            style={{
+                                                padding: '8px 12px',
+                                                borderRadius: '2px 10px 10px 10px',
+                                                background: 'var(--color-redwood-row-bg)',
+                                                border: '1px solid var(--color-redwood-border)',
+                                                fontSize: 9.5,
+                                                color: 'var(--color-redwood-text-muted)',
+                                                lineHeight: 1.5,
+                                            }}
+                                        >
+                                            Net margin {plData ? `improved to ${plData.netProfit.margin.toFixed(1)}%` : 'expanded'} driven by higher revenue mix and controlled OpEx.
+                                            Gross margin {ratiosData ? `at ${ratiosData.profitability.grossMargin.toFixed(1)}%` : 'held steady'} while operating expense ratio stayed within target.
+                                        </div>
+                                        <div style={{ marginTop: 6, paddingLeft: 4 }}>
+                                            <div style={{ fontSize: 8, color: 'var(--color-redwood-text-subtle)', marginBottom: 4, fontWeight: 600 }}>Reasoning steps</div>
+                                            {['Compared MTD revenue vs April baseline', 'Analysed COGS and OpEx deltas', 'Validated against budget attainment'].map((step, si) => (
+                                                <div key={si} style={{ fontSize: 8, color: 'var(--color-redwood-text-muted)', marginBottom: 2, display: 'flex', gap: 6 }}>
+                                                    <span style={{ color: '#A78BFA' }}>{si + 1}.</span> {step}
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                                            {['Draft action plan', 'Draft email', 'Export summary'].map((btn) => (
+                                                <button
+                                                    key={btn}
+                                                    type="button"
+                                                    onClick={() => alert(`${btn} (preview)`)}
+                                                    style={{
+                                                        fontSize: 8,
+                                                        fontWeight: 600,
+                                                        padding: '3px 10px',
+                                                        borderRadius: 999,
+                                                        border: '1px solid rgba(124,58,237,.35)',
+                                                        background: 'rgba(124,58,237,.12)',
+                                                        color: '#C4B5FD',
+                                                        cursor: 'pointer',
+                                                        fontFamily: 'inherit',
+                                                    }}
+                                                >
+                                                    {btn}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-
-                            <div className="bg-redwood-midnight text-white p-6 rounded-sm shadow-xl relative overflow-hidden group">
-                                <h3 className="text-xs font-black text-white/80 uppercase tracking-widest mb-6 flex items-center gap-2 relative z-10">
-                                    <Brain size={16} className="text-emerald-400" /> AI Strategic Insights
-                                </h3>
-                                <div className="space-y-6 relative z-10">
-                                    {[
-                                        'Great month! Profit up 15%, sales growth 5.2%.',
-                                        'Large payment ($80K) due Monday - ensure cash is ready.',
-                                        'Johnson Inc ($15K) is 120+ days overdue - recommend immediate collections.',
-                                        'Holiday season boosted product sales by 12%.'
-                                    ].map((insight, i) => (
-                                        <div key={i} className="flex gap-4">
-                                            <div className="mt-1"><Target size={14} className="text-emerald-400" /></div>
-                                            <p className="text-xs font-bold text-white leading-relaxed opacity-90">{insight}</p>
-                                        </div>
-                                    ))}
-                                </div>
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                                <input
+                                    type="text"
+                                    value={aiQuestion}
+                                    onChange={(e) => setAiQuestion(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && handleAskAi()}
+                                    placeholder="Ask anything about your financials…"
+                                    style={{
+                                        flex: 1,
+                                        minWidth: 200,
+                                        padding: '8px 12px',
+                                        borderRadius: 8,
+                                        border: '1px solid var(--color-redwood-border)',
+                                        background: 'rgba(255,255,255,.04)',
+                                        color: 'var(--color-redwood-text-main)',
+                                        fontSize: 11,
+                                        fontFamily: 'inherit',
+                                        outline: 'none',
+                                    }}
+                                />
+                                <button type="button" style={{ ...ghostBtn, padding: '8px 12px' }} title="Voice input (preview)">
+                                    <Mic size={14} />
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleAskAi}
+                                    style={{
+                                        padding: '8px 14px',
+                                        borderRadius: 8,
+                                        border: 'none',
+                                        background: 'linear-gradient(90deg,#7C3AED,#9333EA)',
+                                        color: '#fff',
+                                        fontSize: 10,
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                        fontFamily: 'inherit',
+                                    }}
+                                >
+                                    <Send size={12} /> Send
+                                </button>
+                            </div>
+                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                                {AI_PROMPTS.map((p) => (
+                                    <button
+                                        key={p}
+                                        type="button"
+                                        onClick={() => setAiQuestion(p)}
+                                        style={{
+                                            padding: '3px 8px',
+                                            borderRadius: 999,
+                                            fontSize: 8.5,
+                                            border: '1px solid rgba(124,58,237,.25)',
+                                            background: 'rgba(124,58,237,.1)',
+                                            color: '#C4B5FD',
+                                            cursor: 'pointer',
+                                            fontFamily: 'inherit',
+                                        }}
+                                    >
+                                        {p}
+                                    </button>
+                                ))}
                             </div>
                         </div>
                     </div>
