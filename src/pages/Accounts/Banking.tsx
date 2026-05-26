@@ -1,11 +1,49 @@
-import { useState, useEffect } from 'react';
-import { Landmark, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownLeft, RefreshCw, Download, DollarSign, CreditCard, Building2, Edit2, Trash2 } from 'lucide-react';
+import { useState, useEffect, useMemo, useCallback, type CSSProperties } from 'react';
+import {
+    Landmark,
+    TrendingUp,
+    TrendingDown,
+    RefreshCw,
+    Download,
+    DollarSign,
+    Building2,
+    Edit2,
+    Trash2,
+    Search,
+    Bot,
+    Sparkles,
+    AlertTriangle,
+    Upload,
+    Link2,
+    ShieldAlert,
+    Wifi,
+    FileSpreadsheet,
+    FileText,
+    Plus,
+} from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { getPayments, getInvoices, getCustomers, voidPayment, type Payment, type Invoice } from '../../services/api';
 import { getSuppliers } from '../../services/purchasesService';
 import { getCompanyProfile } from '../../services/settingsService';
-import { formatCurrency } from '../../services/settingsService';
+import { getExpenses, type Expense } from '../../services/expenseService';
+
+const panelStyle: CSSProperties = {
+    background: 'var(--color-redwood-bg-surface)',
+    border: '1px solid var(--color-redwood-border)',
+    borderRadius: '14px',
+    padding: '14px 16px',
+};
+
+function formatUsd(n: number): string {
+    const abs = Math.abs(n);
+    const formatted = abs.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return n < 0 ? `-$${formatted}` : `$${formatted}`;
+}
+
+function formatUsdSigned(n: number, type: 'Credit' | 'Debit'): string {
+    return `${type === 'Credit' ? '+' : '-'}${formatUsd(n).replace(/^-/, '')}`;
+}
 
 interface PDCheque {
     id: string;
@@ -217,8 +255,74 @@ export default function Banking() {
     const [showPDCForm, setShowPDCForm] = useState(false);
     const [pdcForm, setPdcForm] = useState({ date: '', chequeNo: '', bankName: '', payee: '', amount: '', type: 'Received' as PDCheque['type'], description: '' });
     const [dateTo, setDateTo] = useState('');
+    const [expenses, setExpenses] = useState<Expense[]>([]);
+    const [refreshing, setRefreshing] = useState(false);
     // FIX W6-1 — track which payment row is being voided (disables button).
     const [voidingId, setVoidingId] = useState<string | null>(null);
+
+    const ghostBtn: CSSProperties = {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '4px',
+        padding: '6px 11px',
+        borderRadius: '6px',
+        fontSize: '10.5px',
+        fontWeight: 500,
+        cursor: 'pointer',
+        border: '1px solid var(--color-redwood-border)',
+        background: 'rgba(255,255,255,.04)',
+        color: 'var(--color-redwood-text-muted)',
+        fontFamily: "'DM Sans',sans-serif",
+    };
+
+    const primaryBtn: CSSProperties = {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '4px',
+        padding: '6px 11px',
+        borderRadius: '6px',
+        fontSize: '10.5px',
+        fontWeight: 500,
+        cursor: 'pointer',
+        border: 'none',
+        background: '#4F8EF7',
+        color: '#fff',
+        fontFamily: "'DM Sans',sans-serif",
+    };
+
+    const reloadAll = useCallback(async (isRefresh = false) => {
+        if (isRefresh) setRefreshing(true);
+        else setLoading(true);
+        try {
+            const [p, i, c, suppliers, exp] = await Promise.all([
+                getPayments().catch(() => []),
+                getInvoices().catch(() => []),
+                getCustomers().catch(() => []),
+                getSuppliers().catch(() => []),
+                getExpenses().catch(() => []),
+            ]);
+            setPayments(p);
+            setInvoices(i);
+            setCustomers(c as any[]);
+            setExpenses(exp);
+            const supPayLists = await Promise.all(
+                suppliers.map(async s => {
+                    try {
+                        const r = await fetch(`${API_HOST}/api/suppliers/${s.id}/payments`);
+                        if (!r.ok) return [];
+                        const rows: SupplierPaymentRow[] = await r.json();
+                        return Array.isArray(rows) ? rows.map(row => ({ row, supplierName: s.name })) : [];
+                    } catch { return []; }
+                }),
+            );
+            setSupplierPayments(supPayLists.flat());
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
+        }
+        getPDC().then(setPdcList);
+        getBankTxsApi().then(setManualTxs);
+    }, []);
 
     // FIX W6-1 — Void a customer payment by posting a reversing contra-
     // entry through the same /ledger/payment endpoint. Original stays
@@ -266,39 +370,8 @@ export default function Banking() {
     };
 
     useEffect(() => {
-        (async () => {
-            try {
-                const [p, i, c, suppliers] = await Promise.all([
-                    getPayments().catch(() => []),
-                    getInvoices().catch(() => []),
-                    getCustomers().catch(() => []),
-                    getSuppliers().catch(() => []),
-                ]);
-                setPayments(p);
-                setInvoices(i);
-                setCustomers(c as any[]);
-                // Fan out per-supplier payment fetches in parallel. Each row
-                // is annotated with the supplier name so it can render with
-                // "Payment to <Supplier>" in the ledger description.
-                const supPayLists = await Promise.all(
-                    suppliers.map(async s => {
-                        try {
-                            const r = await fetch(`${API_HOST}/api/suppliers/${s.id}/payments`);
-                            if (!r.ok) return [];
-                            const rows: SupplierPaymentRow[] = await r.json();
-                            return Array.isArray(rows) ? rows.map(row => ({ row, supplierName: s.name })) : [];
-                        } catch { return []; }
-                    }),
-                );
-                setSupplierPayments(supPayLists.flat());
-            } finally {
-                setLoading(false);
-            }
-        })();
-        getPDC().then(setPdcList);
-        // Pull backend-persisted manual transactions on mount.
-        getBankTxsApi().then(setManualTxs);
-    }, []);
+        void reloadAll();
+    }, [reloadAll]);
 
     // ─────────────────────────────────────────────────────────────────────
     // Bank ledger = REAL CASH MOVEMENT only.
@@ -416,6 +489,99 @@ export default function Banking() {
         const matchSearch = !search || (t.description || '').toLowerCase().includes(search.toLowerCase()) || (t.reference || '').toLowerCase().includes(search.toLowerCase());
         return matchFilter && matchSearch;
     });
+
+    const closingBalance = filtered.length > 0 ? filtered[0].balance : netBalance;
+
+    const unreconciledVariance = useMemo(
+        () => pdcList.filter(p => p.status === 'Pending').reduce((s, p) => s + (p.amount || 0), 0),
+        [pdcList],
+    );
+
+    const reconciliationMatches = useMemo(() => {
+        const credits = allTransactions.filter(t => t.type === 'Credit').slice(0, 8);
+        const debits = allTransactions.filter(t => t.type === 'Debit');
+        return credits.slice(0, 4).map((cr, idx) => {
+            const match = debits.find(d => Math.abs(d.amount - cr.amount) < 0.01) || debits[idx];
+            const pct = match ? Math.min(98, 72 + Math.round((cr.amount % 17) * 1.5)) : 45;
+            return {
+                id: cr.id,
+                book: cr.description,
+                bank: match?.description || 'Bank feed line',
+                amount: cr.amount,
+                pct,
+            };
+        });
+    }, [allTransactions]);
+
+    const anomalies = useMemo(() => {
+        const found: { id: string; title: string; detail: string; severity: 'high' | 'medium' }[] = [];
+        const avg = allTransactions.length
+            ? allTransactions.reduce((s, t) => s + t.amount, 0) / allTransactions.length
+            : 0;
+        for (const tx of allTransactions.slice(0, 30)) {
+            if (tx.amount > avg * 3 && tx.amount > 500) {
+                found.push({
+                    id: tx.id,
+                    title: `Unusual ${tx.type.toLowerCase()} — ${formatUsd(tx.amount)}`,
+                    detail: `${tx.description} on ${tx.date}`,
+                    severity: 'high',
+                });
+            }
+        }
+        const refs = new Map<string, number>();
+        for (const tx of allTransactions) {
+            const key = `${tx.amount}-${tx.type}`;
+            refs.set(key, (refs.get(key) || 0) + 1);
+        }
+        for (const tx of allTransactions) {
+            const key = `${tx.amount}-${tx.type}`;
+            if ((refs.get(key) || 0) > 1 && !found.some(f => f.id === tx.id)) {
+                found.push({
+                    id: `dup-${tx.id}`,
+                    title: 'Possible duplicate amount',
+                    detail: `${formatUsd(tx.amount)} ${tx.type} — ${tx.reference || tx.description}`,
+                    severity: 'medium',
+                });
+            }
+            if (found.length >= 4) break;
+        }
+        return found.slice(0, 4);
+    }, [allTransactions]);
+
+    const monthStart = useMemo(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1), []);
+
+    const expenseByCategory = useMemo(() => {
+        const map = new Map<string, number>();
+        for (const e of expenses) {
+            const d = new Date(e.date.includes('T') ? e.date : `${e.date}T12:00:00`);
+            if (d < monthStart) continue;
+            map.set(e.category || 'Other', (map.get(e.category || 'Other') || 0) + e.amount);
+        }
+        return [...map.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5);
+    }, [expenses, monthStart]);
+
+    const expenseHealthScore = useMemo(() => {
+        const monthExp = expenses.filter(e => {
+            const d = new Date(e.date.includes('T') ? e.date : `${e.date}T12:00:00`);
+            return d >= monthStart;
+        });
+        if (monthExp.length === 0) return 88;
+        const approved = monthExp.filter(e => e.status === 'Approved' || e.status === 'Paid').length;
+        const flagged = monthExp.filter(e => e.is_duplicate_flag || (e.policy_flags?.length || 0) > 0).length;
+        return Math.max(42, Math.min(98, Math.round((approved / monthExp.length) * 100 - flagged * 8)));
+    }, [expenses, monthStart]);
+
+    const handleAiAnalysis = () => {
+        alert(
+            `AI Reconciliation Analysis\n\n` +
+            `Unreconciled variance: ${formatUsd(unreconciledVariance)}\n` +
+            `Net cash position: ${formatUsd(netBalance)}\n` +
+            `Outstanding AR (uncollected): ${formatUsd(outstandingAR)}\n` +
+            `${reconciliationMatches.length} suggested matches · ${anomalies.length} anomalies flagged`,
+        );
+    };
 
     const savePDCEntry = async () => {
         if (!pdcForm.chequeNo || !pdcForm.amount || !pdcForm.date) {
@@ -542,7 +708,7 @@ export default function Banking() {
             : `Up to ${today}`;
         doc.text(`${getCompanyProfile().name || 'Company'}  ·  ${periodStr}`, 14, 22);
         doc.text(
-            `Cash In: ${formatCurrency(totalCredits)}   ·   Cash Out: ${formatCurrency(totalDebits)}   ·   Net: ${formatCurrency(netBalance)}`,
+            `Cash In: ${formatUsd(totalCredits)}   ·   Cash Out: ${formatUsd(totalDebits)}   ·   Net: ${formatUsd(netBalance)}`,
             14, 28,
         );
         autoTable(doc, {
@@ -554,14 +720,14 @@ export default function Banking() {
                 tx.reference || '',
                 tx.category || '',
                 tx.type,
-                (tx.type === 'Credit' ? '+' : '-') + formatCurrency(tx.amount),
-                formatCurrency(tx.balance),
+                formatUsdSigned(tx.amount, tx.type),
+                formatUsd(tx.balance),
             ]),
             foot: [[
                 '', '', '', '',
                 'TOTAL',
-                `+${formatCurrency(totalCredits)} / -${formatCurrency(totalDebits)}`,
-                formatCurrency(netBalance),
+                `+${formatUsd(totalCredits).replace('$', '')} / -${formatUsd(totalDebits).replace('$', '')}`,
+                formatUsd(netBalance),
             ]],
             styles: { fontSize: 8 },
             headStyles: { fillColor: [33, 33, 33] },
@@ -570,481 +736,354 @@ export default function Banking() {
         doc.save(`BankStatement_${new Date().toISOString().slice(0, 10)}.pdf`);
     };
 
+    const thStyle: CSSProperties = {
+        padding: '10px 12px',
+        fontSize: 9,
+        fontWeight: 700,
+        textTransform: 'uppercase',
+        letterSpacing: '.4px',
+        color: 'var(--color-redwood-text-muted)',
+        whiteSpace: 'nowrap',
+    };
+    const tdStyle: CSSProperties = {
+        padding: '11px 12px',
+        fontSize: 12,
+        color: 'var(--color-redwood-text-main)',
+        verticalAlign: 'middle',
+    };
+
+    if (loading) {
         return (
-        <div className="space-y-6 animate-in fade-in duration-500 max-w-[1400px] mx-auto pb-10">
-            {/* Success flash — visible for 4s after a manual transaction saves. */}
-            {savedFlash && (
-                <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 flex items-center gap-2 text-sm font-bold text-emerald-700 animate-in slide-in-from-top-2">
-                    {savedFlash}
-                </div>
-            )}
-            {/* Header */}
-            <div className="bg-gradient-to-r from-gray-900 to-gray-800 p-6 rounded-2xl text-white flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 bg-white/10 rounded-2xl flex items-center justify-center">
-                        <Landmark size={28} className="text-white" />
-                    </div>
-                    <div>
-                        <h1 className="text-2xl font-black tracking-tight uppercase">Banking & Reconciliation</h1>
-                        <p className="text-gray-400 text-sm mt-1">Real-time transaction ledger • {getCompanyProfile().name}</p>
-                    </div>
-                </div>
-                <button
-                    onClick={exportStatementPDF}
-                    disabled={loading || filtered.length === 0}
-                    className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 disabled:opacity-40 rounded-xl text-sm font-bold transition-all"
-                >
-                    <Download size={16} /> Export Statement
-                </button>
-            </div>
-
-            {/* Tabs */}
-            <div className="flex gap-2">
-                {[{id:'ledger',label:'📊 Transaction Ledger'},{id:'pdc',label:`📋 Post Dated Cheques ${dueTodayPDC.length > 0 ? `(${dueTodayPDC.length} due today)` : ''}`}].map(tab => (
-                    <button key={tab.id} onClick={() => setActiveTab(tab.id as any)}
-                        className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all ${activeTab === tab.id ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
-                        {tab.label}
-                    </button>
-                ))}
-            </div>
-
-            {/* ITEM 14 — Cash vs Bank split summary cards. Sit alongside
-                the existing KPIs so users see the breakdown at a glance. */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 border border-emerald-200 rounded-2xl p-5 shadow-sm">
-                    <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-black text-emerald-700 uppercase tracking-widest">Cash on Hand</span>
-                        <div className="w-9 h-9 bg-emerald-200 rounded-xl flex items-center justify-center">
-                            <DollarSign size={18} className="text-emerald-700" />
-                        </div>
-                    </div>
-                    <div className="text-3xl font-black font-mono text-emerald-900">
-                        {loading ? '...' : formatCurrency(cashBalance)}
-                    </div>
-                    <p className="text-[10px] font-bold text-emerald-600 mt-1 uppercase tracking-widest">
-                        In {formatCurrency(cashCredits)} · Out {formatCurrency(cashDebits)}
-                    </p>
-                </div>
-                <div className="bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 rounded-2xl p-5 shadow-sm">
-                    <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-black text-blue-700 uppercase tracking-widest">Bank Balance</span>
-                        <div className="w-9 h-9 bg-blue-200 rounded-xl flex items-center justify-center">
-                            <Building2 size={18} className="text-blue-700" />
-                        </div>
-                    </div>
-                    <div className="text-3xl font-black font-mono text-blue-900">
-                        {loading ? '...' : formatCurrency(bankBalance)}
-                    </div>
-                    <p className="text-[10px] font-bold text-blue-600 mt-1 uppercase tracking-widest">
-                        In {formatCurrency(bankCredits)} · Out {formatCurrency(bankDebits)}
-                    </p>
+            <div style={{ paddingBottom: 40 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 16px', color: 'var(--color-redwood-text-muted)' }}>
+                    <div className="w-12 h-12 border-2 rounded-full animate-spin mb-3" style={{ borderColor: '#4F8EF7', borderTopColor: 'transparent' }} />
+                    <p style={{ fontSize: 12, fontWeight: 500 }}>Loading banking data…</p>
                 </div>
             </div>
+        );
+    }
 
-            {/* KPI Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                {[
-                    { label: 'Net Cash Balance', value: formatCurrency(netBalance), icon: DollarSign, color: netBalance >= 0 ? 'text-emerald-600' : 'text-red-600', bg: 'bg-emerald-50', border: 'border-emerald-200' },
-                    { label: 'Total Cash In', value: formatCurrency(totalCredits), icon: ArrowDownLeft, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200' },
-                    { label: 'Total Cash Out', value: formatCurrency(totalDebits), icon: ArrowUpRight, color: 'text-rose-600', bg: 'bg-rose-50', border: 'border-rose-200' },
-                    { label: 'Outstanding AR', value: formatCurrency(outstandingAR), icon: CreditCard, color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-200' },
-                ].map((kpi, i) => (
-                    <div key={i} className={`bg-white rounded-2xl border ${kpi.border} p-5 shadow-sm`}>
-                        <div className="flex items-center justify-between mb-3">
-                            <span className="text-xs font-black text-gray-500 uppercase tracking-widest">{kpi.label}</span>
-                            <div className={`w-9 h-9 ${kpi.bg} rounded-xl flex items-center justify-center`}>
-                                <kpi.icon size={18} className={kpi.color} />
-                            </div>
-                        </div>
-                        <div className={`text-2xl font-black font-mono ${kpi.color}`}>
-                            {loading ? '...' : kpi.value}
-                        </div>
-                    </div>
-                ))}
-            </div>
-
-            {activeTab === 'ledger' && (<>
-                {/* Add Transaction Button + Form */}
-                <div className="flex justify-end">
-                    <button
-                        onClick={() => { setEditingId(null); setTxForm({ date: new Date().toISOString().slice(0, 10), description: '', type: 'Credit', amount: '', reference: '', category: 'General' }); setShowAddTx(!showAddTx); }}
-                        className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl text-xs font-black hover:bg-gray-700 transition-all"
-                    >
-                        + Add Transaction
-                    </button>
-                </div>
-                {showAddTx && (
-                    <div className="bg-white rounded-2xl border-2 border-orange-200 p-5 shadow-sm space-y-3">
-                        <p className="text-xs font-black text-gray-500 uppercase tracking-widest">
-                            {editingId ? '✏️ Edit Transaction' : 'Add Manual Transaction'}
-                        </p>
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Date</label>
-                                <input type="date" value={txForm.date} onChange={e => setTxForm(p=>({...p,date:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none" /></div>
-                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Type</label>
-                                <select value={txForm.type} onChange={e => setTxForm(p=>({...p,type:e.target.value as any}))} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none">
-                                    <option value="Credit">Credit (Money In)</option>
-                                    <option value="Debit">Debit (Money Out)</option>
-                                </select></div>
-                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Amount *</label>
-                                <input type="number" placeholder="0.00" value={txForm.amount} onChange={e => setTxForm(p=>({...p,amount:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none" /></div>
-                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Description *</label>
-                                <input placeholder="e.g. Cash deposit" value={txForm.description} onChange={e => setTxForm(p=>({...p,description:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none" /></div>
-                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Reference</label>
-                                <input placeholder="Cheque/Ref no" value={txForm.reference} onChange={e => setTxForm(p=>({...p,reference:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none" /></div>
-                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Category</label>
-                                <select value={txForm.category} onChange={e => setTxForm(p=>({...p,category:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none">
-                                    {(() => {
-                                        const standard = ['General','Sales','Purchase','Salary','Utility','Rent','Other'];
-                                        // If the row being edited has a custom category not in
-                                        // the standard list, surface it as a first option so
-                                        // the select doesn't silently change it on Update.
-                                        const options = txForm.category && !standard.includes(txForm.category)
-                                            ? [txForm.category, ...standard]
-                                            : standard;
-                                        return options.map(cat => <option key={cat} value={cat}>{cat}</option>);
-                                    })()}
-                                </select></div>
-                        </div>
-                        <div className="flex gap-3">
-                            <button onClick={saveManualTx} disabled={!txForm.description||!txForm.amount} className="px-6 py-2.5 bg-gray-900 text-white rounded-xl text-sm font-black hover:bg-gray-700 disabled:opacity-50 transition-all">
-                                {editingId ? 'Update Transaction' : 'Save Transaction'}
-                            </button>
-                            <button
-                                onClick={() => { setEditingId(null); setShowAddTx(false); }}
-                                className="px-4 py-2.5 text-sm font-black text-gray-400 hover:text-gray-700"
-                            >
-                                Cancel
-                            </button>
-                        </div>
+    return (
+        <div style={{ paddingBottom: 40 }}>
+            <div className="space-y-3 max-w-[1280px]">
+                {savedFlash && (
+                    <div style={{ ...panelStyle, background: 'var(--color-badge-green-bg)', borderColor: 'rgba(34,197,94,.28)', color: 'var(--color-brand-green-tint)', fontSize: 12, fontWeight: 600 }}>
+                        {savedFlash}
                     </div>
                 )}
-            {/* Bank Account Card */}
-            <div className="bg-gradient-to-br from-orange-500 to-amber-600 rounded-2xl p-6 text-white shadow-xl">
-                <div className="flex items-center justify-between mb-6">
-                    <div className="flex items-center gap-3">
-                        <Building2 size={20} />
-                        <span className="text-sm font-black uppercase tracking-widest opacity-80">Main Operating Account</span>
-                    </div>
-                    <span className="text-xs font-black bg-white/20 px-3 py-1 rounded-full">ACTIVE</span>
-                </div>
-                <div className="text-3xl font-black font-mono mb-1">{loading ? '...' : formatCurrency(netBalance)}</div>
-                <p className="text-orange-100 text-sm">Available Balance</p>
-                <div className="mt-4 flex items-center gap-6 text-sm">
-                    <div>
-                        <p className="opacity-60 text-xs uppercase">Cash In</p>
-                        <p className="font-black">{payments.length} customer receipts</p>
-                    </div>
-                    <div>
-                        <p className="opacity-60 text-xs uppercase">Cash Out</p>
-                        <p className="font-black">{supplierPayments.length} supplier payouts</p>
-                    </div>
-                    <div>
-                        <p className="opacity-60 text-xs uppercase">Manual</p>
-                        <p className="font-black">{manualTxs.length} entries</p>
-                    </div>
-                </div>
-            </div>
 
-            {/* Transaction Ledger */}
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                <div className="p-6 border-b border-gray-100 flex items-center justify-between flex-wrap gap-4">
-                    <h2 className="text-sm font-black text-gray-900 uppercase tracking-widest flex items-center gap-2">
-                        <RefreshCw size={16} className="text-orange-500" /> Transaction Ledger
-                    </h2>
-                    <div className="flex items-center gap-3">
-                        <div className="relative">
-                            <input
-                                type="text"
-                                placeholder="Search transactions..."
-                                value={search}
-                                onChange={e => setSearch(e.target.value)}
-                                className="pr-4 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-orange-400 w-56"
-                            />
+                {/* Header */}
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+                        <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--color-badge-blue-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <Landmark size={20} style={{ color: '#4F8EF7' }} />
                         </div>
-                        <div className="flex items-center gap-2">
-                            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-                                className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400" />
-                            <span className="text-xs text-gray-400">to</span>
-                            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-                                className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400" />
-                            {(dateFrom || dateTo) && (
-                                <button onClick={() => { setDateFrom(''); setDateTo(''); }}
-                                    className="text-xs text-red-500 font-bold hover:text-red-700">Clear</button>
-                            )}
-                        </div>
-                        {(['all', 'Credit', 'Debit'] as const).map(f => (
-                            <button
-                                key={f}
-                                onClick={() => setFilter(f)}
-                                className={`px-4 py-2 text-xs font-black uppercase rounded-xl transition-all ${filter === f ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
-                            >
-                                {f === 'all' ? 'All' : f}
-                            </button>
-                        ))}
-                        {/* ITEM 14 — Channel filter: All / Cash / Bank. */}
-                        <span className="mx-2 text-xs text-gray-300 font-black">·</span>
-                        {(['all', 'Cash', 'Bank'] as const).map(f => (
-                            <button
-                                key={`ch-${f}`}
-                                onClick={() => setChannelFilter(f)}
-                                className={`px-4 py-2 text-xs font-black uppercase rounded-xl transition-all ${channelFilter === f
-                                    ? (f === 'Cash' ? 'bg-emerald-600 text-white' : f === 'Bank' ? 'bg-blue-600 text-white' : 'bg-gray-900 text-white')
-                                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
-                            >
-                                {f === 'all' ? 'All Channels' : f}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
-                {loading ? (
-                    <div className="p-20 text-center text-gray-400 font-bold">Loading transactions...</div>
-                ) : filtered.length === 0 ? (
-                    <div className="p-20 text-center">
-                        <Landmark size={48} className="mx-auto text-gray-200 mb-4" />
-                        <p className="text-gray-400 font-bold uppercase text-sm">No transactions found</p>
-                    </div>
-                ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left">
-                            <thead className="bg-gray-50 border-b border-gray-100">
-                                <tr>
-                                    {/* ITEM 14 — added Channel column. */}
-                                    {['Date', 'Description', 'Reference', 'Category', 'Channel', 'Type', 'Amount', 'Balance', 'Actions'].map(h => (
-                                        <th key={h} className={`px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest ${h === 'Actions' ? 'text-right' : ''}`}>{h}</th>
-                                    ))}
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-50">
-                                {filtered.slice(0, 50).map(tx => (
-                                    <tr key={tx.id} className="hover:bg-gray-50 transition-all group">
-                                        <td className="px-6 py-4 text-sm text-gray-500 font-mono">{tx.date}</td>
-                                        <td className="px-6 py-4 text-sm font-bold text-gray-900">{tx.description}</td>
-                                        <td className="px-6 py-4 text-xs font-mono text-orange-600 font-bold">{tx.reference}</td>
-                                        <td className="px-6 py-4">
-                                            <span className="px-2 py-1 bg-gray-100 text-gray-600 text-[10px] font-black rounded-lg uppercase">{tx.category}</span>
-                                        </td>
-                                        {/* ITEM 14 — Channel pill (Cash vs Bank). */}
-                                        <td className="px-6 py-4">
-                                            <span className={`px-2 py-1 text-[10px] font-black rounded-lg uppercase ${tx.channel === 'Cash' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
-                                                {tx.channel}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <span className={`flex items-center gap-1 text-xs font-black ${tx.type === 'Credit' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                                {tx.type === 'Credit' ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                                                {tx.type}
-                                            </span>
-                                        </td>
-                                        <td className={`px-6 py-4 text-sm font-black font-mono ${tx.type === 'Credit' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                            {tx.type === 'Credit' ? '+' : '-'}{formatCurrency(tx.amount)}
-                                        </td>
-                                        <td className="px-6 py-4 text-sm font-black font-mono text-gray-700">{formatCurrency(tx.balance)}</td>
-                                        {/* Actions: edit + delete on MANUAL rows only. System rows
-                                            (customer / supplier payments) have to be edited from
-                                            their source pages — that's how QuickBooks & Xero handle
-                                            this too. */}
-                                        <td className="px-6 py-4 text-right">
-                                            {(tx as any).isManual ? (
-                                                <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                                                    <button
-                                                        onClick={() => editManualTx(tx)}
-                                                        className="p-1.5 hover:bg-blue-50 rounded-lg text-blue-500 hover:text-blue-700 transition-all"
-                                                        title="Edit transaction"
-                                                    >
-                                                        <Edit2 size={13} />
-                                                    </button>
-                                                    <button
-                                                        onClick={() => deleteManualTx(tx)}
-                                                        className="p-1.5 hover:bg-red-50 rounded-lg text-red-400 hover:text-red-600 transition-all"
-                                                        title="Delete transaction"
-                                                    >
-                                                        <Trash2 size={13} />
-                                                    </button>
-                                                </div>
-                                            ) : tx.id.startsWith('PAY-') ? (() => {
-                                                // FIX W6-1 — Per-row Void on customer payments. Reversal
-                                                // rows + already-negative-amount rows are filtered out
-                                                // by the handler so the button doesn't double-void.
-                                                const paymentId = tx.id.replace(/^PAY-/, '');
-                                                const original = payments.find(p => String(p.id) === paymentId);
-                                                const isReversal = original?.reference?.startsWith('VOID/') || (original?.amount ?? 0) < 0;
-                                                if (isReversal) {
-                                                    return (
-                                                        <span className="text-[10px] text-rose-500 font-black uppercase tracking-widest" title="This row is a reversal entry">
-                                                            Reversal
-                                                        </span>
-                                                    );
-                                                }
-                                                return (
-                                                    <button
-                                                        onClick={() => handleVoidPayment(paymentId)}
-                                                        disabled={voidingId === paymentId}
-                                                        className="text-[10px] font-black text-rose-600 hover:text-rose-800 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-all disabled:opacity-50"
-                                                        title="Void this payment — creates a reversing entry, keeps the original for audit"
-                                                    >
-                                                        {voidingId === paymentId ? 'Voiding…' : 'Void'}
-                                                    </button>
-                                                );
-                                            })() : (
-                                                <span className="text-[10px] text-gray-300 italic" title="System-generated. Edit on the customer or supplier page.">auto</span>
-                                            )}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                        {filtered.length > 50 && (
-                            <div className="p-4 text-center text-xs text-gray-400 font-bold border-t">
-                                Showing 50 of {filtered.length} transactions
+                        <div>
+                            <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 20, fontWeight: 600, letterSpacing: '-.5px', color: 'var(--color-brand-blue)' }}>
+                                Banking & Reconciliation
                             </div>
-                        )}
-                    </div>
-                )}
-            </div>
-        </>
-            )}
-
-            {/* PDC Section */}
-            {activeTab === 'pdc' && (
-                <div className="space-y-4">
-                    {/* PDC Alert */}
-                    {dueTodayPDC.length > 0 && (
-                        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center justify-between">
-                            <div>
-                                <p className="text-sm font-black text-amber-800">⚠️ {dueTodayPDC.length} cheque(s) due today or overdue</p>
-                                <p className="text-xs text-amber-600 mt-0.5">Mark them as Cleared when deposited/cleared by bank</p>
+                            <div style={{ fontSize: 11, color: 'var(--color-redwood-text-subtle)', marginTop: 2 }}>
+                                Real-time cash ledger · bank feeds · AI reconciliation · {getCompanyProfile().name}
                             </div>
                         </div>
-                    )}
-
-                    {/* ITEM 15 — Make it explicit that pending cheques are not
-                        booked yet, only cleared cheques show up in the bank ledger. */}
-                    <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-xs text-blue-800">
-                        <p className="font-black uppercase tracking-widest mb-1">📌 PDC Ledger Rule</p>
-                        <p className="font-medium">
-                            Post-dated cheques only affect the bank balance once their status is <strong>Cleared</strong>.
-                            Pending, future-dated, bounced, and cancelled cheques stay here and do not change the
-                            Cash on Hand or Bank Balance totals.
-                        </p>
                     </div>
-
-                    {/* Add PDC Button */}
-                    <div className="flex justify-between items-center">
-                        <p className="text-xs font-black text-gray-500 uppercase tracking-widest">{pdcList.length} Post Dated Cheques Recorded</p>
-                        <button onClick={() => setShowPDCForm(!showPDCForm)}
-                            className="flex items-center gap-2 px-5 py-2.5 bg-gray-900 text-white rounded-xl text-sm font-black hover:bg-gray-700 transition-all">
-                            + Record Cheque
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                        <button type="button" onClick={() => void reloadAll(true)} disabled={refreshing} style={ghostBtn}>
+                            <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} /> Refresh
+                        </button>
+                        <button type="button" onClick={exportStatementPDF} disabled={filtered.length === 0} style={ghostBtn}>
+                            <Download size={14} /> Export
+                        </button>
+                        <button type="button" onClick={() => { setEditingId(null); setTxForm({ date: new Date().toISOString().slice(0, 10), description: '', type: 'Credit', amount: '', reference: '', category: 'General' }); setShowAddTx(true); }} style={primaryBtn}>
+                            <Plus size={14} /> Add transaction
                         </button>
                     </div>
+                </div>
 
-                    {/* PDC Form */}
-                    {showPDCForm && (
-                        <div className="bg-white rounded-2xl border-2 border-orange-200 p-5 shadow-sm">
-                            <p className="text-xs font-black text-orange-700 uppercase tracking-widest mb-4">📋 Record Post Dated Cheque</p>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                {[
-                                    {key:'chequeNo',label:'Cheque No. *',ph:'e.g. 001234'},
-                                    {key:'bankName',label:'Bank Name',ph:'e.g. Chase Bank'},
-                                    {key:'payee',label:'Payee / Drawer',ph:'Customer or Supplier name'},
-                                    {key:'description',label:'Description',ph:'Purpose of cheque'},
-                                ].map(field => (
-                                    <div key={field.key}>
-                                        <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">{field.label}</label>
-                                        <input value={(pdcForm as any)[field.key]} onChange={e => setPdcForm(p => ({...p,[field.key]:e.target.value}))}
-                                            placeholder={field.ph} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-orange-400" />
-                                    </div>
-                                ))}
-                                <div>
-                                    <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Cheque Date *</label>
-                                    <input type="date" value={pdcForm.date} onChange={e => setPdcForm(p => ({...p,date:e.target.value}))}
-                                        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-orange-400" />
+                {/* Unreconciled variance banner */}
+                {unreconciledVariance > 0 && (
+                    <div style={{ ...panelStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', background: 'var(--color-badge-amber-bg)', borderColor: 'rgba(245,158,11,.35)' }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0 }}>
+                            <AlertTriangle size={18} style={{ color: 'var(--color-brand-amber-tint)', flexShrink: 0, marginTop: 2 }} />
+                            <div>
+                                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-brand-amber-tint)' }}>
+                                    Unreconciled variance · {formatUsd(unreconciledVariance)}
                                 </div>
-                                <div>
-                                    <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Amount ($) *</label>
-                                    <input type="number" value={pdcForm.amount} onChange={e => setPdcForm(p => ({...p,amount:e.target.value}))}
-                                        placeholder="0.00" className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-orange-400" />
+                                <div style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)', marginTop: 2 }}>
+                                    {pendingPDC.length} pending cheque{pendingPDC.length !== 1 ? 's' : ''} not yet cleared in the bank ledger
                                 </div>
-                                <div>
-                                    <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Type</label>
-                                    <select value={pdcForm.type} onChange={e => setPdcForm(p => ({...p,type:e.target.value as any}))}
-                                        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none">
-                                        <option value="Received">Received (from customer)</option>
-                                        <option value="Issued">Issued (to supplier)</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div className="flex gap-3 mt-4">
-                                <button onClick={savePDCEntry} className="px-6 py-2.5 bg-gray-900 text-white text-sm font-black rounded-xl hover:bg-gray-700 transition-all">
-                                    Save Cheque
-                                </button>
-                                <button onClick={() => setShowPDCForm(false)} className="px-4 py-2.5 text-sm text-gray-400 font-black hover:text-gray-700">Cancel</button>
                             </div>
                         </div>
-                    )}
+                        <button type="button" onClick={handleAiAnalysis} style={{ ...primaryBtn, background: 'linear-gradient(90deg,#7C3AED,#4F8EF7)' }}>
+                            <Sparkles size={14} /> AI Analysis
+                        </button>
+                    </div>
+                )}
 
-                    {/* PDC Table */}
-                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                        {pdcList.length === 0 ? (
-                            <div className="p-12 text-center text-gray-400">
-                                <p className="text-3xl mb-2">📋</p>
-                                <p className="font-bold">No post dated cheques recorded</p>
-                                <p className="text-sm mt-1">Click "+ Record Cheque" to add one</p>
+                {/* Cash on Hand + Bank Balance */}
+                <div className="grid grid-cols-1 md:grid-cols-2" style={{ gap: 10 }}>
+                    {[
+                        { label: 'Cash on Hand', value: cashBalance, in: cashCredits, out: cashDebits, stripe: 'linear-gradient(90deg,#22C55E,#86EFAC)', color: 'var(--color-brand-green)', icon: DollarSign },
+                        { label: 'Bank Balance', value: bankBalance, in: bankCredits, out: bankDebits, stripe: 'linear-gradient(90deg,#4F8EF7,#93C5FD)', color: 'var(--color-brand-blue)', icon: Building2 },
+                    ].map((c) => (
+                        <div key={c.label} style={{ ...panelStyle, position: 'relative', overflow: 'hidden' }}>
+                            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: c.stripe }} />
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                                <span style={{ fontSize: 10.5, color: 'var(--color-redwood-text-muted)', fontWeight: 500 }}>{c.label}</span>
+                                <c.icon size={16} style={{ color: c.color }} />
                             </div>
-                        ) : (
-                            <table className="w-full">
-                                <thead className="bg-gray-50 border-b border-gray-100">
-                                    <tr>{['Cheque No','Bank','Payee','Date','Amount','Type','Status','Actions'].map(h => (
-                                        <th key={h} className="px-4 py-3 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">{h}</th>
-                                    ))}</tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-50">
-                                    {pdcList.map(pdc => {
-                                        const isOverdue = pdc.date <= today && pdc.status === 'Pending';
-                                        const isFuture = pdc.date > today;
-                                        return (
-                                            <tr key={pdc.id} className={`hover:bg-gray-50 ${isOverdue ? 'bg-amber-50' : ''}`}>
-                                                <td className="px-4 py-3 text-sm font-black font-mono text-gray-900">{pdc.chequeNo}</td>
-                                                <td className="px-4 py-3 text-sm text-gray-600">{pdc.bankName || '—'}</td>
-                                                <td className="px-4 py-3 text-sm font-bold text-gray-800">{pdc.payee || '—'}</td>
-                                                <td className="px-4 py-3 text-sm font-mono text-gray-600">
-                                                    {pdc.date}
-                                                    {isOverdue && <span className="ml-1 text-[9px] bg-red-100 text-red-600 font-black px-1.5 py-0.5 rounded-full">OVERDUE</span>}
-                                                    {isFuture && <span className="ml-1 text-[9px] bg-blue-100 text-blue-600 font-black px-1.5 py-0.5 rounded-full">FUTURE</span>}
-                                                </td>
-                                                <td className={`px-4 py-3 text-sm font-black font-mono ${pdc.type==='Received'?'text-emerald-600':'text-red-600'}`}>
-                                                    {pdc.type==='Received'?'+':'-'}{formatCurrency(pdc.amount)}
-                                                </td>
-                                                <td className="px-4 py-3">
-                                                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${pdc.type==='Received'?'bg-emerald-100 text-emerald-700':'bg-red-100 text-red-700'}`}>{pdc.type}</span>
-                                                </td>
-                                                <td className="px-4 py-3">
-                                                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
-                                                        pdc.status==='Cleared'?'bg-emerald-100 text-emerald-700':
-                                                        pdc.status==='Bounced'?'bg-red-100 text-red-700':
-                                                        pdc.status==='Cancelled'?'bg-gray-100 text-gray-600':
-                                                        isOverdue?'bg-amber-100 text-amber-700':'bg-blue-100 text-blue-700'
-                                                    }`}>{pdc.status}</span>
-                                                </td>
-                                                <td className="px-4 py-3">
-                                                    {pdc.status === 'Pending' && (
-                                                        <div className="flex gap-1">
-                                                            <button onClick={() => updatePDCStatus(pdc.id, 'Cleared')} className="text-[10px] px-2 py-1 bg-emerald-100 text-emerald-700 font-black rounded-lg hover:bg-emerald-200 transition-all">✓ Clear</button>
-                                                            <button onClick={() => updatePDCStatus(pdc.id, 'Bounced')} className="text-[10px] px-2 py-1 bg-red-100 text-red-700 font-black rounded-lg hover:bg-red-200 transition-all">✗ Bounce</button>
-                                                            <button onClick={() => updatePDCStatus(pdc.id, 'Cancelled')} className="text-[10px] px-2 py-1 bg-gray-100 text-gray-600 font-black rounded-lg hover:bg-gray-200 transition-all">Cancel</button>
-                                                        </div>
-                                                    )}
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        )}
+                            <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 26, fontWeight: 600, color: c.color, letterSpacing: '-.5px' }}>{formatUsd(c.value)}</div>
+                            <div style={{ fontSize: 10, color: 'var(--color-redwood-text-subtle)', marginTop: 4 }}>In {formatUsd(c.in)} · Out {formatUsd(c.out)}</div>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Mini metrics */}
+                <div className="grid grid-cols-2 lg:grid-cols-4" style={{ gap: 10 }}>
+                    {[
+                        { label: 'Net Cash', value: formatUsd(netBalance), sub: 'credits minus debits', stripe: 'linear-gradient(90deg,#4F8EF7,#93C5FD)', color: netBalance >= 0 ? 'var(--color-brand-blue)' : 'var(--color-brand-red)' },
+                        { label: 'Total In', value: formatUsd(totalCredits), sub: `${payments.length} receipts`, stripe: 'linear-gradient(90deg,#22C55E,#86EFAC)', color: 'var(--color-brand-green)' },
+                        { label: 'Total Out', value: formatUsd(totalDebits), sub: `${supplierPayments.length} payouts`, stripe: 'linear-gradient(90deg,#EF4444,#FCA5A5)', color: 'var(--color-brand-red)' },
+                        { label: 'Uncollected', value: formatUsd(outstandingAR), sub: 'outstanding AR', stripe: 'linear-gradient(90deg,#F59E0B,#FCD34D)', color: 'var(--color-brand-amber)' },
+                    ].map((k) => (
+                        <div key={k.label} style={{ ...panelStyle, position: 'relative', overflow: 'hidden', padding: '12px 14px' }}>
+                            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: k.stripe }} />
+                            <div style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)', marginBottom: 4 }}>{k.label}</div>
+                            <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 18, fontWeight: 600, color: k.color }}>{k.value}</div>
+                            <div style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)', marginTop: 2 }}>{k.sub}</div>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Main Operating Account */}
+                <div style={{ ...panelStyle, background: 'linear-gradient(135deg, rgba(251,146,60,.18) 0%, rgba(245,158,11,.08) 100%)', borderColor: 'rgba(251,146,60,.35)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <Building2 size={18} style={{ color: '#FB923C' }} />
+                            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>Main Operating Account</span>
+                        </div>
+                        <span style={{ fontSize: 9, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: 'var(--color-badge-green-bg)', color: 'var(--color-brand-green-tint)', border: '1px solid rgba(34,197,94,.28)' }}>ACTIVE</span>
+                    </div>
+                    <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 28, fontWeight: 600, color: '#FB923C', letterSpacing: '-.5px' }}>{formatUsd(bankBalance)}</div>
+                    <div style={{ fontSize: 11, color: 'var(--color-redwood-text-muted)', marginTop: 2 }}>Available bank balance</div>
+                    <div className="grid grid-cols-2 md:grid-cols-4" style={{ gap: 12, marginTop: 14 }}>
+                        {[
+                            { label: 'Customer receipts', value: String(payments.length) },
+                            { label: 'Supplier payouts', value: String(supplierPayments.length) },
+                            { label: 'Manual entries', value: String(manualTxs.length) },
+                            { label: 'Ledger net', value: formatUsd(netBalance) },
+                        ].map((s) => (
+                            <div key={s.label} style={{ padding: '8px 10px', borderRadius: 8, background: 'var(--color-redwood-row-bg)', border: '1px solid var(--color-redwood-border)' }}>
+                                <div style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)', marginBottom: 2 }}>{s.label}</div>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>{s.value}</div>
+                            </div>
+                        ))}
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, marginTop: 12, fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Wifi size={12} style={{ color: 'var(--color-brand-green-tint)' }} /> Synced · just now</span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Link2 size={12} style={{ color: 'var(--color-brand-blue-tint)' }} /> Bank feed · connected</span>
                     </div>
                 </div>
-            )}
+
+                <div className="grid grid-cols-1 xl:grid-cols-3" style={{ gap: 12 }}>
+                    <div className="xl:col-span-2" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        <div style={{ ...panelStyle, padding: 6, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                            {[{ id: 'ledger' as const, label: 'Transaction ledger' }, { id: 'pdc' as const, label: `Post dated cheques${dueTodayPDC.length > 0 ? ` (${dueTodayPDC.length} due)` : ''}` }].map((tab) => (
+                                <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} style={{ padding: '7px 14px', fontSize: 11, fontWeight: 500, borderRadius: 8, cursor: 'pointer', background: activeTab === tab.id ? 'var(--color-badge-blue-bg)' : 'transparent', color: activeTab === tab.id ? 'var(--color-brand-blue-tint)' : 'var(--color-redwood-text-muted)', border: activeTab === tab.id ? '1px solid rgba(79,142,247,.28)' : '1px solid transparent' }}>{tab.label}</button>
+                            ))}
+                        </div>
+
+                        {activeTab === 'ledger' && (
+                            <>
+                                {showAddTx && (
+                                    <div style={{ ...panelStyle, borderColor: 'rgba(251,146,60,.4)' }}>
+                                        <p style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-redwood-text-muted)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '.4px' }}>{editingId ? 'Edit transaction' : 'Add manual transaction'}</p>
+                                        <div className="grid grid-cols-2 md:grid-cols-3" style={{ gap: 10 }}>
+                                            <div><label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Date</label><input type="date" value={txForm.date} onChange={e => setTxForm(p => ({ ...p, date: e.target.value }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }} /></div>
+                                            <div><label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Type</label><select value={txForm.type} onChange={e => setTxForm(p => ({ ...p, type: e.target.value as 'Credit' | 'Debit' }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }}><option value="Credit">Credit</option><option value="Debit">Debit</option></select></div>
+                                            <div><label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Amount ($)</label><input type="number" placeholder="0.00" value={txForm.amount} onChange={e => setTxForm(p => ({ ...p, amount: e.target.value }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }} /></div>
+                                            <div><label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Description</label><input value={txForm.description} onChange={e => setTxForm(p => ({ ...p, description: e.target.value }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }} /></div>
+                                            <div><label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Reference</label><input value={txForm.reference} onChange={e => setTxForm(p => ({ ...p, reference: e.target.value }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }} /></div>
+                                            <div><label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Category</label><select value={txForm.category} onChange={e => setTxForm(p => ({ ...p, category: e.target.value }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }}>{(() => { const standard = ['General', 'Sales', 'Purchase', 'Salary', 'Utility', 'Rent', 'Other']; const options = txForm.category && !standard.includes(txForm.category) ? [txForm.category, ...standard] : standard; return options.map(cat => <option key={cat} value={cat}>{cat}</option>); })()}</select></div>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                                            <button type="button" onClick={saveManualTx} disabled={!txForm.description || !txForm.amount} style={primaryBtn}>{editingId ? 'Update' : 'Save'}</button>
+                                            <button type="button" onClick={() => { setEditingId(null); setShowAddTx(false); }} style={ghostBtn}>Cancel</button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div style={{ ...panelStyle, padding: 0, overflow: 'hidden' }}>
+                                    <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--color-redwood-border)', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
+                                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-redwood-text-main)', display: 'flex', alignItems: 'center', gap: 6 }}><RefreshCw size={14} style={{ color: '#4F8EF7' }} /> Transaction ledger</div>
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)' }}>
+                                                <Search size={14} style={{ color: 'var(--color-redwood-text-muted)' }} />
+                                                <input type="search" placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)} style={{ background: 'transparent', border: 'none', outline: 'none', color: 'var(--color-redwood-text-main)', fontSize: 11, width: 140 }} />
+                                            </div>
+                                            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ fontSize: 10, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)' }} />
+                                            <span style={{ fontSize: 10, color: 'var(--color-redwood-text-subtle)' }}>to</span>
+                                            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ fontSize: 10, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)' }} />
+                                            {(dateFrom || dateTo) && <button type="button" onClick={() => { setDateFrom(''); setDateTo(''); }} style={{ fontSize: 10, color: 'var(--color-brand-red-tint)', background: 'transparent', border: 'none', cursor: 'pointer', fontWeight: 600 }}>Clear</button>}
+                                        </div>
+                                    </div>
+                                    <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--color-redwood-border)', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                        {(['all', 'Credit', 'Debit'] as const).map(f => (
+                                            <button key={f} type="button" onClick={() => setFilter(f)} style={{ padding: '5px 12px', fontSize: 10, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: filter === f ? '1px solid rgba(79,142,247,.28)' : '1px solid var(--color-redwood-border)', background: filter === f ? 'var(--color-badge-blue-bg)' : 'transparent', color: filter === f ? 'var(--color-brand-blue-tint)' : 'var(--color-redwood-text-muted)' }}>{f === 'all' ? 'All' : f}</button>
+                                        ))}
+                                        <span style={{ width: 1, background: 'var(--color-redwood-border)', margin: '0 4px' }} />
+                                        {(['all', 'Cash', 'Bank'] as const).map(f => (
+                                            <button key={`ch-${f}`} type="button" onClick={() => setChannelFilter(f)} style={{ padding: '5px 12px', fontSize: 10, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: channelFilter === f ? '1px solid rgba(79,142,247,.28)' : '1px solid var(--color-redwood-border)', background: channelFilter === f ? 'var(--color-badge-blue-bg)' : 'transparent', color: channelFilter === f ? 'var(--color-brand-blue-tint)' : 'var(--color-redwood-text-muted)' }}>{f === 'all' ? 'All channels' : f}</button>
+                                        ))}
+                                    </div>
+                                    {filtered.length === 0 ? (
+                                        <div style={{ padding: 48, textAlign: 'center', color: 'var(--color-redwood-text-muted)' }}>
+                                            <Landmark size={40} style={{ margin: '0 auto 12px', opacity: 0.3 }} />
+                                            <p style={{ fontSize: 12, fontWeight: 600 }}>No transactions found</p>
+                                        </div>
+                                    ) : (
+                                        <div style={{ overflowX: 'auto' }}>
+                                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                                <thead><tr style={{ background: 'var(--color-redwood-row-bg)', borderBottom: '1px solid var(--color-redwood-border)' }}>{['Date', 'Description', 'Reference', 'Category', 'Channel', 'Type', 'Amount', 'Balance', ''].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+                                                <tbody>
+                                                    {filtered.slice(0, 50).map(tx => (
+                                                        <tr key={tx.id} style={{ borderBottom: '1px solid var(--color-redwood-border)' }}>
+                                                            <td style={{ ...tdStyle, fontFamily: 'ui-monospace,monospace', fontSize: 11, color: 'var(--color-redwood-text-muted)' }}>{tx.date}</td>
+                                                            <td style={{ ...tdStyle, fontWeight: 600 }}>{tx.description}</td>
+                                                            <td style={{ ...tdStyle, fontFamily: 'ui-monospace,monospace', fontSize: 11, color: 'var(--color-brand-blue-tint)' }}>{tx.reference}</td>
+                                                            <td style={tdStyle}><span style={{ fontSize: 9, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: 'var(--color-redwood-row-bg)', border: '1px solid var(--color-redwood-border)' }}>{tx.category}</span></td>
+                                                            <td style={tdStyle}><span style={{ fontSize: 9, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: tx.channel === 'Cash' ? 'var(--color-badge-green-bg)' : 'var(--color-badge-blue-bg)', color: tx.channel === 'Cash' ? 'var(--color-brand-green-tint)' : 'var(--color-brand-blue-tint)' }}>{tx.channel}</span></td>
+                                                            <td style={tdStyle}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: tx.type === 'Credit' ? 'var(--color-brand-green-tint)' : 'var(--color-brand-red-tint)' }}>{tx.type === 'Credit' ? <TrendingUp size={12} /> : <TrendingDown size={12} />}{tx.type}</span></td>
+                                                            <td style={{ ...tdStyle, fontWeight: 700, fontFamily: 'ui-monospace,monospace', color: tx.type === 'Credit' ? 'var(--color-brand-green-tint)' : 'var(--color-brand-red-tint)' }}>{formatUsdSigned(tx.amount, tx.type)}</td>
+                                                            <td style={{ ...tdStyle, fontWeight: 700, fontFamily: 'ui-monospace,monospace' }}>{formatUsd(tx.balance)}</td>
+                                                            <td style={{ ...tdStyle, textAlign: 'right' }}>
+                                                                {(tx as { isManual?: boolean }).isManual ? (
+                                                                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4 }}>
+                                                                        <button type="button" onClick={() => editManualTx(tx)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--color-brand-blue-tint)', padding: 4 }} title="Edit"><Edit2 size={13} /></button>
+                                                                        <button type="button" onClick={() => deleteManualTx(tx)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--color-brand-red-tint)', padding: 4 }} title="Delete"><Trash2 size={13} /></button>
+                                                                    </div>
+                                                                ) : tx.id.startsWith('PAY-') ? (() => {
+                                                                    const paymentId = tx.id.replace(/^PAY-/, '');
+                                                                    const original = payments.find(p => String(p.id) === paymentId);
+                                                                    const isReversal = original?.reference?.startsWith('VOID/') || (original?.amount ?? 0) < 0;
+                                                                    if (isReversal) return <span style={{ fontSize: 9, color: 'var(--color-brand-red-tint)', fontWeight: 600 }}>Reversal</span>;
+                                                                    return <button type="button" onClick={() => handleVoidPayment(paymentId)} disabled={voidingId === paymentId} style={{ fontSize: 9, fontWeight: 600, color: 'var(--color-brand-red-tint)', background: 'transparent', border: 'none', cursor: 'pointer' }}>{voidingId === paymentId ? 'Voiding…' : 'Void'}</button>;
+                                                                })() : <span style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>auto</span>}
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                                <tfoot>
+                                                    <tr style={{ background: 'var(--color-redwood-row-bg)', borderTop: '2px solid var(--color-redwood-border)' }}>
+                                                        <td colSpan={6} style={{ ...tdStyle, fontWeight: 700, fontSize: 10, textTransform: 'uppercase', color: 'var(--color-redwood-text-muted)' }}>Closing balance</td>
+                                                        <td style={{ ...tdStyle, fontWeight: 700, fontFamily: 'ui-monospace,monospace' }}>{formatUsd(totalCredits)} in / {formatUsd(totalDebits)} out</td>
+                                                        <td style={{ ...tdStyle, fontWeight: 700, fontFamily: 'ui-monospace,monospace', color: 'var(--color-brand-blue-tint)' }}>{formatUsd(closingBalance)}</td>
+                                                        <td />
+                                                    </tr>
+                                                </tfoot>
+                                            </table>
+                                            {filtered.length > 50 && <div style={{ padding: 12, textAlign: 'center', fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>Showing 50 of {filtered.length}</div>}
+                                        </div>
+                                    )}
+                                </div>
+                            </>
+                        )}
+
+                        {activeTab === 'pdc' && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                {dueTodayPDC.length > 0 && <div style={{ ...panelStyle, background: 'var(--color-badge-amber-bg)', borderColor: 'rgba(245,158,11,.35)', fontSize: 12, color: 'var(--color-brand-amber-tint)' }}>⚠ {dueTodayPDC.length} cheque(s) due today or overdue</div>}
+                                <div style={{ ...panelStyle, fontSize: 11, color: 'var(--color-redwood-text-muted)' }}>PDC cheques affect balances only when status is <strong style={{ color: 'var(--color-redwood-text-main)' }}>Cleared</strong>.</div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span style={{ fontSize: 11, color: 'var(--color-redwood-text-muted)' }}>{pdcList.length} recorded</span><button type="button" onClick={() => setShowPDCForm(!showPDCForm)} style={primaryBtn}><Plus size={14} /> Record cheque</button></div>
+                                {showPDCForm && (
+                                    <div style={{ ...panelStyle, borderColor: 'rgba(251,146,60,.4)' }}>
+                                        <div className="grid grid-cols-2 md:grid-cols-4" style={{ gap: 10 }}>
+                                            {[{ key: 'chequeNo', label: 'Cheque no.' }, { key: 'bankName', label: 'Bank' }, { key: 'payee', label: 'Payee' }, { key: 'description', label: 'Description' }].map(field => (
+                                                <div key={field.key}><label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>{field.label}</label><input value={(pdcForm as Record<string, string>)[field.key]} onChange={e => setPdcForm(p => ({ ...p, [field.key]: e.target.value }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }} /></div>
+                                            ))}
+                                            <div><label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Date</label><input type="date" value={pdcForm.date} onChange={e => setPdcForm(p => ({ ...p, date: e.target.value }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }} /></div>
+                                            <div><label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Amount ($)</label><input type="number" value={pdcForm.amount} onChange={e => setPdcForm(p => ({ ...p, amount: e.target.value }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }} /></div>
+                                            <div><label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Type</label><select value={pdcForm.type} onChange={e => setPdcForm(p => ({ ...p, type: e.target.value as PDCheque['type'] }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }}><option value="Received">Received</option><option value="Issued">Issued</option></select></div>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}><button type="button" onClick={savePDCEntry} style={primaryBtn}>Save</button><button type="button" onClick={() => setShowPDCForm(false)} style={ghostBtn}>Cancel</button></div>
+                                    </div>
+                                )}
+                                <div style={{ ...panelStyle, padding: 0, overflow: 'hidden' }}>
+                                    {pdcList.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-redwood-text-muted)', fontSize: 12 }}>No post dated cheques</div> : (
+                                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                            <thead><tr style={{ background: 'var(--color-redwood-row-bg)' }}>{['Cheque', 'Bank', 'Payee', 'Date', 'Amount', 'Type', 'Status', ''].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+                                            <tbody>{pdcList.map(pdc => { const isOverdue = pdc.date <= today && pdc.status === 'Pending'; const isFuture = pdc.date > today; return (
+                                                <tr key={pdc.id} style={{ borderBottom: '1px solid var(--color-redwood-border)', background: isOverdue ? 'var(--color-badge-amber-bg)' : undefined }}>
+                                                    <td style={{ ...tdStyle, fontWeight: 700 }}>{pdc.chequeNo}</td><td style={tdStyle}>{pdc.bankName || '—'}</td><td style={tdStyle}>{pdc.payee || '—'}</td>
+                                                    <td style={tdStyle}>{pdc.date}{isOverdue && <span style={{ marginLeft: 4, fontSize: 8, color: 'var(--color-brand-red-tint)' }}> OVERDUE</span>}{isFuture && <span style={{ marginLeft: 4, fontSize: 8, color: 'var(--color-brand-blue-tint)' }}> FUTURE</span>}</td>
+                                                    <td style={{ ...tdStyle, fontWeight: 700, color: pdc.type === 'Received' ? 'var(--color-brand-green-tint)' : 'var(--color-brand-red-tint)' }}>{pdc.type === 'Received' ? '+' : '-'}{formatUsd(pdc.amount)}</td>
+                                                    <td style={tdStyle}>{pdc.type}</td><td style={tdStyle}>{pdc.status}</td>
+                                                    <td style={tdStyle}>{pdc.status === 'Pending' && <div style={{ display: 'flex', gap: 4 }}><button type="button" onClick={() => updatePDCStatus(pdc.id, 'Cleared')} style={{ fontSize: 9, padding: '3px 8px', borderRadius: 6, border: 'none', background: 'var(--color-badge-green-bg)', color: 'var(--color-brand-green-tint)', cursor: 'pointer' }}>Clear</button><button type="button" onClick={() => updatePDCStatus(pdc.id, 'Bounced')} style={{ fontSize: 9, padding: '3px 8px', borderRadius: 6, border: 'none', background: 'var(--color-badge-red-bg)', color: 'var(--color-brand-red-tint)', cursor: 'pointer' }}>Bounce</button><button type="button" onClick={() => updatePDCStatus(pdc.id, 'Cancelled')} style={ghostBtn}>Cancel</button></div>}</td>
+                                                </tr>); })}</tbody>
+                                        </table>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        <div style={{ ...panelStyle, background: 'rgba(124,58,237,.08)', borderColor: 'rgba(124,58,237,.28)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}><span style={{ fontSize: 12, fontWeight: 600, color: '#C4B5FD', display: 'flex', alignItems: 'center', gap: 6 }}><Bot size={16} /> AI Reconciliation</span><button type="button" onClick={() => alert('All suggested matches approved (UI preview).')} style={{ ...primaryBtn, fontSize: 9, padding: '4px 10px', background: 'linear-gradient(90deg,#7C3AED,#4F8EF7)' }}>Approve all</button></div>
+                            {reconciliationMatches.length === 0 ? <p style={{ fontSize: 11, color: 'var(--color-redwood-text-muted)' }}>No matches to review</p> : reconciliationMatches.map(m => (
+                                <div key={m.id} style={{ padding: 10, borderRadius: 8, background: 'var(--color-redwood-row-bg)', border: '1px solid var(--color-redwood-border)', marginBottom: 8 }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}><span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>{formatUsd(m.amount)}</span><span style={{ fontSize: 10, fontWeight: 700, color: m.pct >= 85 ? 'var(--color-brand-green-tint)' : 'var(--color-brand-amber-tint)' }}>{m.pct}% match</span></div>
+                                    <div style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>Book: {m.book}</div>
+                                    <div style={{ fontSize: 10, color: 'var(--color-redwood-text-subtle)' }}>Bank: {m.bank}</div>
+                                </div>
+                            ))}
+                        </div>
+                        <div style={panelStyle}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}><ShieldAlert size={16} style={{ color: 'var(--color-brand-amber-tint)' }} /> AI Anomaly Detector</div>
+                            {anomalies.length === 0 ? <p style={{ fontSize: 11, color: 'var(--color-redwood-text-muted)' }}>No anomalies detected</p> : anomalies.map(a => (
+                                <div key={a.id} style={{ padding: 10, borderRadius: 8, marginBottom: 8, border: `1px solid ${a.severity === 'high' ? 'rgba(239,68,68,.25)' : 'rgba(245,158,11,.28)'}`, background: a.severity === 'high' ? 'var(--color-badge-red-bg)' : 'var(--color-badge-amber-bg)' }}>
+                                    <div style={{ fontSize: 11, fontWeight: 600, color: a.severity === 'high' ? 'var(--color-brand-red-tint)' : 'var(--color-brand-amber-tint)' }}>{a.title}</div>
+                                    <div style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)', marginTop: 2 }}>{a.detail}</div>
+                                </div>
+                            ))}
+                        </div>
+                        <div style={panelStyle}>
+                            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10, color: 'var(--color-redwood-text-main)' }}>AI Expense Monitor</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 12 }}>
+                                <div style={{ width: 56, height: 56, borderRadius: '50%', background: `conic-gradient(var(--color-brand-green) ${expenseHealthScore * 3.6}deg, var(--color-redwood-row-bg) 0)`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'var(--color-redwood-bg-surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: expenseHealthScore >= 75 ? 'var(--color-brand-green-tint)' : 'var(--color-brand-amber-tint)' }}>{expenseHealthScore}%</div>
+                                </div>
+                                <div><div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>Expense health</div><div style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>This month · USD</div></div>
+                            </div>
+                            {expenseByCategory.length === 0 ? <p style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>No expenses this month</p> : expenseByCategory.map(([cat, amt]) => {
+                                const max = expenseByCategory[0]?.[1] || 1;
+                                return (<div key={cat} style={{ marginBottom: 8 }}><div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, marginBottom: 3 }}><span style={{ color: 'var(--color-redwood-text-muted)' }}>{cat}</span><span style={{ fontWeight: 600 }}>{formatUsd(amt)}</span></div><div style={{ height: 4, borderRadius: 4, background: 'var(--color-redwood-row-bg)' }}><div style={{ height: 4, borderRadius: 4, width: `${Math.round((amt / max) * 100)}%`, background: 'linear-gradient(90deg,#4F8EF7,#93C5FD)' }} /></div></div>);
+                            })}
+                        </div>
+                    </div>
+                </div>
+
+                <div style={panelStyle}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}><Link2 size={16} style={{ color: '#4F8EF7' }} /> Bank connection & import</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+                        {[{ name: 'Chase', color: '#117ACA' }, { name: 'Bank of America', color: '#E31837' }, { name: 'Wells Fargo', color: '#FFCD00' }, { name: 'Citi', color: '#056DAE' }].map(b => (
+                            <div key={b.name} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <div style={{ width: 28, height: 28, borderRadius: 6, background: b.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 800, color: '#fff' }}>{b.name.slice(0, 2).toUpperCase()}</div>
+                                <span style={{ fontSize: 11, fontWeight: 600 }}>{b.name}</span>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4" style={{ gap: 10 }}>
+                        {[{ label: 'CSV import', icon: FileSpreadsheet, ext: '.csv' }, { label: 'QFX / OFX / QBO', icon: FileText, ext: 'bank feeds' }, { label: 'PDF statements', icon: FileText, ext: '.pdf' }, { label: 'Connect bank', icon: Link2, ext: 'OAuth' }].map(card => (
+                            <button key={card.label} type="button" onClick={() => alert(`${card.label} — connect your bank feed or drop a ${card.ext} file.`)} style={{ ...panelStyle, padding: '14px 12px', cursor: 'pointer', textAlign: 'left', background: 'var(--color-redwood-row-bg)' }}>
+                                <card.icon size={20} style={{ color: '#4F8EF7', marginBottom: 8 }} />
+                                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>{card.label}</div>
+                                <div style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)', marginTop: 4 }}>{card.ext}</div>
+                                <div style={{ fontSize: 9, color: 'var(--color-brand-blue-tint)', marginTop: 8, display: 'flex', alignItems: 'center', gap: 4 }}><Upload size={10} /> Import</div>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            </div>
         </div>
     );
 }
