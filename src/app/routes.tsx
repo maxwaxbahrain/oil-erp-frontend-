@@ -5,6 +5,10 @@ import LoginPage from '../pages/LoginPage';
 
 // Pages
 import Dashboard from '../pages/Dashboard/Dashboard';
+import FinanceDashboard from '../pages/Finance/FinanceDashboard';
+import SalesDashboard from '../pages/Sales/SalesDashboard';
+import WarehouseDashboard from '../pages/Warehouse/WarehouseDashboard';
+import VanDriverDashboard from '../pages/VanDriver/VanDriverDashboard';
 import CustomerList from '../pages/Customers/CustomerList';
 import CustomerOverview from '../pages/Customers/CustomerOverview';
 import CustomerFormPage from '../pages/Customers/CustomerFormPage';
@@ -52,6 +56,7 @@ import GoodsReceivedList from '../pages/Inventory/GoodsReceivedList';
 import StockTransfer from '../pages/Inventory/StockTransfer';
 import InventoryReports from '../pages/Inventory/InventoryReports';
 import SettingsPage from '../pages/Settings/SettingsPage';
+import UserManagement from '../pages/Settings/UserManagement';
 import SupplierList from '../pages/Purchases/SupplierList';
 import CustomerEditPage from '../pages/Customers/CustomerEditPage';
 import SupplierDetail from '../pages/Purchases/SupplierDetail';
@@ -152,6 +157,11 @@ export const AppRoutes = () => {
 
             <Route element={<ProtectedRoute />}>
             <Route path="/" element={<Dashboard />} />
+            <Route path="/finance/dashboard" element={<FinanceDashboard />} />
+            <Route path="/sales/dashboard" element={<SalesDashboard />} />
+            <Route path="/warehouse/dashboard" element={<WarehouseDashboard />} />
+            <Route path="/van/dashboard" element={<VanDriverDashboard />} />
+            <Route path="/ai/hub" element={<Navigate to="/ai" replace />} />
 
             {/* Inventory & Products */}
             <Route path="/products" element={<ProductManagement />} />
@@ -319,7 +329,7 @@ export const AppRoutes = () => {
                 <Route path="/users/dealers" element={<DealerNetwork />} />
                 <Route path="/users/partners" element={<PartnerDirectory />} />
                 <Route path="/settings" element={<SettingsPage />} />
-                <Route path="/settings/users" element={<PlaceholderPage title="User Management" />} />
+                <Route path="/settings/users" element={<UserManagement />} />
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />

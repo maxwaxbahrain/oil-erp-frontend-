@@ -40,23 +40,32 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { getInvoices, getCustomers, getProducts, getPayments } from '../services/api';
 import { getPurchaseOrders } from '../services/purchasesService';
 
-// Available roles for the cycling role pill in the top nav.  Cosmetic
-// only — does not affect permissions, just the displayed label.
-const ROLES = ['System Admin', 'Accountant', 'Sales Manager', 'Warehouse', 'Van Driver', 'AI Hub', 'Junior'] as const;
+// Six role dashboards — pill cycles through these; each route must exist.
+const ROLES = ['System Admin', 'Accountant', 'Sales Manager', 'Warehouse', 'Van Driver', 'AI Hub'] as const;
 
-// Route to navigate to when cycling INTO each role.  Pure UX affordance —
-// the role label is the user-facing "context" they're switching to; the
-// route opens the most-relevant page for that context.  No auth /
-// permissions logic — the route is the only side effect.
-const ROLE_ROUTES: Record<typeof ROLES[number], string> = {
+const ROLE_ROUTES: Record<(typeof ROLES)[number], string> = {
   'System Admin':  '/',
   'Accountant':    '/finance/dashboard',
   'Sales Manager': '/sales/dashboard',
   'Warehouse':     '/warehouse/dashboard',
   'Van Driver':    '/van/dashboard',
-  'AI Hub':        '/ai/hub',
-  'Junior':        '/',
+  'AI Hub':        '/ai',
 };
+
+function roleIndexForPath(pathname: string): number {
+  if (pathname.startsWith('/finance') || pathname.startsWith('/tax')) return ROLES.indexOf('Accountant');
+  if (pathname.startsWith('/sales') || pathname.startsWith('/customers') || pathname.startsWith('/crm')) {
+    return ROLES.indexOf('Sales Manager');
+  }
+  if (pathname.startsWith('/warehouse') || pathname.startsWith('/products') || pathname.startsWith('/inventory')) {
+    return ROLES.indexOf('Warehouse');
+  }
+  if (pathname.startsWith('/van') || pathname.startsWith('/logistics') || pathname.startsWith('/pod')) {
+    return ROLES.indexOf('Van Driver');
+  }
+  if (pathname.startsWith('/ai') || pathname.startsWith('/agents')) return ROLES.indexOf('AI Hub');
+  return ROLES.indexOf('System Admin');
+}
 
 function App() {
   const location = useLocation();
@@ -101,12 +110,25 @@ function App() {
   }, [isLight]);
   const notifsRef = useRef<HTMLDivElement>(null);
 
-  // Role pill — cycles through ROLES on click.  In-memory state only.
-  const [roleIndex, setRoleIndex] = useState(0);
+  // Role pill — cycles through the six dashboards. Cosmetic only.
+  const [roleIndex, setRoleIndex] = useState(() => roleIndexForPath(location.pathname));
+
+  useEffect(() => {
+    setRoleIndex(roleIndexForPath(location.pathname));
+  }, [location.pathname]);
+
   const cycleRole = () => {
-    const next = (roleIndex + 1) % ROLES.length;
-    setRoleIndex(next);
-    navigate(ROLE_ROUTES[ROLES[next]]);
+    const start = roleIndex;
+    for (let step = 1; step <= ROLES.length; step++) {
+      const next = (start + step) % ROLES.length;
+      const target = ROLE_ROUTES[ROLES[next]];
+      if (target !== location.pathname) {
+        setRoleIndex(next);
+        navigate(target);
+        return;
+      }
+    }
+    setRoleIndex((start + 1) % ROLES.length);
   };
 
   // Alert bar — dismissible per-session.
@@ -661,7 +683,7 @@ function App() {
             { key: 'mobile',    label: 'Field & Mobile', route: '/logistics/pod',      icon: Smartphone,      prefix: ['/logistics', '/pod', '/van-sales'],        badge: '20%', badgeColor: 'amber' },
             { key: 'security',  label: 'Security',       route: '/access-management',  icon: Shield,          prefix: ['/access-management', '/users'],            badge: '40%', badgeColor: 'amber' },
             { key: 'sales',     label: 'Sales & CRM',    route: '/sales/dashboard',    icon: TrendingUp,      prefix: ['/sales', '/customers', '/crm'],            badge: null,  badgeColor: null },
-            { key: 'ai',        label: 'AI Hub',         route: '/ai/hub',             icon: Sparkles,        prefix: ['/ai'],                                     badge: null,  badgeColor: null },
+            { key: 'ai',        label: 'AI Hub',         route: '/ai',                 icon: Sparkles,        prefix: ['/ai', '/agents'],                          badge: null,  badgeColor: null },
             { key: 'pulse',     label: 'Pulse',          route: '/pulse',              icon: Megaphone,       prefix: ['/pulse'],                                  badge: null,  badgeColor: null },
           ].map((t) => {
             const Icon = t.icon;
