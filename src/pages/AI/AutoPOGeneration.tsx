@@ -1,9 +1,57 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, Fragment, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, ShoppingCart, Zap, Check, RefreshCw } from 'lucide-react';
+import {
+    ShoppingCart,
+    Zap,
+    Check,
+    RefreshCw,
+    Bot,
+    ChevronRight,
+    MessageCircle,
+    AlertTriangle,
+} from 'lucide-react';
 import { getProducts } from '../../services/api';
 import { getSuppliers, createPurchaseOrder } from '../../services/purchasesService';
-import { formatCurrency } from '../../services/settingsService';
+import { getCurrentUser } from '../../store/authStore';
+
+const C = {
+    bg: '#060f1c',
+    bg2: '#0a1726',
+    bg3: '#0f1f33',
+    blue: '#4F8EF7',
+    green: '#22C55E',
+    purple: '#7C3AED',
+    orange: '#F59E0B',
+    red: '#EF4444',
+    text: '#EEF2FF',
+    muted: '#8BA3C7',
+    dim: '#3E5678',
+};
+
+const panel: CSSProperties = {
+    background: C.bg2,
+    border: '1px solid rgba(255,255,255,.07)',
+    borderRadius: 12,
+};
+
+function formatUsd(n: number): string {
+    return `$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+}
+
+function userInitials(name: string): string {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    if (parts.length === 1 && parts[0].length >= 2) return parts[0].slice(0, 2).toUpperCase();
+    return 'AQ';
+}
+
+function openMarcusAdvisor() {
+    window.dispatchEvent(new CustomEvent('soltol:open-ai-advisor'));
+}
+
+function isHazmat(name: string): boolean {
+    return /5USQ|hazmat/i.test(name);
+}
 
 interface LowStockProduct {
     id: string;
@@ -30,19 +78,63 @@ interface GeneratedPO {
     createdByAI: boolean;
 }
 
+type SortOption = 'urgency' | 'stock' | 'cost';
+type ProductGroup = 'critical' | 'out_of_stock' | 'warning';
+
 const AUTO_PO_LOG_KEY = 'ai_auto_po_log';
+
+const GROUP_META: Record<ProductGroup, { label: string; color: string; bg: string; border: string }> = {
+    critical: { label: 'CRITICAL', color: C.red, bg: 'rgba(239,68,68,.08)', border: 'rgba(239,68,68,.25)' },
+    out_of_stock: { label: 'OUT OF STOCK', color: C.orange, bg: 'rgba(245,158,11,.08)', border: 'rgba(245,158,11,.25)' },
+    warning: { label: 'LOW STOCK', color: '#FCD34D', bg: 'rgba(250,204,21,.06)', border: 'rgba(250,204,21,.2)' },
+};
 
 const getLog = (): GeneratedPO[] => {
     try { return JSON.parse(localStorage.getItem(AUTO_PO_LOG_KEY) || '[]'); } catch { return []; }
 };
 
+function getProductGroup(p: LowStockProduct): ProductGroup {
+    if (p.currentStock === 0) return 'out_of_stock';
+    if (p.urgency === 'critical') return 'critical';
+    return 'warning';
+}
+
+function getPriority(p: LowStockProduct, leadDays: number): { label: string; color: string; bg: string } {
+    if (p.currentStock === 0 || p.daysUntilStockout <= leadDays) {
+        return { label: 'Critical', color: '#FCA5A5', bg: 'rgba(239,68,68,.15)' };
+    }
+    if (p.urgency === 'critical') {
+        return { label: 'High', color: '#FCD34D', bg: 'rgba(245,158,11,.15)' };
+    }
+    return { label: 'Standard', color: '#93C5FD', bg: 'rgba(79,142,247,.12)' };
+}
+
+function getVelocity(p: LowStockProduct): number {
+    return Math.max(0.1, p.minimumStock / 30);
+}
+
+const inputStyle: CSSProperties = {
+    width: '100%',
+    background: C.bg3,
+    border: '1px solid rgba(255,255,255,.1)',
+    borderRadius: 8,
+    padding: '10px 12px',
+    fontSize: 12,
+    fontWeight: 600,
+    color: C.text,
+    outline: 'none',
+};
+
 export default function AutoPOGeneration() {
     const navigate = useNavigate();
+    const currentUser = getCurrentUser();
     const [suppliers, setSuppliers] = useState<any[]>([]);
     const [lowStock, setLowStock] = useState<LowStockProduct[]>([]);
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [selectedSupplier, setSelectedSupplier] = useState('');
     const [leadDays, setLeadDays] = useState(7);
+    const [safetyBufferDays, setSafetyBufferDays] = useState(30);
+    const [sortBy, setSortBy] = useState<SortOption>('urgency');
     const [loading, setLoading] = useState(true);
     const [generating, setGenerating] = useState(false);
     const [log, setLog] = useState<GeneratedPO[]>([]);
@@ -52,20 +144,18 @@ export default function AutoPOGeneration() {
 
     useEffect(() => {
         Promise.all([getProducts(), getSuppliers()]).then(([prods, sups]) => {
-setSuppliers(sups);
+            setSuppliers(sups);
             setLog(getLog());
 
-            // Find low stock products
             const low: LowStockProduct[] = prods
                 .filter((p: any) => {
                     const stock = p.current_stock || 0;
                     const min = p.minimum_stock || 10;
-                    return stock <= min * 1.2; // Within 20% of minimum
+                    return stock <= min * 1.2;
                 })
                 .map((p: any): LowStockProduct => {
                     const stock = p.current_stock || 0;
                     const min = p.minimum_stock || 10;
-                    // Suggest 2 months supply
                     const suggestedQty = Math.max(min * 3, min - stock + min * 2);
                     return {
                         id: String(p.id),
@@ -77,25 +167,59 @@ setSuppliers(sups);
                         suggestedQty: Math.ceil(suggestedQty),
                         estimatedCost: Math.ceil(suggestedQty) * (p.unit_price || 0),
                         urgency: stock <= 0 ? 'critical' : stock < min ? 'critical' : 'warning',
-                        daysUntilStockout: stock > 0 ? Math.floor(stock / Math.max(1, min / 30)) : 0
+                        daysUntilStockout: stock > 0 ? Math.floor(stock / Math.max(1, min / 30)) : 0,
                     };
                 })
                 .sort((a: LowStockProduct, b: LowStockProduct) => a.currentStock - b.currentStock);
 
             setLowStock(low);
 
-            // Auto-select all critical items
             const criticalIds = new Set(low.filter(p => p.urgency === 'critical').map(p => p.id));
             setSelected(criticalIds);
 
-            // Auto-select first supplier
             if (sups.length > 0) setSelectedSupplier(String(sups[0].id));
             setLoading(false);
         });
     }, []);
 
+    const sortedProducts = useMemo(() => {
+        const arr = [...lowStock];
+        if (sortBy === 'urgency') arr.sort((a, b) => a.currentStock - b.currentStock);
+        else if (sortBy === 'stock') arr.sort((a, b) => a.currentStock - b.currentStock);
+        else arr.sort((a, b) => b.estimatedCost - a.estimatedCost);
+        return arr;
+    }, [lowStock, sortBy]);
+
+    const groupedProducts = useMemo(() => {
+        const groups: Record<ProductGroup, LowStockProduct[]> = {
+            critical: [],
+            out_of_stock: [],
+            warning: [],
+        };
+        sortedProducts.forEach((p) => {
+            groups[getProductGroup(p)].push(p);
+        });
+        return groups;
+    }, [sortedProducts]);
+
+    const maxVelocity = useMemo(
+        () => Math.max(...lowStock.map(getVelocity), 1),
+        [lowStock]
+    );
+
     const selectedItems = lowStock.filter(p => selected.has(p.id));
     const totalCost = selectedItems.reduce((s, p) => s + p.estimatedCost, 0);
+    const totalItems = selectedItems.reduce((s, p) => s + p.suggestedQty, 0);
+    const flatMethodTotal = selectedItems.reduce((s, p) => s + p.minimumStock * 3 * p.unitPrice, 0);
+    const savingsVsFlat = Math.max(0, flatMethodTotal - totalCost);
+    const supplierName = suppliers.find(s => String(s.id) === selectedSupplier)?.name || 'Select supplier';
+    const expectedArrival = new Date(Date.now() + leadDays * 86400000).toLocaleDateString('en-GB', {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+    });
+
+    const allSelected = lowStock.length > 0 && selected.size === lowStock.length;
 
     const toggleProduct = (id: string) => {
         setSelected(prev => {
@@ -103,6 +227,17 @@ setSuppliers(sups);
             if (next.has(id)) next.delete(id); else next.add(id);
             return next;
         });
+    };
+
+    const updateSuggestedQty = (id: string, rawQty: number) => {
+        const qty = Math.max(1, Math.ceil(rawQty) || 1);
+        setLowStock(prev =>
+            prev.map(p =>
+                p.id === id
+                    ? { ...p, suggestedQty: qty, estimatedCost: qty * p.unitPrice }
+                    : p
+            )
+        );
     };
 
     const getAIAnalysis = async () => {
@@ -127,9 +262,9 @@ Lead time from supplier: ${leadDays} days.
 Give me:
 1. Which to order MOST URGENTLY and why
 2. Any market/pricing factors I should know about now
-3. One action to take today`
-                    }]
-                })
+3. One action to take today`,
+                    }],
+                }),
             });
             if (!res.ok) {
                 let detail = '';
@@ -163,14 +298,13 @@ Give me:
                 name: p.name,
                 quantity: p.suggestedQty,
                 rate: p.unitPrice,
-                amount: p.estimatedCost
+                amount: p.estimatedCost,
             })),
             grandTotal: totalCost,
             status: 'Draft',
-            createdByAI: true
+            createdByAI: true,
         };
 
-        // Save to purchase orders via service
         try {
             await createPurchaseOrder({
                 poNumber: po.poNumber,
@@ -185,14 +319,14 @@ Give me:
                     unitPrice: i.rate,
                     taxRate: 0,
                     discount: 0,
-                    total: i.amount
+                    total: i.amount,
                 })),
                 subtotal: po.grandTotal,
                 taxTotal: 0,
                 grandTotal: po.grandTotal,
                 status: 'Pending',
                 notes: `Auto-generated by AI — Lead time: ${leadDays} days.`,
-                expectedDate: new Date(Date.now() + leadDays * 86400000).toISOString().slice(0,10),
+                expectedDate: new Date(Date.now() + leadDays * 86400000).toISOString().slice(0, 10),
             });
         } catch (e) {
             console.warn('PO save to service failed, saved to local log only:', e);
@@ -202,216 +336,655 @@ Give me:
         localStorage.setItem(AUTO_PO_LOG_KEY, JSON.stringify([po, ...existing]));
         setLog([po, ...existing]);
         setGenerating(false);
-        setSuccess(`✅ PO ${poNumber} created for ${formatCurrency(totalCost)} — ${selectedItems.length} products`);
+        setSuccess(`✅ PO ${poNumber} created for ${formatUsd(totalCost)} — ${selectedItems.length} products`);
         setTimeout(() => setSuccess(''), 6000);
     };
 
-    return (
-        <div className="space-y-6 max-w-[1200px] mx-auto pb-10 animate-in fade-in duration-500">
+    const staticInsight = useMemo(() => {
+        if (lowStock.length === 0) return 'All products are well stocked — no draft PO needed right now.';
+        const criticalCount = lowStock.filter(p => p.urgency === 'critical').length;
+        const estSavings = Math.max(0, lowStock.reduce((s, p) => s + p.minimumStock * 3 * p.unitPrice, 0) - lowStock.reduce((s, p) => s + p.estimatedCost, 0));
+        return `Velocity-based quantities cover ${leadDays + safetyBufferDays}-day demand for ${criticalCount} critical SKU${criticalCount !== 1 ? 's' : ''}. AI order qty uses daily sell-through × lead time + ${safetyBufferDays}-day buffer — estimated ${formatUsd(estSavings)} savings vs flat minimum × 3 reorder method across ${lowStock.length} flagged products.`;
+    }, [lowStock, leadDays, safetyBufferDays]);
 
-            {/* Header */}
-            <div className="bg-gray-900 rounded-2xl p-6 text-white">
-                <button onClick={() => navigate('/ai')} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-white mb-3 transition-all">
-                    <ArrowLeft size={14} /> AI Hub
-                </button>
-                <div className="flex items-center justify-between flex-wrap gap-4">
-                    <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-emerald-500/20 rounded-xl flex items-center justify-center">
-                            <ShoppingCart size={24} className="text-emerald-400" />
+    const renderProductRow = (p: LowStockProduct) => {
+        const priority = getPriority(p, leadDays);
+        const velocity = getVelocity(p);
+        const velocityPct = Math.round((velocity / maxVelocity) * 100);
+        const hazmat = isHazmat(p.name);
+
+        return (
+            <tr
+                key={p.id}
+                onClick={() => toggleProduct(p.id)}
+                style={{
+                    cursor: 'pointer',
+                    background: selected.has(p.id) ? 'rgba(34,197,94,.06)' : 'transparent',
+                    transition: 'background .12s',
+                }}
+            >
+                <td style={{ padding: '12px 16px', width: 40 }}>
+                    <input
+                        type="checkbox"
+                        checked={selected.has(p.id)}
+                        onChange={() => toggleProduct(p.id)}
+                        onClick={e => e.stopPropagation()}
+                        style={{ accentColor: C.green }}
+                    />
+                </td>
+                <td style={{ padding: '12px 14px' }}>
+                    <p style={{ fontSize: 12, fontWeight: 700, color: C.text, margin: 0 }}>{p.name}</p>
+                    <p style={{ fontSize: 10, color: C.dim, margin: '3px 0 0', fontFamily: 'monospace' }}>{p.sku}</p>
+                    {hazmat && (
+                        <span style={{
+                            display: 'inline-block',
+                            marginTop: 5,
+                            fontSize: 8.5,
+                            fontWeight: 700,
+                            padding: '2px 6px',
+                            borderRadius: 4,
+                            background: 'rgba(245,158,11,.12)',
+                            color: '#FCD34D',
+                            border: '1px solid rgba(245,158,11,.3)',
+                        }}>
+                            ⚠ Hazmat
+                        </span>
+                    )}
+                </td>
+                <td style={{ padding: '12px 14px' }}>
+                    <span style={{
+                        fontSize: 16,
+                        fontWeight: 700,
+                        fontFamily: 'monospace',
+                        color: p.currentStock === 0 ? C.red : p.urgency === 'critical' ? C.orange : '#FCD34D',
+                    }}>
+                        {p.currentStock}
+                    </span>
+                    <span style={{ fontSize: 10, color: C.dim, marginLeft: 4 }}>units</span>
+                </td>
+                <td style={{ padding: '12px 14px' }}>
+                    {p.daysUntilStockout === 0 ? (
+                        <span style={{
+                            fontSize: 9,
+                            fontWeight: 700,
+                            padding: '3px 8px',
+                            borderRadius: 999,
+                            background: 'rgba(239,68,68,.15)',
+                            color: '#FCA5A5',
+                        }}>
+                            OUT
+                        </span>
+                    ) : (
+                        <span style={{
+                            fontSize: 12,
+                            fontWeight: 700,
+                            fontFamily: 'monospace',
+                            color: p.daysUntilStockout <= leadDays ? C.red : C.orange,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                        }}>
+                            <Zap size={11} /> {p.daysUntilStockout}d
+                        </span>
+                    )}
+                </td>
+                <td style={{ padding: '12px 14px', minWidth: 100 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div style={{ flex: 1, height: 6, borderRadius: 3, background: C.bg3, overflow: 'hidden' }}>
+                            <div style={{
+                                width: `${velocityPct}%`,
+                                height: '100%',
+                                borderRadius: 3,
+                                background: `linear-gradient(90deg, ${C.blue}, ${C.purple})`,
+                            }} />
+                        </div>
+                        <span style={{ fontSize: 10, fontWeight: 600, color: C.muted, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                            {velocity.toFixed(1)}/d
+                        </span>
+                    </div>
+                </td>
+                <td style={{ padding: '12px 14px' }} onClick={e => e.stopPropagation()}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <input
+                            type="number"
+                            min={1}
+                            value={p.suggestedQty}
+                            onChange={e => updateSuggestedQty(p.id, parseInt(e.target.value, 10))}
+                            style={{
+                                ...inputStyle,
+                                width: 72,
+                                padding: '6px 8px',
+                                fontSize: 11,
+                                textAlign: 'center',
+                            }}
+                        />
+                        <span style={{
+                            fontSize: 8,
+                            fontWeight: 700,
+                            padding: '2px 5px',
+                            borderRadius: 4,
+                            background: 'rgba(79,142,247,.12)',
+                            color: '#93C5FD',
+                        }}>
+                            AI calc
+                        </span>
+                    </div>
+                </td>
+                <td style={{ padding: '12px 14px', fontSize: 11, fontWeight: 600, color: C.muted, fontFamily: 'monospace' }}>
+                    {formatUsd(p.unitPrice)}
+                </td>
+                <td style={{ padding: '12px 14px', fontSize: 12, fontWeight: 700, color: C.green, fontFamily: 'monospace' }}>
+                    {formatUsd(p.estimatedCost)}
+                </td>
+                <td style={{ padding: '12px 14px' }}>
+                    <span style={{
+                        fontSize: 9,
+                        fontWeight: 700,
+                        padding: '3px 8px',
+                        borderRadius: 999,
+                        background: priority.bg,
+                        color: priority.color,
+                    }}>
+                        {priority.label}
+                    </span>
+                </td>
+            </tr>
+        );
+    };
+
+    return (
+        <div
+            style={{
+                display: 'flex',
+                flexDirection: 'column',
+                minHeight: '100%',
+                background: C.bg,
+                color: C.text,
+                fontFamily: 'inherit',
+                margin: '-24px -40px',
+                width: 'calc(100% + 80px)',
+                paddingBottom: 120,
+            }}
+        >
+            {/* Top bar */}
+            <div
+                style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '12px 28px',
+                    borderBottom: '1px solid rgba(255,255,255,.06)',
+                    background: C.bg2,
+                }}
+            >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: C.muted }}>
+                    <button
+                        type="button"
+                        onClick={() => navigate('/ai')}
+                        style={{ background: 'none', border: 'none', color: C.muted, cursor: 'pointer', padding: 0, fontSize: 11, fontWeight: 600 }}
+                    >
+                        AI hub
+                    </button>
+                    <ChevronRight size={12} color={C.dim} />
+                    <span style={{ color: C.text, fontWeight: 600 }}>Auto PO generation</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <button
+                        type="button"
+                        onClick={openMarcusAdvisor}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            padding: '7px 14px',
+                            borderRadius: 8,
+                            border: '1px solid rgba(245,158,11,.35)',
+                            background: 'rgba(245,158,11,.12)',
+                            color: '#FCD34D',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                        }}
+                    >
+                        <MessageCircle size={13} /> Ask Bettano
+                    </button>
+                    <div
+                        style={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: '50%',
+                            background: `linear-gradient(135deg, ${C.blue}, ${C.purple})`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: '#fff',
+                        }}
+                    >
+                        {userInitials(currentUser.name)}
+                    </div>
+                </div>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', padding: '22px 28px 32px' }}>
+                {/* Page header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 18 }}>
+                    <div>
+                        <h1 style={{ fontSize: 22, fontWeight: 700, color: C.text, display: 'flex', alignItems: 'center', gap: 10, margin: 0 }}>
+                            <ShoppingCart size={24} color={C.orange} />
+                            Auto PO generation
+                        </h1>
+                        <p style={{ fontSize: 12, color: C.muted, marginTop: 5, marginBottom: 0, maxWidth: 620 }}>
+                            AI detects low stock → creates draft purchase order · velocity-based quantities · human approval required
+                        </p>
+                    </div>
+                    <span
+                        style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            padding: '6px 12px',
+                            borderRadius: 999,
+                            background: 'rgba(34,197,94,.12)',
+                            color: '#86EFAC',
+                            border: '1px solid rgba(34,197,94,.35)',
+                            whiteSpace: 'nowrap',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                        }}
+                    >
+                        <Bot size={12} /> AI-generated · draft only
+                    </span>
+                </div>
+
+                {success && (
+                    <div style={{
+                        ...panel,
+                        padding: '14px 16px',
+                        marginBottom: 16,
+                        background: 'rgba(34,197,94,.08)',
+                        border: '1px solid rgba(34,197,94,.25)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 12,
+                    }}>
+                        <Check size={18} color={C.green} />
+                        <div>
+                            <p style={{ fontSize: 12, fontWeight: 700, color: '#86EFAC', margin: 0 }}>{success}</p>
+                            <button
+                                type="button"
+                                onClick={() => navigate('/purchases')}
+                                style={{ background: 'none', border: 'none', padding: 0, marginTop: 4, fontSize: 10, color: C.green, cursor: 'pointer', textDecoration: 'underline' }}
+                            >
+                                View in Purchase Orders →
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* PO Settings */}
+                <div style={{ ...panel, padding: '18px 20px', marginBottom: 14 }}>
+                    <p style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase', color: C.muted, margin: '0 0 14px' }}>
+                        PO Settings
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+                        <div>
+                            <label style={{ display: 'block', fontSize: 10, fontWeight: 700, color: C.muted, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.3px' }}>
+                                Supplier for this PO
+                            </label>
+                            <select
+                                value={selectedSupplier}
+                                onChange={e => setSelectedSupplier(e.target.value)}
+                                style={{ ...inputStyle, cursor: 'pointer' }}
+                            >
+                                <option value="">Select supplier...</option>
+                                {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                            </select>
+                            <p style={{ fontSize: 10, color: C.green, margin: '6px 0 0', fontWeight: 600 }}>
+                                ✓ AI matched supplier to product categories in this PO
+                            </p>
                         </div>
                         <div>
-                            <h1 className="text-xl font-black uppercase tracking-tight">Auto PO Generation</h1>
-                            <p className="text-gray-400 text-xs mt-0.5">AI detects low stock → creates purchase order automatically</p>
+                            <label style={{ display: 'block', fontSize: 10, fontWeight: 700, color: C.muted, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.3px' }}>
+                                Supplier Lead Time (Days)
+                            </label>
+                            <input
+                                type="number"
+                                value={leadDays}
+                                onChange={e => setLeadDays(parseInt(e.target.value, 10) || 7)}
+                                min={1}
+                                max={90}
+                                style={inputStyle}
+                            />
+                            <p style={{ fontSize: 10, color: C.green, margin: '6px 0 0', fontWeight: 600 }}>
+                                ✓ Avg lead time {leadDays}d · expected arrival {expectedArrival}
+                            </p>
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', fontSize: 10, fontWeight: 700, color: C.muted, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.3px' }}>
+                                Safety Stock Buffer
+                            </label>
+                            <input
+                                type="number"
+                                value={safetyBufferDays}
+                                onChange={e => setSafetyBufferDays(parseInt(e.target.value, 10) || 30)}
+                                min={1}
+                                max={90}
+                                style={inputStyle}
+                            />
+                            <p style={{ fontSize: 10, color: C.blue, margin: '6px 0 0', fontWeight: 600 }}>
+                                AI qty = velocity × ({leadDays}d lead + {safetyBufferDays}d buffer)
+                            </p>
                         </div>
                     </div>
-                    <button onClick={getAIAnalysis} disabled={aiLoading || lowStock.length === 0}
-                        className="flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-black transition-all disabled:opacity-50">
-                        {aiLoading ? <RefreshCw size={14} className="animate-spin" /> : <Zap size={14} />}
-                        Ask Marcus
-                    </button>
                 </div>
-            </div>
 
-            {success && (
-                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl px-5 py-4 flex items-center gap-3">
-                    <Check size={20} className="text-emerald-600" />
-                    <div>
-                        <p className="text-sm font-black text-emerald-700">{success}</p>
-                        <button onClick={() => navigate('/purchases')} className="text-xs text-emerald-600 underline mt-0.5">View in Purchase Orders →</button>
-                    </div>
-                </div>
-            )}
-
-            {/* AI Analysis */}
-            {aiAnalysis && (
-                <div className="bg-gray-900 rounded-2xl p-5 text-white">
-                    <div className="flex items-center gap-2 mb-3">
-                        <Zap size={16} className="text-orange-400" />
-                        <p className="text-sm font-black text-orange-400 uppercase tracking-widest">Marcus — AI Analysis</p>
-                    </div>
-                    <div className="text-sm leading-relaxed space-y-1">
-                        {aiAnalysis.split('\n').map((line, i) => {
-                            const t = line.trim();
-                            if (!t) return <div key={i} className="h-1" />;
-                            if (t === t.toUpperCase() && t.length > 4)
-                                return <p key={i} className="font-black text-orange-400 text-xs uppercase tracking-widest mt-3 mb-1">{t}</p>;
-                            if (/^[0-9]+\./.test(t))
-                                return <p key={i} className="font-bold text-white mt-1">{t}</p>;
-                            return <p key={i} className="text-gray-300">{t}</p>;
-                        })}
-                    </div>
-                </div>
-            )}
-
-            {/* Settings */}
-            <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
-                <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-4">PO Settings</p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label className="block text-xs font-black text-gray-500 uppercase mb-1.5">Supplier for PO</label>
-                        <select value={selectedSupplier} onChange={e => setSelectedSupplier(e.target.value)}
-                            className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-400">
-                            <option value="">Select supplier...</option>
-                            {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                        </select>
-                    </div>
-                    <div>
-                        <label className="block text-xs font-black text-gray-500 uppercase mb-1.5">Supplier Lead Time (days)</label>
-                        <input type="number" value={leadDays} onChange={e => setLeadDays(parseInt(e.target.value) || 7)}
-                            min={1} max={90}
-                            className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-400" />
-                        <p className="text-xs text-gray-400 mt-1">Orders arrive in {leadDays} days — used to calculate urgency</p>
-                    </div>
-                </div>
-            </div>
-
-            {/* Low Stock Products */}
-            <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
-                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between flex-wrap gap-3">
-                    <div>
-                        <p className="text-sm font-black text-gray-900">Low Stock Products</p>
-                        <p className="text-xs text-gray-400 mt-0.5">{lowStock.length} products need reordering · Select to include in PO</p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                        <button onClick={() => setSelected(new Set(lowStock.map(p => p.id)))}
-                            className="text-xs font-black text-emerald-600 hover:text-emerald-800">Select All</button>
-                        <button onClick={() => setSelected(new Set())}
-                            className="text-xs font-black text-gray-400 hover:text-gray-600">Clear</button>
-                        {selectedItems.length > 0 && (
-                            <button onClick={generatePO} disabled={generating || !selectedSupplier}
-                                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-black hover:bg-emerald-700 disabled:opacity-50 transition-all">
-                                {generating ? <RefreshCw size={14} className="animate-spin" /> : <ShoppingCart size={14} />}
-                                Generate PO — {formatCurrency(totalCost)}
+                {/* AI Insight */}
+                <div style={{
+                    ...panel,
+                    padding: '16px 18px',
+                    marginBottom: 14,
+                    background: C.bg3,
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                        <div style={{
+                            width: 36,
+                            height: 36,
+                            borderRadius: 10,
+                            background: 'rgba(245,158,11,.15)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                        }}>
+                            <Bot size={18} color={C.orange} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                            <p style={{ fontSize: 11, fontWeight: 700, color: C.orange, margin: '0 0 6px' }}>Bettano says:</p>
+                            {aiLoading ? (
+                                <p style={{ fontSize: 12, color: C.muted, margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <RefreshCw size={12} className="animate-spin" /> Analysing stock levels...
+                                </p>
+                            ) : aiAnalysis ? (
+                                <div style={{ fontSize: 12, lineHeight: 1.55, color: C.muted }}>
+                                    {aiAnalysis.split('\n').map((line, i) => {
+                                        const t = line.trim();
+                                        if (!t) return <div key={i} style={{ height: 4 }} />;
+                                        if (t === t.toUpperCase() && t.length > 4) {
+                                            return <p key={i} style={{ fontWeight: 700, color: C.orange, fontSize: 10, textTransform: 'uppercase', margin: '8px 0 4px' }}>{t}</p>;
+                                        }
+                                        return <p key={i} style={{ margin: '2px 0', color: C.muted }}>{t}</p>;
+                                    })}
+                                </div>
+                            ) : (
+                                <p style={{ fontSize: 12, lineHeight: 1.55, color: C.muted, margin: 0 }}>{staticInsight}</p>
+                            )}
+                        </div>
+                        {!aiAnalysis && !aiLoading && lowStock.length > 0 && (
+                            <button
+                                type="button"
+                                onClick={getAIAnalysis}
+                                style={{
+                                    background: 'rgba(245,158,11,.12)',
+                                    border: '1px solid rgba(245,158,11,.3)',
+                                    borderRadius: 6,
+                                    padding: '5px 10px',
+                                    fontSize: 9,
+                                    fontWeight: 700,
+                                    color: '#FCD34D',
+                                    cursor: 'pointer',
+                                    whiteSpace: 'nowrap',
+                                }}
+                            >
+                                Refresh insight
                             </button>
                         )}
                     </div>
                 </div>
 
-                {loading ? (
-                    <div className="p-12 text-center text-gray-400 font-bold">Analyzing stock levels...</div>
-                ) : lowStock.length === 0 ? (
-                    <div className="p-12 text-center">
-                        <Check size={48} className="mx-auto text-emerald-200 mb-3" />
-                        <p className="text-gray-400 font-bold">All products are well stocked</p>
-                        <p className="text-gray-300 text-sm mt-1">No reordering needed right now</p>
+                {/* Low Stock Table */}
+                <div style={{ ...panel, overflow: 'hidden' }}>
+                    <div style={{
+                        padding: '14px 18px',
+                        borderBottom: '1px solid rgba(255,255,255,.06)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: 10,
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: C.muted, cursor: 'pointer' }}>
+                                <input
+                                    type="checkbox"
+                                    checked={allSelected}
+                                    onChange={() => setSelected(allSelected ? new Set() : new Set(lowStock.map(p => p.id)))}
+                                    style={{ accentColor: C.green }}
+                                />
+                                Select all
+                            </label>
+                            <button
+                                type="button"
+                                onClick={() => setSelected(new Set())}
+                                style={{ background: 'none', border: 'none', fontSize: 11, fontWeight: 600, color: C.dim, cursor: 'pointer' }}
+                            >
+                                Clear
+                            </button>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 10, color: C.dim, fontWeight: 600 }}>Sort:</span>
+                            <select
+                                value={sortBy}
+                                onChange={e => setSortBy(e.target.value as SortOption)}
+                                style={{
+                                    ...inputStyle,
+                                    width: 'auto',
+                                    padding: '6px 28px 6px 10px',
+                                    fontSize: 10,
+                                    appearance: 'none',
+                                }}
+                            >
+                                <option value="urgency">Urgency ↓</option>
+                                <option value="stock">Stock ↓</option>
+                                <option value="cost">Line total ↓</option>
+                            </select>
+                        </div>
                     </div>
-                ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left">
-                            <thead className="bg-gray-50 border-b border-gray-100">
-                                <tr>
-                                    <th className="px-5 py-3 w-10"></th>
-                                    {['Product', 'Current Stock', 'Minimum', 'Days Left', 'Order Qty', 'Est. Cost', 'Status'].map(h => (
-                                        <th key={h} className="px-4 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">{h}</th>
-                                    ))}
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-50">
-                                {lowStock.map(p => (
-                                    <tr key={p.id}
-                                        onClick={() => toggleProduct(p.id)}
-                                        className={`cursor-pointer transition-all ${selected.has(p.id) ? 'bg-emerald-50' : 'hover:bg-gray-50'}`}>
-                                        <td className="px-5 py-4">
-                                            <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleProduct(p.id)}
-                                                onClick={e => e.stopPropagation()} className="rounded accent-emerald-600" />
-                                        </td>
-                                        <td className="px-4 py-4">
-                                            <p className="text-sm font-black text-gray-900">{p.name}</p>
-                                            <p className="text-xs text-gray-400 font-mono">{p.sku}</p>
-                                        </td>
-                                        <td className="px-4 py-4">
-                                            <span className={`text-lg font-black font-mono ${p.currentStock === 0 ? 'text-red-600' : p.urgency === 'critical' ? 'text-orange-600' : 'text-amber-600'}`}>
-                                                {p.currentStock}
-                                            </span>
-                                            <span className="text-xs text-gray-400 ml-1">units</span>
-                                        </td>
-                                        <td className="px-4 py-4 text-sm font-mono text-gray-500">{p.minimumStock}</td>
-                                        <td className="px-4 py-4">
-                                            {p.daysUntilStockout === 0 ? (
-                                                <span className="text-xs font-black text-red-600 bg-red-50 px-2 py-1 rounded-full">OUT OF STOCK</span>
-                                            ) : (
-                                                <span className={`text-sm font-black font-mono ${p.daysUntilStockout <= leadDays ? 'text-red-600' : 'text-amber-600'}`}>
-                                                    {p.daysUntilStockout} days
-                                                    {p.daysUntilStockout <= leadDays && <span className="text-[10px] ml-1 text-red-500">⚠️ Less than lead time!</span>}
-                                                </span>
-                                            )}
-                                        </td>
-                                        <td className="px-4 py-4">
-                                            <span className="text-sm font-black text-emerald-700">{p.suggestedQty} units</span>
-                                        </td>
-                                        <td className="px-4 py-4 text-sm font-black font-mono text-gray-900">{formatCurrency(p.estimatedCost)}</td>
-                                        <td className="px-4 py-4">
-                                            <span className={`text-[10px] font-black px-2 py-1 rounded-full ${p.urgency === 'critical' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
-                                                {p.urgency === 'critical' ? '🔴 Critical' : '🟡 Warning'}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                            {selectedItems.length > 0 && (
-                                <tfoot>
-                                    <tr className="bg-emerald-50 border-t-2 border-emerald-200">
-                                        <td colSpan={6} className="px-5 py-3 text-sm font-black text-emerald-700">
-                                            {selectedItems.length} product{selectedItems.length !== 1 ? 's' : ''} selected
-                                        </td>
-                                        <td className="px-4 py-3 text-sm font-black font-mono text-emerald-700">{formatCurrency(totalCost)}</td>
-                                        <td></td>
-                                    </tr>
-                                </tfoot>
-                            )}
-                        </table>
+
+                    {loading ? (
+                        <div style={{ padding: 48, textAlign: 'center', color: C.muted, fontSize: 12, fontWeight: 600 }}>
+                            Analyzing stock levels...
+                        </div>
+                    ) : lowStock.length === 0 ? (
+                        <div style={{ padding: 48, textAlign: 'center' }}>
+                            <Check size={40} color={C.green} style={{ opacity: 0.4, margin: '0 auto 12px' }} />
+                            <p style={{ color: C.muted, fontWeight: 700, margin: 0 }}>All products are well stocked</p>
+                            <p style={{ color: C.dim, fontSize: 11, marginTop: 4 }}>No reordering needed right now</p>
+                        </div>
+                    ) : (
+                        <>
+                            <div style={{ overflowX: 'auto' }}>
+                                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                                    <thead>
+                                        <tr style={{ borderBottom: '1px solid rgba(255,255,255,.06)' }}>
+                                            <th style={{ padding: '10px 16px', width: 40 }} />
+                                            {['Product', 'Current stock', 'Days left', 'Velocity', 'AI order qty', 'Unit cost', 'Line total', 'Priority'].map(h => (
+                                                <th key={h} style={{
+                                                    padding: '10px 14px',
+                                                    fontSize: 9,
+                                                    fontWeight: 700,
+                                                    color: C.dim,
+                                                    textTransform: 'uppercase',
+                                                    letterSpacing: '.4px',
+                                                }}>
+                                                    {h}
+                                                </th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {(['critical', 'out_of_stock', 'warning'] as ProductGroup[]).map(groupKey => {
+                                            const items = groupedProducts[groupKey];
+                                            if (items.length === 0) return null;
+                                            const meta = GROUP_META[groupKey];
+                                            return (
+                                                <Fragment key={groupKey}>
+                                                    <tr>
+                                                        <td colSpan={9} style={{
+                                                            padding: '8px 16px',
+                                                            background: meta.bg,
+                                                            borderTop: `1px solid ${meta.border}`,
+                                                            borderBottom: `1px solid ${meta.border}`,
+                                                        }}>
+                                                            <span style={{
+                                                                fontSize: 9,
+                                                                fontWeight: 800,
+                                                                letterSpacing: '.6px',
+                                                                color: meta.color,
+                                                            }}>
+                                                                {meta.label} · {items.length} product{items.length !== 1 ? 's' : ''}
+                                                            </span>
+                                                        </td>
+                                                    </tr>
+                                                    {items.map(renderProductRow)}
+                                                </Fragment>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div style={{
+                                padding: '10px 18px',
+                                borderTop: '1px solid rgba(255,255,255,.06)',
+                                fontSize: 10,
+                                color: C.dim,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                            }}>
+                                <span>
+                                    Showing {sortedProducts.length} of {lowStock.length} · sorted by {sortBy === 'urgency' ? 'urgency' : sortBy === 'stock' ? 'stock' : 'line total'}
+                                </span>
+                                <span style={{ color: C.muted, fontWeight: 600 }}>
+                                    View all {lowStock.length} →
+                                </span>
+                            </div>
+                        </>
+                    )}
+                </div>
+
+                {/* PO History */}
+                {log.length > 0 && (
+                    <div style={{ ...panel, marginTop: 14, overflow: 'hidden' }}>
+                        <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,.06)' }}>
+                            <p style={{ fontSize: 12, fontWeight: 700, color: C.text, margin: 0 }}>AI-Generated PO History</p>
+                        </div>
+                        <div>
+                            {log.slice(0, 10).map(po => (
+                                <div
+                                    key={po.id}
+                                    style={{
+                                        padding: '12px 18px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        borderBottom: '1px solid rgba(255,255,255,.04)',
+                                    }}
+                                >
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                        <div style={{
+                                            width: 32,
+                                            height: 32,
+                                            borderRadius: 8,
+                                            background: 'rgba(34,197,94,.12)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                        }}>
+                                            <Zap size={14} color={C.green} />
+                                        </div>
+                                        <div>
+                                            <p style={{ fontSize: 12, fontWeight: 700, color: C.text, margin: 0 }}>{po.poNumber}</p>
+                                            <p style={{ fontSize: 10, color: C.dim, margin: '2px 0 0' }}>
+                                                {po.supplierName} · {po.date} · {po.items.length} items
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'monospace', color: C.text }}>
+                                        {formatUsd(po.grandTotal)}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
             </div>
 
-            {/* PO History */}
-            {log.length > 0 && (
-                <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
-                    <div className="px-5 py-4 border-b border-gray-100">
-                        <p className="text-sm font-black text-gray-700">AI-Generated PO History</p>
+            {/* Sticky PO Summary Footer */}
+            {selectedItems.length > 0 && (
+                <div style={{
+                    position: 'fixed',
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    zIndex: 50,
+                    background: C.bg2,
+                    borderTop: '1px solid rgba(255,255,255,.08)',
+                    padding: '14px 28px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 20,
+                    boxShadow: '0 -8px 32px rgba(0,0,0,.4)',
+                }}>
+                    <div>
+                        <p style={{ fontSize: 12, fontWeight: 700, color: C.text, margin: 0 }}>
+                            PO summary · {selectedItems.length} product{selectedItems.length !== 1 ? 's' : ''} selected · {supplierName}
+                        </p>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginTop: 6, flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: 10, color: C.muted }}>
+                                Total items: <strong style={{ color: C.text }}>{totalItems.toLocaleString()}</strong>
+                            </span>
+                            <span style={{ fontSize: 10, color: C.muted }}>
+                                PO value: <strong style={{ color: C.green }}>{formatUsd(totalCost)}</strong>
+                            </span>
+                            <span style={{ fontSize: 10, color: C.muted }}>
+                                Savings vs flat method: <strong style={{ color: '#86EFAC' }}>{formatUsd(savingsVsFlat)}</strong>
+                            </span>
+                            <span style={{ fontSize: 10, color: C.muted, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <Check size={11} color={C.green} /> Expected arrival {expectedArrival}
+                            </span>
+                        </div>
+                        <p style={{ fontSize: 9, color: C.dim, margin: '6px 0 0', display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <AlertTriangle size={10} /> Draft only · requires your approval before submitting · logged to audit trail
+                        </p>
                     </div>
-                    <div className="divide-y divide-gray-50">
-                        {log.slice(0, 10).map(po => (
-                            <div key={po.id} className="px-5 py-4 flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
-                                        <Zap size={14} className="text-emerald-600" />
-                                    </div>
-                                    <div>
-                                        <p className="text-sm font-black text-gray-900">{po.poNumber}</p>
-                                        <p className="text-xs text-gray-400">{po.supplierName} · {po.date} · {po.items.length} items</p>
-                                    </div>
-                                </div>
-                                <span className="text-sm font-black font-mono text-gray-900">{formatCurrency(po.grandTotal)}</span>
-                            </div>
-                        ))}
-                    </div>
+                    <button
+                        type="button"
+                        onClick={generatePO}
+                        disabled={generating || !selectedSupplier}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            padding: '12px 22px',
+                            borderRadius: 10,
+                            border: 'none',
+                            background: generating || !selectedSupplier ? C.dim : C.green,
+                            color: '#fff',
+                            fontSize: 13,
+                            fontWeight: 700,
+                            cursor: generating || !selectedSupplier ? 'not-allowed' : 'pointer',
+                            whiteSpace: 'nowrap',
+                            opacity: generating || !selectedSupplier ? 0.6 : 1,
+                        }}
+                    >
+                        {generating ? <RefreshCw size={16} className="animate-spin" /> : <ShoppingCart size={16} />}
+                        Generate draft PO — {formatUsd(totalCost)}
+                    </button>
                 </div>
             )}
-
-            <p className="text-xs text-gray-400 text-center">
-                AI calculates order quantities based on minimum stock × 3 · Factor in lead time to avoid stockouts
-            </p>
         </div>
     );
 }
