@@ -1,27 +1,113 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { X } from 'lucide-react';
 import {
-    Tag,
-    Plus,
-    Edit2,
-    Trash2,
-    Eye,
-    X,
-} from 'lucide-react';
-import { getCategories, saveCategory, deleteCategory, type Category } from '../../services/productService';
-import { getProducts } from '../../services/productService';
+    getCategories,
+    saveCategory,
+    deleteCategory,
+    getProducts,
+    saveProduct,
+    type Category,
+    type Product,
+} from '../../services/productService';
+import { formatCurrency } from '../../services/settingsService';
 
-export default function Categories() {
-    const [categories, setCategories] = useState<Category[]>([]);
+const C = {
+    bg: '#060f1c',
+    bg2: '#0a1726',
+    bg3: '#0f1f33',
+    blue: '#4F8EF7',
+    green: '#22C55E',
+    amber: '#F59E0B',
+    orange: '#FF9900',
+    purple: '#9B6FE4',
+    red: '#EF4444',
+    text: '#EEF2FF',
+    muted: '#8BA3C7',
+    dim: '#3E5678',
+};
+
+const AMAZON_CATEGORY_MAP: Record<string, string> = {
+    Lubricants: 'Automotive > Oils',
+    Filters: 'Automotive > Filters',
+    'Spare Parts': 'Automotive > Parts',
+    Batteries: 'Automotive > Batteries',
+};
+
+export interface CategoriesHandle {
+    openCreate: () => void;
+    runAiAutoCategorise: () => void;
+}
+
+interface CategoryStats extends Category {
+    productCount: number;
+    stockValue: number;
+    avgMargin: number;
+    inStockCount: number;
+}
+
+function getTotalStock(p: Product): number {
+    return p.locations.reduce((a, b) => a + (b.currentStock ?? 0), 0);
+}
+
+function formatCompactUsd(amount: number): string {
+    if (amount >= 1_000_000) return `$${(amount / 1_000_000).toFixed(1)}M`;
+    if (amount >= 1_000) return `$${Math.round(amount / 1_000)}K`;
+    return formatCurrency(amount);
+}
+
+function isUncategorized(p: Product, categoryNames: Set<string>): boolean {
+    const cat = (p.category || '').trim();
+    return !cat || cat === 'Uncategorized' || cat === 'Imported' || !categoryNames.has(cat);
+}
+
+function isImportedUncategorized(p: Product, categoryNames: Set<string>): boolean {
+    const imported = p.tags?.some((t) => /imported/i.test(t)) || p.category === 'Imported';
+    return imported && isUncategorized(p, categoryNames);
+}
+
+function guessCategory(product: Product, categories: Category[]): string | null {
+    const name = product.name.toLowerCase();
+    if (/oil|lubric|0w|5w|10w|motor|synthetic/i.test(name)) {
+        return categories.find((c) => c.name === 'Lubricants')?.name ?? null;
+    }
+    if (/filter|air filter|oil filter/i.test(name)) {
+        return categories.find((c) => c.name === 'Filters')?.name ?? null;
+    }
+    if (/battery|batteries/i.test(name)) {
+        return categories.find((c) => c.name === 'Batteries')?.name ?? null;
+    }
+    if (/part|brake|pad|rotor|spark|plug/i.test(name)) {
+        return categories.find((c) => c.name === 'Spare Parts')?.name ?? null;
+    }
+    return null;
+}
+
+function hasAmazonMapping(p: Product): boolean {
+    return p.tags?.some((t) => /^ASIN:/i.test(t) || /^B0/i.test(t)) || !!(p.barcode && /^B0/i.test(p.barcode));
+}
+
+const Categories = forwardRef<CategoriesHandle>(function Categories(_props, ref) {
+    const navigate = useNavigate();
+    const [categories, setCategories] = useState<CategoryStats[]>([]);
+    const [products, setProducts] = useState<Product[]>([]);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+    const [viewCategory, setViewCategory] = useState<CategoryStats | null>(null);
+    const [assignCategoryId, setAssignCategoryId] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    const [aiRunning, setAiRunning] = useState(false);
 
-    // Form refs
     const nameRef = useRef<HTMLInputElement>(null);
     const descriptionRef = useRef<HTMLTextAreaElement>(null);
     const iconRef = useRef<HTMLSelectElement>(null);
     const orderRef = useRef<HTMLInputElement>(null);
+
+    useImperativeHandle(ref, () => ({
+        openCreate: () => setIsCreateModalOpen(true),
+        runAiAutoCategorise: () => handleAiSortAll(),
+    }));
 
     useEffect(() => {
         loadCategories();
@@ -30,28 +116,50 @@ export default function Categories() {
     const loadCategories = async () => {
         setLoading(true);
         try {
-            const cats = await getCategories();
-            // Calculate product counts for each category
-            const products = await getProducts();
-            const categoriesWithCounts = cats.map(cat => {
-                const categoryProducts = products.filter(p => p.category === cat.name);
-                const totalValue = categoryProducts.reduce((sum, p) => {
-                    const totalStock = p.locations.reduce((s, l) => s + (l.currentStock ?? 0), 0);
-                    return sum + (totalStock * p.pricing.sellingPrice);
-                }, 0);
-                return {
-                    ...cat,
-                    productCount: categoryProducts.length,
-                    totalStockValue: `$${totalValue.toLocaleString()}`
-                };
-            });
-            setCategories(categoriesWithCounts as any);
+            const [cats, prods] = await Promise.all([getCategories(), getProducts()]);
+            setProducts(prods);
+            const withStats: CategoryStats[] = cats
+                .sort((a, b) => (a.displayOrder ?? 99) - (b.displayOrder ?? 99))
+                .map((cat) => {
+                    const categoryProducts = prods.filter((p) => p.category === cat.name);
+                    const stockValue = categoryProducts.reduce((sum, p) => {
+                        const stock = getTotalStock(p);
+                        return sum + stock * (p.pricing?.sellingPrice ?? 0);
+                    }, 0);
+                    const margins = categoryProducts
+                        .map((p) => p.grossMarginPercent ?? 0)
+                        .filter((m) => m > 0);
+                    const avgMargin = margins.length
+                        ? margins.reduce((a, b) => a + b, 0) / margins.length
+                        : 0;
+                    const inStockCount = categoryProducts.filter((p) => getTotalStock(p) > 0).length;
+                    return {
+                        ...cat,
+                        productCount: categoryProducts.length,
+                        stockValue,
+                        avgMargin,
+                        inStockCount,
+                    };
+                });
+            setCategories(withStats);
         } catch (error) {
             console.error('Failed to load categories:', error);
         } finally {
             setLoading(false);
         }
     };
+
+    const categoryNames = new Set(categories.map((c) => c.name));
+    const uncategorizedProducts = products.filter((p) => isUncategorized(p, categoryNames));
+    const importedUncategorized = products.filter((p) => isImportedUncategorized(p, categoryNames));
+    const importedBucket = importedUncategorized.length > 0 ? importedUncategorized : uncategorizedProducts;
+    const totalStockValue = products.reduce((sum, p) => {
+        const stock = getTotalStock(p);
+        return sum + stock * (p.pricing?.sellingPrice ?? 0);
+    }, 0);
+    const mappedCount = products.filter(
+        (p) => !isUncategorized(p, categoryNames) && hasAmazonMapping(p)
+    ).length;
 
     const closeModal = () => {
         setIsCreateModalOpen(false);
@@ -62,7 +170,7 @@ export default function Categories() {
         const name = nameRef.current?.value.trim();
         const description = descriptionRef.current?.value.trim();
         const icon = iconRef.current?.value;
-        const displayOrder = orderRef.current?.value ? parseInt(orderRef.current.value) : undefined;
+        const displayOrder = orderRef.current?.value ? parseInt(orderRef.current.value, 10) : undefined;
 
         if (!name) {
             alert('Category name is required!');
@@ -76,7 +184,7 @@ export default function Categories() {
                 name,
                 description: description || '',
                 icon,
-                displayOrder
+                displayOrder,
             });
             await loadCategories();
             closeModal();
@@ -92,7 +200,6 @@ export default function Categories() {
         if (!confirm(`Are you sure you want to delete "${name}"? This action cannot be undone.`)) {
             return;
         }
-
         try {
             await deleteCategory(id);
             await loadCategories();
@@ -102,194 +209,816 @@ export default function Categories() {
         }
     };
 
+    const assignProductsToCategory = async (categoryName: string, targetProducts: Product[]) => {
+        if (!targetProducts.length) return;
+        setSaving(true);
+        try {
+            await Promise.all(
+                targetProducts.map((p) => saveProduct({ ...p, category: categoryName }))
+            );
+            await loadCategories();
+            setAssignCategoryId(null);
+        } catch (error) {
+            console.error('Failed to assign products:', error);
+            alert('Failed to assign products. Please try again.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleAiSortAll = async () => {
+        if (aiRunning) return;
+        const targets = uncategorizedProducts;
+        if (!targets.length) {
+            alert('No uncategorized products to sort.');
+            return;
+        }
+        if (!confirm(`Run AI sort on ${targets.length} uncategorized product${targets.length === 1 ? '' : 's'}?`)) {
+            return;
+        }
+        setAiRunning(true);
+        try {
+            const assignments: Product[] = [];
+            for (const p of targets) {
+                const guessed = guessCategory(p, categories);
+                if (guessed) {
+                    assignments.push({ ...p, category: guessed });
+                }
+            }
+            if (assignments.length) {
+                await Promise.all(assignments.map((p) => saveProduct(p)));
+                await loadCategories();
+            }
+            alert(`AI sorted ${assignments.length} of ${targets.length} products into categories.`);
+        } catch (error) {
+            console.error('AI sort failed:', error);
+            alert('AI sort failed. Please try again.');
+        } finally {
+            setAiRunning(false);
+        }
+    };
+
+    const aiInsights = [
+        {
+            color: C.amber,
+            text: (
+                <>
+                    <strong style={{ color: C.amber }}>{uncategorizedProducts.length} products</strong> have no category
+                    assigned — Amazon listings may be suppressed without proper browse node mapping.
+                </>
+            ),
+        },
+        {
+            color: C.orange,
+            text: (
+                <>
+                    <strong style={{ color: C.orange }}>Imported bucket</strong> contains{' '}
+                    {importedBucket.length} product{importedBucket.length === 1 ? '' : 's'} awaiting manual or AI
+                    categorisation before FBA sync.
+                </>
+            ),
+        },
+        {
+            color: C.green,
+            text: (
+                <>
+                    <strong style={{ color: C.green }}>{categories.filter((c) => c.productCount > 0).length} categories</strong>{' '}
+                    have products assigned · total catalogue value {formatCompactUsd(totalStockValue)} across{' '}
+                    {categories.length} categories.
+                </>
+            ),
+        },
+    ];
+
     if (loading) {
         return (
-            <div className="flex items-center justify-center h-96">
-                <div className="text-center">
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto mb-4"></div>
-                    <p className="text-gray-500 font-medium">Loading categories...</p>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 0' }}>
+                <div style={{ textAlign: 'center' }}>
+                    <div
+                        style={{
+                            width: 40,
+                            height: 40,
+                            border: `3px solid ${C.blue}`,
+                            borderTopColor: 'transparent',
+                            borderRadius: '50%',
+                            animation: 'spin 0.8s linear infinite',
+                            margin: '0 auto 12px',
+                        }}
+                    />
+                    <p style={{ fontSize: 10, color: C.dim, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.5px' }}>
+                        Loading categories...
+                    </p>
                 </div>
             </div>
         );
     }
 
     return (
-        <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
-            {/* Simple Category Management Interface Header */}
-            <div className="bg-white p-12 rounded-3xl border border-gray-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-8">
-                <div>
-                    <h2 className="text-3xl font-black text-gray-900 uppercase tracking-tighter flex items-center gap-4">
-                        <Tag className="text-gray-900" size={32} />
-                        Product Categories
-                    </h2>
-                    <p className="text-gray-500 mt-2 text-sm font-medium uppercase tracking-widest leading-relaxed">
-                        Organize your products into categories - works for ANY product type
-                    </p>
-                </div>
-                <button
-                    onClick={() => setIsCreateModalOpen(true)}
-                    className="px-10 py-5 bg-gray-900 text-white text-[11px] font-black uppercase tracking-widest rounded-2xl flex items-center gap-3 hover:bg-black transition-all shadow-xl shadow-gray-200 shrink-0"
+        <div>
+            {/* Alert bar */}
+            {uncategorizedProducts.length > 0 && (
+                <div
+                    style={{
+                        background: 'rgba(245,158,11,.06)',
+                        border: '0.5px solid rgba(245,158,11,.35)',
+                        borderRadius: 10,
+                        padding: '10px 14px',
+                        marginBottom: 12,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 10,
+                        flexWrap: 'wrap',
+                    }}
                 >
-                    <Plus size={20} /> Create New Category
-                </button>
-            </div>
+                    <span style={{ fontSize: 11, color: C.amber, fontWeight: 500 }}>
+                        {uncategorizedProducts.length} uncategorised product{uncategorizedProducts.length === 1 ? '' : 's'}
+                    </span>
+                    <button
+                        type="button"
+                        onClick={handleAiSortAll}
+                        disabled={aiRunning}
+                        style={{
+                            background: 'rgba(155,111,228,.15)',
+                            border: '0.5px solid rgba(155,111,228,.35)',
+                            borderRadius: 8,
+                            padding: '5px 12px',
+                            fontSize: 10,
+                            color: C.purple,
+                            fontWeight: 600,
+                            cursor: aiRunning ? 'wait' : 'pointer',
+                        }}
+                    >
+                        🤖 AI sort all →
+                    </button>
+                </div>
+            )}
 
-            {/* Existing Categories Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {categories.map((cat: any) => (
-                    <div key={cat.id} className="bg-white p-10 rounded-3xl border border-gray-100 shadow-sm hover:shadow-2xl transition-all group relative overflow-hidden">
-                        <div className="absolute top-0 right-0 p-8 transform translate-x-4 -translate-y-4 opacity-10 group-hover:translate-x-0 group-hover:translate-y-0 transition-transform duration-700">
-                            <span className="text-8xl select-none">{cat.icon || '📦'}</span>
+            {/* Imported bucket */}
+            {importedBucket.length > 0 && (
+                <div
+                    style={{
+                        background: C.bg2,
+                        border: '1.5px dashed rgba(245,158,11,.35)',
+                        borderRadius: 11,
+                        padding: '12px 14px',
+                        marginBottom: 12,
+                    }}
+                >
+                    <div style={{ fontSize: 11, fontWeight: 500, color: C.text, marginBottom: 8 }}>
+                        Imported (uncategorised) — {importedBucket.length} product{importedBucket.length === 1 ? '' : 's'}
+                    </div>
+                    <div style={{ fontSize: 10, color: C.muted, marginBottom: 10, lineHeight: 1.6 }}>
+                        {importedBucket.slice(0, 5).map((p) => p.name).join(' · ')}
+                        {importedBucket.length > 5 && ` · +${importedBucket.length - 5} more`}
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setAssignCategoryId('imported')}
+                        style={{
+                            background: 'rgba(245,158,11,.12)',
+                            border: '0.5px solid rgba(245,158,11,.3)',
+                            borderRadius: 8,
+                            padding: '6px 14px',
+                            fontSize: 10,
+                            color: C.amber,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                        }}
+                    >
+                        Assign to category →
+                    </button>
+                </div>
+            )}
+
+            {/* Key metrics */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 7, marginBottom: 12 }}>
+                {[
+                    { label: 'Categories', value: categories.length, sub: 'active categories', color: C.text, stripe: C.blue },
+                    { label: 'Total stock value', value: formatCompactUsd(totalStockValue), sub: 'across all products', color: C.green, stripe: C.green },
+                    { label: 'Uncategorised', value: uncategorizedProducts.length, sub: 'need assignment', color: C.amber, stripe: C.amber },
+                    { label: 'Mapped to categories', value: mappedCount, sub: 'Amazon browse nodes', color: C.text, stripe: C.purple },
+                ].map((kpi) => (
+                    <div
+                        key={kpi.label}
+                        style={{
+                            background: C.bg2,
+                            border: '0.5px solid rgba(255,255,255,.07)',
+                            borderRadius: 10,
+                            padding: '10px 12px',
+                            position: 'relative',
+                            overflow: 'hidden',
+                        }}
+                    >
+                        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2.5, background: kpi.stripe }} />
+                        <div style={{ fontSize: 9, color: C.dim, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 3 }}>
+                            {kpi.label}
                         </div>
-
-                        <div className="relative flex flex-col h-full">
-                            <div className="flex items-center gap-4 mb-6">
-                                <span className="text-4xl">{cat.icon || '📦'}</span>
-                                <h3 className="text-2xl font-black text-gray-900 uppercase tracking-tighter">Category: {cat.name}</h3>
-                            </div>
-
-                            <p className="text-gray-500 text-sm font-medium uppercase tracking-widest leading-relaxed mb-8 flex-1">
-                                Description: {cat.description}
-                            </p>
-
-                            <div className="grid grid-cols-2 gap-6 mb-10 pt-8 border-t border-gray-50">
-                                <div>
-                                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Number of Products</p>
-                                    <p className="text-xl font-black text-gray-900">{cat.productCount || 0} Items</p>
-                                </div>
-                                <div>
-                                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Total Stock Value</p>
-                                    <p className="text-xl font-black text-gray-900">{cat.totalStockValue || '$0'}</p>
-                                </div>
-                                <div>
-                                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Created Date</p>
-                                    <p className="text-sm font-black text-gray-600 uppercase">{new Date(cat.createdAt).toLocaleDateString()}</p>
-                                </div>
-                            </div>
-
-                            <div className="flex items-center gap-3">
-                                <button
-                                    onClick={() => setEditingCategory(cat)}
-                                    className="px-6 py-3 bg-gray-50 text-[10px] font-black uppercase tracking-widest text-gray-600 rounded-xl hover:bg-gray-900 hover:text-white transition-all flex items-center gap-2"
-                                >
-                                    <Edit2 size={14} /> Edit
-                                </button>
-                                <button className="px-6 py-3 bg-gray-50 text-[10px] font-black uppercase tracking-widest text-gray-600 rounded-xl hover:bg-gray-100 transition-all flex items-center gap-2">
-                                    <Eye size={14} /> View Products
-                                </button>
-                                <button
-                                    onClick={() => handleDelete(cat.id, cat.name)}
-                                    className="px-6 py-3 bg-gray-50 text-[10px] font-black uppercase tracking-widest text-rose-500 rounded-xl hover:bg-rose-500 hover:text-white transition-all ml-auto"
-                                >
-                                    <Trash2 size={14} />
-                                </button>
-                            </div>
+                        <div style={{ fontSize: 16, fontWeight: 500, lineHeight: 1.1, marginBottom: 2, color: kpi.color }}>
+                            {kpi.value}
                         </div>
+                        <div style={{ fontSize: 10, color: C.muted }}>{kpi.sub}</div>
                     </div>
                 ))}
             </div>
 
-            {/* Create/Edit Category Modal */}
-            {(isCreateModalOpen || editingCategory) && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-6 backdrop-blur-md bg-black/40 animate-in fade-in duration-300">
-                    <div className="bg-white w-full max-w-2xl rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
-                        <div className="p-10 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
-                            <div>
-                                <h3 className="text-2xl font-black text-gray-900 uppercase tracking-tighter flex items-center gap-3">
-                                    {editingCategory ? <Edit2 size={24} /> : <Plus size={24} />}
-                                    {editingCategory ? `Edit Category: ${editingCategory.name}` : 'Create New Category'}
-                                </h3>
-                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">
-                                    Works for Oil, Electronics, Clothing, Food - ANY product type!
-                                </p>
+            {/* Categories grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 14 }}>
+                {categories.map((cat) => {
+                    const amazonPath = AMAZON_CATEGORY_MAP[cat.name] || `Automotive > ${cat.name}`;
+                    return (
+                        <div
+                            key={cat.id}
+                            style={{
+                                background: C.bg3,
+                                border: '0.5px solid rgba(255,255,255,.07)',
+                                borderRadius: 12,
+                                padding: '14px 16px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                            }}
+                        >
+                            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                    <span style={{ fontSize: 28 }}>{cat.icon || '📦'}</span>
+                                    <div>
+                                        <div style={{ fontSize: 13, fontWeight: 500, color: C.text }}>{cat.name}</div>
+                                        <div style={{ fontSize: 10, color: C.muted, marginTop: 2, maxWidth: 220 }}>{cat.description}</div>
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setEditingCategory(cat)}
+                                        style={{ background: 'none', border: 'none', fontSize: 10, color: C.blue, cursor: 'pointer', padding: 0 }}
+                                    >
+                                        Edit
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setViewCategory(cat)}
+                                        style={{ background: 'none', border: 'none', fontSize: 10, color: C.muted, cursor: 'pointer', padding: 0 }}
+                                    >
+                                        View
+                                    </button>
+                                </div>
                             </div>
-                            <button onClick={closeModal} className="w-12 h-12 bg-white border border-gray-100 rounded-2xl flex items-center justify-center text-gray-400 hover:text-gray-900 hover:bg-gray-50 transition-all shadow-sm">
-                                <X size={20} />
+
+                            <div
+                                style={{
+                                    display: 'inline-flex',
+                                    alignSelf: 'flex-start',
+                                    background: 'rgba(255,153,0,.1)',
+                                    border: '0.5px solid rgba(255,153,0,.25)',
+                                    borderRadius: 6,
+                                    padding: '3px 8px',
+                                    fontSize: 9,
+                                    color: C.orange,
+                                    fontWeight: 500,
+                                    marginBottom: 12,
+                                }}
+                            >
+                                📦 {amazonPath}
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 12 }}>
+                                {[
+                                    { label: 'PRODUCTS', value: cat.productCount },
+                                    { label: 'STOCK VALUE', value: formatCompactUsd(cat.stockValue) },
+                                    { label: 'AVG MARGIN', value: cat.avgMargin ? `${cat.avgMargin.toFixed(1)}%` : '—' },
+                                    { label: 'IN STOCK', value: cat.inStockCount },
+                                ].map((stat) => (
+                                    <div key={stat.label}>
+                                        <div style={{ fontSize: 8, color: C.dim, fontWeight: 600, letterSpacing: '.4px', marginBottom: 2 }}>
+                                            {stat.label}
+                                        </div>
+                                        <div style={{ fontSize: 12, fontWeight: 500, color: C.text }}>{stat.value}</div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={() => setAssignCategoryId(cat.id)}
+                                style={{
+                                    width: '100%',
+                                    background: 'transparent',
+                                    border: '1.5px dashed rgba(79,142,247,.35)',
+                                    borderRadius: 8,
+                                    padding: '8px 12px',
+                                    fontSize: 10,
+                                    color: C.blue,
+                                    fontWeight: 500,
+                                    cursor: 'pointer',
+                                    marginBottom: 12,
+                                }}
+                            >
+                                + Assign products to {cat.name}
+                            </button>
+
+                            <div
+                                style={{
+                                    borderTop: '0.5px solid rgba(255,255,255,.06)',
+                                    paddingTop: 10,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    marginTop: 'auto',
+                                }}
+                            >
+                                <span style={{ fontSize: 9, color: C.dim }}>
+                                    Created {new Date(cat.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                </span>
+                                {cat.productCount === 0 ? (
+                                    <span style={{ fontSize: 9, color: C.amber, fontWeight: 500 }}>⚠️ No products assigned</span>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleDelete(cat.id, cat.name)}
+                                        style={{ background: 'none', border: 'none', fontSize: 9, color: C.red, cursor: 'pointer', padding: 0 }}
+                                    >
+                                        Delete
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+
+            {/* AI Category Analysis */}
+            <div
+                style={{
+                    background: C.bg2,
+                    border: '0.5px solid rgba(255,255,255,.07)',
+                    borderRadius: 12,
+                    padding: '14px 16px',
+                }}
+            >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                    <span style={{ fontSize: 12, fontWeight: 500, color: C.text }}>🤖 AI category analysis</span>
+                    {uncategorizedProducts.length > 0 && (
+                        <span
+                            style={{
+                                fontSize: 8,
+                                background: 'rgba(245,158,11,.15)',
+                                color: C.amber,
+                                borderRadius: 20,
+                                padding: '2px 8px',
+                                fontWeight: 600,
+                            }}
+                        >
+                            Action needed
+                        </span>
+                    )}
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+                    {aiInsights.map((insight, i) => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 10, color: C.muted, lineHeight: 1.5 }}>
+                            <span
+                                style={{
+                                    width: 6,
+                                    height: 6,
+                                    borderRadius: '50%',
+                                    background: insight.color,
+                                    flexShrink: 0,
+                                    marginTop: 4,
+                                }}
+                            />
+                            <span>{insight.text}</span>
+                        </div>
+                    ))}
+                </div>
+
+                <div
+                    style={{
+                        background: C.bg3,
+                        border: '0.5px solid rgba(255,255,255,.07)',
+                        borderRadius: 10,
+                        padding: '12px 14px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 10,
+                        flexWrap: 'wrap',
+                    }}
+                >
+                    <div>
+                        <div style={{ fontSize: 11, fontWeight: 500, color: C.text, marginBottom: 2 }}>
+                            Suggested action
+                        </div>
+                        <div style={{ fontSize: 10, color: C.muted }}>
+                            Run AI sort to assign {uncategorizedProducts.length} uncategorised product
+                            {uncategorizedProducts.length === 1 ? '' : 's'} to the best-fit categories
+                        </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                        <button
+                            type="button"
+                            onClick={handleAiSortAll}
+                            disabled={aiRunning || uncategorizedProducts.length === 0}
+                            style={{
+                                background: C.purple,
+                                border: 'none',
+                                borderRadius: 8,
+                                padding: '6px 14px',
+                                fontSize: 10,
+                                color: '#fff',
+                                fontWeight: 600,
+                                cursor: aiRunning ? 'wait' : 'pointer',
+                                opacity: uncategorizedProducts.length === 0 ? 0.5 : 1,
+                            }}
+                        >
+                            Run AI sort
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setAssignCategoryId('imported')}
+                            style={{
+                                background: 'transparent',
+                                border: '0.5px solid rgba(255,255,255,.12)',
+                                borderRadius: 8,
+                                padding: '6px 14px',
+                                fontSize: 10,
+                                color: C.muted,
+                                fontWeight: 500,
+                                cursor: 'pointer',
+                            }}
+                        >
+                            Review first
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {/* Create/Edit Modal */}
+            {(isCreateModalOpen || editingCategory) && (
+                <div
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        zIndex: 50,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: 24,
+                        background: 'rgba(0,0,0,.6)',
+                        backdropFilter: 'blur(4px)',
+                    }}
+                >
+                    <div
+                        style={{
+                            background: C.bg2,
+                            border: '0.5px solid rgba(255,255,255,.1)',
+                            width: '100%',
+                            maxWidth: 520,
+                            borderRadius: 16,
+                            overflow: 'hidden',
+                        }}
+                    >
+                        <div
+                            style={{
+                                padding: '16px 20px',
+                                borderBottom: '0.5px solid rgba(255,255,255,.07)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                            }}
+                        >
+                            <div>
+                                <div style={{ fontSize: 14, fontWeight: 500, color: C.text }}>
+                                    {editingCategory ? `Edit category: ${editingCategory.name}` : 'Create new category'}
+                                </div>
+                                <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>
+                                    Organise products into browse-ready categories
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={closeModal}
+                                style={{
+                                    width: 32,
+                                    height: 32,
+                                    background: C.bg3,
+                                    border: '0.5px solid rgba(255,255,255,.1)',
+                                    borderRadius: 8,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    color: C.muted,
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                <X size={16} />
                             </button>
                         </div>
 
-                        <div className="p-12 space-y-8">
+                        <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
                             <div>
-                                <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest block mb-3 pl-1">Category Name: *</label>
+                                <label style={{ fontSize: 9, color: C.dim, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.4px', display: 'block', marginBottom: 6 }}>
+                                    Category name *
+                                </label>
                                 <input
                                     ref={nameRef}
                                     type="text"
-                                    placeholder="e.g., Electronics, Clothing, Food, Tires, Accessories"
+                                    placeholder="e.g. Lubricants, Filters, Batteries"
                                     defaultValue={editingCategory?.name}
-                                    className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 focus:bg-white rounded-2xl px-8 py-5 text-sm font-bold transition-all outline-none"
+                                    style={{
+                                        width: '100%',
+                                        background: C.bg3,
+                                        border: '0.5px solid rgba(255,255,255,.1)',
+                                        borderRadius: 8,
+                                        padding: '10px 12px',
+                                        fontSize: 11,
+                                        color: C.text,
+                                        outline: 'none',
+                                    }}
                                 />
                             </div>
-
                             <div>
-                                <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest block mb-3 pl-1">Description: (Optional)</label>
+                                <label style={{ fontSize: 9, color: C.dim, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.4px', display: 'block', marginBottom: 6 }}>
+                                    Description
+                                </label>
                                 <textarea
                                     ref={descriptionRef}
                                     placeholder="Brief description of what products go in this category"
                                     defaultValue={editingCategory?.description}
-                                    className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 focus:bg-white rounded-2xl px-8 py-5 text-sm font-bold transition-all outline-none h-32 resize-none"
+                                    style={{
+                                        width: '100%',
+                                        background: C.bg3,
+                                        border: '0.5px solid rgba(255,255,255,.1)',
+                                        borderRadius: 8,
+                                        padding: '10px 12px',
+                                        fontSize: 11,
+                                        color: C.text,
+                                        outline: 'none',
+                                        height: 80,
+                                        resize: 'none',
+                                    }}
                                 />
                             </div>
-
-                            <div className="grid grid-cols-2 gap-8">
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                                 <div>
-                                    <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest block mb-3 pl-1">Category Icon: (Optional)</label>
-                                    <div className="relative">
-                                        <select
-                                            ref={iconRef}
-                                            defaultValue={editingCategory?.icon || '🏷️'}
-                                            className="w-full appearance-none bg-gray-50 border-2 border-transparent focus:border-gray-900 focus:bg-white rounded-2xl px-8 py-5 text-sm font-bold transition-all outline-none cursor-pointer"
-                                        >
-                                            <option value="🏷️">🏷️ Tag</option>
-                                            <option value="📦">📦 Box</option>
-                                            <option value="🔧">🔧 Tools</option>
-                                            <option value="🔋">🔋 Battery</option>
-                                            <option value="🛞">🛞 Tire</option>
-                                            <option value="🧴">🧴 Oil/Cleaner</option>
-                                            <option value="🧰">🧰 Toolkit</option>
-                                            <option value="🛢️">🛢️ Drum</option>
-                                            <option value="👕">👕 Clothing</option>
-                                            <option value="🍔">🍔 Food</option>
-                                            <option value="💻">💻 Electronics</option>
-                                            <option value="📱">📱 Mobile</option>
-                                        </select>
-                                        <div className="absolute right-6 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
-                                            <Tag size={18} />
-                                        </div>
-                                    </div>
+                                    <label style={{ fontSize: 9, color: C.dim, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.4px', display: 'block', marginBottom: 6 }}>
+                                        Icon
+                                    </label>
+                                    <select
+                                        ref={iconRef}
+                                        defaultValue={editingCategory?.icon || '🏷️'}
+                                        style={{
+                                            width: '100%',
+                                            background: C.bg3,
+                                            border: '0.5px solid rgba(255,255,255,.1)',
+                                            borderRadius: 8,
+                                            padding: '10px 12px',
+                                            fontSize: 11,
+                                            color: C.text,
+                                            outline: 'none',
+                                        }}
+                                    >
+                                        <option value="🏷️">🏷️ Tag</option>
+                                        <option value="📦">📦 Box</option>
+                                        <option value="🔧">🔧 Tools</option>
+                                        <option value="🔋">🔋 Battery</option>
+                                        <option value="🛞">🛞 Tire</option>
+                                        <option value="🧴">🧴 Oil/Cleaner</option>
+                                        <option value="🧰">🧰 Toolkit</option>
+                                        <option value="🛢️">🛢️ Drum</option>
+                                    </select>
                                 </div>
                                 <div>
-                                    <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest block mb-3 pl-1">Display Order:</label>
+                                    <label style={{ fontSize: 9, color: C.dim, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.4px', display: 'block', marginBottom: 6 }}>
+                                        Display order
+                                    </label>
                                     <input
                                         ref={orderRef}
                                         type="number"
                                         placeholder="1"
                                         defaultValue={editingCategory?.displayOrder}
-                                        className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 focus:bg-white rounded-2xl px-8 py-5 text-sm font-bold transition-all outline-none"
+                                        style={{
+                                            width: '100%',
+                                            background: C.bg3,
+                                            border: '0.5px solid rgba(255,255,255,.1)',
+                                            borderRadius: 8,
+                                            padding: '10px 12px',
+                                            fontSize: 11,
+                                            color: C.text,
+                                            outline: 'none',
+                                        }}
                                     />
-                                    <p className="text-[9px] font-black text-gray-400 uppercase mt-2 pl-1">(Lower numbers appear first)</p>
                                 </div>
                             </div>
                         </div>
 
-                        <div className="p-10 bg-gray-50 border-t border-gray-100 flex gap-4">
+                        <div style={{ padding: '14px 20px', borderTop: '0.5px solid rgba(255,255,255,.07)', display: 'flex', gap: 8 }}>
                             <button
+                                type="button"
                                 onClick={closeModal}
                                 disabled={saving}
-                                className="flex-1 py-5 bg-white border border-gray-200 text-[11px] font-black uppercase tracking-widest text-gray-600 rounded-2xl hover:bg-gray-100 transition-all disabled:opacity-50"
+                                style={{
+                                    flex: 1,
+                                    background: 'transparent',
+                                    border: '0.5px solid rgba(255,255,255,.12)',
+                                    borderRadius: 8,
+                                    padding: '10px',
+                                    fontSize: 10,
+                                    color: C.muted,
+                                    cursor: 'pointer',
+                                }}
                             >
                                 Cancel
                             </button>
                             <button
+                                type="button"
                                 onClick={handleSave}
                                 disabled={saving}
-                                className="flex-[2] py-5 bg-gray-900 text-white text-[11px] font-black uppercase tracking-widest rounded-2xl hover:bg-black transition-all shadow-xl shadow-gray-200 disabled:opacity-50"
+                                style={{
+                                    flex: 2,
+                                    background: C.blue,
+                                    border: 'none',
+                                    borderRadius: 8,
+                                    padding: '10px',
+                                    fontSize: 10,
+                                    color: '#fff',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                }}
                             >
-                                {saving ? '⏳ Saving...' : (editingCategory ? '✅ Save Changes' : '✅ Save Category')}
+                                {saving ? 'Saving...' : editingCategory ? 'Save changes' : 'Save category'}
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Assign products modal */}
+            {assignCategoryId && (
+                <div
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        zIndex: 50,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: 24,
+                        background: 'rgba(0,0,0,.6)',
+                        backdropFilter: 'blur(4px)',
+                    }}
+                >
+                    <div
+                        style={{
+                            background: C.bg2,
+                            border: '0.5px solid rgba(255,255,255,.1)',
+                            width: '100%',
+                            maxWidth: 440,
+                            borderRadius: 16,
+                            overflow: 'hidden',
+                        }}
+                    >
+                        <div style={{ padding: '16px 20px', borderBottom: '0.5px solid rgba(255,255,255,.07)' }}>
+                            <div style={{ fontSize: 14, fontWeight: 500, color: C.text }}>Assign products to category</div>
+                            <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>
+                                {uncategorizedProducts.length} uncategorised product{uncategorizedProducts.length === 1 ? '' : 's'} available
+                            </div>
+                        </div>
+                        <div style={{ padding: '12px 20px', maxHeight: 280, overflowY: 'auto' }}>
+                            {categories.map((cat) => (
+                                <button
+                                    key={cat.id}
+                                    type="button"
+                                    onClick={() => {
+                                        const targets = assignCategoryId === 'imported' ? importedBucket : uncategorizedProducts;
+                                        assignProductsToCategory(cat.name, targets);
+                                    }}
+                                    disabled={saving}
+                                    style={{
+                                        width: '100%',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 10,
+                                        background: C.bg3,
+                                        border: '0.5px solid rgba(255,255,255,.07)',
+                                        borderRadius: 8,
+                                        padding: '10px 12px',
+                                        marginBottom: 6,
+                                        cursor: saving ? 'wait' : 'pointer',
+                                        textAlign: 'left',
+                                    }}
+                                >
+                                    <span style={{ fontSize: 20 }}>{cat.icon || '📦'}</span>
+                                    <div>
+                                        <div style={{ fontSize: 11, fontWeight: 500, color: C.text }}>{cat.name}</div>
+                                        <div style={{ fontSize: 9, color: C.dim }}>{cat.productCount} products · {formatCompactUsd(cat.stockValue)}</div>
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                        <div style={{ padding: '12px 20px', borderTop: '0.5px solid rgba(255,255,255,.07)' }}>
+                            <button
+                                type="button"
+                                onClick={() => setAssignCategoryId(null)}
+                                style={{
+                                    width: '100%',
+                                    background: 'transparent',
+                                    border: '0.5px solid rgba(255,255,255,.12)',
+                                    borderRadius: 8,
+                                    padding: '8px',
+                                    fontSize: 10,
+                                    color: C.muted,
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* View products modal */}
+            {viewCategory && (
+                <div
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        zIndex: 50,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: 24,
+                        background: 'rgba(0,0,0,.6)',
+                        backdropFilter: 'blur(4px)',
+                    }}
+                >
+                    <div
+                        style={{
+                            background: C.bg2,
+                            border: '0.5px solid rgba(255,255,255,.1)',
+                            width: '100%',
+                            maxWidth: 480,
+                            borderRadius: 16,
+                            overflow: 'hidden',
+                        }}
+                    >
+                        <div
+                            style={{
+                                padding: '16px 20px',
+                                borderBottom: '0.5px solid rgba(255,255,255,.07)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                            }}
+                        >
+                            <div style={{ fontSize: 14, fontWeight: 500, color: C.text }}>
+                                {viewCategory.icon} {viewCategory.name} — {viewCategory.productCount} products
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setViewCategory(null)}
+                                style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    color: C.muted,
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+                        <div style={{ padding: '12px 20px', maxHeight: 320, overflowY: 'auto' }}>
+                            {products.filter((p) => p.category === viewCategory.name).length === 0 ? (
+                                <div style={{ fontSize: 11, color: C.dim, textAlign: 'center', padding: '20px 0' }}>
+                                    No products assigned yet
+                                </div>
+                            ) : (
+                                products
+                                    .filter((p) => p.category === viewCategory.name)
+                                    .map((p) => (
+                                        <div
+                                            key={p.id}
+                                            onClick={() => navigate(`/products/${p.id}`)}
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                                padding: '8px 0',
+                                                borderBottom: '0.5px solid rgba(255,255,255,.05)',
+                                                cursor: 'pointer',
+                                            }}
+                                        >
+                                            <span style={{ fontSize: 11, color: C.text }}>{p.name}</span>
+                                            <span style={{ fontSize: 9, color: C.dim }}>{getTotalStock(p)} units</span>
+                                        </div>
+                                    ))
+                            )}
                         </div>
                     </div>
                 </div>
             )}
         </div>
     );
-}
+});
+
+export default Categories;

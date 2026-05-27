@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ProductCatalog from './ProductCatalog';
-import Categories from './Categories';
+import Categories, { type CategoriesHandle } from './Categories';
 import LowStockAlerts from './LowStockAlerts';
 import StockAdjustmentManager from './StockAdjustmentManager';
 import { getProducts, type Product } from '../../services/productService';
@@ -25,9 +25,11 @@ function getTotalStock(p: Product): number {
 
 export default function ProductManagement() {
     const navigate = useNavigate();
+    const categoriesRef = useRef<CategoriesHandle>(null);
     const [activeTab, setActiveTab] = useState<TabType>('Products');
     const [lowStockCount, setLowStockCount] = useState(0);
     const amazonIssueCount = 3;
+    const isCategoriesTab = activeTab === 'Categories';
 
     useEffect(() => {
         getProducts().then((products) => {
@@ -84,62 +86,102 @@ export default function ProductManagement() {
                                 fontSize: 18,
                             }}
                         >
-                            📦
+                            {isCategoriesTab ? '🏷️' : '📦'}
                         </div>
                         <div>
                             <div style={{ fontSize: 16, fontWeight: 500, color: C.text }}>Product management</div>
                             <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>
-                                Products · image upload · prices · stock · Amazon ASIN · FBA inventory · listing status
+                                {isCategoriesTab
+                                    ? 'Categories · Amazon browse nodes · AI auto-sort · product assignment'
+                                    : 'Products · image upload · prices · stock · Amazon ASIN · FBA inventory · listing status'}
                             </div>
                         </div>
                     </div>
                     <div style={{ display: 'flex', gap: 6 }}>
-                        <button
-                            type="button"
-                            onClick={() => navigate('/products/import')}
-                            style={{
-                                background: 'transparent',
-                                border: '0.5px solid rgba(255,255,255,.12)',
-                                borderRadius: 8,
-                                padding: '5px 10px',
-                                fontSize: 10,
-                                color: C.muted,
-                                cursor: 'pointer',
-                            }}
-                        >
-                            ⚡ AI import
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => navigate('/amazon')}
-                            style={{
-                                background: 'transparent',
-                                border: '0.5px solid rgba(255,255,255,.12)',
-                                borderRadius: 8,
-                                padding: '5px 10px',
-                                fontSize: 10,
-                                color: C.muted,
-                                cursor: 'pointer',
-                            }}
-                        >
-                            📦 Sync Amazon
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => navigate('/products/new')}
-                            style={{
-                                background: C.blue,
-                                border: 'none',
-                                borderRadius: 8,
-                                padding: '6px 12px',
-                                fontSize: 11,
-                                color: '#fff',
-                                fontWeight: 600,
-                                cursor: 'pointer',
-                            }}
-                        >
-                            + Add product
-                        </button>
+                        {isCategoriesTab ? (
+                            <>
+                                <button
+                                    type="button"
+                                    onClick={() => categoriesRef.current?.runAiAutoCategorise()}
+                                    style={{
+                                        background: 'transparent',
+                                        border: '0.5px solid rgba(255,255,255,.12)',
+                                        borderRadius: 8,
+                                        padding: '5px 10px',
+                                        fontSize: 10,
+                                        color: C.muted,
+                                        cursor: 'pointer',
+                                    }}
+                                >
+                                    ✨ AI auto-categorise
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => categoriesRef.current?.openCreate()}
+                                    style={{
+                                        background: C.blue,
+                                        border: 'none',
+                                        borderRadius: 8,
+                                        padding: '6px 12px',
+                                        fontSize: 11,
+                                        color: '#fff',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                    }}
+                                >
+                                    + New category
+                                </button>
+                            </>
+                        ) : (
+                            <>
+                                <button
+                                    type="button"
+                                    onClick={() => navigate('/products/import')}
+                                    style={{
+                                        background: 'transparent',
+                                        border: '0.5px solid rgba(255,255,255,.12)',
+                                        borderRadius: 8,
+                                        padding: '5px 10px',
+                                        fontSize: 10,
+                                        color: C.muted,
+                                        cursor: 'pointer',
+                                    }}
+                                >
+                                    ⚡ AI import
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => navigate('/amazon')}
+                                    style={{
+                                        background: 'transparent',
+                                        border: '0.5px solid rgba(255,255,255,.12)',
+                                        borderRadius: 8,
+                                        padding: '5px 10px',
+                                        fontSize: 10,
+                                        color: C.muted,
+                                        cursor: 'pointer',
+                                    }}
+                                >
+                                    📦 Sync Amazon
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => navigate('/products/new')}
+                                    style={{
+                                        background: C.blue,
+                                        border: 'none',
+                                        borderRadius: 8,
+                                        padding: '6px 12px',
+                                        fontSize: 11,
+                                        color: '#fff',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                    }}
+                                >
+                                    + Add product
+                                </button>
+                            </>
+                        )}
                     </div>
                 </div>
             </div>
@@ -198,7 +240,7 @@ export default function ProductManagement() {
             {/* Content Area */}
             <div style={{ padding: '12px 16px', background: C.bg }}>
                 {activeTab === 'Products' && <ProductCatalog />}
-                {activeTab === 'Categories' && <Categories />}
+                {activeTab === 'Categories' && <Categories ref={categoriesRef} />}
                 {activeTab === 'Stock Adjustment' && <StockAdjustmentManager />}
                 {activeTab === 'Low Stock' && <LowStockAlerts />}
             </div>
