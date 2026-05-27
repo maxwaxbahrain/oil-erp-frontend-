@@ -572,7 +572,26 @@ export default function SettingsPage() {
                         </section>
                     )}
 
-                    {(activeTab === 'security' || activeTab === 'notifications') && (
+                    {(activeTab === 'security') && (
+                        <section className="bg-white border border-redwood-border rounded-sm shadow-sm p-8 max-w-xl">
+                            <div className="flex items-center gap-3 mb-4">
+                                <Lock size={20} className="text-redwood-brand" />
+                                <h3 className="text-lg font-black text-redwood-text-main uppercase tracking-tighter">Change password</h3>
+                            </div>
+                            <p className="text-sm text-redwood-text-muted mb-6">
+                                Update your login password. You will need your current password to confirm the change.
+                            </p>
+                            <button
+                                type="button"
+                                onClick={() => { window.location.href = '/settings/password'; }}
+                                className="inline-flex items-center gap-2 px-5 py-2.5 bg-redwood-brand text-white rounded-sm text-sm font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
+                            >
+                                <Lock size={14} /> Change password
+                            </button>
+                        </section>
+                    )}
+
+                    {(activeTab === 'notifications') && (
                         <div className="flex flex-col items-center justify-center p-20 bg-white border border-redwood-border rounded-sm shadow-sm text-center">
                             <Zap size={48} className="text-redwood-brand mb-6 animate-pulse" />
                             <h3 className="text-xl font-black text-redwood-text-main uppercase tracking-tighter">Domain Under Development</h3>

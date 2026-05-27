@@ -57,6 +57,7 @@ import StockTransfer from '../pages/Inventory/StockTransfer';
 import InventoryReports from '../pages/Inventory/InventoryReports';
 import SettingsPage from '../pages/Settings/SettingsPage';
 import UserManagement from '../pages/Settings/UserManagement';
+import ChangePassword from '../pages/Settings/ChangePassword';
 import SupplierList from '../pages/Purchases/SupplierList';
 import CustomerEditPage from '../pages/Customers/CustomerEditPage';
 import SupplierDetail from '../pages/Purchases/SupplierDetail';
@@ -314,6 +315,8 @@ export const AppRoutes = () => {
             <Route path="/reports/financial" element={<ProfitabilityReports />} />
             <Route path="/reports" element={<ReportsDashboard />} />
             <Route path="/reports/*" element={<ReportsDashboard />} />
+
+            <Route path="/settings/password" element={<ChangePassword />} />
 
             {/* Admin-only routes */}
             <Route element={<ProtectedRoute roles={['admin']} />}>

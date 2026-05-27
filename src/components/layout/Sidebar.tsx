@@ -19,7 +19,7 @@ import {
     TrendingUp,
     User,
     MapPin
-, Tag , BookOpen , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 , Mail , LogOut , Sparkles } from 'lucide-react';
+, Tag , BookOpen , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 , Mail , LogOut , Sparkles , Lock } from 'lucide-react';
 import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
 
@@ -386,6 +386,14 @@ export default function Sidebar({
                         <p className="text-[10px] uppercase tracking-wider opacity-80">{roleLabel}</p>
                     </div>
                 )}
+                <button
+                    type="button"
+                    onClick={() => window.location.href = '/settings/password'}
+                    className="mb-2 flex w-full items-center justify-center gap-2 rounded-sm border border-white/10 px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-redwood-text-muted transition-colors hover:bg-white/5 hover:text-white"
+                >
+                    <Lock size={14} />
+                    Change password
+                </button>
                 <button
                     type="button"
                     onClick={logout}
