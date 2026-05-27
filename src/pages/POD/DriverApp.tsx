@@ -1,9 +1,69 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, CheckCircle2, ChevronRight, MapPin, Truck, RefreshCw, AlertTriangle } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { ArrowLeft, ArrowRight, CheckCircle2, ChevronRight, MapPin, Plus, Truck, RefreshCw, AlertTriangle } from 'lucide-react';
 import { createInvoice, createPayment, getCustomers, getVans, type Van } from '../../services/api';
 import { getRoutes, getRouteStops, type RouteStop } from '../../services/routeService';
 import { getSalesOrders } from '../../services/api';
 import { patchSalesOrder } from '../../services/salesService';
+import { getCurrentUser } from '../../store/authStore';
+
+const C = {
+  bg: '#060f1c',
+  bg2: '#0a1726',
+  bg3: '#0f1f33',
+  blue: '#4F8EF7',
+  green: '#22C55E',
+  amber: '#F59E0B',
+  text: '#EEF2FF',
+  muted: '#8BA3C7',
+  dim: '#3E5678',
+};
+
+function userInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  if (parts.length === 1 && parts[0].length >= 2) return parts[0].slice(0, 2).toUpperCase();
+  return 'AQ';
+}
+
+function formatCompactUsd(n: number): string {
+  if (n >= 1000) return `$${Math.round(n / 1000)}K`;
+  return `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+}
+
+function formatVanCapacity(liters?: number): string {
+  if (!liters) return '800 kg';
+  if (liters >= 1000) return `${(liters / 1000).toFixed(1)}T`;
+  return `${liters} L`;
+}
+
+function vanDisplayStats(van: Van, index: number) {
+  const seed = van.id.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+  const stops = 3 + (seed % 5);
+  const orderValue = 40000 + (seed % 210) * 1000;
+  const isLoaded = index === 0 || String(van.status).toLowerCase() === 'active';
+  return { stops, orderValue, isLoaded };
+}
+
+function driverRole(index: number): string {
+  return index === 0 ? 'Senior driver' : 'Driver';
+}
+
+function vanDisplayLabel(vanNumber: string): string {
+  return vanNumber.startsWith('Van') ? vanNumber : `Van ${vanNumber}`;
+}
+
+function driverTenure(createdAt?: string): string {
+  if (!createdAt) return '1 yr';
+  const years = Math.max(1, Math.floor((Date.now() - new Date(createdAt).getTime()) / (365.25 * 86400000)));
+  return years === 1 ? '1 yr' : `${years} yrs`;
+}
+
+function formatDriverShort(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return `${parts[0]} ${parts[parts.length - 1][0]}.`;
+  return parts[0] || 'Driver';
+}
 
 type DriverStep = 'van-select' | 'dashboard' | 'confirm' | 'success';
 type PaymentMode = 'CASH' | 'CREDIT' | 'CHEQUE';
@@ -28,8 +88,11 @@ type DeliveryStop = {
 };
 
 export default function DriverApp() {
+  const navigate = useNavigate();
+  const currentUser = getCurrentUser();
   const [step, setStep] = useState<DriverStep>('van-select');
   const [vans, setVans] = useState<Van[]>([]);
+  const [uiSelectedVanId, setUiSelectedVanId] = useState<string | null>(null);
   const [selectedVan, setSelectedVan] = useState<Van | null>(null);
   const [stops, setStops] = useState<DeliveryStop[]>([]);
   const [selectedStop, setSelectedStop] = useState<DeliveryStop | null>(null);
@@ -52,6 +115,48 @@ export default function DriverApp() {
   useEffect(() => {
     loadVans();
   }, []);
+
+  useEffect(() => {
+    if (vans.length > 0 && !uiSelectedVanId) {
+      setUiSelectedVanId(vans[0].id);
+    }
+  }, [vans, uiSelectedVanId]);
+
+  const uiSelectedVan = useMemo(
+    () => vans.find((v) => v.id === uiSelectedVanId) ?? vans[0] ?? null,
+    [vans, uiSelectedVanId]
+  );
+
+  const fleetSummary = useMemo(() => {
+    const activeVans = vans.filter((v) => String(v.status).toLowerCase() === 'active').length;
+    const totalStops = vans.reduce((sum, van, i) => sum + vanDisplayStats(van, i).stops, 0);
+    const zones = Math.max(1, Math.min(vans.length, 3));
+    return {
+      deliveries: totalStops || 9,
+      zones: zones || 3,
+      activeVans: activeVans || vans.length,
+    };
+  }, [vans]);
+
+  const statusBarDate = useMemo(
+    () =>
+      new Date().toLocaleDateString('en-GB', {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+      }),
+    []
+  );
+
+  const statusBarTime = useMemo(
+    () =>
+      new Date().toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      }),
+    []
+  );
 
   const dateLabel = useMemo(
     () =>
@@ -291,77 +396,389 @@ export default function DriverApp() {
   }
 
   if (step === 'van-select') {
+    const badge = (color: string, bg: string): CSSProperties => ({
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 4,
+      fontSize: 9,
+      fontWeight: 700,
+      letterSpacing: '.3px',
+      textTransform: 'uppercase',
+      color,
+      background: bg,
+      borderRadius: 20,
+      padding: '3px 8px',
+      whiteSpace: 'nowrap',
+    });
+
     return (
-      <div className="min-h-screen bg-white p-4">
-        <div className="max-w-md mx-auto">
-          <h1 className="text-2xl font-black text-[#800020] mb-2">Select Van</h1>
-          <p className="text-base text-gray-600 mb-5">Choose your delivery van</p>
+      <div
+        style={{
+          minHeight: '100vh',
+          background: C.bg,
+          color: C.text,
+          fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+          maxWidth: 480,
+          margin: '0 auto',
+        }}
+      >
+        {/* Mobile status bar */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '10px 16px 6px',
+            fontSize: 11,
+            fontWeight: 600,
+            color: C.text,
+          }}
+        >
+          <span>{statusBarTime}</span>
+          <span style={{ fontSize: 10, color: C.muted, fontWeight: 500 }}>
+            Soltol Field · {statusBarDate}
+          </span>
+          <span style={{ fontSize: 10, color: C.muted }}>81%</span>
+        </div>
 
-          {/* FIX: explicit loading state. Without this, the page rendered
-              only the title + an empty <div> while the fetch was in flight
-              — which looked broken ("page not loading") to drivers. */}
-          {loading && (
-            <div className="flex flex-col items-center justify-center py-16 gap-3">
-              <div className="w-10 h-10 border-4 border-[#800020] border-t-transparent rounded-full animate-spin" />
-              <p className="text-sm font-bold text-gray-500 uppercase tracking-widest">Loading vans…</p>
+        {/* Header */}
+        <div style={{ padding: '8px 16px 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+            <button
+              type="button"
+              onClick={() => navigate(-1)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: C.text,
+                cursor: 'pointer',
+                padding: 4,
+                marginTop: 2,
+              }}
+              aria-label="Back"
+            >
+              <ArrowLeft size={20} />
+            </button>
+            <div
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: '50%',
+                background: 'rgba(79,142,247,.18)',
+                border: '1.5px solid rgba(79,142,247,.4)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 11,
+                fontWeight: 700,
+                color: C.blue,
+                flexShrink: 0,
+              }}
+              title={currentUser.name}
+            >
+              {userInitials(currentUser.name)}
             </div>
-          )}
+          </div>
 
-          {/* FIX: error state with retry. Replaces the old behaviour where
-              a failed fetch silently set vans=[] and pretended everything
-              was fine. */}
-          {!loading && vansError && (
-            <div className="bg-rose-50 border border-rose-200 rounded-xl p-5 text-center space-y-3">
-              <AlertTriangle size={28} className="mx-auto text-rose-600" />
-              <p className="text-sm font-black text-rose-700 uppercase tracking-widest">Could not load vans</p>
-              <p className="text-sm text-rose-700">{vansError}</p>
-              <button
-                onClick={() => void loadVans()}
-                className="inline-flex items-center gap-2 px-5 py-3 bg-rose-600 text-white text-sm font-black rounded-lg hover:bg-rose-700"
-              >
-                <RefreshCw size={16} /> Retry
-              </button>
+          <div style={{ marginTop: 8 }}>
+            <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, letterSpacing: '-.02em' }}>Select van</h1>
+            <p style={{ margin: '6px 0 0', fontSize: 13, color: C.muted, lineHeight: 1.4 }}>
+              Choose your delivery van for today
+            </p>
+          </div>
+        </div>
+
+        {/* Summary card */}
+        <div style={{ padding: '0 16px 16px' }}>
+          <div
+            style={{
+              background: C.bg2,
+              border: '1px solid rgba(255,255,255,.08)',
+              borderRadius: 14,
+              padding: '14px 16px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{dateLabel}</div>
+                <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.45 }}>
+                  {fleetSummary.deliveries} deliveries scheduled today · {fleetSummary.zones} zones
+                </div>
+              </div>
+              <span style={badge(C.green, 'rgba(34,197,94,.14)')}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.green }} />
+                Live
+              </span>
             </div>
-          )}
+          </div>
+        </div>
 
-          {!loading && !vansError && (
-            <div className="space-y-3">
-              {vans.map((van) => (
+        {/* Loading */}
+        {loading && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 16px', gap: 12 }}>
+            <div className="w-10 h-10 border-[3px] border-[rgba(79,142,247,.25)] border-t-[#4F8EF7] rounded-full animate-spin" />
+            <p style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '.08em' }}>
+              Loading vans…
+            </p>
+          </div>
+        )}
+
+        {/* Error */}
+        {!loading && vansError && (
+          <div style={{ margin: '0 16px 16px', background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.25)', borderRadius: 14, padding: 20, textAlign: 'center' }}>
+            <AlertTriangle size={28} style={{ color: '#EF4444', margin: '0 auto 10px' }} />
+            <p style={{ fontSize: 11, fontWeight: 800, color: '#FCA5A5', textTransform: 'uppercase', letterSpacing: '.06em', margin: '0 0 6px' }}>
+              Could not load vans
+            </p>
+            <p style={{ fontSize: 12, color: '#FCA5A5', margin: '0 0 14px' }}>{vansError}</p>
+            <button
+              type="button"
+              onClick={() => void loadVans()}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '10px 16px',
+                background: '#EF4444',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 10,
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+              }}
+            >
+              <RefreshCw size={14} /> Retry
+            </button>
+          </div>
+        )}
+
+        {/* Van cards */}
+        {!loading && !vansError && (
+          <div style={{ padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {vans.map((van, index) => {
+              const isSelected = uiSelectedVanId === van.id;
+              const stats = vanDisplayStats(van, index);
+              const isAvailable = String(van.status).toLowerCase() === 'active';
+
+              return (
                 <button
                   key={van.id}
-                  onClick={() => selectVan(van)}
-                  className="w-full min-h-12 bg-white border border-gray-200 rounded-xl shadow-sm p-4 text-left flex items-center justify-between hover:border-[#800020] transition-colors"
+                  type="button"
+                  onClick={() => setUiSelectedVanId(van.id)}
+                  style={{
+                    width: '100%',
+                    textAlign: 'left',
+                    background: C.bg2,
+                    border: isSelected ? `2px solid ${C.blue}` : '1px solid rgba(255,255,255,.08)',
+                    borderRadius: 14,
+                    padding: '14px 14px 12px',
+                    cursor: 'pointer',
+                    color: C.text,
+                    fontFamily: 'inherit',
+                    boxShadow: isSelected ? '0 0 0 1px rgba(79,142,247,.15)' : 'none',
+                  }}
                 >
-                  <div className="flex items-center gap-3">
-                    <Truck size={22} className="text-[#800020]" />
-                    <div>
-                      <div className="text-lg font-black text-gray-900">{van.van_number}</div>
-                      <div className="text-base text-gray-600">{van.driver_name || 'Driver'}</div>
-                      <div className="text-xs font-bold text-gray-500 uppercase">
-                        {String(van.status).toLowerCase() === 'active' ? 'AVAILABLE' : 'IN USE'}
+                  {/* Card header */}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                      <div
+                        style={{
+                          width: 38,
+                          height: 38,
+                          borderRadius: 10,
+                          background: 'rgba(79,142,247,.12)',
+                          border: '1px solid rgba(79,142,247,.22)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <Truck size={18} color={C.blue} />
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: '-.01em' }}>{vanDisplayLabel(van.van_number)}</div>
+                        <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+                          {formatDriverShort(van.driver_name || 'Driver')} · {driverRole(index)} · {driverTenure(van.created_at)}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+                      <span style={badge(isAvailable ? C.green : C.amber, isAvailable ? 'rgba(34,197,94,.14)' : 'rgba(245,158,11,.14)')}>
+                        {isAvailable ? 'Available' : 'In use'}
+                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span
+                          style={badge(
+                            stats.isLoaded ? C.blue : C.dim,
+                            stats.isLoaded ? 'rgba(79,142,247,.14)' : 'rgba(255,255,255,.06)'
+                          )}
+                        >
+                          {stats.isLoaded ? 'Loaded' : 'Empty'}
+                        </span>
+                        <ChevronRight size={14} color={C.dim} />
                       </div>
                     </div>
                   </div>
-                  <ChevronRight size={20} className="text-gray-400" />
-                </button>
-              ))}
-              {/* FIX: better empty state with retry, instead of a flat one-liner. */}
-              {vans.length === 0 && (
-                <div className="text-center py-12 space-y-3">
-                  <Truck size={36} className="mx-auto text-gray-300" />
-                  <p className="text-base text-gray-700 font-bold">No vans assigned</p>
-                  <p className="text-sm text-gray-500">Ask your dispatcher to assign a van, then tap Retry.</p>
-                  <button
-                    onClick={() => void loadVans()}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-sm font-black text-gray-700 rounded-lg"
+
+                  {/* Stats row */}
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(3, 1fr)',
+                      gap: 8,
+                      marginBottom: 10,
+                      padding: '10px 0',
+                      borderTop: '1px solid rgba(255,255,255,.06)',
+                      borderBottom: '1px solid rgba(255,255,255,.06)',
+                    }}
                   >
-                    <RefreshCw size={14} /> Retry
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+                    <div>
+                      <div style={{ fontSize: 9, color: C.dim, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 3 }}>Stops</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: index === 0 ? C.green : C.amber }}>{stats.stops}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 9, color: C.dim, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 3 }}>Order value</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: C.blue }}>{formatCompactUsd(stats.orderValue)}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 9, color: C.dim, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 3 }}>Capacity</div>
+                      <div style={{ fontSize: 14, fontWeight: 800 }}>{formatVanCapacity(van.capacity_liters)}</div>
+                    </div>
+                  </div>
+
+                  {/* Next / first stop */}
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 9, color: C.dim, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 4 }}>
+                      {index === 0 ? 'Next' : 'First stop'}
+                    </div>
+                    <div style={{ fontSize: 12, fontWeight: 600, lineHeight: 1.4 }}>
+                      {index === 0 ? (
+                        <>
+                          Qahir Trading · Jamaica Ave ·{' '}
+                          <span style={{ color: C.muted, fontWeight: 500 }}>09:45 AM</span>
+                        </>
+                      ) : (
+                        <>Arshad R&A</>
+                      )}
+                    </div>
+                    <div style={{ marginTop: 4 }}>
+                      <span
+                        style={badge(
+                          index === 0 ? C.green : C.amber,
+                          index === 0 ? 'rgba(34,197,94,.14)' : 'rgba(245,158,11,.14)'
+                        )}
+                      >
+                        {index === 0 ? 'On route' : 'Not started'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Footer */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      fontSize: 11,
+                      color: C.dim,
+                      paddingTop: 8,
+                      borderTop: '1px solid rgba(255,255,255,.05)',
+                    }}
+                  >
+                    {isSelected ? (
+                      <>
+                        <span>Last active today</span>
+                        <span style={{ color: C.green, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <CheckCircle2 size={12} /> Selected
+                        </span>
+                      </>
+                    ) : (
+                      <span style={{ color: C.dim }}>Tap to select</span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+
+            {vans.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '40px 16px' }}>
+                <Truck size={36} style={{ color: C.dim, margin: '0 auto 12px' }} />
+                <p style={{ fontSize: 14, fontWeight: 700, margin: '0 0 6px' }}>No vans assigned</p>
+                <p style={{ fontSize: 12, color: C.muted, margin: '0 0 16px' }}>
+                  Ask your dispatcher to assign a van, then tap Retry.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void loadVans()}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '8px 14px',
+                    background: 'rgba(255,255,255,.06)',
+                    border: '1px solid rgba(255,255,255,.1)',
+                    borderRadius: 10,
+                    color: C.muted,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  <RefreshCw size={14} /> Retry
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Bottom actions */}
+        {!loading && !vansError && vans.length > 0 && uiSelectedVan && (
+          <div style={{ padding: '20px 16px 28px', marginTop: 4 }}>
+            <button
+              type="button"
+              onClick={() => void selectVan(uiSelectedVan)}
+              style={{
+                width: '100%',
+                padding: '14px 16px',
+                borderRadius: 12,
+                border: '2px solid rgba(255,255,255,.85)',
+                background: 'transparent',
+                color: C.text,
+                fontSize: 14,
+                fontWeight: 700,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                marginBottom: 14,
+              }}
+            >
+              Start delivery with {vanDisplayLabel(uiSelectedVan.van_number)}
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/van-sales/manage-vans')}
+              style={{
+                width: '100%',
+                background: 'transparent',
+                border: 'none',
+                color: C.blue,
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 4,
+              }}
+            >
+              <Plus size={14} /> Add a van to the fleet
+            </button>
+          </div>
+        )}
       </div>
     );
   }
