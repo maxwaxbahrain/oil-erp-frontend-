@@ -1,68 +1,202 @@
-import { useState } from 'react';
-import {
-    Package,
-    Tag,
-    BarChart2,
-    AlertTriangle,
-} from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import ProductCatalog from './ProductCatalog';
 import Categories from './Categories';
 import LowStockAlerts from './LowStockAlerts';
 import StockAdjustmentManager from './StockAdjustmentManager';
-import clsx from 'clsx';
+import { getProducts, type Product } from '../../services/productService';
 
-type TabType = 'Products' | 'Categories' | 'Stock Adjustment' | 'Low Stock';
+type TabType = 'Products' | 'Categories' | 'Stock Adjustment' | 'Low Stock' | 'Amazon Listings';
+
+const C = {
+    bg: '#060f1c',
+    bg2: '#0a1726',
+    blue: '#4F8EF7',
+    orange: '#FF9900',
+    red: '#EF4444',
+    text: '#EEF2FF',
+    muted: '#8BA3C7',
+    dim: '#3E5678',
+};
+
+function getTotalStock(p: Product): number {
+    return p.locations.reduce((a, b) => a + (b.currentStock ?? 0), 0);
+}
 
 export default function ProductManagement() {
+    const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState<TabType>('Products');
+    const [lowStockCount, setLowStockCount] = useState(0);
+    const amazonIssueCount = 3;
+
+    useEffect(() => {
+        getProducts().then((products) => {
+            const count = products.filter((p) => {
+                const stock = getTotalStock(p);
+                const reorder = p.reorderLevel || 10;
+                return stock === 0 || (stock > 0 && stock <= reorder);
+            }).length;
+            setLowStockCount(count);
+        }).catch(() => setLowStockCount(0));
+    }, []);
+
+    const handleTabClick = (tab: TabType) => {
+        if (tab === 'Amazon Listings') {
+            navigate('/amazon');
+            return;
+        }
+        setActiveTab(tab);
+    };
+
+    const tabs: { id: TabType; label: string; badge?: number; badgeColor?: string; accent?: boolean }[] = [
+        { id: 'Products', label: 'All products' },
+        { id: 'Categories', label: 'Categories' },
+        { id: 'Stock Adjustment', label: 'Stock adjustment' },
+        { id: 'Low Stock', label: 'Low stock alerts', badge: lowStockCount, badgeColor: C.red },
+        { id: 'Amazon Listings', label: '📦 Amazon listings', badge: amazonIssueCount, badgeColor: C.orange, accent: true },
+    ];
 
     return (
-        <div className="space-y-8 pb-20 animate-in fade-in slide-in-from-bottom-4 duration-700">
+        <div
+            style={{
+                background: C.bg,
+                borderRadius: 12,
+                overflow: 'hidden',
+                border: '1px solid rgba(255,255,255,.07)',
+                fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+                fontSize: 12,
+                color: C.text,
+            }}
+        >
             {/* Page Header */}
-            <div className="bg-white p-10 rounded-3xl border border-gray-100 shadow-sm relative overflow-hidden group">
-                <div className="absolute top-0 right-0 p-8 transform translate-x-12 -translate-y-12 opacity-5 group-hover:translate-x-4 group-hover:-translate-y-4 transition-transform duration-1000">
-                    <Package size={240} className="text-gray-900" />
-                </div>
-
-                <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-8">
-                    <div className="flex items-center gap-6">
-                        <div className="w-20 h-20 bg-gray-900 rounded-2xl flex items-center justify-center text-white shadow-2xl rotate-3 group-hover:rotate-0 transition-transform duration-500">
-                            <Package size={40} />
+            <div style={{ background: C.bg2, borderBottom: '1px solid rgba(255,255,255,.07)', padding: '12px 16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div
+                            style={{
+                                width: 36,
+                                height: 36,
+                                borderRadius: 9,
+                                background: 'rgba(79,142,247,.12)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: 18,
+                            }}
+                        >
+                            📦
                         </div>
                         <div>
-                            <h1 className="text-4xl font-black text-gray-900 tracking-tighter uppercase">Product Management</h1>
-                            <p className="text-[11px] font-black text-gray-400 uppercase tracking-[0.3em] mt-2">Manage all your products, categories, and stock in one place</p>
+                            <div style={{ fontSize: 16, fontWeight: 500, color: C.text }}>Product management</div>
+                            <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>
+                                Products · image upload · prices · stock · Amazon ASIN · FBA inventory · listing status
+                            </div>
                         </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                        <button
+                            type="button"
+                            onClick={() => navigate('/products/import')}
+                            style={{
+                                background: 'transparent',
+                                border: '0.5px solid rgba(255,255,255,.12)',
+                                borderRadius: 8,
+                                padding: '5px 10px',
+                                fontSize: 10,
+                                color: C.muted,
+                                cursor: 'pointer',
+                            }}
+                        >
+                            ⚡ AI import
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => navigate('/amazon')}
+                            style={{
+                                background: 'transparent',
+                                border: '0.5px solid rgba(255,255,255,.12)',
+                                borderRadius: 8,
+                                padding: '5px 10px',
+                                fontSize: 10,
+                                color: C.muted,
+                                cursor: 'pointer',
+                            }}
+                        >
+                            📦 Sync Amazon
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => navigate('/products/new')}
+                            style={{
+                                background: C.blue,
+                                border: 'none',
+                                borderRadius: 8,
+                                padding: '6px 12px',
+                                fontSize: 11,
+                                color: '#fff',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                            }}
+                        >
+                            + Add product
+                        </button>
                     </div>
                 </div>
             </div>
 
             {/* Tab Navigation */}
-            <div className="bg-white p-2 rounded-2xl border border-gray-100 shadow-sm flex flex-wrap items-center gap-2">
-                {[
-                    { id: 'Products', label: 'All Products', icon: Package },
-                    { id: 'Categories', label: 'Categories', icon: Tag },
-                    { id: 'Stock Adjustment', label: 'Stock Adjustment', icon: BarChart2 },
-                    { id: 'Low Stock', label: 'Low Stock Alerts', icon: AlertTriangle },
-                ].map((tab) => (
-                    <button
-                        key={tab.id}
-                        onClick={() => setActiveTab(tab.id as TabType)}
-                        className={clsx(
-                            "flex items-center gap-3 px-8 py-4 text-[11px] font-black uppercase tracking-widest rounded-xl transition-all",
-                            activeTab === tab.id
-                                ? "bg-gray-900 text-white shadow-xl shadow-gray-200"
-                                : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
-                        )}
-                    >
-                        <tab.icon size={18} />
-                        {tab.label}
-                    </button>
-                ))}
+            <div
+                style={{
+                    background: C.bg2,
+                    borderBottom: '1px solid rgba(255,255,255,.07)',
+                    padding: '0 14px',
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                }}
+            >
+                {tabs.map((tab) => {
+                    const isActive = activeTab === tab.id;
+                    return (
+                        <button
+                            key={tab.id}
+                            type="button"
+                            onClick={() => handleTabClick(tab.id)}
+                            style={{
+                                fontSize: 10,
+                                color: isActive ? C.blue : tab.accent ? C.orange : C.dim,
+                                padding: '7px 10px',
+                                borderBottom: `2px solid ${isActive ? C.blue : 'transparent'}`,
+                                cursor: 'pointer',
+                                fontWeight: 500,
+                                background: 'transparent',
+                                border: 'none',
+                                borderBottomWidth: 2,
+                                borderBottomStyle: 'solid',
+                                borderBottomColor: isActive ? C.blue : 'transparent',
+                            }}
+                        >
+                            {tab.label}
+                            {tab.badge != null && tab.badge > 0 && (
+                                <span
+                                    style={{
+                                        fontSize: 8,
+                                        background: tab.badgeColor === C.orange ? 'rgba(255,153,0,.15)' : 'rgba(239,68,68,.15)',
+                                        color: tab.badgeColor,
+                                        borderRadius: 20,
+                                        padding: '1px 5px',
+                                        marginLeft: 3,
+                                    }}
+                                >
+                                    {tab.badge}
+                                </span>
+                            )}
+                        </button>
+                    );
+                })}
             </div>
 
             {/* Content Area */}
-            <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
+            <div style={{ padding: '12px 16px', background: C.bg }}>
                 {activeTab === 'Products' && <ProductCatalog />}
                 {activeTab === 'Categories' && <Categories />}
                 {activeTab === 'Stock Adjustment' && <StockAdjustmentManager />}

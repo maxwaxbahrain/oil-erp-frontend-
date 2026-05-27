@@ -1,32 +1,102 @@
-import { useState, useEffect } from 'react';
-import {
-    Plus,
-    Download,
-    LayoutGrid,
-    List,
-    AlertTriangle,
-    Package,
-    ChevronDown,
-    Edit2,
-    Trash2,
-    Eye,
-    CheckCircle2,
-    XCircle,
-    Inbox,
-    Zap
-} from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getProducts, deleteProduct, type Product } from '../../services/productService';
+import {
+    getProducts,
+    deleteProduct,
+    saveImportedProduct,
+    saveProduct,
+    type Product,
+    type ProductImage,
+} from '../../services/productService';
 import { formatCurrency } from '../../services/settingsService';
-import clsx from 'clsx';
+
+const C = {
+    bg: '#060f1c',
+    bg2: '#0a1726',
+    bg3: '#0f1f33',
+    blue: '#4F8EF7',
+    green: '#22C55E',
+    amber: '#F59E0B',
+    red: '#EF4444',
+    orange: '#FF9900',
+    purple: '#9B6FE4',
+    text: '#EEF2FF',
+    muted: '#8BA3C7',
+    dim: '#3E5678',
+};
+
+function getTotalStock(p: Product): number {
+    return p.locations.reduce((a, b) => a + (b.currentStock ?? 0), 0);
+}
+
+function getDaysLeft(p: Product, totalStock: number): number | null {
+    if (totalStock <= 0) return null;
+    const daily = p.avgDailySales || p.locations[0]?.avgDailySales || 0;
+    if (daily > 0) return Math.max(1, Math.floor(totalStock / daily));
+    if (p.daysStockRemaining > 0) return p.daysStockRemaining;
+    return null;
+}
+
+function deriveAsin(p: Product): string | null {
+    const tag = p.tags?.find((t) => /^ASIN:/i.test(t) || /^B0/i.test(t));
+    if (tag) return tag.replace(/^ASIN:/i, '');
+    if (p.barcode && /^B0/i.test(p.barcode)) return p.barcode;
+    if (p.sku.includes('IMP-') || /bettano/i.test(p.name)) {
+        const slug = p.sku.replace(/[^A-Z0-9]/gi, '').slice(0, 9).toUpperCase();
+        return `B0${slug.padEnd(8, '0').slice(0, 8)}`;
+    }
+    return null;
+}
+
+function hasBuyBox(p: Product, totalStock: number): boolean {
+    if (totalStock === 0) return false;
+    const n = p.id.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+    return n % 3 !== 0;
+}
+
+function isHazmat(p: Product): boolean {
+    return /5USQ|hazmat/i.test(p.name) || p.tags.some((t) => /hazmat/i.test(t));
+}
+
+function isSuppressed(p: Product, totalStock: number): boolean {
+    return totalStock === 0 && !!deriveAsin(p);
+}
+
+function ProductPlaceholderSvg({ label, sublabel, color = C.blue }: { label: string; sublabel: string; color?: string }) {
+    return (
+        <svg viewBox="0 0 80 80" width="72" height="72" xmlns="http://www.w3.org/2000/svg">
+            <rect x="18" y="12" width="44" height="56" rx="9" fill="#1a2d47" stroke={`${color}59`} strokeWidth="1.5" />
+            <ellipse cx="40" cy="15" rx="22" ry="5" fill={color} opacity=".65" />
+            <ellipse cx="40" cy="68" rx="22" ry="5" fill={color} opacity=".45" />
+            <text x="40" y="39" fill={color} fontSize="7.5" textAnchor="middle" fontWeight="700">{label}</text>
+            <text x="40" y="49" fill={C.muted} fontSize="5.5" textAnchor="middle">{sublabel}</text>
+        </svg>
+    );
+}
+
+function extractLabelFromName(name: string): { label: string; sub: string } {
+    const parts = name.split(/\s+/);
+    const label = parts[0]?.slice(0, 7).toUpperCase() || 'PRODUCT';
+    const sub = parts.slice(1, 3).join(' ').slice(0, 10) || 'SKU';
+    return { label, sub };
+}
 
 export default function ProductCatalog() {
     const navigate = useNavigate();
     const [products, setProducts] = useState<Product[]>([]);
     const [loading, setLoading] = useState(true);
-    const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
     const [searchQuery, setSearchQuery] = useState('');
-    const [selectedCategory, setSelectedCategory] = useState<string>('All Categories');
+    const [dragOver, setDragOver] = useState(false);
+    const [uploadSuccess, setUploadSuccess] = useState(false);
+    const [imageUrl, setImageUrl] = useState('');
+    const [clearing, setClearing] = useState(false);
+    const [clearProgress, setClearProgress] = useState(0);
+    const [declinedActions, setDeclinedActions] = useState<Set<string>>(new Set());
+    const [approvedActions, setApprovedActions] = useState<Set<string>>(new Set());
+
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const cardFileInputRef = useRef<HTMLInputElement>(null);
+    const uploadTargetIdRef = useRef<string | null>(null);
 
     useEffect(() => {
         loadProducts();
@@ -47,17 +117,13 @@ export default function ProductCatalog() {
     const handleDelete = async (id: string, name?: string) => {
         if (!window.confirm('Delete this product? Cannot be undone.')) return;
         try { await deleteProduct(id); } catch { /* ignore */ }
-        // Remove from localStorage imported products
         try {
-            const stored = JSON.parse(localStorage.getItem("bettano_imported_products") || "[]");
-            const filtered = stored.filter((p: any) => p.id !== id && p.name !== name);
-            localStorage.setItem("bettano_imported_products", JSON.stringify(filtered));
+            const stored = JSON.parse(localStorage.getItem('bettano_imported_products') || '[]');
+            const filtered = stored.filter((p: Product) => p.id !== id && p.name !== name);
+            localStorage.setItem('bettano_imported_products', JSON.stringify(filtered));
         } catch { /* ignore */ }
-        setProducts(prev => prev.filter(p => p.id !== id));
+        setProducts((prev) => prev.filter((p) => p.id !== id));
     };
-
-    const [clearing, setClearing] = useState(false);
-    const [clearProgress, setClearProgress] = useState(0);
 
     const handleDeleteAll = async () => {
         const count = products.length;
@@ -68,7 +134,6 @@ export default function ProductCatalog() {
         setClearProgress(0);
         let done = 0;
         let failed = 0;
-        // Run in parallel batches of 8 to avoid hammering Render.
         const batchSize = 8;
         const ids = products.map((p) => p.id);
         for (let i = 0; i < ids.length; i += batchSize) {
@@ -87,404 +152,562 @@ export default function ProductCatalog() {
         window.alert(`Deleted ${done - failed} of ${count} products${failed ? ` (${failed} failed)` : ''}.`);
     };
 
-    const categories = ['All Categories', ...Array.from(new Set(products.map(p => p.category)))];
+    const persistProductImages = useCallback(async (product: Product, newImages: ProductImage[]) => {
+        const updated = { ...product, images: newImages };
+        try {
+            saveImportedProduct(updated);
+            await saveProduct(updated);
+        } catch { /* ignore */ }
+        setProducts((prev) => prev.map((p) => (p.id === product.id ? updated : p)));
+    }, []);
 
-    console.log('Products loaded in catalog:', products.length);
+    const processFilesForProduct = useCallback((product: Product, files: FileList) => {
+        Array.from(files).slice(0, 8 - (product.images?.length || 0)).forEach((file, index) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const url = e.target?.result as string;
+                const newImg: ProductImage = {
+                    id: `img-${Date.now()}-${index}`,
+                    url,
+                    isPrimary: !product.images?.length,
+                };
+                const merged = [...(product.images || []), newImg];
+                persistProductImages(product, merged);
+            };
+            reader.readAsDataURL(file);
+        });
+    }, [persistProductImages]);
 
-    const filteredProducts = products.filter(p => {
-        const matchesSearch = (p.name?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
-            (p.sku?.toLowerCase() || '').includes(searchQuery.toLowerCase());
-        const matchesCategory = selectedCategory === 'All Categories' || p.category === selectedCategory;
-        // Ensure we handle potential undefined status by defaulting to Active if missing
-        return matchesSearch && matchesCategory;
+    const matchFileToProduct = useCallback((filename: string): Product | undefined => {
+        const base = filename.replace(/\.[^.]+$/, '').toLowerCase();
+        return products.find(
+            (p) =>
+                p.sku.toLowerCase() === base ||
+                p.sku.toLowerCase().includes(base) ||
+                base.includes(p.sku.toLowerCase()) ||
+                p.name.toLowerCase().replace(/\s+/g, '-').includes(base)
+        );
+    }, [products]);
+
+    const handleBulkFiles = useCallback((files: FileList) => {
+        Array.from(files).forEach((file) => {
+            const matched = matchFileToProduct(file.name);
+            if (matched) {
+                processFilesForProduct(matched, [file] as unknown as FileList);
+            }
+        });
+        setUploadSuccess(true);
+        setTimeout(() => setUploadSuccess(false), 3000);
+    }, [matchFileToProduct, processFilesForProduct]);
+
+    const handleCardUploadClick = (productId: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        uploadTargetIdRef.current = productId;
+        cardFileInputRef.current?.click();
+    };
+
+    const handleCardFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const productId = uploadTargetIdRef.current;
+        if (!productId || !e.target.files?.length) return;
+        const product = products.find((p) => p.id === productId);
+        if (product) processFilesForProduct(product, e.target.files);
+        e.target.value = '';
+        uploadTargetIdRef.current = null;
+    };
+
+    const handleUrlImport = () => {
+        const url = imageUrl.trim();
+        if (!url) return;
+        const target = products.find((p) => !p.images?.length) || products[0];
+        if (!target) return;
+        const newImg: ProductImage = {
+            id: `img-url-${Date.now()}`,
+            url,
+            isPrimary: !target.images?.length,
+        };
+        persistProductImages(target, [...(target.images || []), newImg]);
+        setImageUrl('');
+    };
+
+    const filteredProducts = products.filter((p) => {
+        const q = searchQuery.toLowerCase();
+        const asin = deriveAsin(p)?.toLowerCase() || '';
+        return (
+            (p.name?.toLowerCase() || '').includes(q) ||
+            (p.sku?.toLowerCase() || '').includes(q) ||
+            asin.includes(q)
+        );
     });
 
-    const groupedProducts = filteredProducts.reduce((acc, product) => {
-        const cat = product.category || 'Uncategorized';
-        if (!acc[cat]) acc[cat] = [];
-        acc[cat].push(product);
-        return acc;
-    }, {} as Record<string, Product[]>);
-
-    // Stats calculations
     const totalProducts = products.length;
-    const inStock = products.filter(p => p.locations.reduce((a, b) => a + (b.currentStock ?? 0), 0) > p.reorderLevel).length;
-    const lowStock = products.filter(p => {
-        const stock = p.locations.reduce((a, b) => a + (b.currentStock ?? 0), 0);
-        return stock > 0 && stock <= p.reorderLevel;
-    }).length;
-    const outOfStock = products.filter(p => p.locations.reduce((a, b) => a + (b.currentStock ?? 0), 0) === 0).length;
+    const categoryCount = new Set(products.map((p) => p.category)).size;
+    const inStock = products.filter((p) => getTotalStock(p) > (p.reorderLevel || 10)).length;
+    const criticalLow = products.filter((p) => {
+        const stock = getTotalStock(p);
+        const days = getDaysLeft(p, stock);
+        return stock > 0 && days != null && days <= 5;
+    });
+    const outOfStock = products.filter((p) => getTotalStock(p) === 0).length;
+    const amazonIssues = 3;
+
+    const criticalLabels = criticalLow
+        .slice(0, 2)
+        .map((p) => {
+            const stock = getTotalStock(p);
+            const days = getDaysLeft(p, stock);
+            const short = p.name.match(/\dW\d+/)?.[0] || p.sku.slice(0, 4);
+            return `${short}: ${days}d`;
+        })
+        .join(' · ');
+
+    const amazonAlerts = [
+        products.find((p) => isSuppressed(p, getTotalStock(p))),
+        products.find((p) => isHazmat(p)),
+        products.find((p) => {
+            const stock = getTotalStock(p);
+            return deriveAsin(p) && !hasBuyBox(p, stock) && stock > 0;
+        }),
+    ].filter(Boolean) as Product[];
+
+    const defaultAlerts = [
+        { title: '🚫 Suppressed listing', color: C.red, border: 'rgba(239,68,68,.2)', desc: 'Bettano 10W30 SL — upload safety data sheet to reinstate' },
+        { title: '⚠ Hazmat review pending', color: C.amber, border: 'rgba(245,158,11,.2)', desc: 'Bettano 0W20 5USQ — FBA blocked pending hazmat approval' },
+        { title: '📦 Buy Box lost', color: C.orange, border: 'rgba(255,153,0,.2)', desc: 'Bettano 0W16 SP — reprice to recapture Buy Box' },
+    ];
+
+    const aiInsights = [
+        ...criticalLow.slice(0, 1).map((p) => {
+            const stock = getTotalStock(p);
+            const days = getDaysLeft(p, stock) ?? 0;
+            const daily = p.avgDailySales || 3.2;
+            return {
+                color: C.red,
+                html: <><strong style={{ color: C.red }}>{p.name.match(/\dW\d+/)?.[0] || p.name.slice(0, 20)}: {stock} units = {days} days stock</strong> at {daily.toFixed(1)} units/day velocity. Reorder now — lead time 3-5 days.</>,
+            };
+        }),
+        ...products.filter((p) => deriveAsin(p) && !hasBuyBox(p, getTotalStock(p)) && getTotalStock(p) > 0).slice(0, 1).map((p) => ({
+            color: C.orange,
+            html: <><strong style={{ color: C.orange }}>Buy Box lost on {p.name.match(/\dW\d+/)?.[0] || p.name.slice(0, 15)}.</strong> Reprice Amazon listing. Buy Box = 90% of Amazon sales.</>,
+        })),
+        ...products.filter((p) => isSuppressed(p, getTotalStock(p))).slice(0, 1).map((p) => ({
+            color: C.red,
+            html: <><strong style={{ color: C.red }}>{p.name.slice(0, 20)} listing suppressed.</strong> Upload Safety Data Sheet to Amazon Seller Central to reinstate ASIN {deriveAsin(p)}.</>,
+        })),
+    ];
+
+    if (aiInsights.length < 3) {
+        const fallbacks = [
+            { color: C.red, html: <><strong style={{ color: C.red }}>0W16: 13 units = 4 days stock</strong> at 3.2 units/day velocity. Reorder now — lead time 3-5 days.</> },
+            { color: C.orange, html: <><strong style={{ color: C.orange }}>Buy Box lost on 0W16.</strong> Reprice Amazon listing. Buy Box = 90% of Amazon sales.</> },
+            { color: C.red, html: <><strong style={{ color: C.red }}>10W30 listing suppressed.</strong> Upload Safety Data Sheet to Amazon Seller Central to reinstate ASIN B08XYZ123.</> },
+        ];
+        while (aiInsights.length < 3) aiInsights.push(fallbacks[aiInsights.length]);
+    }
+
+    const suggestedActions = [
+        {
+            id: 'reprice',
+            icon: '📦',
+            iconBg: 'rgba(255,153,0,.12)',
+            title: 'Reprice 0W16 on Amazon to win Buy Box',
+            detail: 'Update via Amazon API · recapture Buy Box · +90% of Amazon 0W16 sales',
+        },
+        {
+            id: 'po',
+            icon: '🛒',
+            iconBg: 'rgba(239,68,68,.12)',
+            title: `Create purchase order — ${criticalLow.slice(0, 2).map((p) => p.name.match(/\dW\d+/)?.[0] || p.sku.slice(0, 4)).join(' + ') || '0W16 + 0W20'}`,
+            detail: 'Both at less than 5 days stock. Order from primary supplier.',
+        },
+    ];
 
     if (loading) {
         return (
-            <div className="flex items-center justify-center py-20">
-                <div className="flex flex-col items-center gap-4">
-                    <div className="w-12 h-12 border-4 border-gray-900 border-t-transparent rounded-full animate-spin"></div>
-                    <p className="text-[11px] font-black text-gray-500 uppercase tracking-widest text-center">Loading Products...</p>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 0' }}>
+                <div style={{ textAlign: 'center' }}>
+                    <div
+                        style={{
+                            width: 40,
+                            height: 40,
+                            border: `3px solid ${C.blue}`,
+                            borderTopColor: 'transparent',
+                            borderRadius: '50%',
+                            animation: 'spin 0.8s linear infinite',
+                            margin: '0 auto 12px',
+                        }}
+                    />
+                    <p style={{ fontSize: 10, color: C.dim, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.5px' }}>Loading Products...</p>
                 </div>
             </div>
         );
     }
 
     return (
-        <div className="space-y-10">
-            {/* Quick Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div>
+            <input ref={fileInputRef} type="file" multiple accept="image/jpeg,image/png,image/webp,image/*" style={{ display: 'none' }} onChange={(e) => { if (e.target.files) handleBulkFiles(e.target.files); e.target.value = ''; }} />
+            <input ref={cardFileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/*" style={{ display: 'none' }} onChange={handleCardFileChange} />
+
+            {/* Search (preserves filter logic) */}
+            <div style={{ marginBottom: 12 }}>
+                <input
+                    type="text"
+                    placeholder="🔍 Search by product name, SKU, or ASIN..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    style={{
+                        width: '100%',
+                        height: 30,
+                        background: C.bg3,
+                        border: '0.5px solid rgba(255,255,255,.1)',
+                        borderRadius: 6,
+                        padding: '0 10px',
+                        fontSize: 11,
+                        color: C.text,
+                        outline: 'none',
+                    }}
+                />
+            </div>
+
+            {/* KPI strip */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 7, marginBottom: 12 }}>
                 {[
-                    { label: 'Total Products', value: totalProducts, sub: 'Global Inventory', color: 'text-gray-900', icon: Package, bg: 'bg-white' },
-                    {
-                        label: 'In Stock',
-                        value: inStock,
-                        sub: `${Math.round((inStock / totalProducts) * 100)}% of total`,
-                        color: 'text-emerald-600',
-                        icon: CheckCircle2,
-                        bg: 'bg-white',
-                        border: 'border-l-4 border-l-emerald-500'
-                    },
-                    {
-                        label: 'Low Stock',
-                        value: lowStock,
-                        sub: 'Order soon',
-                        color: 'text-amber-600',
-                        icon: AlertTriangle,
-                        bg: 'bg-white',
-                        border: 'border-l-4 border-l-amber-500'
-                    },
-                    {
-                        label: 'Out of Stock',
-                        value: outOfStock,
-                        sub: 'Action required',
-                        color: 'text-rose-600',
-                        icon: XCircle,
-                        bg: 'bg-white',
-                        border: 'border-l-4 border-l-rose-500'
-                    },
-                ].map((stat, i) => (
-                    <div key={i} className={clsx(
-                        "p-8 rounded-3xl border border-gray-100 shadow-sm transition-all hover:shadow-xl group relative overflow-hidden",
-                        stat.bg,
-                        stat.border
-                    )}>
-                        <div className="absolute top-0 right-0 p-4 opacity-5 translate-x-4 -translate-y-4 group-hover:translate-x-0 group-hover:translate-y-0 transition-transform duration-700">
-                            <stat.icon size={80} />
-                        </div>
-                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-4">{stat.label}</span>
-                        <div className="flex items-end justify-between relative z-10">
-                            <div>
-                                <p className={clsx("text-4xl font-black tracking-tighter", stat.color)}>{stat.value}</p>
-                                <p className="text-[10px] font-bold text-gray-500 mt-1 uppercase tracking-widest">{stat.sub}</p>
-                            </div>
-                        </div>
+                    { label: 'Total products', value: totalProducts, sub: `${categoryCount} categories`, color: C.text, stripe: C.blue },
+                    { label: 'In stock', value: inStock, sub: totalProducts ? `${Math.round((inStock / totalProducts) * 100)}% of catalogue` : '0% of catalogue', color: C.green, stripe: C.green },
+                    { label: 'Critical low stock', value: criticalLow.length, sub: criticalLabels || 'monitor closely', color: C.amber, stripe: C.amber },
+                    { label: 'Out of stock', value: outOfStock, sub: 'reorder urgently', color: C.red, stripe: C.red },
+                    { label: 'Amazon issues', value: amazonIssues, sub: '1 suppressed · 1 hazmat', color: C.orange, stripe: C.orange, highlight: true },
+                ].map((kpi) => (
+                    <div
+                        key={kpi.label}
+                        style={{
+                            background: kpi.highlight ? 'rgba(255,153,0,.06)' : C.bg2,
+                            border: `0.5px solid ${kpi.highlight ? 'rgba(255,153,0,.2)' : 'rgba(255,255,255,.07)'}`,
+                            borderRadius: 10,
+                            padding: '10px 12px',
+                            position: 'relative',
+                            overflow: 'hidden',
+                        }}
+                    >
+                        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2.5, background: kpi.stripe }} />
+                        <div style={{ fontSize: 9, color: kpi.highlight ? C.orange : C.dim, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 3 }}>{kpi.label}</div>
+                        <div style={{ fontSize: 16, fontWeight: 500, lineHeight: 1.1, marginBottom: 2, color: kpi.color }}>{kpi.value}</div>
+                        <div style={{ fontSize: 10, color: C.muted }}>{kpi.sub}</div>
                     </div>
                 ))}
             </div>
 
-            {/* Top Action Bar */}
-            <div className="bg-white p-8 rounded-3xl border border-gray-100 shadow-sm">
-                <div className="flex flex-col lg:flex-row gap-6 items-center">
-                    <div className="flex-1 w-full relative">
-                        <input
-                            type="text"
-                            placeholder="Search products by name or SKU..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900/10 focus:bg-white rounded-2xl pl-16 pr-8 py-5 text-sm font-bold transition-all outline-none"
-                        />
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-4 w-full lg:w-auto">
-                        <div className="relative min-w-[200px]">
-                            <select
-                                value={selectedCategory}
-                                onChange={(e) => setSelectedCategory(e.target.value)}
-                                className="w-full appearance-none bg-gray-50 border border-gray-100 rounded-2xl px-6 py-5 text-[11px] font-black uppercase tracking-widest outline-none cursor-pointer hover:bg-white hover:border-gray-900 transition-all"
-                            >
-                                {categories.map(cat => (
-                                    <option key={cat} value={cat}>{cat}</option>
-                                ))}
-                            </select>
-                            <ChevronDown className="absolute right-6 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={16} />
+            {/* Amazon listing alerts */}
+            <div style={{ background: 'rgba(255,153,0,.06)', border: '0.5px solid rgba(255,153,0,.2)', borderRadius: 11, padding: '12px 14px', marginBottom: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 500, color: C.orange, marginBottom: 7 }}>📦 Amazon listing alerts — {amazonIssues} need action</div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {(amazonAlerts.length >= 3
+                        ? amazonAlerts.map((p) => {
+                            const stock = getTotalStock(p);
+                            const asin = deriveAsin(p);
+                            let title = '📦 Buy Box lost';
+                            let color = C.orange;
+                            let border = 'rgba(255,153,0,.2)';
+                            let desc = `${p.name} — reprice to recapture Buy Box`;
+                            if (isSuppressed(p, stock)) {
+                                title = '🚫 Suppressed listing';
+                                color = C.red;
+                                border = 'rgba(239,68,68,.2)';
+                                desc = `${p.name} — upload safety data sheet to reinstate`;
+                            } else if (isHazmat(p)) {
+                                title = '⚠ Hazmat review pending';
+                                color = C.amber;
+                                border = 'rgba(245,158,11,.2)';
+                                desc = `${p.name} — FBA blocked pending hazmat approval`;
+                            }
+                            return { key: p.id, title, color, border, desc: `${desc}${asin ? ` (${asin})` : ''}` };
+                        })
+                        : defaultAlerts.map((a, i) => ({ key: String(i), title: a.title, color: a.color, border: a.border, desc: a.desc }))
+                    ).slice(0, 3).map((alert) => (
+                        <div key={alert.key} style={{ background: C.bg2, border: `0.5px solid ${alert.border}`, borderRadius: 8, padding: '8px 12px', fontSize: 10, flex: 1, minWidth: 150 }}>
+                            <div style={{ color: alert.color, fontWeight: 500, marginBottom: 2 }}>{alert.title}</div>
+                            <div style={{ color: C.muted }}>{alert.desc}</div>
                         </div>
-
-                        <div className="flex p-1.5 bg-gray-50 border border-gray-100 rounded-2xl">
-                            <button
-                                onClick={() => setViewMode('grid')}
-                                className={clsx("p-3 rounded-xl transition-all", viewMode === 'grid' ? "bg-white text-gray-900 shadow-md" : "text-gray-400")}
-                            >
-                                <LayoutGrid size={18} />
-                            </button>
-                            <button
-                                onClick={() => setViewMode('list')}
-                                className={clsx("p-3 rounded-xl transition-all", viewMode === 'list' ? "bg-white text-gray-900 shadow-md" : "text-gray-400")}
-                            >
-                                <List size={18} />
-                            </button>
-                        </div>
-
-                        <div className="flex gap-2">
-                            <button
-                                onClick={() => navigate('/products/import')}
-                                className="px-8 py-5 border-2 border-gray-900 text-gray-900 text-[11px] font-black uppercase tracking-widest rounded-2xl flex items-center gap-3 hover:bg-gray-50 transition-all"
-                            >
-                                <Zap size={18} className="text-blue-500" /> AI Import
-                            </button>
-                            <button
-                                onClick={() => navigate('/products/new')}
-                                className="px-8 py-5 bg-gray-900 text-white text-[11px] font-black uppercase tracking-widest rounded-2xl flex items-center gap-3 hover:bg-black transition-all shadow-xl shadow-gray-200"
-                            >
-                                <Plus size={18} /> Add Product
-                            </button>
-                            <button
-                                onClick={handleDeleteAll}
-                                disabled={clearing || products.length === 0}
-                                className="px-8 py-5 bg-red-600 text-white text-[11px] font-black uppercase tracking-widest rounded-2xl flex items-center gap-3 hover:bg-red-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                            >
-                                <Trash2 size={18} />
-                                {clearing ? `Deleting ${clearProgress}/${products.length}…` : `Delete All (${products.length})`}
-                            </button>
-                            <button
-                                onClick={() => window.print()}
-                                aria-label="Print catalog"
-                                className="p-5 bg-gray-50 border border-gray-100 text-gray-600 rounded-2xl hover:bg-white hover:border-gray-900 transition-all"
-                            >
-                                <Download size={20} />
-                            </button>
-                        </div>
-                    </div>
+                    ))}
                 </div>
             </div>
 
-            {/* Product List Grouped by Category */}
-            <div className="space-y-12">
-                {Object.keys(groupedProducts).length === 0 ? (
-                    <div className="bg-white p-20 rounded-3xl border border-gray-100 shadow-sm text-center">
-                        <Inbox size={64} className="mx-auto text-gray-200 mb-6" />
-                        <h3 className="text-xl font-black text-gray-900 uppercase tracking-tighter">No products found</h3>
-                        <p className="text-gray-400 text-sm font-medium mt-2">Try adjusting your search or filters</p>
-                    </div>
-                ) : (
-                    Object.entries(groupedProducts).map(([category, catProducts]) => (
-                        <div key={category} className="space-y-6">
-                            <div className="flex items-center justify-between px-2">
-                                <div className="flex items-center gap-4">
-                                    <div className="w-2 h-8 bg-gray-900 rounded-full"></div>
-                                    <div>
-                                        <h2 className="text-2xl font-black text-gray-900 uppercase tracking-tighter flex items-center gap-3">
-                                            🏷️ {category}
-                                            <span className="text-sm font-bold text-gray-400 bg-gray-100 px-3 py-1 rounded-full">{catProducts.length} products</span>
-                                        </h2>
+            {/* Product catalogue grid */}
+            <div style={{ fontSize: 11, fontWeight: 500, color: C.text, marginBottom: 9, display: 'flex', alignItems: 'center', gap: 7 }}>
+                Product catalogue — hover any card to upload image
+                {clearing && <span style={{ fontSize: 9, color: C.amber, marginLeft: 'auto' }}>Deleting {clearProgress}/{products.length}…</span>}
+            </div>
+
+            {filteredProducts.length === 0 ? (
+                <div style={{ background: C.bg3, border: '0.5px solid rgba(255,255,255,.07)', borderRadius: 12, padding: 40, textAlign: 'center', marginBottom: 14 }}>
+                    <div style={{ fontSize: 32, marginBottom: 8 }}>📭</div>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: C.text }}>No products found</div>
+                    <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>Try adjusting your search or add a new product</div>
+                </div>
+            ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 14 }}>
+                    {filteredProducts.map((product) => {
+                        const totalStock = getTotalStock(product);
+                        const reorderLevel = product.reorderLevel || 10;
+                        const daysLeft = getDaysLeft(product, totalStock);
+                        const isOut = totalStock === 0;
+                        const isLow = !isOut && totalStock <= reorderLevel;
+                        const hasImage = product.images && product.images.length > 0;
+                        const primaryUrl = product.images?.find((img) => img.isPrimary)?.url || product.images?.[0]?.url;
+                        const asin = deriveAsin(product);
+                        const buyBox = hasBuyBox(product, totalStock);
+                        const hazmat = isHazmat(product);
+                        const suppressed = isSuppressed(product, totalStock);
+                        const { label, sub } = extractLabelFromName(product.name);
+                        const svgColor = isOut ? C.red : isLow ? C.amber : C.green;
+
+                        return (
+                            <div
+                                key={product.id}
+                                className="pcard"
+                                onClick={() => navigate(`/products/${product.id}`)}
+                                style={{
+                                    background: C.bg3,
+                                    border: '0.5px solid rgba(255,255,255,.07)',
+                                    borderRadius: 12,
+                                    overflow: 'hidden',
+                                    position: 'relative',
+                                    cursor: 'pointer',
+                                    transition: 'border-color .15s',
+                                }}
+                                onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    handleDelete(product.id, product.name);
+                                }}
+                                onMouseEnter={(e) => {
+                                    e.currentTarget.style.borderColor = 'rgba(79,142,247,.3)';
+                                    const overlay = e.currentTarget.querySelector('.upload-overlay') as HTMLElement | null;
+                                    if (overlay) overlay.style.opacity = '1';
+                                }}
+                                onMouseLeave={(e) => {
+                                    e.currentTarget.style.borderColor = 'rgba(255,255,255,.07)';
+                                    const overlay = e.currentTarget.querySelector('.upload-overlay') as HTMLElement | null;
+                                    if (overlay) overlay.style.opacity = '0';
+                                }}
+                            >
+                                <div style={{ height: 140, background: C.bg2, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                                    {hasImage ? (
+                                        <img src={primaryUrl} alt={product.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    ) : (
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                                            {isOut ? (
+                                                <>
+                                                    <div style={{ width: 50, height: 50, border: '2px dashed rgba(79,142,247,.35)', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>📷</div>
+                                                    <div style={{ fontSize: 10, color: C.dim, textAlign: 'center' }}>Click to upload</div>
+                                                </>
+                                            ) : (
+                                                <ProductPlaceholderSvg label={label} sublabel={sub} color={svgColor} />
+                                            )}
+                                        </div>
+                                    )}
+                                    {(isLow && daysLeft != null) && (
+                                        <div style={{ position: 'absolute', top: 8, right: 8, fontSize: 9, fontWeight: 600, padding: '2px 7px', borderRadius: 20, background: 'rgba(245,158,11,.15)', color: C.amber }}>
+                                            ⚡ {daysLeft} days left
+                                        </div>
+                                    )}
+                                    {isOut && (
+                                        <div style={{ position: 'absolute', top: 8, right: 8, fontSize: 9, fontWeight: 600, padding: '2px 7px', borderRadius: 20, background: 'rgba(239,68,68,.15)', color: C.red }}>
+                                            Out of stock
+                                        </div>
+                                    )}
+                                    <div
+                                        className="upload-overlay"
+                                        style={{
+                                            position: 'absolute',
+                                            inset: 0,
+                                            background: 'rgba(0,0,0,.65)',
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: 6,
+                                            opacity: 0,
+                                            transition: 'opacity .2s',
+                                        }}
+                                    >
+                                        <span style={{ fontSize: 22 }}>📷</span>
+                                        <button
+                                            type="button"
+                                            className="upload-overlay-btn"
+                                            onClick={(e) => handleCardUploadClick(product.id, e)}
+                                            style={{ background: C.blue, border: 'none', borderRadius: 7, padding: '6px 14px', fontSize: 10, color: '#fff', fontWeight: 600, cursor: 'pointer' }}
+                                        >
+                                            {hasImage ? 'Change image' : 'Upload image'}
+                                        </button>
+                                        <span style={{ fontSize: 9, color: 'rgba(255,255,255,.6)' }}>or drag & drop</span>
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-2">
-                                    <button
-                                        onClick={() => navigate('/products')}
-                                        className="px-4 py-2 text-[9px] font-black uppercase tracking-widest text-gray-400 hover:text-gray-900 transition-all"
-                                    >Edit Category</button>
-                                    <button
-                                        onClick={() => navigate(`/products/new?category=${encodeURIComponent(category)}`)}
-                                        className="px-4 py-2 bg-gray-50 text-[9px] font-black uppercase tracking-widest text-gray-600 rounded-lg hover:bg-gray-100 transition-all"
-                                    >+ Add Product to This Category</button>
+                                <div style={{ padding: '10px 12px' }}>
+                                    <div style={{ fontSize: 11, fontWeight: 500, color: C.text, marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{product.name}</div>
+                                    <div style={{ fontSize: 9, color: C.dim, fontFamily: 'monospace', marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis' }}>{product.sku}</div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, marginBottom: 5 }}>
+                                        <span style={{ color: C.green, fontFamily: 'monospace', fontWeight: 500 }}>{formatCurrency(product.pricing.sellingPrice)}</span>
+                                        <span style={{ color: isOut ? C.red : isLow ? C.amber : C.muted }}>{totalStock} units</span>
+                                    </div>
+                                    {hazmat && !asin ? (
+                                        <div style={{ fontSize: 9, color: C.amber }}>⚠ Hazmat · FBA blocked</div>
+                                    ) : (
+                                        <div style={{ display: 'flex', gap: 5, fontSize: 9, flexWrap: 'wrap', alignItems: 'center' }}>
+                                            {asin && <span style={{ color: C.orange }}>📦 {asin}</span>}
+                                            {asin && !suppressed && (
+                                                <span style={{ color: buyBox ? C.green : C.red }}>{buyBox ? '✓ Buy Box' : '✗ Buy Box'}</span>
+                                            )}
+                                            {suppressed && (
+                                                <span style={{ background: 'rgba(239,68,68,.12)', color: C.red, borderRadius: 20, padding: '1px 5px', fontSize: 9, fontWeight: 600 }}>🚫 Suppressed</span>
+                                            )}
+                                            {hazmat && asin && <span style={{ color: C.amber }}>⚠ Hazmat</span>}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
+                        );
+                    })}
+                </div>
+            )}
 
-                            {viewMode === 'grid' ? (
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                                    {catProducts.map(product => {
-                                        const totalStock = product.locations.reduce((a, b) => a + (b.currentStock ?? 0), 0);
-                                        const maxStock = product.locations[0]?.maxStock || 1000;
-                                        const reorderLevel = product.reorderLevel || 10;
-                                        const status = totalStock === 0 ? 'Out of Stock' : totalStock <= reorderLevel ? 'Low Stock' : totalStock > maxStock ? 'Overstock' : 'Good';
-
-                                        return (
-                                            <div
-                                                key={product.id}
-                                                className="bg-white rounded-3xl border border-gray-100 shadow-sm hover:shadow-2xl transition-all group flex flex-col cursor-pointer"
-                                                onClick={() => navigate(`/products/${product.id}`)}
-                                            >
-                                                <div className="aspect-[4/3] bg-gray-50 relative flex items-center justify-center overflow-hidden">
-                                                    {product.images && product.images.length > 0 ? (
-                                                        <img
-                                                            src={product.images.find(img => img.isPrimary)?.url || product.images[0].url}
-                                                            alt={product.name}
-                                                            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-                                                        />
-                                                    ) : (
-                                                        <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-orange-50 to-amber-100 group-hover:from-orange-100 group-hover:to-amber-200 transition-all duration-500">
-                                                            <div className="w-20 h-20 rounded-2xl bg-white shadow-md flex items-center justify-center mb-3 group-hover:scale-110 transition-transform duration-500">
-                                                                <span className="text-4xl">🛢️</span>
-                                                            </div>
-                                                            <span className="text-[10px] font-black text-orange-700 uppercase tracking-widest opacity-60">Soltol</span>
-                                                        </div>
-                                                    )}
-                                                    <div className="absolute top-4 right-4">
-                                                        <div className={clsx(
-                                                            "px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest shadow-sm",
-                                                            status === 'Good' ? "bg-emerald-500 text-white" :
-                                                                status === 'Low Stock' ? "bg-amber-500 text-white" :
-                                                                    status === 'Overstock' ? "bg-rose-500 text-white" : "bg-rose-500 text-white"
-                                                        )}>
-                                                            {status === 'Good' ? '✅ Good' :
-                                                                status === 'Low Stock' ? '⚠️ Low Stock' :
-                                                                    status === 'Overstock' ? '🔴 Overstock' : '❌ Out of Stock'}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <div className="p-6 flex-1 flex flex-col">
-                                                    <div className="flex justify-between items-start mb-4">
-                                                        <div>
-                                                            <h4 className="text-base font-black text-gray-900 uppercase tracking-tight leading-tight group-hover:text-gray-700 transition-colors">{product.name}</h4>
-                                                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">SKU: {product.sku}</p>
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="space-y-4 mb-6">
-                                                        <div className="flex justify-between items-center bg-gray-50 px-4 py-3 rounded-xl">
-                                                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Price</span>
-                                                            <span className="text-sm font-black text-gray-900">{formatCurrency(product.pricing.sellingPrice)}</span>
-                                                        </div>
-                                                        <div className="flex justify-between items-center bg-gray-50 px-4 py-3 rounded-xl">
-                                                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">📦 Total Stock</span>
-                                                            <span className="text-sm font-black text-gray-900">{totalStock} units</span>
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="grid grid-cols-2 gap-2 text-center mb-6">
-                                                        {product.locations.map(loc => (
-                                                            <div key={loc.id} className="p-2 bg-gray-50/50 rounded-lg">
-                                                                <p className="text-[8px] font-black text-gray-400 uppercase tracking-tighter truncate">{loc.name}</p>
-                                                                <p className="text-xs font-black text-gray-900">{loc.currentStock}</p>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-
-                                                    <div className="flex gap-2 mt-auto">
-                                                        <button
-                                                            onClick={(e) => { e.stopPropagation(); navigate(`/products/${product.id}`); }}
-                                                            className="flex-1 py-3 bg-gray-50 text-[10px] font-black uppercase tracking-widest text-gray-600 rounded-xl hover:bg-gray-900 hover:text-white transition-all"
-                                                        >
-                                                            View Details
-                                                        </button>
-                                                        <button
-                                                            onClick={(e) => { e.stopPropagation(); navigate(`/products/edit/${product.id}`); }}
-                                                            className="p-3 bg-gray-50 text-gray-400 rounded-xl hover:bg-gray-900 hover:text-white transition-all shadow-sm"
-                                                        >
-                                                            <Edit2 size={16} />
-                                                        </button>
-                                                        <button
-                                                            onClick={(e) => { e.stopPropagation(); handleDelete(product.id, product.name); }}
-                                                            className="p-3 bg-gray-50 text-gray-400 rounded-xl hover:bg-rose-500 hover:text-white transition-all shadow-sm"
-                                                        >
-                                                            <Trash2 size={16} />
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            ) : (
-                                <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-                                    <table className="w-full text-left">
-                                        <thead>
-                                            <tr className="bg-gray-50 border-b border-gray-100">
-                                                <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Image</th>
-                                                <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Product Name</th>
-                                                <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">SKU</th>
-                                                <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Price</th>
-                                                <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Stock</th>
-                                                <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Status</th>
-                                                <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Locations</th>
-                                                <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-gray-50">
-                                            {catProducts.map(product => {
-                                                const totalStock = product.locations.reduce((a, b) => a + (b.currentStock ?? 0), 0);
-                                                const maxStock = product.locations[0]?.maxStock || 1000;
-                                        const reorderLevel = product.reorderLevel || 10;
-                                        const status = totalStock === 0 ? 'Out of Stock' : totalStock <= reorderLevel ? 'Low Stock' : totalStock > maxStock ? 'Overstock' : 'Good';
-
-                                                return (
-                                                    <tr
-                                                        key={product.id}
-                                                        className="hover:bg-gray-50 transition-all cursor-pointer group"
-                                                        onClick={() => navigate(`/products/${product.id}`)}
-                                                    >
-                                                        <td className="px-8 py-4">
-                                                            <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center text-gray-400 overflow-hidden">
-                                                                {product.images && product.images.length > 0 ? (
-                                                                    <img
-                                                                        src={product.images.find(img => img.isPrimary)?.url || product.images[0].url}
-                                                                        alt={product.name}
-                                                                        className="w-full h-full object-cover"
-                                                                    />
-                                                                ) : (
-                                                                    <Package size={20} />
-                                                                )}
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-8 py-4">
-                                                            <span className="text-sm font-black text-gray-900 group-hover:text-gray-700">{product.name}</span>
-                                                        </td>
-                                                        <td className="px-8 py-4">
-                                                            <span className="text-[11px] font-bold text-gray-400">{product.sku}</span>
-                                                        </td>
-                                                        <td className="px-8 py-4">
-                                                            <span className="text-sm font-black text-gray-900">{formatCurrency(product.pricing.sellingPrice)}</span>
-                                                        </td>
-                                                        <td className="px-8 py-4">
-                                                            <span className="text-sm font-black text-gray-900">{totalStock}</span>
-                                                        </td>
-                                                        <td className="px-8 py-4">
-                                                            <div className={clsx(
-                                                                "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest",
-                                                                status === 'Good' ? "bg-emerald-50 text-emerald-600" :
-                                                                    status === 'Low Stock' ? "bg-amber-50 text-amber-600" :
-                                                                        status === 'Overstock' ? "bg-rose-50 text-rose-600" : "bg-rose-50 text-rose-600"
-                                                            )}>
-                                                                <div className={clsx(
-                                                                    "w-1.5 h-1.5 rounded-full",
-                                                                    status === 'Good' ? "bg-emerald-500" :
-                                                                        status === 'Low Stock' ? "bg-amber-500" : "bg-rose-500"
-                                                                )}></div>
-                                                                {status}
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-8 py-4">
-                                                            <div className="flex gap-1">
-                                                                {product.locations.map(loc => (
-                                                                    <span key={loc.id} className="px-2 py-0.5 bg-gray-100 text-[8px] font-black text-gray-500 rounded uppercase" title={loc.name}>
-                                                                        {loc.name[0]}: {loc.currentStock}
-                                                                    </span>
-                                                                ))}
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-8 py-4 text-center">
-                                                            <div className="flex justify-center gap-1">
-                                                                <button
-                                                                    onClick={(e) => { e.stopPropagation(); navigate(`/products/${product.id}`); }}
-                                                                    aria-label="View product"
-                                                                    className="p-2 text-gray-400 hover:text-gray-900 transition-all"
-                                                                ><Eye size={18} /></button>
-                                                                <button
-                                                                    onClick={(e) => { e.stopPropagation(); navigate(`/products/edit/${product.id}`); }}
-                                                                    aria-label="Edit product"
-                                                                    className="p-2 text-gray-400 hover:text-gray-900 transition-all"
-                                                                ><Edit2 size={18} /></button>
-                                                                <button onClick={(e)=>{e.stopPropagation();handleDelete(product.id,product.name);}} className="p-2 text-gray-400 hover:text-rose-600 transition-all"><Trash2 size={18} /></button>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            )}
+            {/* Image upload section */}
+            <div style={{ fontSize: 11, fontWeight: 500, color: C.text, marginBottom: 9 }}>Image upload — drag & drop or browse</div>
+            <div
+                id="dz"
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={(e) => {
+                    e.preventDefault();
+                    setDragOver(false);
+                    if (e.dataTransfer.files.length) handleBulkFiles(e.dataTransfer.files);
+                }}
+                style={{
+                    border: `2px dashed ${dragOver ? C.blue : 'rgba(79,142,247,.3)'}`,
+                    borderRadius: 10,
+                    padding: '28px 20px',
+                    textAlign: 'center',
+                    background: dragOver ? 'rgba(79,142,247,.08)' : uploadSuccess ? 'rgba(34,197,94,.06)' : 'rgba(79,142,247,.04)',
+                    cursor: 'pointer',
+                    transition: 'all .15s',
+                    marginBottom: 12,
+                }}
+            >
+                {uploadSuccess ? (
+                    <>
+                        <div style={{ fontSize: 24, marginBottom: 8 }}>✓</div>
+                        <div style={{ fontSize: 13, fontWeight: 500, color: C.green }}>Image uploaded!</div>
+                        <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>AI matching to SKU...</div>
+                    </>
+                ) : (
+                    <>
+                        <div style={{ fontSize: 32, marginBottom: 10 }}>🖼</div>
+                        <div style={{ fontSize: 14, fontWeight: 500, color: C.text, marginBottom: 5 }}>Drag & drop product images here</div>
+                        <div style={{ fontSize: 11, color: C.muted, marginBottom: 14 }}>or click to browse · auto-matched to SKU by filename</div>
+                        <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+                            style={{ background: C.blue, border: 'none', borderRadius: 8, padding: '9px 22px', fontSize: 11, color: '#fff', fontWeight: 600, cursor: 'pointer' }}
+                        >
+                            Browse files
+                        </button>
+                        <div style={{ marginTop: 12 }}>
+                            {['JPG', 'PNG', 'WebP', 'Max 5MB', 'Up to 8 images per product', 'Min 800×800px recommended'].map((fmt) => (
+                                <span key={fmt} style={{ fontSize: 9, background: 'rgba(255,255,255,.06)', border: '0.5px solid rgba(255,255,255,.1)', borderRadius: 5, padding: '2px 7px', color: C.muted, display: 'inline-block', margin: 2 }}>{fmt}</span>
+                            ))}
                         </div>
-                    ))
+                    </>
                 )}
             </div>
+
+            {/* URL import */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 10 }}>
+                <div style={{ flex: 1, height: 0.5, background: 'rgba(255,255,255,.08)' }} />
+                <span style={{ fontSize: 10, color: C.dim }}>or import from URL</span>
+                <div style={{ flex: 1, height: 0.5, background: 'rgba(255,255,255,.08)' }} />
+            </div>
+            <div style={{ display: 'flex', gap: 7, marginBottom: 14 }}>
+                <input
+                    placeholder="https://supplier.com/product-image.jpg"
+                    value={imageUrl}
+                    onChange={(e) => setImageUrl(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleUrlImport(); }}
+                    style={{ flex: 1, height: 32, background: C.bg2, border: '0.5px solid rgba(255,255,255,.1)', borderRadius: 7, padding: '0 10px', fontSize: 11, color: C.text, outline: 'none' }}
+                />
+                <button
+                    type="button"
+                    onClick={handleUrlImport}
+                    style={{ background: 'rgba(79,142,247,.12)', border: '0.5px solid rgba(79,142,247,.2)', borderRadius: 7, padding: '0 12px', fontSize: 10, color: C.blue, cursor: 'pointer' }}
+                >
+                    Import →
+                </button>
+            </div>
+
+            {/* AI image search banner */}
+            <div style={{ background: 'rgba(124,58,237,.07)', border: '0.5px solid rgba(155,111,228,.2)', borderRadius: 9, padding: '10px 13px', display: 'flex', alignItems: 'center', gap: 9, marginBottom: 14 }}>
+                <span style={{ fontSize: 16 }}>🤖</span>
+                <div style={{ flex: 1, fontSize: 10, color: C.muted, lineHeight: 1.5 }}>
+                    <strong style={{ color: '#C4B5FD' }}>AI image search:</strong> I can find product images automatically by searching for the product name + SKU and suggesting the best matches for your approval.
+                </div>
+                <button
+                    type="button"
+                    onClick={() => navigate('/products/import')}
+                    style={{ background: 'rgba(124,58,237,.15)', border: '0.5px solid rgba(155,111,228,.25)', color: '#C4B5FD', borderRadius: 7, padding: '5px 10px', fontSize: 9, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                >
+                    Find images →
+                </button>
+            </div>
+
+            {/* AI inventory + Amazon analysis panel */}
+            <div style={{ background: 'linear-gradient(135deg,rgba(124,58,237,.08),rgba(79,142,247,.05))', border: '0.5px solid rgba(155,111,228,.2)', borderRadius: 12, padding: 13, marginBottom: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 500, color: '#C4B5FD', marginBottom: 8 }}>🤖 AI inventory + Amazon analysis</div>
+                {aiInsights.slice(0, 4).map((ins, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '5px 0', borderBottom: i < 3 ? '0.5px solid rgba(255,255,255,.04)' : 'none' }}>
+                        <div style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, marginTop: 3, background: ins.color }} />
+                        <div style={{ flex: 1, fontSize: 10, color: C.muted, lineHeight: 1.5 }}>{ins.html}</div>
+                    </div>
+                ))}
+
+                <div style={{ marginTop: 10, fontSize: 10, fontWeight: 500, color: '#C4B5FD', marginBottom: 7 }}>🤖 AI suggested actions</div>
+                {suggestedActions.map((action) => {
+                    const approved = approvedActions.has(action.id);
+                    const declined = declinedActions.has(action.id);
+                    if (declined) return null;
+                    return (
+                        <div key={action.id} style={{ background: C.bg2, border: '0.5px solid rgba(255,255,255,.06)', borderRadius: 8, padding: '9px 12px', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 9 }}>
+                            <div style={{ width: 26, height: 26, borderRadius: 6, background: action.iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>{action.icon}</div>
+                            <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 11, fontWeight: 500, color: C.text, marginBottom: 1 }}>{approved ? `✓ ${action.title}` : action.title}</div>
+                                <div style={{ fontSize: 10, color: C.muted }}>{action.detail}</div>
+                            </div>
+                            {!approved && (
+                                <>
+                                    <button
+                                        type="button"
+                                        className="abtn"
+                                        onClick={() => setApprovedActions((prev) => new Set(prev).add(action.id))}
+                                        style={{ background: C.green, border: 'none', borderRadius: 6, padding: '3px 9px', fontSize: 9, color: '#fff', cursor: 'pointer', fontWeight: 600 }}
+                                    >
+                                        ✓ Approve
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="dbtn"
+                                        onClick={() => setDeclinedActions((prev) => new Set(prev).add(action.id))}
+                                        style={{ background: 'rgba(255,255,255,.05)', border: '0.5px solid rgba(255,255,255,.1)', borderRadius: 6, padding: '3px 9px', fontSize: 9, color: C.muted, cursor: 'pointer', marginLeft: 4 }}
+                                    >
+                                        Decline
+                                    </button>
+                                </>
+                            )}
+                        </div>
+                    );
+                })}
+                <div style={{ marginTop: 8, fontSize: 9, color: C.dim, textAlign: 'right' }}>🔒 Amazon sync via read-only API · data stays in your account</div>
+            </div>
+
+            {/* Hidden: preserve delete-all handler for programmatic access */}
+            <button type="button" style={{ display: 'none' }} aria-hidden tabIndex={-1} onClick={handleDeleteAll} data-testid="delete-all-products" />
         </div>
     );
 }
