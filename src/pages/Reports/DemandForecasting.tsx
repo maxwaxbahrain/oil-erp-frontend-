@@ -1,8 +1,59 @@
 import { useNavigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
-import { TrendingUp, Package, AlertTriangle, RefreshCw, ChevronUp, ChevronDown, Minus , ArrowLeft } from 'lucide-react';
+import { useState, useEffect, useMemo, useCallback, type CSSProperties } from 'react';
+import {
+    TrendingUp,
+    AlertTriangle,
+    RefreshCw,
+    ChevronRight,
+    Download,
+    Search,
+    AlertCircle,
+    BarChart3,
+    Clock,
+    Check,
+    ArrowDown,
+    LayoutList,
+} from 'lucide-react';
 import { getInvoices, getProducts } from '../../services/api';
-import { formatCurrency } from '../../services/settingsService';
+import { getCurrentUser } from '../../store/authStore';
+
+const C = {
+    bg: '#060f1c',
+    bg2: '#0a1726',
+    bg3: '#0f1f33',
+    bg4: '#142540',
+    blue: '#4F8EF7',
+    green: '#22C55E',
+    purple: '#7C3AED',
+    orange: '#F59E0B',
+    red: '#EF4444',
+    text: '#EEF2FF',
+    muted: '#8BA3C7',
+    dim: '#3E5678',
+};
+
+const FORECAST_PERIOD = 'May 2026';
+
+const panel: CSSProperties = {
+    background: C.bg3,
+    border: '1px solid rgba(255,255,255,.05)',
+    borderRadius: 12,
+};
+
+function userInitials(name: string): string {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    if (parts.length === 1 && parts[0].length >= 2) return parts[0].slice(0, 2).toUpperCase();
+    return 'AQ';
+}
+
+function openBettanoAdvisor() {
+    window.dispatchEvent(new CustomEvent('soltol:open-ai-advisor'));
+}
+
+function formatPkrCompact(amount: number): string {
+    return `${Math.round(amount).toLocaleString('en-US')} PKR`;
+}
 
 interface ProductForecast {
     productId: string;
@@ -11,18 +62,12 @@ interface ProductForecast {
     currentStock: number;
     minStock: number;
     unitPrice: number;
-
-    // Historical monthly sales
     monthlyHistory: Array<{ month: string; qty: number; revenue: number }>;
-
-    // Forecast
     avgMonthlySales: number;
     forecastNextMonth: number;
     forecastNext3Months: number;
     trend: 'up' | 'down' | 'stable';
     trendPct: number;
-
-    // Stock analysis
     daysUntilStockout: number;
     suggestedOrderQty: number;
     urgency: 'critical' | 'warning' | 'good';
@@ -31,8 +76,7 @@ interface ProductForecast {
 function getMonthKey(dateStr: string) {
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return null;
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return `${months[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`;
 }
 
@@ -47,34 +91,221 @@ function calcTrend(history: Array<{ qty: number }>): { trend: 'up' | 'down' | 's
     return { trend: 'stable', pct: Math.round(Math.abs(pct)) };
 }
 
+function dailyVelocity(avgMonthly: number): number {
+    return Math.round((avgMonthly / 30) * 10) / 10;
+}
+
+function daysCover(qty: number, avgMonthly: number): number {
+    const vel = avgMonthly / 30;
+    if (!vel || !qty) return 0;
+    return Math.round(qty / vel);
+}
+
+function supplierHint(name: string): string {
+    if (/zenol|0w20/i.test(name)) return 'Kenzol Multi Industries FZC';
+    if (/mobil.*5w30/i.test(name)) return 'Petro Choice Lubrication';
+    if (/kamran|0w40/i.test(name)) return 'Kamran Hafeez';
+    return 'Kenzol Multi Industries FZC';
+}
+
+function productMeta(f: ProductForecast): string {
+    if (/0w16/i.test(f.productName)) return 'Flagship product · 60% of Qahir orders · 3–5 day lead time';
+    if (/0w20/i.test(f.productName)) return '2nd highest velocity · ZENOL 0W20 pricing at 0.00 PKR — fix before reorder';
+    if (/5w30/i.test(f.productName)) return '14–21 day lead time — order before day 7 · Net 60 terms';
+    if (/10w40/i.test(f.productName)) return 'Steady demand · no trend signal';
+    if (f.trend === 'up') return `Growing demand +${f.trendPct}% MoM · monitor closely`;
+    if (f.trend === 'down') return `Demand declining ${f.trendPct}% · review pricing`;
+    return 'Stable demand · monitor monthly';
+}
+
+type SortKey = 'urgency' | 'sales' | 'stock' | 'velocity';
+
+const GRID_COLS = '36px 1fr 90px 90px 90px 90px 110px 80px';
+
+function UrgencyBadge({ urgency, days }: { urgency: ProductForecast['urgency']; days: number }) {
+    const styles = {
+        critical: { bg: 'rgba(239,68,68,.15)', color: '#f87171', label: 'Critical' },
+        warning: { bg: 'rgba(245,158,11,.15)', color: C.orange, label: `${days} days` },
+        good: { bg: 'rgba(34,197,94,.1)', color: '#4ade80', label: `${days} days` },
+    }[urgency];
+    return (
+        <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4, letterSpacing: '.3px', background: styles.bg, color: styles.color }}>
+            {styles.label}
+        </span>
+    );
+}
+
+function ProductRow({
+    f,
+    onOrder,
+}: {
+    f: ProductForecast;
+    onOrder: (f: ProductForecast) => void;
+}) {
+    const vel = dailyVelocity(f.avgMonthlySales);
+    const cover = daysCover(f.suggestedOrderQty, f.avgMonthlySales);
+    const borderColor =
+        f.urgency === 'critical'
+            ? 'rgba(239,68,68,.25)'
+            : f.urgency === 'warning'
+              ? 'rgba(245,158,11,.2)'
+              : 'rgba(34,197,94,.12)';
+    const iconBg =
+        f.urgency === 'critical'
+            ? 'rgba(239,68,68,.1)'
+            : f.urgency === 'warning'
+              ? 'rgba(245,158,11,.1)'
+              : 'rgba(34,197,94,.08)';
+
+    const stockColor = f.urgency === 'critical' ? C.red : f.urgency === 'warning' ? C.orange : C.green;
+    const daysColor = stockColor;
+
+    return (
+        <div
+            style={{
+                background: C.bg3,
+                border: `1px solid ${borderColor}`,
+                borderRadius: 10,
+                padding: '14px 16px',
+                marginBottom: 8,
+                display: 'grid',
+                gridTemplateColumns: GRID_COLS,
+                alignItems: 'center',
+                gap: 12,
+                cursor: 'pointer',
+                transition: 'background .1s',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = C.bg4; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = C.bg3; }}
+        >
+            <div style={{ width: 36, height: 36, borderRadius: 8, background: iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
+                🛢
+            </div>
+            <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 500, color: C.text, marginBottom: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    {f.productName}
+                    <UrgencyBadge urgency={f.urgency} days={f.daysUntilStockout >= 999 ? 0 : f.daysUntilStockout} />
+                </div>
+                <div style={{ fontSize: 10, color: C.dim }}>SKU: {f.sku} · {supplierHint(f.productName)}</div>
+                <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{productMeta(f)}</div>
+            </div>
+            <StatCol value={f.currentStock} unit="units" color={stockColor} />
+            <StatCol value={f.daysUntilStockout >= 999 ? '—' : f.daysUntilStockout} unit="days" color={daysColor} />
+            <StatCol value={vel} unit="units/day" color={f.urgency === 'warning' ? C.orange : C.text} />
+            <StatCol value={f.forecastNextMonth} unit="units est." color={C.blue} />
+            <div style={{ textAlign: 'center' }}>
+                {f.urgency === 'good' ? (
+                    <>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: C.dim }}>—</div>
+                        <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>no action needed</div>
+                    </>
+                ) : (
+                    <>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{f.suggestedOrderQty} units</div>
+                        <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>{cover} days cover</div>
+                    </>
+                )}
+            </div>
+            <div>
+                <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onOrder(f); }}
+                    style={{
+                        border: 'none',
+                        borderRadius: 8,
+                        padding: '8px 14px',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        whiteSpace: 'nowrap',
+                        width: '100%',
+                        justifyContent: 'center',
+                        ...(f.urgency === 'critical'
+                            ? { background: C.red, color: '#fff' }
+                            : f.urgency === 'warning'
+                              ? { background: C.orange, color: '#1a0a00' }
+                              : { background: C.bg4, color: C.muted, border: '1px solid rgba(255,255,255,.07)' }),
+                    }}
+                >
+                    {f.urgency === 'critical' ? (
+                        <><ArrowDown size={11} /> Reorder now</>
+                    ) : f.urgency === 'warning' ? (
+                        <><ArrowDown size={11} /> Order soon</>
+                    ) : (
+                        'Sufficient'
+                    )}
+                </button>
+            </div>
+        </div>
+    );
+}
+
+function StatCol({ value, unit, color }: { value: number | string; unit: string; color: string }) {
+    return (
+        <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 18, fontWeight: 600, lineHeight: 1, color }}>{value}</div>
+            <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>{unit}</div>
+        </div>
+    );
+}
+
+function SectionLabel({
+    icon,
+    label,
+    count,
+    countTone,
+    suffix,
+}: {
+    icon: React.ReactNode;
+    label: string;
+    count: number;
+    countTone: 'red' | 'amber' | 'green';
+    suffix?: string;
+}) {
+    const countBg = countTone === 'red' ? C.red : countTone === 'amber' ? C.orange : C.green;
+    const countColor = countTone === 'green' ? '#0a1a05' : countTone === 'amber' ? '#1a0a00' : '#fff';
+    return (
+        <div style={{ fontSize: 11, fontWeight: 600, color: C.dim, letterSpacing: '.4px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+            {icon}
+            {label}
+            <span style={{ background: countBg, color: countColor, fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 8 }}>
+                {count}
+            </span>
+            {suffix && <span style={{ color: C.dim, fontWeight: 400, fontSize: 10, marginLeft: 4 }}>{suffix}</span>}
+        </div>
+    );
+}
+
 export default function DemandForecasting() {
     const navigate = useNavigate();
+    const currentUser = getCurrentUser();
     const [forecasts, setForecasts] = useState<ProductForecast[]>([]);
     const [loading, setLoading] = useState(true);
-    const [sortBy, setSortBy] = useState<'urgency' | 'sales' | 'stock'>('urgency');
-    const [selected, setSelected] = useState<string | null>(null);
-    const [aiInsight, setAiInsight] = useState<string>('');
+    const [sortBy, setSortBy] = useState<SortKey>('urgency');
+    const [search, setSearch] = useState('');
+    const [aiInsight, setAiInsight] = useState('');
     const [aiLoading, setAiLoading] = useState(false);
     const [aiError, setAiError] = useState('');
+    const [reloadKey, setReloadKey] = useState(0);
 
-    useEffect(() => {
+    const loadData = useCallback(() => {
+        setLoading(true);
         Promise.all([getInvoices(), getProducts()]).then(([invoices, products]) => {
             const today = new Date();
-
-            // Build last 6 months keys
             const last6: string[] = [];
             for (let i = 5; i >= 0; i--) {
                 const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
-                const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
                 last6.push(`${months[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`);
             }
 
-            // Aggregate sales per product per month
             const salesMap: Record<string, Record<string, { qty: number; revenue: number }>> = {};
             invoices
-                .filter(inv => inv.status !== 'Partial')
-                .forEach(inv => {
+                .filter((inv) => inv.status !== 'Partial')
+                .forEach((inv) => {
                     const mk = getMonthKey(inv.invoiceDate || inv.createdAt || '');
                     if (!mk || !last6.includes(mk)) return;
                     (inv.lineItems || []).forEach((item: any) => {
@@ -86,41 +317,29 @@ export default function DemandForecasting() {
                     });
                 });
 
-            const result: ProductForecast[] = products.map(p => {
+            const result: ProductForecast[] = products.map((p) => {
                 const productSales = salesMap[p.name] || {};
-                const history = last6.map(month => ({
+                const history = last6.map((month) => ({
                     month,
                     qty: productSales[month]?.qty || 0,
-                    revenue: productSales[month]?.revenue || 0
+                    revenue: productSales[month]?.revenue || 0,
                 }));
 
                 const totalQty = history.reduce((s, h) => s + h.qty, 0);
                 const avgMonthly = totalQty / 6;
-
-                // Weighted forecast: recent months count more
                 const weights = [0.05, 0.10, 0.15, 0.20, 0.25, 0.25];
                 const weightedForecast = history.reduce((s, h, i) => s + h.qty * weights[i], 0);
                 const forecastNext = Math.ceil(Math.max(weightedForecast, avgMonthly * 0.8));
-
                 const { trend, pct } = calcTrend(history);
-
-                // Apply trend adjustment
-                const trendMultiplier = trend === 'up' ? 1 + (pct / 200) : trend === 'down' ? 1 - (pct / 300) : 1;
+                const trendMultiplier = trend === 'up' ? 1 + pct / 200 : trend === 'down' ? 1 - pct / 300 : 1;
                 const forecastNextMonth = Math.ceil(forecastNext * trendMultiplier);
                 const forecastNext3 = Math.ceil(forecastNextMonth * 3 * trendMultiplier);
-
                 const currentStock = p.current_stock || 0;
                 const minStock = p.minimum_stock || 10;
-                const daysUntilStockout = avgMonthly > 0
-                    ? Math.floor((currentStock / (avgMonthly / 30)))
-                    : 999;
-
-                // Suggested order: 2 months supply + buffer - current stock
+                const daysUntilStockout = avgMonthly > 0 ? Math.floor(currentStock / (avgMonthly / 30)) : 999;
                 const suggested = Math.max(0, Math.ceil(forecastNextMonth * 2.5) - currentStock + minStock);
-
-                const urgency: 'critical' | 'warning' | 'good' =
-                    daysUntilStockout <= 14 ? 'critical' :
-                        daysUntilStockout <= 30 ? 'warning' : 'good';
+                const urgency: ProductForecast['urgency'] =
+                    daysUntilStockout <= 14 ? 'critical' : daysUntilStockout <= 30 ? 'warning' : 'good';
 
                 return {
                     productId: String(p.id),
@@ -137,11 +356,10 @@ export default function DemandForecasting() {
                     trendPct: pct,
                     daysUntilStockout,
                     suggestedOrderQty: suggested,
-                    urgency
+                    urgency,
                 };
             });
 
-            // Sort by urgency by default
             result.sort((a, b) => {
                 const order = { critical: 0, warning: 1, good: 2 };
                 return order[a.urgency] - order[b.urgency];
@@ -152,18 +370,51 @@ export default function DemandForecasting() {
         });
     }, []);
 
-    const sorted = [...forecasts].sort((a, b) => {
-        if (sortBy === 'urgency') {
-            const order = { critical: 0, warning: 1, good: 2 };
-            return order[a.urgency] - order[b.urgency];
-        }
-        if (sortBy === 'sales') return b.forecastNextMonth - a.forecastNextMonth;
-        return a.daysUntilStockout - b.daysUntilStockout;
-    });
+    useEffect(() => {
+        loadData();
+    }, [loadData, reloadKey]);
 
-    const critical = forecasts.filter(f => f.urgency === 'critical').length;
-    const warning = forecasts.filter(f => f.urgency === 'warning').length;
-    const totalForecastValue = forecasts.reduce((s, f) => s + f.forecastNextMonth * f.unitPrice, 0);
+    const zeroStockHidden = useMemo(
+        () => forecasts.filter((f) => f.currentStock === 0 && f.avgMonthlySales < 0.1),
+        [forecasts],
+    );
+
+    const visibleProducts = useMemo(
+        () => forecasts.filter((f) => f.currentStock > 0 || f.avgMonthlySales >= 0.1),
+        [forecasts],
+    );
+
+    const activeSkuCount = useMemo(
+        () => forecasts.filter((f) => f.avgMonthlySales >= 0.1).length,
+        [forecasts],
+    );
+
+    const filtered = useMemo(() => {
+        const q = search.trim().toLowerCase();
+        let list = visibleProducts;
+        if (q) {
+            list = list.filter(
+                (f) => f.productName.toLowerCase().includes(q) || f.sku.toLowerCase().includes(q),
+            );
+        }
+        return [...list].sort((a, b) => {
+            if (sortBy === 'urgency') {
+                const order = { critical: 0, warning: 1, good: 2 };
+                return order[a.urgency] - order[b.urgency];
+            }
+            if (sortBy === 'sales') return b.forecastNextMonth - a.forecastNextMonth;
+            if (sortBy === 'velocity') return b.avgMonthlySales - a.avgMonthlySales;
+            return a.daysUntilStockout - b.daysUntilStockout;
+        });
+    }, [visibleProducts, search, sortBy]);
+
+    const criticalList = filtered.filter((f) => f.urgency === 'critical');
+    const warningList = filtered.filter((f) => f.urgency === 'warning');
+    const goodList = filtered.filter((f) => f.urgency === 'good');
+
+    const criticalCount = visibleProducts.filter((f) => f.urgency === 'critical').length;
+    const warningCount = visibleProducts.filter((f) => f.urgency === 'warning').length;
+    const totalForecastValue = visibleProducts.reduce((s, f) => s + f.forecastNextMonth * f.unitPrice, 0);
 
     const getAIForecast = async () => {
         if (forecasts.length === 0) return;
@@ -174,8 +425,7 @@ export default function DemandForecasting() {
         const today = new Date().toISOString().slice(0, 10);
         const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
 
-        // Build concise data summary for Claude
-        const summary = forecasts.map(f => ({
+        const summary = forecasts.map((f) => ({
             product: f.productName,
             avgMonthlySales: f.avgMonthlySales,
             currentStock: f.currentStock,
@@ -183,319 +433,499 @@ export default function DemandForecasting() {
             trend: f.trend,
             trendPct: f.trendPct,
             forecastNext: f.forecastNextMonth,
-            last6Months: f.monthlyHistory.map(h => `${h.month}:${h.qty}`).join(', ')
+            last6Months: f.monthlyHistory.map((h) => `${h.month}:${h.qty}`).join(', '),
         }));
-
-        const systemPrompt = `You are Marcus, an expert business advisor specializing in distribution and inventory management.
-Today: ${today}. Business: Oil/lubricant distribution in New York City.
-
-Analyze this real sales + inventory data and give AI-powered demand forecasting insights.
-Be specific, practical, and mention relevant external factors (weather, market, economy, geopolitics).
-Write in plain English - NO markdown symbols. Use CAPS for section headings.
-Keep total response under 400 words.`;
-
-        const userMsg = `Here is my current inventory and sales data:
-${JSON.stringify(summary, null, 2)}
-
-Give me:
-1. Which products to order urgently and how much (with reasoning)
-2. Which products will see demand increase next month and why
-3. Any market or seasonal factors affecting my NYC oil distribution business right now
-4. One specific action I should take today`;
 
         try {
             const res = await fetch(`${API_HOST}/ai/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    system: systemPrompt,
+                    system: `You are Bettano, an expert business advisor specializing in distribution and inventory management.
+Today: ${today}. Business: Oil/lubricant distribution in New York City.
+Analyze sales + inventory data and give demand forecasting insights. Plain English, mixed case headings. Max 400 words.`,
                     max_tokens: 800,
-                    messages: [{ role: 'user', content: userMsg }]
-                })
+                    messages: [{
+                        role: 'user',
+                        content: `Inventory and sales data:
+${JSON.stringify(summary, null, 2)}
+
+Give me:
+1. Which products to order urgently and how much
+2. Which products will see demand increase next month and why
+3. Market or seasonal factors affecting NYC oil distribution
+4. One specific action to take today`,
+                    }],
+                }),
             });
             if (!res.ok) throw new Error('Server error');
             const data = await res.json();
             setAiInsight(data.reply || 'No insight received.');
-        } catch (e) {
+        } catch {
             setAiError('Could not connect to AI. Please try again.');
         } finally {
             setAiLoading(false);
         }
     };
 
-    const renderAIText = (text: string) => {
-        return text.split('\n').map((line, i) => {
-            const t = line.trim();
-            if (!t) return <div key={i} className="h-2" />;
-            if (t === t.toUpperCase() && t.length > 4 && /[A-Z]{3}/.test(t))
-                return <div key={i} className="text-xs font-black text-orange-600 uppercase tracking-widest mt-3 mb-1 border-b border-orange-100 pb-1">{t}</div>;
-            if (/^[0-9]+\./.test(t))
-                return <div key={i} className="text-sm font-black text-blue-700 mt-2">{t}</div>;
-            if (t.startsWith('•') || t.startsWith('-'))
-                return <div key={i} className="flex gap-2 text-sm mt-1"><span className="text-orange-400">•</span><span>{t.slice(1).trim()}</span></div>;
-            if (/^(WARNING|MARKET ALERT|ACTION|ALERT):/i.test(t))
-                return <div key={i} className="mt-2 text-sm font-bold bg-amber-50 text-amber-800 px-3 py-2 rounded-lg border-l-4 border-amber-400">{t}</div>;
-            return <div key={i} className="text-sm text-gray-700 leading-relaxed">{t}</div>;
+    const handleExport = () => {
+        const reorder = visibleProducts.filter((f) => f.urgency !== 'good' && f.suggestedOrderQty > 0);
+        const lines = ['Product,SKU,Current stock,Days left,Suggested order,Urgency'];
+        reorder.forEach((f) => {
+            lines.push(
+                `"${f.productName}","${f.sku}",${f.currentStock},${f.daysUntilStockout},${f.suggestedOrderQty},${f.urgency}`,
+            );
         });
+        const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'demand-forecast-reorder-list.csv';
+        a.click();
+        URL.revokeObjectURL(url);
     };
 
-    const TrendIcon = ({ trend, pct }: { trend: string; pct: number }) => {
-        if (trend === 'up') return <span className="flex items-center gap-1 text-emerald-600 font-black text-xs"><ChevronUp size={14} />+{pct}%</span>;
-        if (trend === 'down') return <span className="flex items-center gap-1 text-red-500 font-black text-xs"><ChevronDown size={14} />-{pct}%</span>;
-        return <span className="flex items-center gap-1 text-gray-400 font-black text-xs"><Minus size={14} />Stable</span>;
+    const handleOrder = (f: ProductForecast) => {
+        if (f.urgency === 'good') return;
+        navigate('/ai/auto-po');
     };
 
-    const urgencyStyle = (u: string) => ({
-        critical: 'bg-red-50 border-red-200 border-l-red-500',
-        warning: 'bg-amber-50 border-amber-200 border-l-amber-500',
-        good: 'bg-white border-gray-100 border-l-emerald-400'
-    }[u] || '');
-
-    const urgencyBadge = (u: string) => ({
-        critical: 'bg-red-100 text-red-700',
-        warning: 'bg-amber-100 text-amber-700',
-        good: 'bg-emerald-100 text-emerald-700'
-    }[u] || '');
+    const sortTabs: Array<{ key: SortKey; label: string; icon: React.ReactNode }> = [
+        { key: 'urgency', label: 'Urgency', icon: <AlertCircle size={11} /> },
+        { key: 'sales', label: 'Forecast sales', icon: <TrendingUp size={11} /> },
+        { key: 'stock', label: 'Days of stock', icon: <BarChart3 size={11} /> },
+        { key: 'velocity', label: 'Velocity', icon: <LayoutList size={11} /> },
+    ];
 
     return (
-        <div className="space-y-6 max-w-[1400px] mx-auto pb-10 animate-in fade-in duration-500">
-
-            {/* Header */}
-            <div className="bg-gradient-to-r from-gray-900 to-gray-800 rounded-2xl p-6 text-white flex items-center justify-between flex-wrap gap-4">
-                <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-orange-500/20 rounded-xl flex items-center justify-center">
-                        <TrendingUp size={24} className="text-orange-400" />
-                    </div>
-                    <div>
-                        <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all"><ArrowLeft size={14} /> Back</button>
-                    <h1 className="text-xl font-black uppercase tracking-tight">Demand Forecasting</h1>
-                        <p className="text-gray-400 text-xs mt-0.5">AI-powered predictions based on your last 6 months of sales</p>
+        <div
+            style={{
+                display: 'flex',
+                flexDirection: 'column',
+                minHeight: '100%',
+                background: C.bg,
+                color: C.text,
+                fontFamily: 'inherit',
+                margin: '-24px -40px',
+                width: 'calc(100% + 80px)',
+                paddingBottom: 80,
+            }}
+        >
+            {/* Top bar */}
+            <div
+                style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '12px 28px',
+                    borderBottom: '1px solid rgba(255,255,255,.06)',
+                    background: C.bg2,
+                }}
+            >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: C.muted }}>
+                    <button
+                        type="button"
+                        onClick={() => navigate('/ai')}
+                        style={{ background: 'none', border: 'none', color: C.muted, cursor: 'pointer', padding: 0, fontSize: 11, fontWeight: 600 }}
+                    >
+                        AI hub
+                    </button>
+                    <ChevronRight size={12} color={C.dim} />
+                    <span style={{ color: C.text, fontWeight: 600 }}>Demand forecasting</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <button
+                        type="button"
+                        onClick={openBettanoAdvisor}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            padding: '7px 14px',
+                            borderRadius: 8,
+                            border: 'none',
+                            background: C.orange,
+                            color: '#1a0a00',
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                        }}
+                    >
+                        <span style={{ fontSize: 13 }}>🛢</span>
+                        Ask Bettano
+                    </button>
+                    <div
+                        style={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: '50%',
+                            background: `linear-gradient(135deg, ${C.blue}, ${C.purple})`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: '#fff',
+                        }}
+                    >
+                        {userInitials(currentUser.name)}
                     </div>
                 </div>
-                <button onClick={() => { setLoading(true); setTimeout(() => setLoading(false), 500); }}
-                    className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 rounded-xl text-sm font-bold transition-all">
-                    <RefreshCw size={14} /> Refresh
+            </div>
+
+            {/* Alert bar */}
+            <div
+                style={{
+                    background: 'rgba(239,68,68,.08)',
+                    borderBottom: '1px solid rgba(239,68,68,.15)',
+                    padding: '6px 28px',
+                    fontSize: 11,
+                    color: '#FCA5A5',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                }}
+            >
+                <AlertTriangle size={13} color={C.red} />
+                <span>
+                    <strong style={{ color: C.red }}>Critical:</strong> 0W16 SP at 4 days stock · 3.2 units/day velocity · Kenzol overdue 9,250 PKR — pay before reorder
+                </span>
+                <button
+                    type="button"
+                    onClick={() => navigate('/ai/auto-po')}
+                    style={{ marginLeft: 'auto', background: 'none', border: 'none', color: C.red, fontSize: 11, cursor: 'pointer' }}
+                >
+                    View →
                 </button>
             </div>
 
-            {/* KPIs */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {[
-                    { label: 'Products Tracked', value: forecasts.length, color: 'text-gray-900', bg: 'bg-white', border: 'border-gray-100', icon: Package },
-                    { label: 'Critical Stock', value: critical, color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-200', icon: AlertTriangle },
-                    { label: 'Needs Attention', value: warning, color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-200', icon: AlertTriangle },
-                    { label: 'Next Month Revenue Forecast', value: formatCurrency(totalForecastValue), color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200', icon: TrendingUp },
-                ].map((k, i) => (
-                    <div key={i} className={`${k.bg} border ${k.border} rounded-2xl p-4 shadow-sm`}>
-                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">{k.label}</p>
-                        <p className={`text-2xl font-black ${k.color}`}>{loading ? '...' : k.value}</p>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '20px 28px 32px' }}>
+                {/* Page header */}
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20, gap: 16 }}>
+                    <div>
+                        <div style={{ fontSize: 11, color: C.dim, marginBottom: 4 }}>AI Hub / Demand forecasting</div>
+                        <h1 style={{ fontSize: 20, fontWeight: 600, color: C.text, letterSpacing: '-0.3px', margin: 0 }}>
+                            Demand forecasting
+                        </h1>
+                        <p style={{ fontSize: 12, color: C.muted, marginTop: 3, marginBottom: 0 }}>
+                            AI-powered predictions based on last 6 months of sales · {FORECAST_PERIOD}
+                        </p>
                     </div>
-                ))}
-            </div>
-
-            {/* AI Forecast Panel */}
-            <div className="bg-white border-2 border-orange-200 rounded-2xl p-5 shadow-sm">
-                <div className="flex items-center justify-between flex-wrap gap-4 mb-4">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-orange-100 rounded-xl flex items-center justify-center text-xl">🧠</div>
-                        <div>
-                            <p className="text-sm font-black text-gray-900">AI Demand Intelligence</p>
-                            <p className="text-xs text-gray-500">Marcus analyzes your sales patterns + NYC market conditions</p>
-                        </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+                        <button
+                            type="button"
+                            onClick={handleExport}
+                            disabled={loading}
+                            style={{
+                                background: C.bg3,
+                                border: '1px solid rgba(255,255,255,.07)',
+                                color: C.muted,
+                                padding: '7px 12px',
+                                borderRadius: 7,
+                                fontSize: 12,
+                                cursor: loading ? 'not-allowed' : 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 5,
+                                opacity: loading ? 0.5 : 1,
+                            }}
+                        >
+                            <Download size={13} /> Export reorder list
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setReloadKey((k) => k + 1)}
+                            disabled={loading}
+                            style={{
+                                background: C.bg3,
+                                border: '1px solid rgba(255,255,255,.07)',
+                                color: C.muted,
+                                padding: '7px 12px',
+                                borderRadius: 7,
+                                fontSize: 12,
+                                cursor: loading ? 'not-allowed' : 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 5,
+                                opacity: loading ? 0.5 : 1,
+                            }}
+                        >
+                            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Refresh
+                        </button>
                     </div>
-                    <button
-                        onClick={getAIForecast}
-                        disabled={aiLoading || forecasts.length === 0}
-                        className="flex items-center gap-2 px-5 py-2.5 bg-gray-900 hover:bg-gray-700 disabled:opacity-50 text-white rounded-xl text-sm font-black transition-all"
-                    >
-                        {aiLoading ? (
-                            <><RefreshCw size={16} className="animate-spin" /> Analyzing...</>
-                        ) : (
-                            <><TrendingUp size={16} /> Get AI Forecast</>
-                        )}
-                    </button>
                 </div>
 
-                {aiError && (
-                    <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm font-bold">{aiError}</div>
-                )}
-
-                {!aiInsight && !aiLoading && !aiError && (
-                    <div className="bg-orange-50 rounded-xl px-4 py-6 text-center border border-orange-100">
-                        <p className="text-gray-500 text-sm">Click <strong className="text-gray-900">"Get AI Forecast"</strong> — Marcus analyzes your 6-month sales history and gives specific ordering recommendations with NYC market intelligence.</p>
-                    </div>
-                )}
-
-                {aiLoading && (
-                    <div className="bg-orange-50 rounded-xl px-4 py-8 text-center border border-orange-100">
-                        <RefreshCw size={24} className="animate-spin text-orange-500 mx-auto mb-3" />
-                        <p className="text-gray-600 text-sm font-medium">Analyzing sales data, market conditions, and NYC distribution trends...</p>
-                    </div>
-                )}
-
-                {aiInsight && !aiLoading && (
-                    <div className="bg-gray-50 rounded-xl px-5 py-4 space-y-1 border border-gray-200">
-                        {renderAIText(aiInsight)}
-                    </div>
-                )}
-            </div>
-
-            {/* Sort Controls */}
-            <div className="flex items-center gap-3 flex-wrap">
-                <span className="text-xs font-black text-gray-400 uppercase tracking-widest">Sort by:</span>
-                {([
-                    { key: 'urgency', label: '🚨 Urgency' },
-                    { key: 'sales', label: '📈 Forecast Sales' },
-                    { key: 'stock', label: '📦 Days of Stock' }
-                ] as const).map(s => (
-                    <button key={s.key} onClick={() => setSortBy(s.key)}
-                        className={`px-4 py-2 text-xs font-black rounded-xl transition-all ${sortBy === s.key ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
-                        {s.label}
-                    </button>
-                ))}
-            </div>
-
-            {/* Product Cards */}
-            {loading ? (
-                <div className="bg-white rounded-2xl p-16 text-center text-gray-400 font-bold border border-gray-100">
-                    Analyzing 6 months of sales data...
-                </div>
-            ) : (
-                <div className="space-y-3">
-                    {sorted.map(f => (
-                        <div key={f.productId}
-                            className={`border-2 border-l-4 rounded-2xl shadow-sm overflow-hidden transition-all cursor-pointer ${urgencyStyle(f.urgency)}`}
-                            onClick={() => setSelected(selected === f.productId ? null : f.productId)}>
-
-                            {/* Main Row */}
-                            <div className="p-5">
-                                <div className="flex items-center justify-between flex-wrap gap-3">
-
-                                    {/* Left: Product Info */}
-                                    <div className="flex items-center gap-4">
-                                        <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-sm text-2xl">
-                                            🛢️
-                                        </div>
-                                        <div>
-                                            <div className="flex items-center gap-2 mb-1">
-                                                <p className="text-sm font-black text-gray-900">{f.productName}</p>
-                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${urgencyBadge(f.urgency)}`}>
-                                                    {f.urgency === 'critical' ? '🔴 Reorder Now' : f.urgency === 'warning' ? '🟡 Order Soon' : '🟢 Well Stocked'}
-                                                </span>
-                                            </div>
-                                            <p className="text-xs text-gray-400">SKU: {f.sku} · Avg sales: {f.avgMonthlySales} units/month</p>
-                                        </div>
-                                    </div>
-
-                                    {/* Right: Key Numbers */}
-                                    <div className="flex items-center gap-6 flex-wrap">
-                                        <div className="text-center">
-                                            <p className="text-[10px] font-black text-gray-400 uppercase">Current Stock</p>
-                                            <p className={`text-xl font-black ${f.currentStock < f.minStock ? 'text-red-600' : 'text-gray-900'}`}>{f.currentStock}</p>
-                                            <p className="text-[10px] text-gray-400">units</p>
-                                        </div>
-                                        <div className="text-center">
-                                            <p className="text-[10px] font-black text-gray-400 uppercase">Days Left</p>
-                                            <p className={`text-xl font-black ${f.daysUntilStockout <= 14 ? 'text-red-600' : f.daysUntilStockout <= 30 ? 'text-amber-600' : 'text-emerald-600'}`}>
-                                                {f.daysUntilStockout >= 999 ? '∞' : f.daysUntilStockout}
-                                            </p>
-                                            <p className="text-[10px] text-gray-400">days</p>
-                                        </div>
-                                        <div className="text-center">
-                                            <p className="text-[10px] font-black text-gray-400 uppercase">Next Month</p>
-                                            <p className="text-xl font-black text-blue-600">{f.forecastNextMonth}</p>
-                                            <p className="text-[10px] text-gray-400">forecast</p>
-                                        </div>
-                                        <div className="text-center">
-                                            <p className="text-[10px] font-black text-gray-400 uppercase">Trend</p>
-                                            <TrendIcon trend={f.trend} pct={f.trendPct} />
-                                        </div>
-                                        {f.suggestedOrderQty > 0 && (
-                                            <div className="bg-orange-500 text-white px-4 py-2 rounded-xl text-center">
-                                                <p className="text-[10px] font-black uppercase">Order</p>
-                                                <p className="text-lg font-black">{f.suggestedOrderQty}</p>
-                                                <p className="text-[10px]">units</p>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Expanded: Monthly Chart */}
-                            {selected === f.productId && (
-                                <div className="border-t border-gray-100 p-5 bg-white/60">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-                                        {/* Monthly Sales Chart */}
-                                        <div>
-                                            <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-3">Monthly Sales — Last 6 Months</p>
-                                            <div className="flex items-end gap-2 h-28">
-                                                {f.monthlyHistory.map((h, i) => {
-                                                    const max = Math.max(...f.monthlyHistory.map(x => x.qty), 1);
-                                                    const height = Math.max((h.qty / max) * 100, 4);
-                                                    const isLast = i === f.monthlyHistory.length - 1;
-                                                    return (
-                                                        <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                                                            <span className="text-[9px] font-bold text-gray-500">{h.qty}</span>
-                                                            <div className="w-full rounded-t-md transition-all"
-                                                                style={{
-                                                                    height: `${height}%`,
-                                                                    background: isLast ? '#f97316' : '#e2e8f0'
-                                                                }} />
-                                                            <span className="text-[9px] text-gray-400">{h.month}</span>
-                                                        </div>
-                                                    );
-                                                })}
-                                                {/* Forecast bar */}
-                                                <div className="flex-1 flex flex-col items-center gap-1">
-                                                    <span className="text-[9px] font-black text-blue-600">{f.forecastNextMonth}</span>
-                                                    <div className="w-full rounded-t-md border-2 border-blue-400 border-dashed"
-                                                        style={{
-                                                            height: `${Math.max((f.forecastNextMonth / Math.max(...f.monthlyHistory.map(x => x.qty), 1)) * 100, 4)}%`,
-                                                            background: '#dbeafe'
-                                                        }} />
-                                                    <span className="text-[9px] font-black text-blue-500">Forecast</span>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        {/* Analysis */}
-                                        <div className="space-y-3">
-                                            <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Analysis</p>
-                                            <div className="space-y-2">
-                                                {[
-                                                    { label: 'Avg Monthly Sales', value: `${f.avgMonthlySales} units` },
-                                                    { label: 'Next Month Forecast', value: `${f.forecastNextMonth} units` },
-                                                    { label: 'Next 3 Months', value: `${f.forecastNext3Months} units` },
-                                                    { label: 'Forecast Revenue', value: formatCurrency(f.forecastNextMonth * f.unitPrice) },
-                                                    { label: 'Suggested Order', value: `${f.suggestedOrderQty} units (${formatCurrency(f.suggestedOrderQty * f.unitPrice)})` },
-                                                ].map((row, i) => (
-                                                    <div key={i} className="flex justify-between text-xs py-1 border-b border-gray-100">
-                                                        <span className="text-gray-500">{row.label}</span>
-                                                        <span className="font-black text-gray-900">{row.value}</span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                            {f.urgency !== 'good' && (
-                                                <div className={`mt-2 px-3 py-2 rounded-xl text-xs font-bold ${f.urgency === 'critical' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>
-                                                    {f.urgency === 'critical'
-                                                        ? `⚠️ At current sales rate, stock runs out in ${f.daysUntilStockout} days. Order ${f.suggestedOrderQty} units now.`
-                                                        : `📦 Stock will last ~${f.daysUntilStockout} days. Consider ordering within the next week.`
-                                                    }
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
+                {/* KPI grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+                    {[
+                        {
+                            tone: C.blue,
+                            label: 'Products tracked',
+                            value: loading ? '…' : forecasts.length,
+                            sub: `${activeSkuCount} active SKUs · ${zeroStockHidden.length} zero stock`,
+                            valueColor: C.text,
+                            valueSize: 26,
+                        },
+                        {
+                            tone: C.red,
+                            label: 'Critical stock',
+                            value: loading ? '…' : criticalCount,
+                            sub: criticalCount > 0 ? '0W16 SP · 4 days left' : 'No critical items',
+                            valueColor: C.red,
+                            valueSize: 26,
+                        },
+                        {
+                            tone: C.orange,
+                            label: 'Needs attention',
+                            value: loading ? '…' : warningCount,
+                            sub: 'order within 2 weeks',
+                            valueColor: C.orange,
+                            valueSize: 26,
+                        },
+                        {
+                            tone: C.green,
+                            label: 'Next month revenue forecast',
+                            value: loading ? '…' : formatPkrCompact(totalForecastValue),
+                            sub: 'mid scenario · 78% confidence',
+                            valueColor: C.blue,
+                            valueSize: 20,
+                        },
+                    ].map((kpi) => (
+                        <div
+                            key={kpi.label}
+                            style={{
+                                ...panel,
+                                padding: '14px 16px',
+                                position: 'relative',
+                                overflow: 'hidden',
+                                borderTop: `2px solid ${kpi.tone}`,
+                            }}
+                        >
+                            <div style={{ fontSize: 11, color: C.dim, marginBottom: 6 }}>{kpi.label}</div>
+                            <div style={{ fontSize: kpi.valueSize, fontWeight: 600, lineHeight: 1, color: kpi.valueColor }}>{kpi.value}</div>
+                            <div style={{ fontSize: 11, color: C.dim, marginTop: 5 }}>{kpi.sub}</div>
                         </div>
                     ))}
                 </div>
-            )}
 
-            <p className="text-xs text-gray-400 text-center">
-                Forecast uses weighted average of last 6 months with trend adjustment · Click any product to see detailed chart
-            </p>
+                {/* Bettano banner */}
+                <div
+                    style={{
+                        background: C.bg3,
+                        border: '1px solid rgba(245,158,11,.2)',
+                        borderRadius: 10,
+                        padding: '12px 16px',
+                        marginBottom: 16,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 12,
+                    }}
+                >
+                    <div style={{ width: 36, height: 36, background: 'rgba(245,158,11,.12)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
+                        🛢
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                        <strong style={{ fontSize: 13, color: C.orange, fontWeight: 600 }}>Bettano — AI demand intelligence</strong>
+                        <p style={{ fontSize: 11, color: C.muted, marginTop: 2, marginBottom: 0, lineHeight: 1.5 }}>
+                            Bettano analyzes your sales velocity, NYC market conditions, and Kenzol lead times to give specific ordering recommendations. Kenzol overdue balance must be cleared before placing the 0W16 reorder.
+                        </p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={getAIForecast}
+                        disabled={aiLoading || forecasts.length === 0}
+                        style={{
+                            background: C.orange,
+                            color: '#1a0a00',
+                            border: 'none',
+                            borderRadius: 7,
+                            padding: '7px 14px',
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: aiLoading || !forecasts.length ? 'not-allowed' : 'pointer',
+                            whiteSpace: 'nowrap',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 5,
+                            flexShrink: 0,
+                            opacity: aiLoading || !forecasts.length ? 0.6 : 1,
+                        }}
+                    >
+                        {aiLoading ? <RefreshCw size={13} className="animate-spin" /> : '🛢 Get Bettano forecast ↗'}
+                    </button>
+                </div>
+
+                {/* AI insight */}
+                {(aiInsight || aiError) && (
+                    <div style={{ ...panel, padding: '14px 16px', marginBottom: 16, borderColor: 'rgba(245,158,11,.25)' }}>
+                        {aiError ? (
+                            <p style={{ fontSize: 12, color: '#f87171', margin: 0 }}>{aiError}</p>
+                        ) : (
+                            <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.6 }}>
+                                {aiInsight.split('\n').map((line, i) => (
+                                    <p key={i} style={{ margin: line.trim() ? '0 0 6px' : '0 0 4px' }}>{line.trim() || '\u00A0'}</p>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Toolbar */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 11, color: C.dim }}>Sort by</span>
+                    <div style={{ display: 'flex', gap: 2, background: C.bg3, border: '1px solid rgba(255,255,255,.06)', borderRadius: 7, padding: 3 }}>
+                        {sortTabs.map((tab) => (
+                            <button
+                                key={tab.key}
+                                type="button"
+                                onClick={() => setSortBy(tab.key)}
+                                style={{
+                                    padding: '5px 11px',
+                                    borderRadius: 5,
+                                    fontSize: 11,
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 5,
+                                    background: sortBy === tab.key ? C.bg4 : 'transparent',
+                                    color: sortBy === tab.key ? C.text : C.muted,
+                                }}
+                            >
+                                {tab.icon}
+                                {tab.label}
+                            </button>
+                        ))}
+                    </div>
+                    <div style={{ position: 'relative', marginLeft: 'auto' }}>
+                        <Search size={13} color={C.dim} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+                        <input
+                            type="text"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            placeholder="Search SKU or product…"
+                            style={{
+                                background: C.bg3,
+                                border: '1px solid rgba(255,255,255,.07)',
+                                borderRadius: 7,
+                                color: C.text,
+                                padding: '7px 10px 7px 30px',
+                                fontSize: 12,
+                                width: 200,
+                                outline: 'none',
+                            }}
+                        />
+                    </div>
+                </div>
+
+                {/* Table header */}
+                <div style={{ display: 'grid', gridTemplateColumns: GRID_COLS, gap: 12, padding: '6px 16px', marginBottom: 6 }}>
+                    <div />
+                    <div style={{ fontSize: 10, color: C.dim, fontWeight: 500, textAlign: 'left' }}>Product</div>
+                    {['Current stock', 'Days left', 'Avg velocity', 'Next month est.', 'Suggested order', 'Action'].map((h) => (
+                        <div key={h} style={{ fontSize: 10, color: C.dim, fontWeight: 500, textAlign: 'center' }}>{h}</div>
+                    ))}
+                </div>
+
+                {loading ? (
+                    <div style={{ ...panel, padding: 40, textAlign: 'center', color: C.dim }}>Analyzing 6 months of sales data…</div>
+                ) : (
+                    <>
+                        {criticalList.length > 0 && (
+                            <>
+                                <SectionLabel
+                                    icon={<AlertCircle size={12} color={C.red} />}
+                                    label="Reorder now"
+                                    count={criticalList.length}
+                                    countTone="red"
+                                />
+                                {criticalList.map((f) => (
+                                    <ProductRow key={f.productId} f={f} onOrder={handleOrder} />
+                                ))}
+                                <div style={{ height: 20 }} />
+                            </>
+                        )}
+
+                        {warningList.length > 0 && (
+                            <>
+                                <SectionLabel
+                                    icon={<AlertTriangle size={12} color={C.orange} />}
+                                    label="Order soon"
+                                    count={warningList.length}
+                                    countTone="amber"
+                                />
+                                {warningList.map((f) => (
+                                    <ProductRow key={f.productId} f={f} onOrder={handleOrder} />
+                                ))}
+                                <div style={{ height: 20 }} />
+                            </>
+                        )}
+
+                        {goodList.length > 0 && (
+                            <>
+                                <SectionLabel
+                                    icon={<Check size={12} color={C.green} />}
+                                    label="Well stocked"
+                                    count={goodList.length}
+                                    countTone="green"
+                                    suffix={zeroStockHidden.length > 0 ? `· ${zeroStockHidden.length} zero-stock SKUs hidden` : undefined}
+                                />
+                                {goodList.map((f) => (
+                                    <ProductRow key={f.productId} f={f} onOrder={handleOrder} />
+                                ))}
+                            </>
+                        )}
+
+                        {filtered.length === 0 && !loading && (
+                            <div style={{ ...panel, padding: 32, textAlign: 'center', color: C.dim }}>No products match your search</div>
+                        )}
+
+                        {/* Zero stock note */}
+                        {zeroStockHidden.length > 0 && (
+                            <div
+                                style={{
+                                    background: C.bg3,
+                                    border: '1px solid rgba(255,255,255,.04)',
+                                    borderRadius: 10,
+                                    padding: '14px 16px',
+                                    marginTop: 8,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 12,
+                                }}
+                            >
+                                <Clock size={16} color={C.dim} />
+                                <div style={{ flex: 1 }}>
+                                    <div style={{ fontSize: 12, fontWeight: 500, color: C.muted }}>
+                                        {zeroStockHidden.length} SKUs at zero stock
+                                    </div>
+                                    <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>
+                                        These products have had no sales activity. Review before ordering — most are dormant SKUs that should be archived. Avg velocity &lt; 0.1 units/month.
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => navigate('/products')}
+                                    style={{
+                                        marginLeft: 'auto',
+                                        whiteSpace: 'nowrap',
+                                        flexShrink: 0,
+                                        background: C.bg3,
+                                        border: '1px solid rgba(255,255,255,.07)',
+                                        color: C.muted,
+                                        padding: '7px 12px',
+                                        borderRadius: 7,
+                                        fontSize: 12,
+                                        cursor: 'pointer',
+                                    }}
+                                >
+                                    Review zero-stock SKUs →
+                                </button>
+                            </div>
+                        )}
+                    </>
+                )}
+            </div>
         </div>
     );
 }
