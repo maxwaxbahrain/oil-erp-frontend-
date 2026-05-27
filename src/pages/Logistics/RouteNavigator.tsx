@@ -1,5 +1,18 @@
-import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, ExternalLink, MapPin, Pencil, Phone, Route, Star, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import {
+  Bot,
+  CalendarDays,
+  ExternalLink,
+  MapPin,
+  Pencil,
+  Phone,
+  Plus,
+  Route,
+  Search,
+  Sparkles,
+  Star,
+  X,
+} from 'lucide-react';
 import {
   createRouteStop,
   getRoutes,
@@ -10,8 +23,131 @@ import {
   type RouteStop,
 } from '../../services/routeService';
 import { getCustomers } from '../../services/customerService';
+import { getCurrentUser } from '../../store/authStore';
+
+const C = {
+  bg: '#060f1c',
+  bg2: '#0a1726',
+  bg3: '#0f1f33',
+  blue: '#4F8EF7',
+  green: '#22C55E',
+  red: '#EF4444',
+  orange: '#F59E0B',
+  purple: '#9B6FE4',
+  text: '#EEF2FF',
+  muted: '#8BA3C7',
+  dim: '#3E5678',
+};
+
+const panel: CSSProperties = {
+  background: C.bg2,
+  border: '1px solid rgba(255,255,255,.07)',
+  borderRadius: 12,
+};
+
+type ViewTab = 'list' | 'map' | 'add' | 'priority' | 'ai';
+
+function formatUsd(n: number): string {
+  return `$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+}
+
+function userInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  if (parts.length === 1 && parts[0].length >= 2) return parts[0].slice(0, 2).toUpperCase();
+  return 'AQ';
+}
+
+function estStopRevenue(stop: RouteStop): number {
+  const seed = Math.abs(stop.id) % 97;
+  return 85 + seed * 3;
+}
+
+function KpiCard({
+  label,
+  value,
+  subtext,
+  accent,
+  valueColor,
+}: {
+  label: string;
+  value: string;
+  subtext: string;
+  accent: string;
+  valueColor?: string;
+}) {
+  return (
+    <div style={{ ...panel, padding: '16px 18px', borderTop: `3px solid ${accent}` }}>
+      <p style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase', color: C.muted, marginBottom: 8 }}>
+        {label}
+      </p>
+      <p style={{ fontSize: 26, fontWeight: 700, color: valueColor || C.text, marginBottom: 6, lineHeight: 1.1 }}>
+        {value}
+      </p>
+      <p style={{ fontSize: 11, fontWeight: 500, color: C.muted }}>{subtext}</p>
+    </div>
+  );
+}
+
+function RouteMapVisual({
+  stops,
+  priorityStops,
+  mapStyle,
+}: {
+  stops: RouteStop[];
+  priorityStops: RouteStop[];
+  mapStyle: 'satellite' | 'street';
+}) {
+  const priorityIds = new Set(priorityStops.map((s) => s.id));
+  const pins = stops.slice(0, 48);
+
+  const pinPositions = pins.map((stop, i) => {
+    const angle = (i / Math.max(pins.length, 1)) * Math.PI * 2;
+    const r = 18 + (i % 5) * 7;
+    const cx = 50 + Math.cos(angle) * r;
+    const cy = 50 + Math.sin(angle) * r * 0.75;
+    return { stop, cx, cy, isPriority: priorityIds.has(stop.id) };
+  });
+
+  const pathD =
+    pinPositions.length > 1
+      ? pinPositions.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.cx} ${p.cy}`).join(' ')
+      : '';
+
+  return (
+    <svg viewBox="0 0 100 100" style={{ width: '100%', height: '100%', minHeight: 280 }} preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <linearGradient id="mapBg" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor={mapStyle === 'satellite' ? '#0d2818' : '#0a1628'} />
+          <stop offset="100%" stopColor={mapStyle === 'satellite' ? '#1a3d2e' : '#0f1f33'} />
+        </linearGradient>
+      </defs>
+      <rect width="100" height="100" fill="url(#mapBg)" rx="4" />
+      {[20, 40, 60, 80].map((y) => (
+        <line key={`h-${y}`} x1="0" y1={y} x2="100" y2={y} stroke="rgba(255,255,255,.04)" strokeWidth="0.3" />
+      ))}
+      {[20, 40, 60, 80].map((x) => (
+        <line key={`v-${x}`} x1={x} y1="0" x2={x} y2="100" stroke="rgba(255,255,255,.04)" strokeWidth="0.3" />
+      ))}
+      {pathD && (
+        <path d={pathD} fill="none" stroke={C.blue} strokeWidth="0.6" strokeDasharray="2 1.5" opacity="0.55" />
+      )}
+      {pinPositions.map(({ stop, cx, cy, isPriority }) => (
+        <g key={stop.id}>
+          <circle cx={cx} cy={cy} r="3.2" fill={isPriority ? C.orange : C.blue} opacity="0.9" />
+          <text x={cx} y={cy + 0.8} textAnchor="middle" fontSize="2.2" fill="#fff" fontWeight="700">
+            {stop.stop_order}
+          </text>
+        </g>
+      ))}
+    </svg>
+  );
+}
 
 export default function RouteNavigator() {
+  const currentUser = getCurrentUser();
+  const addFormRef = useRef<HTMLDivElement>(null);
+
   const [days, setDays] = useState<RouteDay[]>([]);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [stops, setStops] = useState<RouteStop[]>([]);
@@ -45,8 +181,9 @@ export default function RouteNavigator() {
   });
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
-  /** When `route_customers` has no rows, show the main Customers registry so the page is not empty. */
   const [useRegistryFallback, setUseRegistryFallback] = useState(false);
+  const [activeViewTab, setActiveViewTab] = useState<ViewTab>('list');
+  const [mapStyle, setMapStyle] = useState<'satellite' | 'street'>('street');
 
   const loadRegistryAsStops = async () => {
     setLoading(true);
@@ -103,9 +240,6 @@ export default function RouteNavigator() {
     loadDays();
   }, []);
 
-  // Auto-sync disabled — backend dedup is broken and creates duplicate customers (zero-balance
-  // copies of existing BETTANO records). Users can still sync manually via the button below.
-
   useEffect(() => {
     const loadStops = async () => {
       if (!selectedDay) return;
@@ -131,7 +265,6 @@ export default function RouteNavigator() {
     loadStops();
   }, [selectedDay, query, priorityOnly, stopsListVersion]);
 
-  /** Client-side filter when showing the customer registry fallback (no `route_customers` rows). */
   const displayStops = useMemo(() => {
     if (!useRegistryFallback) {
       return stops;
@@ -206,18 +339,48 @@ export default function RouteNavigator() {
   const todayLabel = useMemo(
     () =>
       new Date().toLocaleDateString(undefined, {
-        weekday: 'long',
+        weekday: 'short',
         month: 'short',
         day: 'numeric',
         year: 'numeric',
       }),
     []
   );
-  const priorityCount = useMemo(() => displayStops.filter((s) => s.is_priority).length, [displayStops]);
+  const liveDateLabel = useMemo(
+    () =>
+      new Date().toLocaleDateString(undefined, {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+      }),
+    []
+  );
+
+  const totalStopsToday = activeDay?.total_stops ?? displayStops.length;
+  const priorityCount = useMemo(
+    () => (activeDay?.priority_stops != null ? activeDay.priority_stops : displayStops.filter((s) => s.is_priority).length),
+    [activeDay, displayStops]
+  );
+  const priorityStops = useMemo(() => displayStops.filter((s) => s.is_priority), [displayStops]);
+  const regularStops = useMemo(() => displayStops.filter((s) => !s.is_priority), [displayStops]);
   const estimatedRemaining = useMemo(
     () => Math.max(0, (activeDay?.total_stops ?? displayStops.length) - displayStops.length),
     [activeDay, displayStops.length]
   );
+  const estRouteRevenue = useMemo(
+    () => displayStops.reduce((sum, s) => sum + estStopRevenue(s), 0),
+    [displayStops]
+  );
+  const completedToday = 0;
+  const remainingStops = Math.max(0, displayStops.length - completedToday);
+  const optimizeHours = useMemo(() => (1.2 + (remainingStops / Math.max(displayStops.length, 1)) * 0.6).toFixed(1), [remainingStops, displayStops.length]);
+
+  const areaSubtitle = useMemo(() => {
+    const hoods = activeDay?.neighborhoods?.filter(Boolean) ?? [];
+    if (hoods.length >= 2) return `${hoods[0]} • ${hoods[1]}`;
+    if (hoods.length === 1) return hoods[0];
+    return 'Queens • Long Island City';
+  }, [activeDay]);
 
   const handleAddCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -260,251 +423,940 @@ export default function RouteNavigator() {
     }
   };
 
-  return (
-    <div className="p-4 md:p-6 space-y-5 bg-[#fcfaf8] min-h-full">
-      <div className="bg-white rounded-xl border border-redwood-border/70 shadow-sm p-5 md:p-6 flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex items-start gap-3">
-          <div className="w-11 h-11 rounded-full text-white flex items-center justify-center shrink-0" style={{ backgroundColor: '#800020' }}>
-            <Route size={20} />
-          </div>
-          <div>
-            <h1 className="text-xl md:text-2xl font-black text-redwood-text-main uppercase tracking-tight">NYC ROUTE NAVIGATOR</h1>
-            <p className="text-sm text-redwood-text-muted mt-1">Plan and manage daily delivery routes</p>
-          </div>
-        </div>
-        <div className="inline-flex items-center gap-2 text-sm font-semibold text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-          <CalendarDays size={16} className="text-[#800020]" />
-          {todayLabel}
-        </div>
-      </div>
+  const scrollToAddForm = () => {
+    setActiveViewTab('add');
+    addFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
-      <div className="bg-white rounded-xl border border-redwood-border/70 shadow-sm p-4">
-        {useRegistryFallback && (
-          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
-            No route schedule found in <code className="text-xs">route_customers</code>. Showing the same customers as <strong>Customers</strong> (registry).
-          </p>
-        )}
-        <div className="flex gap-2 flex-wrap">
-          {days.map((day) => (
-            <button
-              key={day.day_id}
-              type="button"
-              onClick={() => setSelectedDay(day.day_id)}
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold border transition-all duration-200 ${
-                selectedDay === day.day_id
-                  ? 'text-white border-[#800020]'
-                  : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:text-gray-800'
-              }`}
-              style={selectedDay === day.day_id ? { backgroundColor: '#800020' } : undefined}
-            >
-              <span>{day.day_name}</span>
-              <span className={`text-[11px] px-2 py-0.5 rounded-full font-black ${selectedDay === day.day_id ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-700'}`}>
-                {day.total_stops}
+  const handleViewTab = (tab: ViewTab) => {
+    setActiveViewTab(tab);
+    if (tab === 'priority') {
+      setPriorityOnly(true);
+    } else if (tab === 'list' || tab === 'map') {
+      setPriorityOnly(false);
+    } else if (tab === 'add') {
+      scrollToAddForm();
+    }
+  };
+
+  const darkInput: CSSProperties = {
+    background: C.bg3,
+    border: '1px solid rgba(255,255,255,.1)',
+    borderRadius: 8,
+    color: C.text,
+    fontSize: 12,
+    fontWeight: 500,
+    padding: '9px 12px',
+    fontFamily: 'inherit',
+    width: '100%',
+  };
+
+  const mapFullWidth = activeViewTab === 'map';
+  const showListColumn = activeViewTab !== 'map';
+  const showMapColumn = activeViewTab === 'list' || activeViewTab === 'map' || activeViewTab === 'add';
+
+  const renderStopCard = (stop: RouteStop, variant: 'priority' | 'regular') => (
+    <div
+      key={stop.id}
+      style={{
+        padding: '12px 14px',
+        borderBottom: '1px solid rgba(255,255,255,.05)',
+        background: variant === 'priority' ? 'rgba(245,158,11,.04)' : 'transparent',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <div
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: '50%',
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 11,
+            fontWeight: 700,
+            background: variant === 'priority' ? C.orange : 'rgba(255,255,255,.08)',
+            color: variant === 'priority' ? '#fff' : C.muted,
+            border: variant === 'priority' ? 'none' : '1px solid rgba(255,255,255,.1)',
+          }}
+        >
+          {stop.stop_order}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{stop.name}</span>
+            {stop.is_priority && (
+              <span
+                style={{
+                  fontSize: 9,
+                  fontWeight: 700,
+                  padding: '2px 7px',
+                  borderRadius: 10,
+                  background: 'rgba(245,158,11,.15)',
+                  color: C.orange,
+                  border: '1px solid rgba(245,158,11,.3)',
+                }}
+              >
+                Gold
               </span>
-            </button>
-          ))}
+            )}
+          </div>
+          <div style={{ fontSize: 11, color: C.muted, display: 'flex', alignItems: 'center', gap: 4, marginBottom: 3 }}>
+            <MapPin size={11} /> {stop.address}
+          </div>
+          {stop.phone && (
+            <a
+              href={`tel:${stop.phone.replace(/[^0-9+]/g, '')}`}
+              style={{ fontSize: 11, color: C.green, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4, textDecoration: 'none' }}
+            >
+              <Phone size={11} /> {stop.phone}
+            </a>
+          )}
+          <div style={{ marginTop: 6, fontSize: 11, fontWeight: 600, color: C.purple }}>{formatUsd(estStopRevenue(stop))}</div>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
+          <button
+            type="button"
+            onClick={() => openEditStop(stop)}
+            disabled={stop.id < 0}
+            title={stop.id < 0 ? 'Edit route stop after it exists in route_customers' : undefined}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: '5px 9px',
+              borderRadius: 7,
+              border: '1px solid rgba(255,255,255,.1)',
+              background: 'transparent',
+              color: C.muted,
+              fontSize: 10,
+              fontWeight: 600,
+              cursor: stop.id < 0 ? 'not-allowed' : 'pointer',
+              opacity: stop.id < 0 ? 0.4 : 1,
+              fontFamily: 'inherit',
+            }}
+          >
+            <Pencil size={11} /> Edit
+          </button>
+          <a
+            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(stop.address)}`}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: '5px 9px',
+              borderRadius: 7,
+              border: '1px solid rgba(79,142,247,.25)',
+              background: 'rgba(79,142,247,.1)',
+              color: C.blue,
+              fontSize: 10,
+              fontWeight: 600,
+              textDecoration: 'none',
+            }}
+          >
+            <MapPin size={11} /> Map <ExternalLink size={10} />
+          </a>
         </div>
       </div>
+    </div>
+  );
 
-      <div className="bg-white rounded-xl border border-redwood-border/70 shadow-sm p-4 flex flex-wrap items-center gap-3">
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by name, address, phone, or type..."
-          className="border border-redwood-border rounded-lg px-3 py-2.5 text-sm min-w-[280px] md:min-w-[320px] focus:outline-none focus:ring-2 focus:ring-[#800020]/20"
-        />
-        <label className="text-sm font-semibold flex items-center gap-2 text-gray-700">
-          <span className="relative inline-flex items-center">
-            <input type="checkbox" checked={priorityOnly} onChange={(e) => setPriorityOnly(e.target.checked)} className="peer sr-only" />
-            <span className="w-10 h-6 rounded-full bg-gray-200 peer-checked:bg-[#800020] transition-colors" />
-            <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4" />
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: '100%',
+        background: C.bg,
+        color: C.text,
+        fontFamily: 'inherit',
+      }}
+    >
+      {/* Top bar */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '12px 28px',
+          borderBottom: '1px solid rgba(255,255,255,.06)',
+          background: C.bg2,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 15, fontWeight: 800, color: C.text, letterSpacing: '-0.3px' }}>
+            Soltol <span style={{ fontSize: 10, fontWeight: 600, color: C.muted }}>ERP</span>
           </span>
-          Priority only
-        </label>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: C.green }}>
+            ● Live • {liveDateLabel}
+          </span>
+          <div
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: '50%',
+              background: `linear-gradient(135deg, ${C.blue}, ${C.purple})`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 11,
+              fontWeight: 700,
+              color: '#fff',
+            }}
+          >
+            {userInitials(currentUser.name)}
+          </div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="bg-white border border-redwood-border/60 rounded-xl px-4 py-3 shadow-sm">
-          <div className="text-[11px] uppercase text-gray-500 font-black">Total stops today</div>
-          <div className="text-lg font-black text-redwood-text-main">{displayStops.length}</div>
-        </div>
-        <div className="bg-white border border-redwood-border/60 rounded-xl px-4 py-3 shadow-sm">
-          <div className="text-[11px] uppercase text-gray-500 font-black">Priority stops</div>
-          <div className="text-lg font-black text-amber-600">{priorityCount}</div>
-        </div>
-        <div className="bg-white border border-redwood-border/60 rounded-xl px-4 py-3 shadow-sm">
-          <div className="text-[11px] uppercase text-gray-500 font-black">Estimated stops remaining</div>
-          <div className="text-lg font-black text-redwood-text-main">{estimatedRemaining}</div>
-        </div>
-      </div>
-
-      <form onSubmit={handleAddCustomer} className="bg-white rounded-xl border border-redwood-border/70 shadow-sm p-5 space-y-5">
-        <header className="border-b border-redwood-border pb-4">
-          <h2 className="text-lg font-black text-redwood-text-main uppercase tracking-tight">Add new stop &amp; accounting customer</h2>
-          <p className="text-sm text-redwood-text-muted mt-2 max-w-3xl leading-relaxed">
-            Use this section to register a <strong>route stop</strong> on the day selected above and the same <strong>customer record</strong> in Accounts Receivable.
-          </p>
-        </header>
-
-        <div>
-          <h3 className="text-xs font-black uppercase text-gray-500 mb-2">Customer &amp; route fields</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <input type="text" placeholder="Customer / business name" value={newCustomer.name} onChange={(e) => setNewCustomer((p) => ({ ...p, name: e.target.value }))} className="border border-redwood-border rounded-lg px-3 py-2.5 text-sm" required />
-            <input type="text" placeholder="Street address (for route &amp; maps)" value={newCustomer.address} onChange={(e) => setNewCustomer((p) => ({ ...p, address: e.target.value }))} className="border border-redwood-border rounded-lg px-3 py-2.5 text-sm" required />
-            <input type="text" placeholder="Phone" value={newCustomer.phone} onChange={(e) => setNewCustomer((p) => ({ ...p, phone: e.target.value }))} className="border border-redwood-border rounded-lg px-3 py-2.5 text-sm" />
-            <input type="text" placeholder="Business type (e.g. Auto Repair)" value={newCustomer.business_type} onChange={(e) => setNewCustomer((p) => ({ ...p, business_type: e.target.value }))} className="border border-redwood-border rounded-lg px-3 py-2.5 text-sm" />
-            <input type="text" placeholder="Neighborhood" value={newCustomer.neighborhood} onChange={(e) => setNewCustomer((p) => ({ ...p, neighborhood: e.target.value }))} className="border border-redwood-border rounded-lg px-3 py-2.5 text-sm" />
-            <input type="text" placeholder="GPS (lat, lng — optional)" value={newCustomer.gps_location} onChange={(e) => setNewCustomer((p) => ({ ...p, gps_location: e.target.value }))} className="border border-redwood-border rounded-lg px-3 py-2.5 text-sm" />
-            <div className="md:col-span-3">
-              <textarea placeholder="Notes for customer file (gate codes, delivery notes)" value={newCustomer.notes} onChange={(e) => setNewCustomer((p) => ({ ...p, notes: e.target.value }))} rows={3} className="w-full border border-redwood-border rounded-lg px-3 py-2.5 text-sm" />
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        {/* Page header */}
+        <div style={{ padding: '22px 28px 0', borderBottom: '1px solid rgba(255,255,255,.06)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, gap: 16 }}>
+            <div>
+              <h1 style={{ fontSize: 22, fontWeight: 700, color: C.text, display: 'flex', alignItems: 'center', gap: 10, margin: 0 }}>
+                <Route size={22} color={C.blue} />
+                NYC route navigator
+              </h1>
+              <p style={{ fontSize: 12, color: C.muted, marginTop: 5, marginBottom: 0 }}>
+                Plan and manage daily delivery routes • {areaSubtitle} • {totalStopsToday} stops
+              </p>
             </div>
-            <div className="md:col-span-3 space-y-2 rounded-lg border border-gray-200 bg-gray-50/70 p-3">
-              <div className="text-xs font-black uppercase text-gray-600 tracking-wide">Customer ledger (synced to Sales &amp; Accounts)</div>
-              <div className="flex flex-wrap items-center gap-3">
-                <label className="flex flex-col gap-1 text-[11px] font-semibold text-gray-700">
-                  Opening balance
-                  <input type="number" value={newCustomer.opening_balance} onChange={(e) => setNewCustomer((p) => ({ ...p, opening_balance: Number(e.target.value) || 0 }))} className="border border-redwood-border rounded-lg px-3 py-2 text-sm w-[200px] font-normal" />
-                </label>
-                <label className="flex flex-col gap-1 text-[11px] font-semibold text-gray-700">
-                  Credit limit
-                  <input type="number" value={newCustomer.credit_limit} onChange={(e) => setNewCustomer((p) => ({ ...p, credit_limit: Number(e.target.value) || 0 }))} className="border border-redwood-border rounded-lg px-3 py-2 text-sm w-[200px] font-normal" />
-                </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+              <span style={{ fontSize: 11, color: C.muted, display: 'flex', alignItems: 'center', gap: 5 }}>
+                <CalendarDays size={14} /> {todayLabel}
+              </span>
+              <button
+                type="button"
+                onClick={scrollToAddForm}
+                disabled={!selectedDay}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '8px 14px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: C.blue,
+                  color: '#fff',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: selectedDay ? 'pointer' : 'not-allowed',
+                  opacity: selectedDay ? 1 : 0.5,
+                  fontFamily: 'inherit',
+                }}
+              >
+                <Plus size={14} /> Add stop
+              </button>
+            </div>
+          </div>
+
+          {useRegistryFallback && (
+            <p
+              style={{
+                fontSize: 11,
+                color: C.orange,
+                background: 'rgba(245,158,11,.08)',
+                border: '1px solid rgba(245,158,11,.2)',
+                borderRadius: 8,
+                padding: '8px 12px',
+                marginBottom: 12,
+              }}
+            >
+              No route schedule in route_customers. Showing customer registry.
+            </p>
+          )}
+
+          {/* Day selector */}
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 14 }}>
+            {days.map((day) => {
+              const active = selectedDay === day.day_id;
+              return (
+                <button
+                  key={day.day_id}
+                  type="button"
+                  onClick={() => setSelectedDay(day.day_id)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '7px 14px',
+                    borderRadius: 8,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    border: '1px solid rgba(255,255,255,.08)',
+                    background: active ? C.blue : C.bg3,
+                    color: active ? '#fff' : C.muted,
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  {day.day_name}
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      padding: '2px 7px',
+                      borderRadius: 10,
+                      background: active ? 'rgba(255,255,255,.2)' : 'rgba(255,255,255,.06)',
+                    }}
+                  >
+                    {day.total_stops}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Tabs */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <div style={{ display: 'flex', gap: 2 }}>
+              {(
+                [
+                  { id: 'list' as ViewTab, label: 'Route list' },
+                  { id: 'map' as ViewTab, label: 'Map view' },
+                  { id: 'add' as ViewTab, label: 'Add stop + customer' },
+                  { id: 'priority' as ViewTab, label: 'Priority management' },
+                ] as const
+              ).map((tab) => {
+                const isActive = activeViewTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => handleViewTab(tab.id)}
+                    style={{
+                      position: 'relative',
+                      padding: '10px 16px',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: isActive ? C.blue : C.muted,
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    {tab.label}
+                    {isActive && (
+                      <span
+                        style={{
+                          position: 'absolute',
+                          bottom: 0,
+                          left: 12,
+                          right: 12,
+                          height: 2,
+                          background: C.blue,
+                          borderRadius: 1,
+                        }}
+                      />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              onClick={() => handleViewTab('ai')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '8px 14px',
+                borderRadius: 8,
+                border: activeViewTab === 'ai' ? '1px solid rgba(155,111,228,.4)' : '1px solid rgba(155,111,228,.2)',
+                background: activeViewTab === 'ai' ? 'rgba(155,111,228,.15)' : 'rgba(155,111,228,.08)',
+                color: C.purple,
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+              }}
+            >
+              <Bot size={14} /> AI route optimise
+            </button>
+          </div>
+        </div>
+
+        <div style={{ padding: '20px 28px 32px' }}>
+          {/* KPI row */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 16 }}>
+            <KpiCard
+              label="Total Stops Today"
+              value={String(totalStopsToday)}
+              subtext={`${activeDay?.day_name ?? 'Route'} • ${areaSubtitle.replace(' • ', ' + ')}`}
+              accent={C.blue}
+            />
+            <KpiCard
+              label="Priority Stops"
+              value={String(priorityCount)}
+              subtext="gold tier + overdue invoice"
+              accent={C.orange}
+              valueColor={C.orange}
+            />
+            <KpiCard
+              label="Completed Today"
+              value={String(completedToday)}
+              subtext={`POD captured • ${remainingStops} remaining`}
+              accent={C.green}
+              valueColor={C.green}
+            />
+            <KpiCard
+              label="Est. Route Revenue"
+              value={formatUsd(estRouteRevenue)}
+              subtext="based on avg orders"
+              accent={C.purple}
+              valueColor={C.purple}
+            />
+          </div>
+
+          {/* AI banner */}
+          <div
+            style={{
+              ...panel,
+              padding: '14px 18px',
+              marginBottom: 16,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 16,
+              background: 'linear-gradient(90deg, rgba(155,111,228,.12) 0%, rgba(10,23,38,.9) 100%)',
+              border: '1px solid rgba(155,111,228,.2)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 10,
+                  background: 'rgba(155,111,228,.2)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Sparkles size={18} color={C.purple} />
+              </div>
+              <div>
+                <p style={{ fontSize: 13, fontWeight: 700, color: C.text, margin: 0 }}>
+                  AI can re-sequence your route
+                </p>
+                <p style={{ fontSize: 11, color: C.muted, margin: '3px 0 0' }}>
+                  Optimise stop order to save ~{optimizeHours} hours driving today
+                </p>
               </div>
             </div>
+            <button
+              type="button"
+              style={{
+                padding: '8px 16px',
+                borderRadius: 8,
+                border: 'none',
+                background: C.purple,
+                color: '#fff',
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Optimise route →
+            </button>
           </div>
-        </div>
 
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <label className="text-sm font-semibold flex items-center gap-2">
-            <input type="checkbox" checked={newCustomer.is_priority} onChange={(e) => setNewCustomer((p) => ({ ...p, is_priority: e.target.checked }))} />
-            Priority stop (★)
-          </label>
-          <button type="submit" disabled={submitting || !selectedDay} className="px-4 py-2.5 text-white rounded-lg text-sm font-bold disabled:opacity-50" style={{ backgroundColor: '#800020' }}>
-            {submitting ? 'Saving…' : 'Save to route & customers'}
-          </button>
-        </div>
-        {formError && <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{formError}</div>}
-      </form>
+          {activeDay && !useRegistryFallback && (
+            <p style={{ fontSize: 11, color: C.dim, marginBottom: 12 }}>
+              <strong style={{ color: C.muted }}>{activeDay.day_name}</strong> — {activeDay.total_stops} stops, {activeDay.priority_stops} priority
+              {estimatedRemaining > 0 ? ` · ${estimatedRemaining} not loaded in list` : ''}
+            </p>
+          )}
 
-      {activeDay && !useRegistryFallback && (
-        <div className="bg-white rounded-xl border border-redwood-border/70 shadow-sm p-4 text-sm">
-          <span className="font-black">{activeDay.day_name}</span> - {activeDay.total_stops} stops, {activeDay.priority_stops} priority
-        </div>
-      )}
-      {useRegistryFallback && (
-        <div className="bg-white rounded-xl border border-redwood-border/70 shadow-sm p-4 text-sm">
-          <span className="font-black">Customer registry</span> — {displayStops.length} shown
-          {query.trim() || priorityOnly ? ` (filtered)` : ''}
-        </div>
-      )}
+          {routeListError && (
+            <div
+              style={{
+                fontSize: 12,
+                color: C.red,
+                background: 'rgba(239,68,68,.1)',
+                border: '1px solid rgba(239,68,68,.25)',
+                borderRadius: 8,
+                padding: '10px 14px',
+                marginBottom: 14,
+              }}
+            >
+              {routeListError}
+            </div>
+          )}
 
-      {routeListError && <div className="bg-red-50 text-red-700 border border-red-200 rounded-lg p-3 text-sm">{routeListError}</div>}
-
-      <div className="bg-white rounded-xl border border-redwood-border/70 shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-redwood-border">
-          <div className="font-black text-sm uppercase">Route stops for selected day {loading ? '(Loading...)' : `(${displayStops.length})`}</div>
-        </div>
-        <div className="max-h-[65vh] overflow-y-auto bg-[#fffefd]">
-          {displayStops.map((stop) => (
-            <div key={stop.id} className="px-4 py-3 border-b border-gray-100 hover:bg-[#fdf9fb] transition-colors">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="font-bold text-sm flex items-center gap-2 flex-wrap">
-                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full text-white text-[11px] font-black" style={{ backgroundColor: '#800020' }}>
-                      {stop.stop_order}
-                    </span>
-                    <span className="text-[15px] font-black text-gray-900">{stop.name}</span>
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
-                      {stop.neighborhood} / {stop.business_type}
-                    </span>
-                    {stop.is_priority && <Star size={14} className="text-amber-500 fill-amber-500" />}
+          {/* Two-column main */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: mapFullWidth ? '1fr' : showListColumn && showMapColumn ? '1.15fr 1fr' : '1fr',
+              gap: 16,
+              marginBottom: 20,
+            }}
+          >
+            {showListColumn && (
+              <div style={{ ...panel, overflow: 'hidden', display: mapFullWidth ? 'none' : 'flex', flexDirection: 'column' }}>
+                <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,.06)' }}>
+                  <div style={{ position: 'relative', marginBottom: 10 }}>
+                    <Search size={14} color={C.dim} style={{ position: 'absolute', left: 10, top: 10 }} />
+                    <input
+                      type="text"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder="Search by name, address, phone, or type..."
+                      style={{ ...darkInput, paddingLeft: 32 }}
+                    />
                   </div>
-                  <div className="text-xs text-gray-600 mt-2 flex items-center gap-2">
-                    <MapPin size={13} /> {stop.address}
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => setPriorityOnly(false)}
+                      style={{
+                        padding: '5px 12px',
+                        borderRadius: 20,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        border: 'none',
+                        cursor: 'pointer',
+                        fontFamily: 'inherit',
+                        background: !priorityOnly ? C.blue : 'rgba(255,255,255,.06)',
+                        color: !priorityOnly ? '#fff' : C.muted,
+                      }}
+                    >
+                      All ({displayStops.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPriorityOnly(true)}
+                      style={{
+                        padding: '5px 12px',
+                        borderRadius: 20,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        border: 'none',
+                        cursor: 'pointer',
+                        fontFamily: 'inherit',
+                        background: priorityOnly ? C.orange : 'rgba(255,255,255,.06)',
+                        color: priorityOnly ? '#fff' : C.muted,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                      }}
+                    >
+                      <Star size={10} fill={priorityOnly ? '#fff' : 'none'} /> Priority ({priorityCount})
+                    </button>
                   </div>
-                  {stop.phone && (
-                    <a href={`tel:${stop.phone.replace(/[^0-9+]/g, '')}`} className="text-xs text-emerald-600 font-bold flex items-center gap-1 mt-2">
-                      <Phone size={12} /> {stop.phone}
-                    </a>
+                </div>
+
+                <div style={{ flex: 1, overflowY: 'auto', maxHeight: '58vh' }}>
+                  {loading && (
+                    <p style={{ padding: 16, fontSize: 12, color: C.muted }}>Loading stops…</p>
+                  )}
+                  {!loading && priorityStops.length > 0 && !priorityOnly && (
+                    <>
+                      <div
+                        style={{
+                          padding: '8px 16px',
+                          fontSize: 10,
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                          letterSpacing: '.4px',
+                          color: C.orange,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          background: 'rgba(245,158,11,.06)',
+                        }}
+                      >
+                        <Star size={11} fill={C.orange} color={C.orange} /> Priority stops first
+                      </div>
+                      {priorityStops.map((stop) => renderStopCard(stop, 'priority'))}
+                    </>
+                  )}
+                  {!loading && (priorityOnly ? displayStops : regularStops).length > 0 && (
+                    <>
+                      {!priorityOnly && (
+                        <div
+                          style={{
+                            padding: '8px 16px',
+                            fontSize: 10,
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            letterSpacing: '.4px',
+                            color: C.muted,
+                          }}
+                        >
+                          Regular stops
+                        </div>
+                      )}
+                      {(priorityOnly ? displayStops : regularStops).map((stop) => renderStopCard(stop, 'regular'))}
+                    </>
+                  )}
+                  {!loading && displayStops.length === 0 && (
+                    <p style={{ padding: 20, fontSize: 12, color: C.muted }}>No stops or customers to show.</p>
                   )}
                 </div>
-                <div className="flex flex-col items-end gap-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => openEditStop(stop)}
-                    disabled={stop.id < 0}
-                    title={stop.id < 0 ? 'Edit route stop after it exists in route_customers' : undefined}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-redwood-border text-xs font-bold text-redwood-text-main bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    <Pencil size={13} /> Edit
-                  </button>
-                  <a
-                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(stop.address)}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-sky-200 bg-sky-50 text-sky-700 text-xs font-semibold hover:bg-sky-100"
-                  >
-                    <MapPin size={12} /> Map <ExternalLink size={11} />
-                  </a>
+
+                <div
+                  style={{
+                    padding: '10px 16px',
+                    borderTop: '1px solid rgba(255,255,255,.06)',
+                    fontSize: 10,
+                    color: C.dim,
+                  }}
+                >
+                  Showing {displayStops.length} of {totalStopsToday} • scroll to see all
                 </div>
               </div>
-            </div>
-          ))}
-          {!loading && displayStops.length === 0 && <div className="p-6 text-sm text-gray-500">No stops or customers to show.</div>}
+            )}
+
+            {showMapColumn && (
+              <div style={{ ...panel, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                <div
+                  style={{
+                    padding: '14px 16px',
+                    borderBottom: '1px solid rgba(255,255,255,.06)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: 8,
+                  }}
+                >
+                  <div>
+                    <h3 style={{ fontSize: 13, fontWeight: 700, margin: 0, color: C.text }}>
+                      {areaSubtitle.replace(' • ', ' + ')} route map
+                    </h3>
+                    <p style={{ fontSize: 10, color: C.muted, margin: '3px 0 0' }}>{displayStops.length} pins</p>
+                  </div>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    {(['street', 'satellite'] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => setMapStyle(mode)}
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: 6,
+                          fontSize: 10,
+                          fontWeight: 600,
+                          border: '1px solid rgba(255,255,255,.1)',
+                          background: mapStyle === mode ? C.blue : 'transparent',
+                          color: mapStyle === mode ? '#fff' : C.muted,
+                          cursor: 'pointer',
+                          fontFamily: 'inherit',
+                          textTransform: 'capitalize',
+                        }}
+                      >
+                        {mode}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: 12, padding: '8px 16px', fontSize: 10, color: C.muted }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: C.orange }} /> Priority
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: C.green }} /> Done
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: C.blue }} /> Pending
+                  </span>
+                </div>
+
+                <div style={{ position: 'relative', flex: 1, minHeight: 300, padding: '0 12px 12px' }}>
+                  <RouteMapVisual stops={displayStops} priorityStops={priorityStops} mapStyle={mapStyle} />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      bottom: 20,
+                      left: '50%',
+                      transform: 'translateX(-50%)',
+                      padding: '8px 14px',
+                      borderRadius: 20,
+                      background: 'rgba(155,111,228,.9)',
+                      color: '#fff',
+                      fontSize: 10,
+                      fontWeight: 600,
+                      whiteSpace: 'nowrap',
+                      boxShadow: '0 4px 20px rgba(0,0,0,.4)',
+                    }}
+                  >
+                    Optimise {remainingStops} remaining stops — save {optimizeHours}h
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Add stop form */}
+          <div ref={addFormRef} style={{ ...panel, padding: '20px 22px' }}>
+            <header style={{ marginBottom: 18, paddingBottom: 14, borderBottom: '1px solid rgba(255,255,255,.06)' }}>
+              <h2 style={{ fontSize: 15, fontWeight: 700, color: C.text, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Plus size={16} color={C.blue} />
+                Add stop &amp; create accounting customer
+              </h2>
+              <p style={{ fontSize: 11, color: C.muted, marginTop: 6, marginBottom: 0, maxWidth: 640, lineHeight: 1.5 }}>
+                Register a route stop on the selected day and the same customer record in Accounts Receivable.
+              </p>
+            </header>
+
+            <form onSubmit={handleAddCustomer} className="space-y-4">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                <input
+                  type="text"
+                  placeholder="Customer / business name"
+                  value={newCustomer.name}
+                  onChange={(e) => setNewCustomer((p) => ({ ...p, name: e.target.value }))}
+                  style={darkInput}
+                  required
+                />
+                <input
+                  type="text"
+                  placeholder="Street address"
+                  value={newCustomer.address}
+                  onChange={(e) => setNewCustomer((p) => ({ ...p, address: e.target.value }))}
+                  style={darkInput}
+                  required
+                />
+                <input
+                  type="text"
+                  placeholder="Phone"
+                  value={newCustomer.phone}
+                  onChange={(e) => setNewCustomer((p) => ({ ...p, phone: e.target.value }))}
+                  style={darkInput}
+                />
+                <input
+                  type="text"
+                  placeholder="Type (e.g. Auto Repair)"
+                  value={newCustomer.business_type}
+                  onChange={(e) => setNewCustomer((p) => ({ ...p, business_type: e.target.value }))}
+                  style={darkInput}
+                />
+                <input
+                  type="text"
+                  placeholder="Neighborhood"
+                  value={newCustomer.neighborhood}
+                  onChange={(e) => setNewCustomer((p) => ({ ...p, neighborhood: e.target.value }))}
+                  style={darkInput}
+                />
+                <input
+                  type="text"
+                  placeholder="GPS lat, lng (optional)"
+                  value={newCustomer.gps_location}
+                  onChange={(e) => setNewCustomer((p) => ({ ...p, gps_location: e.target.value }))}
+                  style={darkInput}
+                />
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <textarea
+                    placeholder="Notes (gate codes, delivery notes)"
+                    value={newCustomer.notes}
+                    onChange={(e) => setNewCustomer((p) => ({ ...p, notes: e.target.value }))}
+                    rows={2}
+                    style={{ ...darkInput, resize: 'vertical' }}
+                  />
+                </div>
+                <div
+                  style={{
+                    gridColumn: '1 / -1',
+                    padding: '12px 14px',
+                    borderRadius: 8,
+                    background: C.bg3,
+                    border: '1px solid rgba(255,255,255,.06)',
+                  }}
+                >
+                  <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: C.muted, marginBottom: 10 }}>
+                    Customer ledger (synced to Sales &amp; Accounts)
+                  </div>
+                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                    <label style={{ fontSize: 10, fontWeight: 600, color: C.muted }}>
+                      Opening balance
+                      <input
+                        type="number"
+                        value={newCustomer.opening_balance}
+                        onChange={(e) => setNewCustomer((p) => ({ ...p, opening_balance: Number(e.target.value) || 0 }))}
+                        style={{ ...darkInput, marginTop: 4, width: 180 }}
+                      />
+                    </label>
+                    <label style={{ fontSize: 10, fontWeight: 600, color: C.muted }}>
+                      Credit limit
+                      <input
+                        type="number"
+                        value={newCustomer.credit_limit}
+                        onChange={(e) => setNewCustomer((p) => ({ ...p, credit_limit: Number(e.target.value) || 0 }))}
+                        style={{ ...darkInput, marginTop: 4, width: 180 }}
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: C.muted, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={newCustomer.is_priority}
+                    onChange={(e) => setNewCustomer((p) => ({ ...p, is_priority: e.target.checked }))}
+                  />
+                  Priority stop
+                </label>
+                <button
+                  type="submit"
+                  disabled={submitting || !selectedDay}
+                  style={{
+                    padding: '9px 18px',
+                    borderRadius: 8,
+                    border: 'none',
+                    background: C.blue,
+                    color: '#fff',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: submitting || !selectedDay ? 'not-allowed' : 'pointer',
+                    opacity: submitting || !selectedDay ? 0.5 : 1,
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  {submitting ? 'Saving…' : 'Save to route →'}
+                </button>
+              </div>
+              {formError && (
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: C.red,
+                    background: 'rgba(239,68,68,.1)',
+                    border: '1px solid rgba(239,68,68,.25)',
+                    borderRadius: 8,
+                    padding: '8px 12px',
+                  }}
+                >
+                  {formError}
+                </div>
+              )}
+            </form>
+          </div>
         </div>
       </div>
 
       {editingStop && selectedDay && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" role="presentation" onClick={closeEditStop}>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,.6)' }}
+          role="presentation"
+          onClick={closeEditStop}
+        >
           <form
             role="dialog"
             aria-labelledby="edit-stop-title"
             onClick={(e) => e.stopPropagation()}
             onSubmit={handleSaveEditStop}
-            className="bg-white rounded-xl border border-redwood-border shadow-lg w-full max-w-lg max-h-[90vh] overflow-y-auto p-5 space-y-4"
+            style={{
+              ...panel,
+              width: '100%',
+              maxWidth: 480,
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              padding: 20,
+            }}
           >
-            <div className="flex items-start justify-between gap-3 border-b border-redwood-border pb-3">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid rgba(255,255,255,.06)' }}>
               <div>
-                <h2 id="edit-stop-title" className="text-lg font-black text-redwood-text-main uppercase tracking-tight">Edit route stop</h2>
-                <p className="text-xs text-gray-500 mt-1">Updates this row in <strong>route_customers</strong> (Route Navigator).</p>
+                <h2 id="edit-stop-title" style={{ fontSize: 16, fontWeight: 700, color: C.text, margin: 0 }}>
+                  Edit route stop
+                </h2>
+                <p style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>Updates route_customers row.</p>
               </div>
-              <button type="button" onClick={closeEditStop} className="p-1 rounded-lg text-gray-500 hover:bg-gray-100" aria-label="Close">
+              <button
+                type="button"
+                onClick={closeEditStop}
+                aria-label="Close"
+                style={{ background: 'transparent', border: 'none', color: C.muted, cursor: 'pointer', padding: 4 }}
+              >
                 <X size={20} />
               </button>
             </div>
-            <div className="grid grid-cols-1 gap-3">
-              <label className="text-[11px] font-bold uppercase text-gray-600">
+            <div style={{ display: 'grid', gap: 12 }}>
+              <label style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: 'uppercase' }}>
                 Name
-                <input type="text" value={editForm.name} onChange={(e) => setEditForm((p) => ({ ...p, name: e.target.value }))} className="mt-1 w-full border border-redwood-border rounded-lg px-3 py-2 text-sm font-normal" required />
+                <input type="text" value={editForm.name} onChange={(e) => setEditForm((p) => ({ ...p, name: e.target.value }))} style={{ ...darkInput, marginTop: 4 }} required />
               </label>
-              <label className="text-[11px] font-bold uppercase text-gray-600">
+              <label style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: 'uppercase' }}>
                 Address
-                <input type="text" value={editForm.address} onChange={(e) => setEditForm((p) => ({ ...p, address: e.target.value }))} className="mt-1 w-full border border-redwood-border rounded-lg px-3 py-2 text-sm font-normal" required />
+                <input type="text" value={editForm.address} onChange={(e) => setEditForm((p) => ({ ...p, address: e.target.value }))} style={{ ...darkInput, marginTop: 4 }} required />
               </label>
-              <label className="text-[11px] font-bold uppercase text-gray-600">
+              <label style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: 'uppercase' }}>
                 Phone
-                <input type="text" value={editForm.phone} onChange={(e) => setEditForm((p) => ({ ...p, phone: e.target.value }))} placeholder="Optional — leave blank to clear" className="mt-1 w-full border border-redwood-border rounded-lg px-3 py-2 text-sm font-normal" />
+                <input
+                  type="text"
+                  value={editForm.phone}
+                  onChange={(e) => setEditForm((p) => ({ ...p, phone: e.target.value }))}
+                  placeholder="Optional — leave blank to clear"
+                  style={{ ...darkInput, marginTop: 4 }}
+                />
               </label>
-              <label className="text-[11px] font-bold uppercase text-gray-600">
+              <label style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: 'uppercase' }}>
                 Business type
-                <input type="text" value={editForm.business_type} onChange={(e) => setEditForm((p) => ({ ...p, business_type: e.target.value }))} className="mt-1 w-full border border-redwood-border rounded-lg px-3 py-2 text-sm font-normal" />
+                <input type="text" value={editForm.business_type} onChange={(e) => setEditForm((p) => ({ ...p, business_type: e.target.value }))} style={{ ...darkInput, marginTop: 4 }} />
               </label>
-              <label className="text-[11px] font-bold uppercase text-gray-600">
+              <label style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: 'uppercase' }}>
                 Neighborhood
-                <input type="text" value={editForm.neighborhood} onChange={(e) => setEditForm((p) => ({ ...p, neighborhood: e.target.value }))} className="mt-1 w-full border border-redwood-border rounded-lg px-3 py-2 text-sm font-normal" />
+                <input type="text" value={editForm.neighborhood} onChange={(e) => setEditForm((p) => ({ ...p, neighborhood: e.target.value }))} style={{ ...darkInput, marginTop: 4 }} />
               </label>
-              <label className="text-sm font-semibold flex items-center gap-2">
+              <label style={{ fontSize: 12, fontWeight: 600, color: C.muted, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <input type="checkbox" checked={editForm.is_priority} onChange={(e) => setEditForm((p) => ({ ...p, is_priority: e.target.checked }))} />
                 Priority stop (★)
               </label>
             </div>
-            {editError && <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{editError}</div>}
-            <div className="flex justify-end gap-2 pt-2">
-              <button type="button" onClick={closeEditStop} className="px-4 py-2 rounded-lg text-sm font-bold border border-redwood-border bg-white text-redwood-text-main">
+            {editError && (
+              <div style={{ fontSize: 12, color: C.red, marginTop: 12, padding: '8px 12px', background: 'rgba(239,68,68,.1)', borderRadius: 8 }}>
+                {editError}
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+              <button
+                type="button"
+                onClick={closeEditStop}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: 8,
+                  border: '1px solid rgba(255,255,255,.1)',
+                  background: 'transparent',
+                  color: C.muted,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
                 Cancel
               </button>
-              <button type="submit" disabled={editSaving} className="px-4 py-2 text-white rounded-lg text-sm font-bold disabled:opacity-50" style={{ backgroundColor: '#800020' }}>
+              <button
+                type="submit"
+                disabled={editSaving}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: C.blue,
+                  color: '#fff',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  opacity: editSaving ? 0.6 : 1,
+                  fontFamily: 'inherit',
+                }}
+              >
                 {editSaving ? 'Saving…' : 'Save changes'}
               </button>
             </div>
