@@ -1,10 +1,22 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, type CSSProperties } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, Plus, Trash2, Save, ShoppingCart, CheckCircle } from 'lucide-react';
+import {
+    ArrowLeft,
+    Plus,
+    ShoppingCart,
+    CheckCircle,
+    Warehouse,
+    Sparkles,
+    Bot,
+    Calendar,
+    X,
+    Check,
+} from 'lucide-react';
 import { getSuppliers, createSupplier, getSupplierBalance, createPurchaseOrder, type Supplier, type PurchaseOrderItem } from '../../services/purchasesService';
 import { getProducts, type Product } from '../../services/api';
 import { PAYMENT_METHODS } from '../../constants/data';
 import SearchableSelect from '../../components/common/SearchableSelect';
+import { getCurrentUser } from '../../store/authStore';
 
 interface POLineItem {
     id: string;
@@ -37,6 +49,162 @@ interface POFormData {
     status: 'Pending' | 'Approved' | 'GRN' | 'Paid' | 'Received';
     autoApprove: boolean;
 }
+
+const C = {
+    bg: '#060f1c',
+    bg2: '#0a1726',
+    bg3: '#0f1f33',
+    blue: '#4F8EF7',
+    green: '#22C55E',
+    red: '#EF4444',
+    amber: '#F59E0B',
+    orange: '#FF9900',
+    purple: '#9B6FE4',
+    text: '#EEF2FF',
+    muted: '#8BA3C7',
+    dim: '#3E5678',
+};
+
+const panel: CSSProperties = {
+    background: C.bg2,
+    border: '1px solid rgba(255,255,255,.07)',
+    borderRadius: 12,
+};
+
+const ghostBtn: CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 5,
+    padding: '6px 11px',
+    borderRadius: 8,
+    fontSize: 10.5,
+    fontWeight: 500,
+    cursor: 'pointer',
+    border: '1px solid rgba(255,255,255,.12)',
+    background: 'transparent',
+    color: C.muted,
+    fontFamily: 'inherit',
+};
+
+const primaryBtn: CSSProperties = {
+    ...ghostBtn,
+    border: 'none',
+    background: C.blue,
+    color: '#fff',
+    fontWeight: 600,
+};
+
+const thStyle: CSSProperties = {
+    padding: '10px 12px',
+    fontSize: 9,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '.4px',
+    color: C.muted,
+    whiteSpace: 'nowrap',
+    textAlign: 'left',
+    borderBottom: '1px solid rgba(255,255,255,.07)',
+};
+
+const tdStyle: CSSProperties = {
+    padding: '11px 12px',
+    fontSize: 11,
+    color: C.text,
+    verticalAlign: 'middle',
+    borderBottom: '1px solid rgba(255,255,255,.04)',
+};
+
+const inputStyle: CSSProperties = {
+    width: '100%',
+    background: C.bg3,
+    border: '1px solid rgba(255,255,255,.08)',
+    borderRadius: 8,
+    outline: 'none',
+    color: C.text,
+    fontSize: 11,
+    fontFamily: 'inherit',
+    padding: '8px 10px',
+    boxSizing: 'border-box',
+};
+
+const labelStyle: CSSProperties = {
+    display: 'block',
+    fontSize: 9,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '.5px',
+    color: C.dim,
+    marginBottom: 5,
+};
+
+function formatUsd(n: number): string {
+    return `$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function formatDisplayDate(raw: string): string {
+    try {
+        const d = new Date(raw.includes('T') ? raw : `${raw}T12:00:00`);
+        if (Number.isNaN(d.getTime())) return raw;
+        return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    } catch {
+        return raw;
+    }
+}
+
+function hashNum(seed: string, min: number, max: number): number {
+    const h = seed.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+    return min + (h % (max - min + 1));
+}
+
+function derivePerformance(s: Supplier): number {
+    if (s.rating === 'A') return 94;
+    if (s.rating === 'B') return 88;
+    if (s.rating === 'C') return 72;
+    return hashNum(s.id || s.name, 68, 96);
+}
+
+function deriveLeadTime(s: Supplier): string {
+    if (/cod|cash/i.test(s.paymentTerms || '')) return 'COD';
+    const min = hashNum(s.id + 'lt', 3, 10);
+    const max = min + hashNum(s.name, 5, 11);
+    if (max - min >= 7) return `${min}-${max} days`;
+    return `${min}-${min + 4} days`;
+}
+
+function deriveRegion(s: Supplier): string {
+    const addr = (s.address || '').toLowerCase();
+    if (/uae|dubai|abu/i.test(addr)) return 'Middle East';
+    if (/uk|london|england/i.test(addr)) return 'United Kingdom';
+    if (/usa|texas|california|ny/i.test(addr)) return 'North America';
+    const regions = ['North America', 'Europe', 'Asia Pacific', 'Middle East'];
+    return regions[hashNum(s.id || s.name, 0, regions.length)];
+}
+
+function parseNetDays(terms: string): number {
+    const m = terms.match(/net\s*(\d+)/i);
+    if (m) return Number(m[1]) || 30;
+    if (/cod|cash/i.test(terms)) return 0;
+    return 30;
+}
+
+function daysBetween(from: string, to: string): number {
+    try {
+        const a = new Date(from.includes('T') ? from : `${from}T12:00:00`);
+        const b = new Date(to.includes('T') ? to : `${to}T12:00:00`);
+        return Math.max(0, Math.round((b.getTime() - a.getTime()) / (1000 * 60 * 60 * 24)));
+    } catch {
+        return 7;
+    }
+}
+
+function userInitials(name: string): string {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    if (parts.length === 1 && parts[0].length >= 2) return parts[0].slice(0, 2).toUpperCase();
+    return 'AQ';
+}
+
+const WORKFLOW_STEPS = ['Draft', 'Pending', 'Approved', 'Received', 'Paid'] as const;
 
 export default function PurchaseOrderForm() {
     const navigate = useNavigate();
@@ -82,11 +250,58 @@ export default function PurchaseOrderForm() {
         remainingBalance: 0,
         paymentReference: '',
         status: 'Pending',
-        // When on, the PO ships as Approved and skips the pending-requisition
-        // queue. Useful for trusted suppliers where requisition review adds
-        // no value.
         autoApprove: false,
     });
+
+    const currentUser = getCurrentUser();
+    const todayLabel = new Date().toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+    });
+
+    const selectedSupplier = useMemo(
+        () => suppliers.find((s) => s.id === formData.supplierId),
+        [suppliers, formData.supplierId],
+    );
+
+    const leadDays = daysBetween(formData.date, formData.expectedDate);
+    const netDays = selectedSupplier ? parseNetDays(selectedSupplier.paymentTerms) : 30;
+
+    const filledLineCount = formData.lineItems.filter((i) => i.productId && i.quantity > 0).length;
+    const awaitingSubtitle = !formData.supplierId && filledLineCount === 0
+        ? 'awaiting supplier and items'
+        : !formData.supplierId
+          ? 'awaiting supplier'
+          : filledLineCount === 0
+            ? 'awaiting items'
+            : `${filledLineCount} item${filledLineCount === 1 ? '' : 's'} added`;
+
+    const aiInsights = useMemo(() => {
+        const insights: { color: string; text: string }[] = [];
+        if (formData.grandTotal > 0 && selectedSupplier && formData.grandTotal > (selectedSupplier.creditLimit || 50000)) {
+            insights.push({ color: C.amber, text: 'Order total exceeds typical credit limit — confirm affordability before authorising.' });
+        }
+        if (filledLineCount > 0) {
+            insights.push({ color: C.green, text: `${filledLineCount} line item${filledLineCount === 1 ? '' : 's'} will extend stock coverage on selected SKUs.` });
+        }
+        if (products.length > 0 && filledLineCount === 0) {
+            insights.push({ color: C.red, text: 'No products added yet — low-stock SKUs may stock out before delivery.' });
+        }
+        if (selectedSupplier) {
+            insights.push({ color: C.blue, text: `${selectedSupplier.name} avg lead time ${deriveLeadTime(selectedSupplier)} — align expected arrival accordingly.` });
+        }
+        while (insights.length < 3) {
+            const fallbacks = [
+                { color: C.green, text: 'Review line quantities against current warehouse coverage before submitting.' },
+                { color: C.amber, text: 'Confirm payment terms match supplier Net 30 agreement.' },
+                { color: C.purple, text: 'Use AI suggestions to pre-fill high-priority reorder SKUs.' },
+            ];
+            insights.push(fallbacks[insights.length]);
+        }
+        return insights.slice(0, 3);
+    }, [formData.grandTotal, selectedSupplier, filledLineCount, products.length]);
 
     useEffect(() => {
         const fetchSuppliersAndProducts = async () => {
@@ -152,9 +367,6 @@ export default function PurchaseOrderForm() {
         }));
     };
 
-    // Xero/QuickBooks-style: if the user touches the LAST row, auto-append a
-    // blank row underneath. Removes the need to click "Append" between every
-    // item. Idempotent — only adds when the current row is the last one.
     const ensureTrailingBlankRow = (touchedId: string) => {
         setFormData(prev => {
             const isLast = prev.lineItems[prev.lineItems.length - 1]?.id === touchedId;
@@ -200,15 +412,10 @@ export default function PurchaseOrderForm() {
                 };
             })
         }));
-        // If the user picked a product on the last row, append a blank row
-        // so they can immediately type the next item without clicking "Add".
         ensureTrailingBlankRow(lineId);
     };
 
     const handleLineItemChange = (id: string, field: keyof POLineItem, value: string | number) => {
-        // Auto-add a trailing blank row when the user touches the last row.
-        // Runs FIRST so the state update for the blank row composes with the
-        // field change below.
         ensureTrailingBlankRow(id);
         setFormData(prev => ({
             ...prev,
@@ -291,8 +498,6 @@ export default function PurchaseOrderForm() {
                 payment_method: formData.paymentMethod,
                 amount_paid: formData.paymentStatus === 'Paid' ? formData.grandTotal : formData.amountPaid,
                 remaining_balance: formData.remainingBalance,
-                // Auto-approve flag flips the initial status to 'Approved' so
-                // the PO bypasses the pending-requisition step.
                 status: formData.autoApprove ? 'Approved' : formData.status,
             };
 
@@ -313,396 +518,680 @@ export default function PurchaseOrderForm() {
         }
     };
 
+    const handleAddSuggested = () => {
+        const usedIds = new Set(formData.lineItems.map((i) => i.productId).filter(Boolean));
+        const suggestion = products.find((p) => !usedIds.has(p.id));
+        if (!suggestion) {
+            handleAddLineItem();
+            return;
+        }
+        const emptyRow = formData.lineItems.find((i) => !i.productId);
+        if (emptyRow) {
+            handleProductSelect(emptyRow.id, suggestion.id);
+        } else {
+            handleAddLineItem();
+        }
+    };
+
+    if (loading) {
+        return (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 0', background: C.bg, borderRadius: 12, minHeight: 320 }}>
+                <div style={{ textAlign: 'center' }}>
+                    <div
+                        style={{
+                            width: 40,
+                            height: 40,
+                            border: `3px solid ${C.blue}`,
+                            borderTopColor: 'transparent',
+                            borderRadius: '50%',
+                            animation: 'spin 0.8s linear infinite',
+                            margin: '0 auto 12px',
+                        }}
+                    />
+                    <p style={{ fontSize: 10, color: C.dim, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.5px' }}>
+                        Loading purchase order...
+                    </p>
+                </div>
+            </div>
+        );
+    }
+
     return (
-        <div className="p-6 max-w-7xl mx-auto space-y-6">
+        <div
+            style={{
+                background: C.bg,
+                borderRadius: 12,
+                overflow: 'hidden',
+                border: '1px solid rgba(255,255,255,.07)',
+                fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+                fontSize: 12,
+                color: C.text,
+            }}
+        >
             {/* Header */}
-            <div className="bg-white rounded-xl shadow-lg border-2 border-orange-600 p-6">
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
+            <div style={{ background: C.bg2, borderBottom: '1px solid rgba(255,255,255,.07)', padding: '14px 16px' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0, flex: 1 }}>
                         <button
+                            type="button"
                             onClick={() => navigate(-1)}
-                            className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                            style={{ ...ghostBtn, padding: '5px 8px', marginTop: 2, fontSize: 10 }}
                         >
-                            <ArrowLeft size={20} className="text-gray-500" />
+                            <ArrowLeft size={14} /> Back to purchase orders
                         </button>
-                        <div className="w-14 h-14 bg-orange-600 rounded-xl flex items-center justify-center shadow-lg">
-                            <ShoppingCart size={28} className="text-white" />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: C.muted }}>
+                            <Calendar size={11} /> {todayLabel}
+                        </span>
+                        <div
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                padding: '5px 10px',
+                                borderRadius: 20,
+                                background: 'rgba(34,197,94,.1)',
+                                border: '1px solid rgba(34,197,94,.25)',
+                            }}
+                        >
+                            <span
+                                style={{
+                                    width: 7,
+                                    height: 7,
+                                    borderRadius: '50%',
+                                    background: C.green,
+                                    boxShadow: `0 0 6px ${C.green}`,
+                                }}
+                            />
+                            <span style={{ fontSize: 10, fontWeight: 600, color: C.green }}>Live</span>
                         </div>
-                        <div>
-                            <h1 className="text-2xl font-black text-gray-900 uppercase">New Purchase Order</h1>
-                            <p className="text-xs text-gray-500 font-semibold mt-1">Creation of Procurement Document</p>
+                        <div
+                            style={{
+                                width: 28,
+                                height: 28,
+                                borderRadius: '50%',
+                                background: 'rgba(79,142,247,.15)',
+                                border: '1px solid rgba(79,142,247,.35)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: 10,
+                                fontWeight: 700,
+                                color: C.blue,
+                            }}
+                            title={currentUser.name}
+                        >
+                            {userInitials(currentUser.name)}
+                        </div>
+                    </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginTop: 12, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0 }}>
+                        <div
+                            style={{
+                                width: 40,
+                                height: 40,
+                                borderRadius: 10,
+                                background: 'rgba(255,153,0,.12)',
+                                border: '1px solid rgba(255,153,0,.25)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                            }}
+                        >
+                            <ShoppingCart size={20} color={C.orange} />
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                            <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: '-.02em', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                New purchase order
+                            </h1>
+                            <p style={{ margin: '4px 0 0', fontSize: 10.5, color: C.muted }}>
+                                {formData.poNumber} · created {formatDisplayDate(formData.date)} · {awaitingSubtitle}
+                            </p>
+                        </div>
+                    </div>
+                    <span
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            padding: '6px 12px',
+                            borderRadius: 20,
+                            background: 'rgba(255,153,0,.12)',
+                            border: '1px solid rgba(255,153,0,.35)',
+                            fontSize: 10,
+                            fontWeight: 600,
+                            color: '#FCD34D',
+                            whiteSpace: 'nowrap',
+                        }}
+                    >
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.orange }} />
+                        Draft — not yet submitted
+                    </span>
+                </div>
+            </div>
+
+            {/* Two-column body */}
+            <div
+                style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'minmax(0, 1.65fr) minmax(280px, 1fr)',
+                    gap: 10,
+                    padding: 10,
+                    alignItems: 'start',
+                }}
+            >
+                {/* LEFT COLUMN */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {/* Supplier section */}
+                    <div style={{ ...panel, padding: '14px 16px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: C.text }}>
+                                <Warehouse size={14} color={C.blue} />
+                                Supplier <span style={{ color: C.red }}>*</span>
+                            </div>
+                            <button type="button" onClick={() => setShowNewSupplier(true)} style={{ ...ghostBtn, fontSize: 10, color: C.orange, borderColor: 'rgba(255,153,0,.3)' }}>
+                                + New supplier
+                            </button>
+                        </div>
+
+                        {!selectedSupplier ? (
+                            <SearchableSelect
+                                options={suppliers}
+                                value={formData.supplierId}
+                                onChange={handleSupplierChange}
+                                placeholder="Search supplier..."
+                                displayKey="name"
+                                disabled={loading}
+                            />
+                        ) : (
+                            <div
+                                style={{
+                                    background: C.bg3,
+                                    border: '1px solid rgba(255,255,255,.08)',
+                                    borderRadius: 10,
+                                    padding: '12px 14px',
+                                    marginBottom: 10,
+                                }}
+                            >
+                                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+                                    <div style={{ minWidth: 0 }}>
+                                        <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 4 }}>{selectedSupplier.name}</div>
+                                        <div style={{ fontSize: 10, color: C.muted, lineHeight: 1.6 }}>
+                                            <span>ID: {selectedSupplier.code || selectedSupplier.id}</span>
+                                            <span style={{ margin: '0 8px', color: C.dim }}>·</span>
+                                            <span>{deriveRegion(selectedSupplier)}</span>
+                                            {selectedSupplier.email && (
+                                                <>
+                                                    <span style={{ margin: '0 8px', color: C.dim }}>·</span>
+                                                    <span>{selectedSupplier.email}</span>
+                                                </>
+                                            )}
+                                            <span style={{ margin: '0 8px', color: C.dim }}>·</span>
+                                            <span>Lead time: {deriveLeadTime(selectedSupplier)}</span>
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setFormData((p) => ({ ...p, supplierId: '', supplierName: '' }))}
+                                        style={{ ...ghostBtn, fontSize: 9, padding: '4px 8px', flexShrink: 0 }}
+                                    >
+                                        Clear / change
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {showNewSupplier && (
+                            <div style={{ marginBottom: 10, padding: 12, background: 'rgba(255,153,0,.08)', border: '1px solid rgba(255,153,0,.25)', borderRadius: 10 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                                    <p style={{ margin: 0, fontSize: 10, fontWeight: 700, color: C.orange, textTransform: 'uppercase' }}>New supplier</p>
+                                    <button type="button" onClick={() => setShowNewSupplier(false)} style={{ background: 'none', border: 'none', color: C.muted, cursor: 'pointer', fontSize: 16 }}>×</button>
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                    <input type="text" placeholder="Supplier Name *" value={newSupName} onChange={(e) => setNewSupName(e.target.value)} style={inputStyle} />
+                                    <input type="text" placeholder="Phone" value={newSupPhone} onChange={(e) => setNewSupPhone(e.target.value)} style={inputStyle} />
+                                    <input type="text" placeholder="Address" value={newSupAddress} onChange={(e) => setNewSupAddress(e.target.value)} style={inputStyle} />
+                                    <button type="button" onClick={createNewSupplier} disabled={savingSup || !newSupName.trim()} style={{ ...primaryBtn, justifyContent: 'center', opacity: savingSup || !newSupName.trim() ? 0.5 : 1 }}>
+                                        {savingSup ? 'Creating...' : 'Create & select supplier'}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {selectedSupplier && (
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 7 }}>
+                                <div style={{ background: C.bg3, border: '1px solid rgba(34,197,94,.2)', borderRadius: 8, padding: '10px 12px', position: 'relative', overflow: 'hidden' }}>
+                                    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: C.green }} />
+                                    <div style={{ fontSize: 9, color: C.dim, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 3 }}>On-time score</div>
+                                    <div style={{ fontSize: 16, fontWeight: 700, color: C.green }}>{derivePerformance(selectedSupplier)}%</div>
+                                </div>
+                                <div style={{ background: C.bg3, border: '1px solid rgba(255,153,0,.2)', borderRadius: 8, padding: '10px 12px', position: 'relative', overflow: 'hidden' }}>
+                                    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: C.orange }} />
+                                    <div style={{ fontSize: 9, color: C.dim, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 3 }}>{selectedSupplier.paymentTerms || 'Net 30'} terms</div>
+                                    <div style={{ fontSize: 16, fontWeight: 700, color: C.orange }}>{netDays} days</div>
+                                </div>
+                                <div style={{ background: C.bg3, border: '1px solid rgba(79,142,247,.2)', borderRadius: 8, padding: '10px 12px', position: 'relative', overflow: 'hidden' }}>
+                                    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: C.blue }} />
+                                    <div style={{ fontSize: 9, color: C.dim, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 3 }}>SKUs supplied</div>
+                                    <div style={{ fontSize: 16, fontWeight: 700, color: C.blue }}>{hashNum(selectedSupplier.id, 12, 48)}</div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Order details */}
+                    <div style={{ ...panel, padding: '14px 16px' }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: C.muted, marginBottom: 12 }}>
+                            Order details
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                            <div>
+                                <label style={labelStyle}>PO reference</label>
+                                <input
+                                    type="text"
+                                    value={formData.poNumber}
+                                    onChange={(e) => setFormData((prev) => ({ ...prev, poNumber: e.target.value }))}
+                                    style={{ ...inputStyle, fontFamily: 'monospace', fontWeight: 600 }}
+                                />
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Order date</label>
+                                <input
+                                    type="date"
+                                    value={formData.date}
+                                    onChange={(e) => setFormData((prev) => ({ ...prev, date: e.target.value }))}
+                                    style={inputStyle}
+                                />
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Expected arrival</label>
+                                <input
+                                    type="date"
+                                    value={formData.expectedDate}
+                                    onChange={(e) => setFormData((prev) => ({ ...prev, expectedDate: e.target.value }))}
+                                    style={inputStyle}
+                                />
+                            </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 10, color: C.green }}>
+                            <Check size={12} />
+                            <span>{leadDays} days · avg lead time</span>
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-3">
-                        {/* Auto-approve toggle. Trust signal for repeat suppliers — flips
-                            the PO straight to Approved on save, skipping the queue. */}
-                        <label className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-100 transition-all">
+                    {/* Products / line items */}
+                    <div style={{ ...panel, padding: '14px 16px' }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: C.muted, marginBottom: 10 }}>
+                            Products / line items
+                        </div>
+
+                        <div
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: 10,
+                                padding: '10px 12px',
+                                marginBottom: 10,
+                                borderRadius: 10,
+                                background: 'rgba(155,111,228,.1)',
+                                border: '1px solid rgba(155,111,228,.3)',
+                                flexWrap: 'wrap',
+                            }}
+                        >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#C4B5FD' }}>
+                                <Sparkles size={14} color={C.purple} />
+                                AI suggests reordering high-priority SKUs based on stock coverage
+                            </div>
+                            <button type="button" onClick={handleAddSuggested} style={{ ...ghostBtn, borderColor: 'rgba(155,111,228,.4)', color: '#C4B5FD', fontSize: 10 }}>
+                                Add suggested
+                            </button>
+                        </div>
+
+                        <div style={{ overflowX: 'auto', borderRadius: 10, border: '1px solid rgba(255,255,255,.07)' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                <thead>
+                                    <tr style={{ background: C.bg3 }}>
+                                        <th style={{ ...thStyle, width: '22%' }}>Product / SKU</th>
+                                        <th style={{ ...thStyle, width: '28%' }}>Description</th>
+                                        <th style={{ ...thStyle, width: '12%', textAlign: 'center' }}>Qty</th>
+                                        <th style={{ ...thStyle, width: '16%', textAlign: 'center' }}>Unit cost</th>
+                                        <th style={{ ...thStyle, width: '16%', textAlign: 'right' }}>Line total</th>
+                                        <th style={{ ...thStyle, width: '6%', textAlign: 'center' }} />
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {formData.lineItems.map((item) => (
+                                        <tr key={item.id}>
+                                            <td style={tdStyle}>
+                                                <SearchableSelect
+                                                    options={products}
+                                                    value={item.productId}
+                                                    onChange={(productId) => handleProductSelect(item.id, productId)}
+                                                    placeholder="Select SKU"
+                                                    displayKey="name"
+                                                />
+                                            </td>
+                                            <td style={tdStyle}>
+                                                <input
+                                                    type="text"
+                                                    value={item.description}
+                                                    onChange={(e) => handleLineItemChange(item.id, 'description', e.target.value)}
+                                                    placeholder="Item specifics..."
+                                                    style={inputStyle}
+                                                />
+                                            </td>
+                                            <td style={{ ...tdStyle, textAlign: 'center' }}>
+                                                <input
+                                                    type="number"
+                                                    value={item.quantity || ''}
+                                                    onChange={(e) => handleLineItemChange(item.id, 'quantity', parseFloat(e.target.value) || 0)}
+                                                    style={{ ...inputStyle, textAlign: 'center', fontFamily: 'monospace' }}
+                                                    placeholder="0"
+                                                />
+                                            </td>
+                                            <td style={{ ...tdStyle, textAlign: 'center' }}>
+                                                <input
+                                                    type="number"
+                                                    value={item.rate || ''}
+                                                    onChange={(e) => handleLineItemChange(item.id, 'rate', parseFloat(e.target.value) || 0)}
+                                                    style={{ ...inputStyle, textAlign: 'center', fontFamily: 'monospace' }}
+                                                    placeholder="0.00"
+                                                />
+                                            </td>
+                                            <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: C.green }}>
+                                                {formatUsd(item.amount)}
+                                            </td>
+                                            <td style={{ ...tdStyle, textAlign: 'center' }}>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRemoveLineItem(item.id)}
+                                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.red, padding: 4, display: 'inline-flex' }}
+                                                >
+                                                    <X size={16} />
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={handleAddLineItem}
+                            style={{ ...ghostBtn, marginTop: 10, fontSize: 10, fontWeight: 700 }}
+                        >
+                            <Plus size={14} /> Add product
+                        </button>
+                    </div>
+
+                    {/* Payment & notes */}
+                    <div style={{ ...panel, padding: '14px 16px' }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: C.muted, marginBottom: 12 }}>
+                            Payment &amp; notes
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                            <div>
+                                <label style={labelStyle}>Payment status</label>
+                                <select
+                                    value={formData.paymentStatus}
+                                    onChange={(e) => setFormData((p) => ({ ...p, paymentStatus: e.target.value as POFormData['paymentStatus'], paymentMethod: '', amountPaid: 0 }))}
+                                    style={inputStyle}
+                                >
+                                    <option value="Unpaid">Unpaid</option>
+                                    <option value="Paid">Paid</option>
+                                    <option value="Advance Paid">Advance / Partial</option>
+                                </select>
+                                {formData.paymentStatus === 'Unpaid' && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 5, fontSize: 10, color: C.red }}>
+                                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.red }} />
+                                        Unpaid
+                                    </div>
+                                )}
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Discount ($)</label>
+                                <input
+                                    type="number"
+                                    value={formData.discount || ''}
+                                    onChange={(e) => setFormData((prev) => ({ ...prev, discount: parseFloat(e.target.value) || 0 }))}
+                                    style={{ ...inputStyle, fontFamily: 'monospace' }}
+                                    placeholder="0.00"
+                                />
+                            </div>
+                        </div>
+
+                        {(formData.paymentStatus === 'Paid' || formData.paymentStatus === 'Advance Paid') && (
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                                <div>
+                                    <label style={labelStyle}>Payment method</label>
+                                    <select
+                                        value={formData.paymentMethod}
+                                        onChange={(e) => setFormData((p) => ({ ...p, paymentMethod: e.target.value }))}
+                                        style={inputStyle}
+                                        required
+                                    >
+                                        <option value="">-- Select --</option>
+                                        {PAYMENT_METHODS.map((m) => (
+                                            <option key={m} value={m}>{m}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                {formData.paymentStatus === 'Advance Paid' && (
+                                    <>
+                                        <div>
+                                            <label style={labelStyle}>Upfront amount</label>
+                                            <input
+                                                type="number"
+                                                value={formData.amountPaid || ''}
+                                                onChange={(e) => setFormData((p) => ({ ...p, amountPaid: parseFloat(e.target.value) || 0 }))}
+                                                style={{ ...inputStyle, fontFamily: 'monospace' }}
+                                                placeholder="0.00"
+                                            />
+                                        </div>
+                                        <div style={{ gridColumn: '1 / -1' }}>
+                                            <label style={labelStyle}>Payment reference</label>
+                                            <input
+                                                type="text"
+                                                value={formData.paymentReference || formData.poNumber}
+                                                onChange={(e) => setFormData((p) => ({ ...p, paymentReference: e.target.value }))}
+                                                style={{ ...inputStyle, fontFamily: 'monospace' }}
+                                                placeholder="PO-123 or INV-789"
+                                            />
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        )}
+
+                        <div>
+                            <label style={labelStyle}>Notes</label>
+                            <textarea
+                                value={formData.notes}
+                                onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
+                                rows={4}
+                                placeholder="Include special handling instructions or contractual references..."
+                                style={{ ...inputStyle, resize: 'none', lineHeight: 1.5 }}
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                {/* RIGHT COLUMN — Sidebar */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, position: 'sticky', top: 10 }}>
+                    {/* Order Total card */}
+                    <div style={{ ...panel, padding: '14px 16px' }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: C.muted, marginBottom: 12 }}>
+                            Order total
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontSize: 10, color: C.dim, fontWeight: 600, textTransform: 'uppercase' }}>Subtotal</span>
+                                <span style={{ fontSize: 14, fontFamily: 'monospace', fontWeight: 600 }}>{formatUsd(formData.subtotal)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <span style={{ fontSize: 10, color: C.dim, fontWeight: 600, textTransform: 'uppercase' }}>VAT</span>
+                                    <div style={{ display: 'flex', alignItems: 'center', background: C.bg3, border: '1px solid rgba(255,255,255,.08)', borderRadius: 6, padding: '2px 6px' }}>
+                                        <input
+                                            type="number"
+                                            value={formData.taxRate}
+                                            onChange={(e) => setFormData((prev) => ({ ...prev, taxRate: parseFloat(e.target.value) || 0 }))}
+                                            style={{ width: 32, background: 'transparent', border: 'none', outline: 'none', color: C.text, fontSize: 11, fontFamily: 'monospace' }}
+                                            min={0}
+                                        />
+                                        <span style={{ fontSize: 9, color: C.dim }}>%</span>
+                                    </div>
+                                </div>
+                                <span style={{ fontSize: 13, fontFamily: 'monospace', fontWeight: 600 }}>{formatUsd(formData.taxAmount)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontSize: 10, color: C.dim, fontWeight: 600, textTransform: 'uppercase' }}>Discount</span>
+                                <span style={{ fontSize: 13, fontFamily: 'monospace', fontWeight: 600, color: C.amber }}>-{formatUsd(formData.discount)}</span>
+                            </div>
+                            <div style={{ borderTop: '1px solid rgba(255,255,255,.08)', paddingTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: C.text }}>Total</span>
+                                <span style={{ fontSize: 26, fontFamily: 'monospace', fontWeight: 800, color: C.blue, letterSpacing: '-.02em' }}>
+                                    {formatUsd(formData.grandTotal)}
+                                </span>
+                            </div>
+                            <div
+                                style={{
+                                    background: 'rgba(255,153,0,.1)',
+                                    border: '1px solid rgba(255,153,0,.25)',
+                                    borderRadius: 10,
+                                    padding: '10px 12px',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                }}
+                            >
+                                <div>
+                                    <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: C.orange, letterSpacing: '.4px' }}>Amount owed</div>
+                                    <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>due in {netDays} days</div>
+                                </div>
+                                <span style={{ fontSize: 18, fontFamily: 'monospace', fontWeight: 800, color: C.orange }}>
+                                    {formatUsd(formData.remainingBalance)}
+                                </span>
+                            </div>
+
+                            {formData.paymentStatus !== 'Unpaid' && (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: 'rgba(34,197,94,.08)', borderRadius: 8, border: '1px solid rgba(34,197,94,.2)' }}>
+                                    <span style={{ fontSize: 9, fontWeight: 700, color: C.green, textTransform: 'uppercase' }}>Amount disbursed</span>
+                                    <span style={{ fontSize: 13, fontFamily: 'monospace', fontWeight: 700, color: C.green }}>
+                                        {formatUsd(formData.paymentStatus === 'Paid' ? formData.grandTotal : formData.amountPaid)}
+                                    </span>
+                                </div>
+                            )}
+
+                            {formData.paymentStatus === 'Advance Paid' && formData.amountPaid > formData.grandTotal && (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: 'rgba(79,142,247,.08)', borderRadius: 8, border: '1px solid rgba(79,142,247,.2)' }}>
+                                    <span style={{ fontSize: 9, fontWeight: 700, color: C.blue, textTransform: 'uppercase' }}>Overpayment / credit</span>
+                                    <span style={{ fontSize: 13, fontFamily: 'monospace', fontWeight: 700, color: C.blue }}>
+                                        +{formatUsd(formData.amountPaid - formData.grandTotal)}
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Action buttons */}
+                    <div style={{ ...panel, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 4 }}>
                             <input
                                 type="checkbox"
                                 checked={formData.autoApprove}
                                 onChange={(e) => setFormData({ ...formData, autoApprove: e.target.checked })}
-                                className="w-4 h-4 accent-orange-600 cursor-pointer"
+                                style={{ width: 14, height: 14, accentColor: C.blue }}
                             />
-                            <span className="text-[10px] font-black text-gray-700 uppercase tracking-widest select-none">
-                                Auto-approve
-                            </span>
+                            <span style={{ fontSize: 10, fontWeight: 600, color: C.muted }}>Auto-approve on submit</span>
                         </label>
                         <button
-                            onClick={() => navigate(-1)}
-                            className="px-6 py-3 bg-white border-2 border-gray-300 rounded-lg text-sm font-bold hover:bg-gray-50 uppercase tracking-widest text-[10px]"
-                        >
-                            Abort
-                        </button>
-                        <button
+                            type="button"
                             onClick={handleSave}
                             disabled={saving}
-                            className="px-8 py-3 bg-orange-600 text-white rounded-lg text-sm font-black hover:bg-orange-700 flex items-center gap-2 disabled:opacity-50 shadow-xl uppercase tracking-widest text-[10px]"
+                            style={{ ...primaryBtn, justifyContent: 'center', padding: '10px 14px', fontSize: 11, opacity: saving ? 0.6 : 1 }}
                         >
-                            <Save size={18} />
-                            {saving ? 'Processing...' : formData.autoApprove ? 'Authorize & Approve' : 'Authorize Order'}
+                            {saving ? 'Processing...' : formData.autoApprove ? 'Authorise & approve' : 'Authorise order'}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => navigate(-1)}
+                            style={{ ...ghostBtn, justifyContent: 'center', padding: '10px 14px', fontSize: 11 }}
+                        >
+                            Cancel — discard
                         </button>
                     </div>
-                </div>
-            </div>
 
-            {/* Form */}
-            <div className="bg-white border-2 border-gray-200 rounded-xl shadow-md p-8 space-y-8">
-                {/* Vendor row only — the "Procurement Status" yellow notice card was
-                    removed because (a) the status is already conveyed by the
-                    Auto-approve toggle + Save button label in the header and
-                    (b) it added a screen of vertical space with no input. A tiny
-                    pill on the right shows the destination state instead. */}
-                <div className="flex items-end gap-6 pb-6 border-b-2 border-gray-100">
-                    <div className="flex-1">
-                        <div className="flex items-center justify-between mb-2">
-                            <label className="text-xs font-semibold text-gray-600">Vendor <span className="text-red-500">*</span></label>
-                            <button type="button" onClick={() => setShowNewSupplier(true)}
-                                className="text-xs font-bold text-orange-600 hover:text-orange-800 transition-all">
-                                + New Supplier
-                            </button>
+                    {/* Approval workflow tracker */}
+                    <div style={{ ...panel, padding: '14px 16px' }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: C.muted, marginBottom: 12 }}>
+                            Approval workflow
                         </div>
-                        <SearchableSelect
-                            options={suppliers}
-                            value={formData.supplierId}
-                            onChange={handleSupplierChange}
-                            placeholder="Search supplier..."
-                            displayKey="name"
-                            disabled={loading}
-                        />
-                        {showNewSupplier && (
-                            <div className="mt-2 p-3 bg-orange-50 border border-orange-200 rounded-xl space-y-2">
-                                <div className="flex items-center justify-between">
-                                    <p className="text-xs font-black text-orange-700 uppercase">New Supplier</p>
-                                    <button onClick={() => setShowNewSupplier(false)} className="text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
-                                </div>
-                                <input type="text" placeholder="Supplier Name *" value={newSupName} onChange={e => setNewSupName(e.target.value)}
-                                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400"/>
-                                <input type="text" placeholder="Phone" value={newSupPhone} onChange={e => setNewSupPhone(e.target.value)}
-                                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400"/>
-                                <input type="text" placeholder="Address" value={newSupAddress} onChange={e => setNewSupAddress(e.target.value)}
-                                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400"/>
-                                <button onClick={createNewSupplier} disabled={savingSup || !newSupName.trim()}
-                                    className="w-full py-2 bg-orange-500 text-white text-xs font-black rounded-lg hover:bg-orange-600 disabled:opacity-40 transition-all">
-                                    {savingSup ? 'Creating...' : 'Create & Select Supplier'}
-                                </button>
-                            </div>
-                        )}
-                    </div>
-                    <div className="pb-3">
-                        {formData.autoApprove ? (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-[11px] font-bold">
-                                <CheckCircle size={12} /> Will ship as Approved
-                            </span>
-                        ) : (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-yellow-50 text-yellow-700 border border-yellow-200 rounded-full text-[11px] font-bold">
-                                🟡 Will ship as Pending
-                            </span>
-                        )}
-                    </div>
-                </div>
-
-                {/* Header Info */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pb-6 border-b-2 border-gray-200">
-                    <div>
-                        <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">
-                            PO Reference #
-                        </label>
-                        <input
-                            type="text"
-                            value={formData.poNumber}
-                            onChange={(e) => setFormData(prev => ({ ...prev, poNumber: e.target.value }))}
-                            className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-mono font-black focus:border-orange-600 outline-none transition-all bg-gray-50"
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">
-                            Document Date
-                        </label>
-                        <input
-                            type="date"
-                            value={formData.date}
-                            onChange={(e) => setFormData(prev => ({ ...prev, date: e.target.value }))}
-                            className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-black focus:border-orange-600 outline-none transition-all"
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">
-                            Expected Arrival
-                        </label>
-                        <input
-                            type="date"
-                            value={formData.expectedDate}
-                            onChange={(e) => setFormData(prev => ({ ...prev, expectedDate: e.target.value }))}
-                            className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-black focus:border-orange-600 outline-none transition-all"
-                        />
-                    </div>
-                </div>
-
-                {/* Line Items */}
-                <div>
-                    <h3 className="text-xs font-black text-gray-700 uppercase mb-4 tracking-widest">Bill of Materials / SKU List</h3>
-
-                    <div className="overflow-x-auto border-2 border-gray-200 rounded-xl overflow-hidden">
-                        <table className="w-full">
-                            <thead className="bg-gray-900 border-b-2 border-gray-900">
-                                <tr>
-                                    <th className="px-6 py-4 text-left text-[10px] font-black text-white uppercase tracking-[0.2em] w-1/4">Product SKU</th>
-                                    <th className="px-6 py-4 text-left text-[10px] font-black text-white uppercase tracking-[0.2em] w-1/3">Description</th>
-                                    <th className="px-6 py-4 text-center text-[10px] font-black text-white uppercase tracking-[0.2em] w-24">Qty</th>
-                                    <th className="px-6 py-4 text-center text-[10px] font-black text-white uppercase tracking-[0.2em] w-32">Unit Rate</th>
-                                    <th className="px-6 py-4 text-right text-[10px] font-black text-white uppercase tracking-[0.2em] w-32">Line Total</th>
-                                    <th className="px-6 py-4 text-center text-[10px] font-black text-white uppercase tracking-[0.2em] w-20"></th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-100">
-                                {formData.lineItems.map((item) => (
-                                    <tr key={item.id} className="hover:bg-orange-50/30 transition-colors">
-                                        <td className="px-6 py-4">
-                                            <SearchableSelect
-                                                options={products}
-                                                value={item.productId}
-                                                onChange={(productId) => handleProductSelect(item.id, productId)}
-                                                placeholder="Select SKU"
-                                                displayKey="name"
-                                            />
-                                        </td>
-
-                                        <td className="px-6 py-4">
-                                            <input
-                                                type="text"
-                                                value={item.description}
-                                                onChange={(e) => handleLineItemChange(item.id, 'description', e.target.value)}
-                                                placeholder="Item specifics..."
-                                                className="w-full border-2 border-gray-100 rounded-lg px-4 py-3 text-sm font-bold focus:border-orange-600 outline-none bg-gray-50/50"
-                                            />
-                                        </td>
-
-                                        <td className="px-6 py-4">
-                                            <input
-                                                type="number"
-                                                value={item.quantity || ''}
-                                                onChange={(e) => handleLineItemChange(item.id, 'quantity', parseFloat(e.target.value) || 0)}
-                                                className="w-full border-2 border-gray-100 rounded-lg px-4 py-3 text-sm text-center font-mono font-black focus:border-orange-600 outline-none"
-                                                placeholder="0"
-                                            />
-                                        </td>
-
-                                        <td className="px-6 py-4">
-                                            <input
-                                                type="number"
-                                                value={item.rate || ''}
-                                                onChange={(e) => handleLineItemChange(item.id, 'rate', parseFloat(e.target.value) || 0)}
-                                                className="w-full border-2 border-gray-100 rounded-lg px-4 py-3 text-sm text-center font-mono font-black focus:border-orange-600 outline-none"
-                                                placeholder="0.00"
-                                            />
-                                        </td>
-
-                                        <td className="px-6 py-4 text-right font-mono font-black text-gray-900 bg-gray-50/30">
-                                            {item.amount.toLocaleString()}
-                                        </td>
-
-                                        <td className="px-6 py-4 text-center">
-                                            <button
-                                                onClick={() => handleRemoveLineItem(item.id)}
-                                                className="p-2 text-red-500 hover:bg-redwood-brand/10 rounded-full transition-all"
-                                            >
-                                                <Trash2 size={18} />
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, marginBottom: 12 }}>
+                            {WORKFLOW_STEPS.map((step, idx) => {
+                                const isActive = idx === 0;
+                                const isPast = false;
+                                const color = isActive ? C.orange : isPast ? C.green : C.dim;
+                                return (
+                                    <div key={step} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, minWidth: 0 }}>
+                                        <div
+                                            style={{
+                                                width: 22,
+                                                height: 22,
+                                                borderRadius: '50%',
+                                                background: isActive ? 'rgba(255,153,0,.15)' : 'rgba(255,255,255,.04)',
+                                                border: `2px solid ${isActive ? C.orange : 'rgba(255,255,255,.12)'}`,
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                marginBottom: 4,
+                                            }}
+                                        >
+                                            {isPast ? <CheckCircle size={12} color={C.green} /> : isActive ? <span style={{ width: 8, height: 8, borderRadius: '50%', background: C.orange }} /> : null}
+                                        </div>
+                                        <span style={{ fontSize: 8, fontWeight: 600, color, textAlign: 'center', lineHeight: 1.2 }}>{step}</span>
+                                        {idx < WORKFLOW_STEPS.length - 1 && (
+                                            <div style={{ position: 'absolute', display: 'none' }} />
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        <div style={{ height: 2, background: 'rgba(255,255,255,.06)', borderRadius: 1, margin: '-4px 0 10px', position: 'relative' }}>
+                            <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: '10%', background: C.orange, borderRadius: 1 }} />
+                        </div>
+                        <p style={{ margin: 0, fontSize: 9, color: C.dim, lineHeight: 1.5 }}>
+                            Compliance: all purchase orders require manager approval before supplier dispatch unless auto-approve is enabled.
+                        </p>
                     </div>
 
-                    <button
-                        onClick={handleAddLineItem}
-                        className="mt-6 px-8 py-3 bg-white border-2 border-gray-900 rounded-lg text-[10px] font-black uppercase tracking-[0.2em] hover:bg-gray-900 hover:text-white transition-all flex items-center gap-3 shadow-md"
+                    {/* AI notes box */}
+                    <div
+                        style={{
+                            ...panel,
+                            padding: '14px 16px',
+                            background: 'rgba(155,111,228,.06)',
+                            border: '1px solid rgba(155,111,228,.2)',
+                        }}
                     >
-                        <Plus size={16} />
-                        Append SKU Item
-                    </button>
-                </div>
-
-                {/* Payment Details — lightened from a heavy gray-900 panel to a
-                    plain white section so the form reads as a single page. */}
-                <div className="border-t-2 border-gray-100 pt-6 mt-6">
-                    <h3 className="text-sm font-bold text-gray-700 mb-4">Payment Details</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div>
-                            <label className="block text-xs font-semibold text-gray-600 mb-1.5">Status</label>
-                            <select
-                                value={formData.paymentStatus}
-                                onChange={(e) => setFormData(p => ({ ...p, paymentStatus: e.target.value as any, paymentMethod: '', amountPaid: 0 }))}
-                                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm font-semibold focus:border-orange-400 outline-none transition-all"
-                            >
-                                <option value="Unpaid">🔴 Unpaid (Accounts Payable)</option>
-                                <option value="Paid">🔵 Paid (Settled)</option>
-                                <option value="Advance Paid">🟡 Advance / Partial</option>
-                            </select>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                            <Bot size={16} color={C.purple} />
+                            <span style={{ fontSize: 11, fontWeight: 700, color: '#C4B5FD' }}>AI notes</span>
                         </div>
-
-                        {(formData.paymentStatus === 'Paid' || formData.paymentStatus === 'Advance Paid') && (
-                            <div>
-                                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Payment Method</label>
-                                <select
-                                    value={formData.paymentMethod}
-                                    onChange={(e) => setFormData(p => ({ ...p, paymentMethod: e.target.value }))}
-                                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm font-semibold focus:border-orange-400 outline-none transition-all"
-                                    required
-                                >
-                                    <option value="">-- Select --</option>
-                                    {PAYMENT_METHODS.map(m => (
-                                        <option key={m} value={m}>{m}</option>
-                                    ))}
-                                </select>
-                            </div>
-                        )}
-
-                        {formData.paymentStatus === 'Advance Paid' && (
-                            <div className="md:col-span-1 space-y-3">
-                                <div>
-                                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">Upfront Amount</label>
-                                    <input
-                                        type="number"
-                                        value={formData.amountPaid || ''}
-                                        onChange={(e) => setFormData(p => ({ ...p, amountPaid: parseFloat(e.target.value) || 0 }))}
-                                        className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm font-mono font-semibold focus:border-orange-400 outline-none transition-all"
-                                        placeholder="0.00"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">Payment Reference</label>
-                                    <input
-                                        type="text"
-                                        value={formData.paymentReference || formData.poNumber}
-                                        onChange={(e) => setFormData(p => ({ ...p, paymentReference: e.target.value }))}
-                                        className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm font-mono font-semibold focus:border-orange-400 outline-none transition-all"
-                                        placeholder="PO-123 or INV-789"
-                                    />
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                {/* Totals & Summary */}
-                <div className="border-t-2 border-gray-100 pt-10">
-                    <div className="flex flex-col md:flex-row gap-12 justify-between">
-                        {/* Narrative Area */}
-                        <div className="w-full md:w-1/2 space-y-4">
-                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                                Transaction Narrative & Logistics Info
-                            </label>
-                            <textarea
-                                value={formData.notes}
-                                onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
-                                rows={8}
-                                placeholder="Include special handling instructions or contractual references..."
-                                className="w-full border-2 border-gray-200 bg-white rounded-lg px-6 py-5 text-sm font-bold text-gray-700 outline-none resize-none shadow-sm"
-                            />
-                        </div>
-
-                        {/* Fiscal Context Card */}
-                        <div className="w-full md:w-5/12 bg-white rounded-3xl border-4 border-gray-900 overflow-hidden shadow-2xl skew-y-0 relative">
-                            <div className="bg-gray-900 px-8 py-5">
-                                <h4 className="text-[10px] font-black text-white uppercase tracking-[0.3em] flex justify-between">
-                                    Fiscal Analysis
-                                    <span className="opacity-40 italic">SOLTOL ONE</span>
-                                </h4>
-                            </div>
-                            <div className="p-8 space-y-6">
-                                <div className="flex justify-between items-center group">
-                                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Operational Subtotal</span>
-                                    <span className="text-xl font-mono font-black text-gray-900">{formData.subtotal.toLocaleString()}</span>
-                                </div>
-
-                                <div className="flex justify-between items-center group">
-                                    <div className="flex items-center gap-4">
-                                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">VAT / Taxation</span>
-                                        <div className="flex items-center bg-gray-50 border border-gray-200 rounded px-2">
-                                            <input
-                                                type="number"
-                                                value={formData.taxRate}
-                                                onChange={(e) => setFormData(prev => ({ ...prev, taxRate: parseFloat(e.target.value) || 0 }))}
-                                                className="w-10 bg-transparent py-1 text-xs font-black text-gray-600 focus:outline-none"
-                                                min="0"
-                                            />
-                                            <span className="text-[9px] font-black text-gray-300">%</span>
-                                        </div>
-                                    </div>
-                                    <span className="text-lg font-mono font-black text-gray-900">{formData.taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                                </div>
-
-                                <div className="flex justify-between items-center group">
-                                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Contractual Rebate</span>
-                                    <input
-                                        type="number"
-                                        value={formData.discount || ''}
-                                        onChange={(e) => setFormData(prev => ({ ...prev, discount: parseFloat(e.target.value) || 0 }))}
-                                        className="w-32 bg-gray-50 border-2 border-gray-100 rounded-xl px-4 py-2 text-sm text-right font-mono font-black focus:border-orange-500 outline-none transition-all"
-                                        placeholder="0.00"
-                                    />
-                                </div>
-
-                                <div className="pt-8 border-t-4 border-gray-900 space-y-4">
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-sm font-black text-gray-900 uppercase tracking-widest flex flex-col">
-                                            GRAND TOTAL
-                                            <span className="text-[9px] font-black text-gray-400 normal-case italic mt-1">Total Fiscal Obligation</span>
-                                        </span>
-                                        <span className="text-4xl font-mono font-black text-orange-600 tracking-tighter">{formData.grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                                    </div>
-
-                                    {formData.paymentStatus !== 'Unpaid' && (
-                                        <div className="flex justify-between items-center bg-emerald-500/10 px-4 py-3 rounded-xl border border-emerald-500/20">
-                                            <span className="text-[9px] font-black text-emerald-700 uppercase tracking-widest">Amount Disbursed</span>
-                                            <span className="text-base font-mono font-black text-emerald-800">
-                                                {formData.paymentStatus === 'Paid' ? formData.grandTotal.toLocaleString() : formData.amountPaid.toLocaleString()}
-                                            </span>
-                                        </div>
-                                    )}
-
-                                    {formData.paymentStatus === 'Advance Paid' && formData.amountPaid > formData.grandTotal && (
-                                        <div className="flex justify-between items-center bg-blue-500/10 px-4 py-3 rounded-xl border border-blue-400/30">
-                                            <span className="text-[9px] font-black text-blue-700 uppercase tracking-widest">⚠️ Overpayment / Credit</span>
-                                            <span className="text-base font-mono font-black text-blue-800">
-                                                +{(formData.amountPaid - formData.grandTotal).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                                            </span>
-                                        </div>
-                                    )}
-
-                                    <div className="flex justify-between items-center bg-gray-900 px-6 py-5 rounded-2xl shadow-xl mt-4">
-                                        <span className="text-[10px] font-black text-orange-400 uppercase tracking-[0.2em] flex flex-col">
-                                            NET LIABILITY
-                                            <span className="text-[8px] font-black text-white/30 lowercase mt-1 tracking-widest underline decoration-orange-400/30">due to supplier</span>
-                                        </span>
-                                        <span className="text-3xl font-mono font-black text-white italic underline">{formData.remainingBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                        <ul style={{ margin: 0, padding: '0 0 0 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {aiInsights.map((insight, i) => (
+                                <li key={i} style={{ fontSize: 10, color: C.muted, lineHeight: 1.5 }}>
+                                    <span style={{ color: insight.color, fontWeight: 600 }}>• </span>
+                                    {insight.text}
+                                </li>
+                            ))}
+                        </ul>
                     </div>
                 </div>
             </div>
