@@ -1,404 +1,403 @@
+import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import NewsTicker from '../NewsTicker';
+import { useAuth } from '../../contexts/AuthContext';
 import {
-    Home,
     LayoutDashboard,
-    Send,
-    FileText,
-    User,
-    Database,
-    ShoppingCart,
-    Shield,
-    BarChart2,
     Package,
-    RefreshCw,
-    Coins,
-    Receipt,
-    CheckCircle2,
-    Upload,
-    MapPin,
-    Globe,
-    BookOpen,
-    Calculator,
-    AlertTriangle,
-    Box,
     Truck,
-    Sparkles,
-    Bot,
-    Headphones,
-    Brain,
-    Mail,
-    Zap,
-    DollarSign,
-    TrendingUp,
-    Newspaper,
-    Megaphone,
+    BarChart2,
+    FileText,
     Users,
-    Tag,
-    PieChart,
-    Mic,
-    Briefcase,
     Settings,
     ChevronRight,
-    Lock,
-    Activity,
-    Search,
-} from 'lucide-react';
+    RefreshCw,
+    Globe,
+    Briefcase,
+    PieChart,
+    UserCheck,
+    TrendingUp,
+    User,
+    MapPin
+, Tag , BookOpen , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 , Mail , LogOut } from 'lucide-react';
 import clsx from 'clsx';
+import { getCompanyProfile } from '../../services/settingsService';
 
-// ── Badge tone palette (shared by NavItem + GroupHeader).  Three
-//    tones — red / amber / teal — matching the rest of the Soltol UI.
-type BadgeTone = 'red' | 'amber' | 'teal';
-type Badge = { text: string; tone: BadgeTone };
 
-const BADGE_CLASS: Record<BadgeTone, string> = {
-    red:   'bg-[rgba(239,68,68,0.18)] text-[#FCA5A5]',
-    amber: 'bg-[rgba(245,158,11,0.18)] text-[#FCD34D]',
-    teal:  'bg-[rgba(0,212,170,0.15)] text-[#5EEAD4]',
-};
-
-function BadgePill({ text, tone }: Badge) {
-    return (
-        <span className={clsx('text-[8px] font-bold px-[5px] py-[1px] rounded-full flex-shrink-0', BADGE_CLASS[tone])}>
-            {text}
-        </span>
-    );
-}
-
-type SidebarProps = {
-    // Lifted from App.tsx so group open/closed state survives any
-    // unmount of the Sidebar (e.g. when the mobile drawer animates
-    // closed or a hot reload swaps the component instance).
-    openGroups: Record<string, boolean>;
-    onToggleGroup: (key: string) => void;
-};
-
-export default function Sidebar({ openGroups, onToggleGroup }: SidebarProps) {
+export default function Sidebar({
+    openGroups: _openGroups,
+    onToggleGroup: _onToggleGroup,
+}: {
+    openGroups?: Record<string, boolean>;
+    onToggleGroup?: (key: string) => void;
+} = {}) {
     const location = useLocation();
-    const toggleGroup = onToggleGroup;
+    const { user, hasRole, logout } = useAuth();
 
-    // ── NavItem — one row inside a group.  Active state: tinted blue
-    //    background + blue text + 2px right border (Soltol pattern).
-    //    The `to !== '/'` guard prevents '/' from matching every route
-    //    via startsWith.
-    const NavItem = ({
-        to, icon: Icon, label, badge, activeExtra,
-    }: {
-        to: string;
-        icon: any;
-        label: string;
-        badge?: Badge;
-        // Extra path prefixes that also mark this item active. Lets a
-        // `to="/"` Dashboard item own routes like `/warehouse/dashboard`
-        // without breaking the `to !== '/'` guard below.
-        activeExtra?: string[];
-    }) => {
-        const isActive =
-            location.pathname === to ||
-            (to !== '/' && location.pathname.startsWith(to)) ||
-            !!(activeExtra && activeExtra.some(p => location.pathname.startsWith(p)));
+    const canSeeFinance = hasRole('admin', 'accountant');
+    const canSeeDeliveries = hasRole('admin', 'manager', 'driver');
+    const canSeeSales = hasRole('admin', 'manager', 'sales');
+    const canSeeInventory = hasRole('admin', 'manager');
+    const canSeeAdmin = hasRole('admin');
+
+    const roleLabel = user?.role
+        ? user.role.charAt(0).toUpperCase() + user.role.slice(1)
+        : 'User';
+    // State for collapsible sections
+    const [sections, setSections] = useState<{ [key: string]: boolean }>({
+        sales: true,
+        purchase: true,
+        products: true,
+        finance: false,
+        expenses: true,
+        reports: false,
+        ai: true,
+        marketing: true,
+        agents: true
+    });
+
+    const toggleSection = (section: string) => {
+        setSections(prev => ({ ...prev, [section]: !prev[section] }));
+    };
+
+    const NavItem = ({ to, icon: Icon, label }: { to: string, icon: any, label: string }) => {
+        const isActive = location.pathname === to || (to !== '/' && location.pathname.startsWith(to));
         return (
             <Link
                 to={to}
                 className={clsx(
-                    'flex items-center gap-2 pl-9 pr-3 py-1.5 transition-colors text-[12px] relative',
+                    "flex items-center gap-3 px-4 py-2.5 transition-all duration-200 rounded-sm relative group mb-0.5",
                     isActive
-                        ? 'bg-[rgba(79,142,247,0.10)] text-[#93C5FD] border-r-2 border-r-[#4F8EF7]'
-                        : 'text-redwood-text-muted hover:bg-redwood-row-bg hover:text-redwood-text-main'
+                        ? "bg-redwood-brand text-white shadow-md z-10"
+                        : "text-redwood-text-muted hover:bg-white/5 hover:text-white"
                 )}
             >
-                <Icon size={13} className={isActive ? 'text-[#4F8EF7]' : 'text-redwood-text-subtle'} />
-                <span className="flex-1 truncate">{label}</span>
-                {badge && <BadgePill text={badge.text} tone={badge.tone} />}
+                {isActive && (
+                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-white" />
+                )}
+                <Icon size={18} className={clsx(isActive ? "text-white" : "text-[#5d6b7b] group-hover:text-white")} />
+                <span className="text-[12px] font-semibold tracking-wide">{label}</span>
             </Link>
         );
     };
 
-    // ── GroupHeader — the clickable bar that expands/collapses a group.
-    //    Each group has its own icon bg color (the small rounded square
-    //    on the left) plus an optional summary badge on the right.
-    const GroupHeader = ({
-        keyId, icon: Icon, iconBg, iconColor, label, badge,
-    }: {
-        keyId: string;
-        icon: any;
-        iconBg: string;
-        iconColor: string;
-        label: string;
-        badge?: Badge;
-    }) => (
-        <div
-            onClick={() => toggleGroup(keyId)}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    toggleGroup(keyId);
-                }
-            }}
-            aria-expanded={!!openGroups[keyId]}
-            className="flex items-center gap-2 px-2 py-1.5 cursor-pointer select-none border-t border-redwood-border hover:bg-redwood-row-bg transition-colors first:border-t-0"
+    const SectionHeader = ({ label, isOpen, onClick }: { label: string, isOpen: boolean, onClick: () => void }) => (
+        <button
+            onClick={onClick}
+            className={clsx(
+                "w-full flex items-center justify-between px-4 py-2 mb-1 mt-2 text-[10px] font-black uppercase tracking-[0.2em] opacity-80 transition-colors",
+                isOpen ? "text-redwood-secondary" : "text-redwood-text-muted hover:text-white"
+            )}
         >
-            <div
-                className="w-[22px] h-[22px] rounded-[5px] flex items-center justify-center flex-shrink-0"
-                style={{ background: iconBg }}
-            >
-                <Icon size={12} style={{ color: iconColor }} />
-            </div>
-            <span className="text-[10px] font-semibold text-redwood-text-muted flex-1 tracking-[0.04em] uppercase truncate">
-                {label}
-            </span>
-            {badge && <BadgePill text={badge.text} tone={badge.tone} />}
-            <ChevronRight
-                size={10}
-                strokeWidth={2.5}
-                className="text-redwood-text-subtle flex-shrink-0"
-                style={{
-                    transform: openGroups[keyId] ? 'rotate(90deg)' : 'rotate(0deg)',
-                    transition: 'transform 0.2s',
-                }}
-            />
-        </div>
+            <span>{label}</span>
+            <ChevronRight size={14} className={clsx("transition-transform duration-300", isOpen && "rotate-90")} />
+        </button>
     );
 
     return (
-        <aside className="w-[280px] lg:w-[224px] bg-redwood-midnight text-redwood-text-main flex flex-col z-40 border-r border-redwood-border shadow-2xl h-full print:hidden">
-            {/* Sidebar search — the SOLTOL ONE/tenant logo lives in the
-                top nav header now (App.tsx). Mirrors preview.html .sbsearch. */}
-            <div className="px-3 py-3 border-b border-redwood-border shrink-0">
-                <div className="relative">
-                    <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-redwood-text-muted pointer-events-none" />
-                    <input
-                        type="text"
-                        placeholder="Search menu..."
-                        className="w-full pl-9 pr-3 py-2 bg-redwood-bg-light border border-redwood-border rounded-md text-[12px] text-redwood-text-main placeholder:text-redwood-text-muted focus:border-redwood-brand focus:outline-none"
-                    />
+        <aside className="w-[260px] bg-redwood-midnight text-white flex flex-col z-40 border-r border-white/5 shadow-2xl h-full print:hidden">
+            {/* Sidebar Header */}
+            <div className="h-[64px] flex items-center px-4 border-b border-white/5 bg-redwood-midnight/50 backdrop-blur-md shrink-0">
+                <div className="flex items-center gap-3 w-full">
+                    {/* SOLTOL ONE Logo */}
+                    <div className="w-9 h-9 bg-redwood-brand rounded-sm flex items-center justify-center text-white font-black text-sm shadow-lg rotate-3 flex-shrink-0">
+                        <span className="drop-shadow-sm">S1</span>
+                    </div>
+                    <div className="flex flex-col min-w-0">
+                        {/* Software brand — always fixed */}
+                        <span className="text-[11px] font-black tracking-widest leading-none text-redwood-brand uppercase">SOLTOL ONE</span>
+                        {/* Client company name — changes per customer */}
+                        <span className="text-[13px] font-black tracking-tight leading-tight text-white uppercase truncate mt-0.5">{getCompanyProfile().name || 'Your Company'}</span>
+                    </div>
                 </div>
             </div>
 
-            {/* Groups — 11 collapsible sections in spec order */}
-            <nav className="flex-1 overflow-y-auto scrollbar-hide">
+            {/* Navigation Content */}
+            <nav className="flex-1 mt-4 px-3 space-y-1 overflow-y-auto scrollbar-hide pb-10">
 
-                {/* ── HOME ────────────────────────────────────────── */}
-                <GroupHeader
-                    keyId="home"
-                    icon={Home}
-                    iconBg="rgba(79,142,247,0.2)"
-                    iconColor="#93C5FD"
-                    label="Home"
-                />
-                {openGroups.home && (
-                    <div className="pb-1">
-                        <NavItem to="/" icon={LayoutDashboard} label="Dashboard" activeExtra={['/warehouse']} />
-                        <NavItem to="/pulse" icon={Send} label="PULSE — Team Chat" />
-                        <NavItem to="/pulse/notes" icon={FileText} label="Meeting Notes" />
-                        <NavItem to="/portal" icon={User} label="Employee Portal" />
-                        <NavItem to="/migrate" icon={Database} label="Data Migration" />
-                    </div>
+                {/* CORE */}
+                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-1">
+                    Core
+                </div>
+                <NavItem to="/" icon={LayoutDashboard} label="Dashboard" />
+                <NavItem to="/pulse" icon={Send} label="PULSE — Team Chat" />
+                <NavItem to="/migrate" icon={Database} label="📥 Data Migration" />
+                <NavItem to="/portal" icon={User} label="Employee Portal" />
+
+                <div className="h-px bg-white/5 my-3 mx-2" />
+
+                {canSeeSales && (
+                <>
+                {/* SALES */}
+                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
+                    Sales
+                </div>
+                <NavItem to="/customers" icon={Users} label="Customers" />
+                <NavItem to="/credit" icon={Shield} label="Credit Intelligence" />
+                <NavItem to="/crm" icon={BarChart2} label="CRM Pipeline" />
+                <NavItem to="/sales/orders" icon={FileText} label="Orders" />
+                <NavItem to="/amazon" icon={Package} label="Amazon" />
+
+                <div>
+                    <SectionHeader
+                        label="Sales Orders"
+                        isOpen={sections.sales}
+                        onClick={() => toggleSection('sales')}
+                    />
+                    {sections.sales && (
+                        <div className="space-y-0.5 pl-2 border-l-2 border-white/5 ml-2">
+                            <NavItem to="/sales/quotations" icon={FileText} label="Quotations" />
+                            {/* POD moved to Logistics */}
+                            <NavItem to="/sales/invoices" icon={FileText} label="Invoices" />
+                            <NavItem to="/sales/returns" icon={RefreshCw} label="Sales Returns" />
+                            <NavItem to="/sales/credit-notes" icon={FileText} label="Credit Notes" />
+                        </div>
+                    )}
+                </div>
+
+                <div className="h-px bg-white/5 my-3 mx-2" />
+                </>
                 )}
 
-                {/* ── SALES & CRM ─────────────────────────────────── */}
-                <GroupHeader
-                    keyId="sales"
-                    icon={ShoppingCart}
-                    iconBg="rgba(34,197,94,0.15)"
-                    iconColor="#86EFAC"
-                    label="Sales & CRM"
-                    badge={{ text: '9', tone: 'red' }}
-                />
-                {openGroups.sales && (
-                    <div className="pb-1">
-                        <NavItem to="/customers" icon={Users} label="Customers" />
-                        <NavItem to="/credit" icon={Shield} label="Credit Intelligence" />
-                        <NavItem to="/crm" icon={BarChart2} label="CRM Pipeline" />
-                        <NavItem to="/sales/orders" icon={FileText} label="Orders" />
-                        <NavItem to="/amazon" icon={Package} label="Amazon" />
-                        <NavItem to="/sales/quotations" icon={FileText} label="Quotations" />
-                        <NavItem to="/sales/invoices" icon={FileText} label="Invoices" badge={{ text: '9', tone: 'red' }} />
-                        <NavItem to="/sales/returns" icon={RefreshCw} label="Sales Returns" />
-                        <NavItem to="/sales/credit-notes" icon={FileText} label="Credit Notes" />
-                    </div>
+                {canSeeDeliveries && (
+                <>
+                {/* LOGISTICS */}
+                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
+                    Logistics & Delivery
+                </div>
+                <NavItem to="/logistics/pod" icon={BarChart2} label="POD - Driver App" />
+                <NavItem to="/logistics/operations" icon={Truck} label="Van Operations" />
+                <NavItem to="/logistics/routes" icon={MapPin} label="Route Navigator" />
+
+                <div className="h-px bg-white/5 my-3 mx-2" />
+                </>
                 )}
 
-                {/* ── FINANCE ─────────────────────────────────────── */}
-                <GroupHeader
-                    keyId="finance"
-                    icon={Coins}
-                    iconBg="rgba(245,158,11,0.15)"
-                    iconColor="#FCD34D"
-                    label="Finance"
-                    badge={{ text: '3', tone: 'amber' }}
-                />
-                {openGroups.finance && (
-                    <div className="pb-1">
-                        <NavItem to="/finance/expenses" icon={Receipt} label="Expenses" />
-                        <NavItem to="/finance/expenses/approvals" icon={CheckCircle2} label="Approvals" badge={{ text: '3', tone: 'amber' }} />
-                        <NavItem to="/finance/expenses/bulk-upload" icon={Upload} label="Bulk Upload" />
-                        <NavItem to="/finance/expenses/mileage" icon={MapPin} label="Mileage" />
-                        <NavItem to="/finance/banking" icon={Globe} label="Banking" />
-                        <NavItem to="/finance/accounting" icon={Briefcase} label="Accounting" />
-                        <NavItem to="/finance/chart-of-accounts" icon={BookOpen} label="Chart of Accounts" />
-                        <NavItem to="/finance/all-ledger" icon={BookOpen} label="All-Accounts Ledger" />
-                        <NavItem to="/finance/financial-statement" icon={FileText} label="Financial Statement" />
-                        <NavItem to="/finance/journal-voucher" icon={FileText} label="Journal Voucher (JV)" />
-                        <NavItem to="/finance/bad-debts" icon={AlertTriangle} label="Bad Debts Write-Off" />
-                        <NavItem to="/tax" icon={Calculator} label="Tax Management" />
-                    </div>
+                {canSeeInventory && (
+                <>
+                {/* PRODUCTS & INVENTORY */}
+                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
+                    Inventory Control
+                </div>
+
+
+                <div>
+                    <SectionHeader
+                        label="Product & Catalog"
+                        isOpen={sections.products}
+                        onClick={() => toggleSection('products')}
+                    />
+                    {sections.products && (
+                        <div className="space-y-0.5 pl-2 border-l-2 border-white/5 ml-2">
+                            <NavItem to="/products" icon={Package} label="Product Catalog" />
+                            <NavItem to="/products/reports" icon={PieChart} label="Inventory Reports" />
+                <NavItem to="/inventory/adjustments" icon={Package} label="Stock Adjustment" />
+                        </div>
+                    )}
+                </div>
+
+                <div className="h-px bg-white/5 my-3 mx-2" />
+                </>
                 )}
 
-                {/* ── REPORTS ─────────────────────────────────────── */}
-                <GroupHeader
-                    keyId="reports"
-                    icon={BarChart2}
-                    iconBg="rgba(167,139,250,0.15)"
-                    iconColor="#C4B5FD"
-                    label="Reports"
-                />
-                {openGroups.reports && (
-                    <div className="pb-1">
-                        <NavItem to="/reports/sales" icon={TrendingUp} label="Profitability Reports" />
-                        <NavItem to="/sales/price-lists" icon={Tag} label="Customer Price Lists" />
-                        <NavItem to="/sales/recurring" icon={RefreshCw} label="Recurring Invoices" />
-                        <NavItem to="/reports/financial" icon={PieChart} label="Financial Reports" />
-                    </div>
+                {/* PURCHASE */}
+                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
+                    Procurement
+                </div>
+                <NavItem to="/purchases/suppliers" icon={Users} label="Suppliers" />
+
+                <div>
+                    <SectionHeader
+                        label="Purchase Orders"
+                        isOpen={sections.purchase}
+                        onClick={() => toggleSection('purchase')}
+                    />
+                    {sections.purchase && (
+                        <div className="space-y-0.5 pl-2 border-l-2 border-white/5 ml-2">
+                            <NavItem to="/purchases" icon={FileText} label="Recent Orders" />
+                            <NavItem to="/purchases/new" icon={Package} label="Create New PO" />
+                            <NavItem to="/receiving/new" icon={Truck} label="Material Receipt (GRN)" />
+                        </div>
+                    )}
+                </div>
+
+                <div className="h-px bg-white/5 my-3 mx-2" />
+
+                {canSeeFinance && (
+                <>
+                {/* FINANCE */}
+                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
+                    Finance
+                </div>
+                <div>
+                    <SectionHeader
+                        label="Payments"
+                        isOpen={sections.finance}
+                        onClick={() => toggleSection('finance')}
+                    />
+                    {sections.finance && (
+                        <div className="space-y-0.5 pl-2 border-l-2 border-white/5 ml-2">
+                            <NavItem to="/finance/payroll" icon={Users} label="Payroll" />
+                            <NavItem to="/finance/accounting" icon={Briefcase} label="Accounting" />
+                        </div>
+                    )}
+                </div>
+
+                {/* TASK 1 — Expenses module as its own collapsible with all sub-pages
+                    visible. Matches the Sales Orders / Purchase Orders pattern. */}
+                <div>
+                    <SectionHeader
+                        label="Expenses"
+                        isOpen={sections.expenses}
+                        onClick={() => toggleSection('expenses')}
+                    />
+                    {sections.expenses && (
+                        <div className="space-y-0.5 pl-2 border-l-2 border-white/5 ml-2">
+                            <NavItem to="/finance/expenses" icon={Receipt} label="Expenses" />
+                            <NavItem to="/finance/expenses/approvals" icon={CheckCircle2} label="Approvals" />
+                            <NavItem to="/finance/expenses/bulk-upload" icon={Upload} label="Bulk Upload" />
+                            <NavItem to="/finance/expenses/mileage" icon={MapPin} label="Mileage" />
+                            <NavItem to="/finance/expenses/reports" icon={BarChart2} label="Reports" />
+                            <NavItem to="/finance/expenses/settings" icon={Settings} label="Settings" />
+                        </div>
+                    )}
+                </div>
+
+                <NavItem to="/finance/banking" icon={Globe} label="Banking" />
+                <NavItem to="/finance/chart-of-accounts" icon={BookOpen} label="Chart of Accounts" />
+                {/* ITEM 11 — Central All-Accounts Ledger. */}
+                <NavItem to="/finance/all-ledger" icon={BookOpen} label="All-Accounts Ledger" />
+                {/* TC-69 — Financial Statement (P&L, Balance Sheet, Cash Flow). */}
+                <NavItem to="/finance/financial-statement" icon={FileText} label="Financial Statement" />
+                <NavItem to="/finance/journal-voucher" icon={FileText} label="Journal Voucher (JV)" />
+                <NavItem to="/finance/bad-debts" icon={AlertTriangle} label="Bad Debts Write-Off" />
+                {/* ITEM 13 — Edit Payments sidebar link removed. Edits are
+                    now initiated from per-row Edit buttons in the Customer
+                    Payments tab; the PaymentEdit route remains as a
+                    deep-link target (/finance/payment-edit?id=<paymentId>). */}
+                <NavItem to="/tax" icon={Calculator} label="Tax Management" />
+
+                <div className="h-px bg-white/5 my-3 mx-2" />
+                </>
                 )}
 
-                {/* ── INVENTORY ───────────────────────────────────── */}
-                <GroupHeader
-                    keyId="inventory"
-                    icon={Box}
-                    iconBg="rgba(249,115,22,0.15)"
-                    iconColor="#FDBA74"
-                    label="Inventory"
-                    badge={{ text: '40', tone: 'amber' }}
-                />
-                {openGroups.inventory && (
-                    <div className="pb-1">
-                        <NavItem to="/products" icon={Package} label="Product Catalog" />
-                        <NavItem to="/products/reports" icon={PieChart} label="Inventory Reports" />
-                        <NavItem to="/inventory/adjustments" icon={Package} label="Stock Adjustment" />
-                    </div>
-                )}
+                {/* REPORTS */}
+                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
+                    Reports
+                </div>
+                <div>
+                    <SectionHeader
+                        label="Financial Reports"
+                        isOpen={sections.reports}
+                        onClick={() => toggleSection('reports')}
+                    />
+                    {sections.reports && (
+                        <div className="space-y-0.5 pl-2 border-l-2 border-white/5 ml-2">
+                            <NavItem to="/reports" icon={BarChart2} label="All Reports" />
+                            <NavItem to="/reports/financial" icon={PieChart} label="Financial Statements" />
+                        </div>
+                    )}
+                </div>
 
-                {/* ── PROCUREMENT ─────────────────────────────────── */}
-                <GroupHeader
-                    keyId="procurement"
-                    icon={Truck}
-                    iconBg="rgba(45,212,191,0.12)"
-                    iconColor="#5EEAD4"
-                    label="Procurement"
-                />
-                {openGroups.procurement && (
-                    <div className="pb-1">
-                        <NavItem to="/purchases/suppliers" icon={Users} label="Suppliers" />
-                        <NavItem to="/purchases" icon={FileText} label="Recent Orders" />
-                        <NavItem to="/purchases/new" icon={Package} label="Create New PO" />
-                        <NavItem to="/receiving/new" icon={Truck} label="Material Receipt (GRN)" />
-                    </div>
-                )}
+                <NavItem to="/reports/sales" icon={TrendingUp} label="Profitability Reports" />
+                <NavItem to="/sales/price-lists" icon={Tag} label="Customer Price Lists" />
+                <NavItem to="/sales/recurring" icon={RefreshCw} label="Recurring Invoices" />
 
-                {/* ── DELIVERY & LOGISTICS ────────────────────────── */}
-                <GroupHeader
-                    keyId="logistics"
-                    icon={Truck}
-                    iconBg="rgba(16,185,129,0.12)"
-                    iconColor="#6EE7B7"
-                    label="Delivery & Logistics"
-                />
-                {openGroups.logistics && (
-                    <div className="pb-1">
-                        <NavItem to="/logistics/pod" icon={BarChart2} label="POD — Driver App" />
-                        <NavItem to="/logistics/operations" icon={Truck} label="Van Operations" badge={{ text: '2', tone: 'amber' }} />
-                        <NavItem to="/logistics/routes" icon={MapPin} label="Route Navigator" />
-                    </div>
-                )}
+                <div className="h-px bg-white/5 my-3 mx-2" />
 
-                {/* ── AI TOOLS ────────────────────────────────────── */}
-                <GroupHeader
-                    keyId="ai"
-                    icon={Sparkles}
-                    iconBg="rgba(79,142,247,0.2)"
-                    iconColor="#93C5FD"
-                    label="AI Tools"
-                    badge={{ text: '11', tone: 'teal' }}
-                />
-                {openGroups.ai && (
-                    <div className="pb-1">
-                        <NavItem to="/ai" icon={Brain} label="AI Hub" />
-                        <NavItem to="/agents" icon={Bot} label="Agent Hub" />
-                        <NavItem to="/agents/customer-service" icon={Headphones} label="ARIA — Customer Service" />
-                        <NavItem to="/agents/business-advisor" icon={Brain} label="Marcus — Business Advisor" />
-                        <NavItem to="/agents/email-reply" icon={Mail} label="Email Auto-Reply" />
-                        <NavItem to="/ai/auto-po" icon={ShoppingCart} label="Auto PO Generation" />
-                        <NavItem to="/ai/anomaly" icon={AlertTriangle} label="Anomaly Detection" />
-                        <NavItem to="/ai/customer-forecast" icon={Users} label="Customer Forecast" />
-                        <NavItem to="/ai/revenue-forecast" icon={DollarSign} label="Revenue Forecast" />
-                        <NavItem to="/reports/demand-forecast" icon={TrendingUp} label="Demand Forecast" />
-                        <NavItem to="/news" icon={Newspaper} label="Business News" />
-                    </div>
-                )}
+                {/* AGENTS */}
+                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-blue-400/80 px-4 py-2 mt-1 flex items-center gap-1.5">
+                    <span>🤖</span> AI Agents
+                </div>
+                <div>
+                    <SectionHeader label="Agents" isOpen={sections.agents} onClick={() => toggleSection('agents')} />
+                    {sections.agents && (
+                        <div className="space-y-0.5 pl-2 border-l-2 border-blue-500/20 ml-2">
+                            <NavItem to="/agents" icon={Bot} label="Agent Hub" />
+                            <NavItem to="/agents/customer-service" icon={Headphones} label="ARIA — Customer Service" />
+                            <NavItem to="/agents/business-advisor" icon={Brain} label="Marcus — Advisor" />
+                            <NavItem to="/agents/email-reply" icon={Mail} label="Email Auto-Reply" />
+                        </div>
+                    )}
+                </div>
 
-                {/* ── MARKETING ───────────────────────────────────── */}
-                <GroupHeader
-                    keyId="marketing"
-                    icon={Megaphone}
-                    iconBg="rgba(236,72,153,0.15)"
-                    iconColor="#F9A8D4"
-                    label="Marketing"
-                />
-                {openGroups.marketing && (
-                    <div className="pb-1">
-                        <NavItem to="/marketing/studio" icon={Zap} label="AI Content Studio" />
-                        <NavItem to="/marketing/segments" icon={Users} label="Customer Segments" />
-                        <NavItem to="/marketing/campaigns" icon={Send} label="Campaign Manager" />
-                        <NavItem to="/marketing/analytics" icon={BarChart2} label="Analytics" />
-                    </div>
-                )}
+                {/* NEWS */}
+                <NewsTicker />
+                <NavItem to="/news" icon={Newspaper} label="Business News" />
 
-                {/* ── SOLTOL VOICE ────────────────────────────────── */}
-                <GroupHeader
-                    keyId="voice"
-                    icon={Mic}
-                    iconBg="rgba(34,197,94,0.12)"
-                    iconColor="#86EFAC"
-                    label="Soltol Voice"
-                />
-                {openGroups.voice && (
-                    <div className="pb-1">
-                        <NavItem to="/voice/dashboard" icon={LayoutDashboard} label="Voice Dashboard" />
-                        <NavItem to="/voice/calls" icon={Headphones} label="Call History" />
-                        <NavItem to="/voice/analytics" icon={Activity} label="Voice Analytics" />
-                        <NavItem to="/voice/coaching-rules" icon={Brain} label="Coaching Rules" />
-                    </div>
-                )}
+                {/* MARKETING */}
+                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-pink-400/80 px-4 py-2 mt-1 flex items-center gap-1.5">
+                    <span>📣</span> Marketing
+                </div>
+                <div>
+                    <SectionHeader label="AI Marketing" isOpen={sections.marketing} onClick={() => toggleSection('marketing')} />
+                    {sections.marketing && (
+                        <div className="space-y-0.5 pl-2 border-l-2 border-pink-500/20 ml-2">
+                            <NavItem to="/marketing" icon={Megaphone} label="Marketing Hub" />
+                            <NavItem to="/marketing/studio" icon={Zap} label="AI Content Studio" />
+                            <NavItem to="/marketing/segments" icon={Users} label="Customer Segments" />
+                            <NavItem to="/marketing/campaigns" icon={Send} label="Campaign Manager" />
+                            <NavItem to="/marketing/analytics" icon={BarChart2} label="Analytics" />
+                        </div>
+                    )}
+                </div>
 
-                {/* ── SYSTEM & SETTINGS ───────────────────────────── */}
-                <GroupHeader
-                    keyId="system"
-                    icon={Settings}
-                    iconBg="rgba(100,116,139,0.15)"
-                    iconColor="#94A3B8"
-                    label="System & Settings"
-                />
-                {openGroups.system && (
-                    <div className="pb-1">
-                        <NavItem to="/access-management" icon={Lock} label="User Access Management" />
-                        <NavItem to="/settings/users" icon={Users} label="User Management" />
-                        <NavItem to="/voice/onboard" icon={Briefcase} label="Onboard Tenant" />
-                        <NavItem to="/settings" icon={Settings} label="Settings" />
-                    </div>
+                {/* AI INTELLIGENCE */}
+                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-orange-400/80 px-4 py-2 mt-1 flex items-center gap-1.5">
+                    <span>⚡</span> AI Intelligence
+                </div>
+                <div>
+                    <SectionHeader
+                        label="AI Features"
+                        isOpen={sections.ai}
+                        onClick={() => toggleSection('ai')}
+                    />
+                    {sections.ai && (
+                        <div className="space-y-0.5 pl-2 border-l-2 border-orange-500/20 ml-2">
+                            <NavItem to="/ai" icon={Brain} label="AI Hub" />
+                            <NavItem to="/ai/auto-po" icon={ShoppingCart} label="Auto PO Generation" />
+                            <NavItem to="/ai/anomaly" icon={AlertTriangle} label="Anomaly Detection" />
+                            <NavItem to="/ai/customer-forecast" icon={Users} label="Customer Forecast" />
+                            <NavItem to="/ai/revenue-forecast" icon={DollarSign} label="Revenue Forecast" />
+                            <NavItem to="/reports/demand-forecast" icon={TrendingUp} label="Demand Forecast" />
+                        </div>
+                    )}
+                </div>
+
+                <div className="h-px bg-white/5 my-3 mx-2" />
+
+                {canSeeAdmin && (
+                <>
+                {/* SETTINGS (at bottom) */}
+                <NavItem to="/access-management" icon={Shield} label="User Access Management" />
+                <NavItem to="/settings" icon={Settings} label="Settings" />
+                <NavItem to="/settings/users" icon={UserCheck} label="User Management" />
+                </>
                 )}
 
             </nav>
 
-            {/* Footer — status + help shortcuts (spec layout) */}
-            <div className="p-2 border-t border-redwood-border flex gap-1">
-                <button className="flex-1 flex items-center justify-center gap-1 p-1.5 bg-redwood-row-bg border border-redwood-border rounded-[5px] text-[9px] text-redwood-text-muted hover:bg-redwood-row-hover">
-                    ● All systems OK
+            {/* Footer Info */}
+            <div className="p-4 border-t border-white/5 text-[10px] text-redwood-text-muted bg-redwood-midnight/50">
+                {user && (
+                    <div className="mb-3">
+                        <p className="text-[11px] font-semibold text-white truncate">{user.full_name || user.username}</p>
+                        <p className="text-[10px] uppercase tracking-wider opacity-80">{roleLabel}</p>
+                    </div>
+                )}
+                <button
+                    type="button"
+                    onClick={logout}
+                    className="mb-3 flex w-full items-center justify-center gap-2 rounded-sm border border-white/10 px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-redwood-text-muted transition-colors hover:bg-white/5 hover:text-white"
+                >
+                    <LogOut size={14} />
+                    Logout
                 </button>
-                <button className="flex-1 flex items-center justify-center gap-1 p-1.5 bg-redwood-row-bg border border-redwood-border rounded-[5px] text-[9px] text-redwood-text-muted hover:bg-redwood-row-hover">
-                    ? Help
-                </button>
+                <div className="flex items-center gap-2 mb-1">
+                    <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+                    <span className="uppercase tracking-widest font-bold">SYSTEM UPDATED</span>
+                </div>
+                <p className="opacity-60">SOLTOL ONE v1.0</p>
             </div>
         </aside>
     );

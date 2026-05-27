@@ -1,5 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Construction } from 'lucide-react';
+import ProtectedRoute from '../components/ProtectedRoute';
+import LoginPage from '../pages/LoginPage';
 
 // Pages
 import Dashboard from '../pages/Dashboard/Dashboard';
@@ -8,7 +10,6 @@ import CustomerOverview from '../pages/Customers/CustomerOverview';
 import CustomerFormPage from '../pages/Customers/CustomerFormPage';
 import SalesOverview from '../pages/Sales/SalesOverview';
 import SalesOrdersWorkflow from '../pages/Sales/SalesOrdersWorkflow';
-import SalesDashboard from '../pages/Sales/SalesDashboard';
 import SalesOrderFormPage from '../pages/Sales/SalesOrderFormPage';
 import SalesOrderDetailPage from '../pages/Sales/SalesOrderDetailPage';
 import Quotations from '../pages/Sales/Quotations';
@@ -26,13 +27,10 @@ import SalesReturns from '../pages/Sales/SalesReturns';
 import SalesReturnFormPage from '../pages/Sales/SalesReturnFormPage';
 import SalesReturnDetailPage from '../pages/Sales/SalesReturnDetailPage';
 import VanSalesDashboard from '../pages/VanSales/VanSalesDashboard';
-import WarehouseDashboard from '../pages/Warehouse/WarehouseDashboard';
-import VanDriverDashboard from '../pages/VanDriver/VanDriverDashboard';
 import VanSalesForm from '../pages/VanSales/VanSalesForm';
 import VanSalesHistory from '../pages/VanSales/VanSalesHistory';
 import VanManagement from '../pages/VanSales/VanManagement';
 import AccountsDashboard from '../pages/Accounts/AccountsDashboard';
-import FinanceDashboard from '../pages/Finance/FinanceDashboard';
 import ExpenseManagement from '../pages/Accounts/ExpenseManagement';
 // STEP 6 — AI Bulk Upload for expenses (new route).
 import ExpensesBulkUpload from '../pages/Accounts/ExpensesBulkUpload';
@@ -81,18 +79,10 @@ import FinancialStatement from '../pages/Reports/FinancialStatement';
 import PaymentEdit from '../pages/Accounts/PaymentEdit';
 import BadDebtsJV from '../pages/Accounts/BadDebtsJV';
 import AIHub from '../pages/AI/AIHub';
-import AIHubDashboard from '../pages/AIHub/AIHubDashboard';
 import AutoPOGeneration from '../pages/AI/AutoPOGeneration';
 import AnomalyDetection from '../pages/AI/AnomalyDetection';
 import CustomerForecast from '../pages/AI/CustomerForecast';
 import RevenueForecast from '../pages/AI/RevenueForecast';
-// Soltol Voice AI module — multi-tenant voice + WhatsApp ordering.
-import VoiceDashboard from '../pages/Voice/VoiceDashboard';
-import VoiceCallHistory from '../pages/Voice/CallHistory';
-import VoiceCallDetail from '../pages/Voice/CallDetail';
-import VoiceAnalytics from '../pages/Voice/Analytics';
-import VoiceCoachingRules from '../pages/Voice/CoachingRules';
-import VoiceTenantOnboard from '../pages/Voice/TenantOnboard';
 import AgentHub from '../pages/Agents/AgentHub';
 import UserAccessManagement from '../pages/UserManagement/UserAccessManagement';
 import NewsIntelligence from '../pages/News/NewsIntelligence';
@@ -116,8 +106,7 @@ import TaxAdvisor from '../pages/TaxSystem/TaxAdvisor';
 // Session 3C — live Tax Dashboard.
 import TaxDashboard from '../pages/TaxSystem/TaxDashboard';
 import AmazonIntegration from '../pages/Amazon/AmazonIntegration';
-import PulseDashboard from '../pages/Pulse/PulseDashboard';
-import MeetingNotes from '../pages/Pulse/MeetingNotes';
+import Pulse from '../pages/Pulse/Pulse';
 import DataMigration from '../pages/Migration/DataMigration'; // CRM exports as 'CRM'
 import AIContentStudio from '../pages/Marketing/AIContentStudio';
 import { CustomerSegments, CampaignManager, MarketingAnalytics } from '../pages/Marketing/MarketingPages';
@@ -132,7 +121,6 @@ import PODTestRunner from '../pages/POD/PODTestRunner';
 import VanOperations from '../pages/Logistics/VanOperations';
 import RouteNavigator from '../pages/Logistics/RouteNavigator';
 import PublicInvoice from '../pages/PublicInvoice';
-import SoltolThemePreview from '../pages/PreviewTheme/SoltolThemePreview';
 
 import OrganizationChart from '../pages/UserManagement/OrganizationChart';
 import UserDirectory from '../pages/UserManagement/UserDirectory';
@@ -159,8 +147,10 @@ const PlaceholderPage = ({ title }: { title: string }) => (
 export const AppRoutes = () => {
     return (
         <Routes>
+            <Route path="/login" element={<LoginPage />} />
             <Route path="/invoice/:token" element={<PublicInvoice />} />
-            <Route path="/preview-soltol-theme" element={<SoltolThemePreview />} />
+
+            <Route element={<ProtectedRoute />}>
             <Route path="/" element={<Dashboard />} />
 
             {/* Inventory & Products */}
@@ -171,8 +161,6 @@ export const AppRoutes = () => {
             <Route path="/products/import" element={<InvoiceImport />} />
             <Route path="/products/reports" element={<InventoryReports />} />
 
-            <Route path="/warehouse/dashboard" element={<WarehouseDashboard />} />
-            <Route path="/van/dashboard" element={<VanDriverDashboard />} />
             <Route path="/inventory" element={<Navigate to="/products" replace />} />
             <Route path="/inventory/transfer" element={<StockTransfer />} />
             <Route path="/inventory/adjustments" element={<InventoryAdjustment />} />
@@ -191,7 +179,6 @@ export const AppRoutes = () => {
 
             {/* Sales & Revenue */}
             <Route path="/sales" element={<SalesOverview />} />
-            <Route path="/sales/dashboard" element={<SalesDashboard />} />
             <Route path="/sales/orders" element={<SalesOrdersWorkflow />} />
             <Route path="/sales/orders/new" element={<SalesOrderFormPage />} />
             <Route path="/sales/orders/:id" element={<SalesOrderDetailPage />} />
@@ -238,7 +225,6 @@ export const AppRoutes = () => {
             <Route path="/finance/expenses/reports" element={<ExpenseReports />} />
             <Route path="/finance/expenses/settings" element={<ExpenseSettingsPage />} />
             <Route path="/finance/payroll" element={<PayrollManagement />} />
-            <Route path="/finance/dashboard" element={<FinanceDashboard />} />
             <Route path="/finance/accounting" element={<AccountsDashboard />} />
             <Route path="/finance/banking" element={<Banking />} />
             <Route path="/finance/chart-of-accounts" element={<ChartOfAccounts />} />
@@ -250,25 +236,14 @@ export const AppRoutes = () => {
             <Route path="/finance/payment-edit" element={<PaymentEdit />} />
             <Route path="/finance/bad-debts" element={<BadDebtsJV />} />
             <Route path="/ai" element={<AIHub />} />
-            <Route path="/ai/hub" element={<AIHubDashboard />} />
             <Route path="/ai/auto-po" element={<AutoPOGeneration />} />
             <Route path="/ai/anomaly" element={<AnomalyDetection />} />
             <Route path="/ai/customer-forecast" element={<CustomerForecast />} />
             <Route path="/ai/revenue-forecast" element={<RevenueForecast />} />
-
-            {/* Soltol Voice AI module */}
-            <Route path="/voice" element={<Navigate to="/voice/dashboard" replace />} />
-            <Route path="/voice/dashboard" element={<VoiceDashboard />} />
-            <Route path="/voice/calls" element={<VoiceCallHistory />} />
-            <Route path="/voice/calls/:callId" element={<VoiceCallDetail />} />
-            <Route path="/voice/analytics" element={<VoiceAnalytics />} />
-            <Route path="/voice/coaching-rules" element={<VoiceCoachingRules />} />
-            <Route path="/voice/onboard" element={<VoiceTenantOnboard />} />
             <Route path="/agents" element={<AgentHub />} />
             <Route path="/agents/customer-service" element={<CustomerServiceAgent />} />
             <Route path="/agents/business-advisor" element={<BusinessAdvisorAgent />} />
             <Route path="/agents/email-reply" element={<EmailReplyAgent />} />
-            <Route path="/access-management" element={<UserAccessManagement />} />
             <Route path="/news" element={<NewsIntelligence />} />
             <Route path="/credit" element={<CreditIntelligence />} />
             <Route path="/crm" element={<CRMPage />} />
@@ -289,8 +264,7 @@ export const AppRoutes = () => {
             {/* Session 3C — live Tax Dashboard */}
             <Route path="/tax/dashboard" element={<TaxDashboard />} />
             <Route path="/amazon" element={<AmazonIntegration />} />
-            <Route path="/pulse" element={<PulseDashboard />} />
-            <Route path="/pulse/notes" element={<MeetingNotes />} />
+            <Route path="/pulse" element={<Pulse />} />
             <Route path="/migrate" element={<DataMigration />} />
             <Route path="/marketing" element={<MarketingHub />} />
             <Route path="/marketing/studio" element={<AIContentStudio />} />
@@ -312,20 +286,6 @@ export const AppRoutes = () => {
             <Route path="/logistics/routes" element={<RouteNavigator />} />
             <Route path="/routes" element={<Navigate to="/logistics/routes" replace />} />
 
-            {/* User Management */}
-            <Route path="/users/dashboard" element={<OrgDashboard />} />
-            <Route path="/users/performance" element={<OrgPerformance />} />
-            <Route path="/users/hierarchy" element={<OrganizationChart />} />
-            <Route path="/users/settings" element={<OrgSettings />} />
-
-            {/* Legacy/Detailed Routes (accessible via Dashboard) */}
-            <Route path="/users/organization" element={<OrganizationChart />} />
-            <Route path="/users/directory" element={<UserDirectory />} />
-            <Route path="/users/roles" element={<RoleManager />} />
-            <Route path="/users/distributors" element={<DistributorNetwork />} />
-            <Route path="/users/dealers" element={<DealerNetwork />} />
-            <Route path="/users/partners" element={<PartnerDirectory />} />
-
             {/* Reports */}
             <Route path="/reports/sales" element={<ProfitabilityReports />} />
             <Route path="/reports/demand-forecast" element={<DemandForecasting />} />
@@ -345,11 +305,25 @@ export const AppRoutes = () => {
             <Route path="/reports" element={<ReportsDashboard />} />
             <Route path="/reports/*" element={<ReportsDashboard />} />
 
-            {/* Settings */}
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/settings/users" element={<PlaceholderPage title="User Management" />} />
+            {/* Admin-only routes */}
+            <Route element={<ProtectedRoute roles={['admin']} />}>
+                <Route path="/access-management" element={<UserAccessManagement />} />
+                <Route path="/users/dashboard" element={<OrgDashboard />} />
+                <Route path="/users/performance" element={<OrgPerformance />} />
+                <Route path="/users/hierarchy" element={<OrganizationChart />} />
+                <Route path="/users/settings" element={<OrgSettings />} />
+                <Route path="/users/organization" element={<OrganizationChart />} />
+                <Route path="/users/directory" element={<UserDirectory />} />
+                <Route path="/users/roles" element={<RoleManager />} />
+                <Route path="/users/distributors" element={<DistributorNetwork />} />
+                <Route path="/users/dealers" element={<DealerNetwork />} />
+                <Route path="/users/partners" element={<PartnerDirectory />} />
+                <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/settings/users" element={<PlaceholderPage title="User Management" />} />
+            </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />
+            </Route>
         </Routes>
     );
 };

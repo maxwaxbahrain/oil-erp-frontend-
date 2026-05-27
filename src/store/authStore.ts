@@ -62,6 +62,36 @@ export const MODULE_ACCESS: Record<string, Role[]> = {
 
 const USERS_KEY = 'bettano_users';
 const CURRENT_USER_KEY = 'bettano_current_user';
+export const AUTH_USER_KEY = 'bettano_auth_user';
+
+/** Map backend JWT roles to legacy sidebar/module roles. */
+export function mapBackendRole(role: string): Role {
+    switch (role) {
+        case 'admin': return 'owner';
+        case 'manager': return 'manager';
+        case 'accountant': return 'accountant';
+        case 'driver': return 'van_driver';
+        case 'sales': return 'salesman';
+        default: return 'manager';
+    }
+}
+
+export function syncAuthUser(authUser: { id?: number | string; username: string; full_name: string; role: string }): void {
+    localStorage.setItem(AUTH_USER_KEY, JSON.stringify(authUser));
+    setCurrentUser({
+        id: String(authUser.id ?? authUser.username),
+        name: authUser.full_name || authUser.username,
+        email: `${authUser.username}@bettano.com`,
+        role: mapBackendRole(authUser.role),
+        isActive: true,
+        createdAt: new Date().toISOString().split('T')[0],
+    });
+}
+
+export function clearAuthUser(): void {
+    localStorage.removeItem(AUTH_USER_KEY);
+    localStorage.removeItem(CURRENT_USER_KEY);
+}
 
 export const DEFAULT_USERS: User[] = [
     { id: 'USR-001', name: 'System Admin', email: 'admin@bettano.com', role: 'owner', phone: '+1 347 951 2163', isActive: true, createdAt: '2024-01-01' },
@@ -89,6 +119,18 @@ export function deleteUser(id: string): void {
 
 export function getCurrentUser(): User {
     try {
+        const authRaw = localStorage.getItem(AUTH_USER_KEY);
+        if (authRaw) {
+            const auth = JSON.parse(authRaw) as { id?: number | string; username: string; full_name: string; role: string };
+            return {
+                id: String(auth.id ?? auth.username),
+                name: auth.full_name || auth.username,
+                email: `${auth.username}@bettano.com`,
+                role: mapBackendRole(auth.role),
+                isActive: true,
+                createdAt: new Date().toISOString().split('T')[0],
+            };
+        }
         const raw = localStorage.getItem(CURRENT_USER_KEY);
         if (raw) return JSON.parse(raw);
     } catch { /* fallback */ }
@@ -106,11 +148,12 @@ export function canAccess(module: string, user?: User): boolean {
     return (MODULE_ACCESS[module] || []).includes(u.role);
 }
 
-export const useAuth = () => {
+/** @deprecated Prefer useAuth from contexts/AuthContext for session state. */
+export const useLegacyAuth = () => {
     const user = getCurrentUser();
     return {
         user,
-        isAuthenticated: true,
+        isAuthenticated: Boolean(localStorage.getItem(AUTH_USER_KEY)),
         canAccess: (module: string) => canAccess(module, user),
         isOwner: user.role === 'owner',
         isManager: user.role === 'owner' || user.role === 'manager',

@@ -205,6 +205,10 @@ function App() {
 
   const navigate = useNavigate();
 
+  if (location.pathname === '/login') {
+    return <AppRoutes />;
+  }
+
   if (location.pathname.startsWith('/invoice/')) {
     return (
       <div className="min-h-screen bg-[#f0f2f4] text-gray-900 font-inter antialiased">
