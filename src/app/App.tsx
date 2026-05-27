@@ -49,7 +49,7 @@ const ROLE_ROUTES: Record<(typeof ROLES)[number], string> = {
   'Sales Manager': '/sales/dashboard',
   'Warehouse':     '/warehouse/dashboard',
   'Van Driver':    '/van/dashboard',
-  'AI Hub':        '/ai',
+  'AI Hub':        '/ai/hub',
 };
 
 function roleIndexForPath(pathname: string): number {
@@ -683,7 +683,7 @@ function App() {
             { key: 'mobile',    label: 'Field & Mobile', route: '/logistics/pod',      icon: Smartphone,      prefix: ['/logistics', '/pod', '/van-sales'],        badge: '20%', badgeColor: 'amber' },
             { key: 'security',  label: 'Security',       route: '/access-management',  icon: Shield,          prefix: ['/access-management', '/users'],            badge: '40%', badgeColor: 'amber' },
             { key: 'sales',     label: 'Sales & CRM',    route: '/sales/dashboard',    icon: TrendingUp,      prefix: ['/sales', '/customers', '/crm'],            badge: null,  badgeColor: null },
-            { key: 'ai',        label: 'AI Hub',         route: '/ai',                 icon: Sparkles,        prefix: ['/ai', '/agents'],                          badge: null,  badgeColor: null },
+            { key: 'ai',        label: 'AI Hub',         route: '/ai/hub',             icon: Sparkles,        prefix: ['/ai', '/agents'],                          badge: null,  badgeColor: null },
             { key: 'pulse',     label: 'Pulse',          route: '/pulse',              icon: Megaphone,       prefix: ['/pulse'],                                  badge: null,  badgeColor: null },
           ].map((t) => {
             const Icon = t.icon;

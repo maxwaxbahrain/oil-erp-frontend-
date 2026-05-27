@@ -19,7 +19,7 @@ import {
     TrendingUp,
     User,
     MapPin
-, Tag , BookOpen , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 , Mail , LogOut } from 'lucide-react';
+, Tag , BookOpen , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 , Mail , LogOut , Sparkles } from 'lucide-react';
 import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
 
@@ -354,7 +354,8 @@ export default function Sidebar({
                     />
                     {sections.ai && (
                         <div className="space-y-0.5 pl-2 border-l-2 border-orange-500/20 ml-2">
-                            <NavItem to="/ai" icon={Brain} label="AI Hub" />
+                            <NavItem to="/ai/hub" icon={Brain} label="AI Hub" />
+                            <NavItem to="/ai" icon={Sparkles} label="AI Intelligence" />
                             <NavItem to="/ai/auto-po" icon={ShoppingCart} label="Auto PO Generation" />
                             <NavItem to="/ai/anomaly" icon={AlertTriangle} label="Anomaly Detection" />
                             <NavItem to="/ai/customer-forecast" icon={Users} label="Customer Forecast" />
