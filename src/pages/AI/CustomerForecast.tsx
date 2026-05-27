@@ -1,8 +1,90 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, Zap, RefreshCw, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import {
+    Users,
+    Zap,
+    RefreshCw,
+    TrendingUp,
+    TrendingDown,
+    Minus,
+    ChevronRight,
+    MessageCircle,
+    Search,
+    DollarSign,
+    AlertTriangle,
+    Clock,
+    Bot,
+} from 'lucide-react';
 import { getInvoices, getCustomers } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
+import { getCurrentUser } from '../../store/authStore';
+
+const C = {
+    bg: '#060f1c',
+    bg2: '#0a1726',
+    bg3: '#0f1f33',
+    bg4: '#142540',
+    blue: '#4F8EF7',
+    green: '#22C55E',
+    purple: '#7C3AED',
+    orange: '#F59E0B',
+    red: '#EF4444',
+    text: '#EEF2FF',
+    muted: '#8BA3C7',
+    dim: '#3E5678',
+};
+
+const FORECAST_PERIOD = 'June 2026';
+
+const panel: CSSProperties = {
+    background: C.bg2,
+    border: '1px solid rgba(255,255,255,.07)',
+    borderRadius: 12,
+};
+
+function userInitials(name: string): string {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    if (parts.length === 1 && parts[0].length >= 2) return parts[0].slice(0, 2).toUpperCase();
+    return 'AQ';
+}
+
+function openBettanoAdvisor() {
+    window.dispatchEvent(new CustomEvent('soltol:open-ai-advisor'));
+}
+
+function avgDaysBetweenOrders(sortedInvs: { invoiceDate: string }[]): number {
+    if (sortedInvs.length < 2) return 0;
+    const dates = sortedInvs
+        .map(inv => new Date(inv.invoiceDate).getTime())
+        .sort((a, b) => a - b);
+    let totalGap = 0;
+    for (let i = 1; i < dates.length; i++) {
+        totalGap += (dates[i] - dates[i - 1]) / 86400000;
+    }
+    return totalGap / (dates.length - 1);
+}
+
+function assessRisk(
+    daysSince: number,
+    avgInterval: number,
+    totalSpend: number,
+    trend: 'up' | 'down' | 'stable',
+): 'high' | 'medium' | 'low' {
+    if (
+        (avgInterval > 0 && daysSince > avgInterval * 2) ||
+        (daysSince > 90 && totalSpend > 5000)
+    ) {
+        return 'high';
+    }
+    if (
+        (avgInterval > 0 && daysSince > avgInterval * 1.5) ||
+        (daysSince > 45 && trend === 'down')
+    ) {
+        return 'medium';
+    }
+    return 'low';
+}
 
 interface CustomerForecast {
     customerId: string;
@@ -20,8 +102,53 @@ interface CustomerForecast {
     topProducts: string[];
 }
 
+function RiskBadge({ risk }: { risk: 'high' | 'medium' | 'low' }) {
+    const meta = {
+        high: { label: 'At risk', color: '#FCA5A5', bg: 'rgba(239,68,68,.15)' },
+        medium: { label: 'Watch', color: '#FCD34D', bg: 'rgba(245,158,11,.15)' },
+        low: { label: 'Active', color: '#86EFAC', bg: 'rgba(34,197,94,.12)' },
+    }[risk];
+
+    return (
+        <span style={{
+            fontSize: 9,
+            fontWeight: 700,
+            padding: '3px 8px',
+            borderRadius: 999,
+            background: meta.bg,
+            color: meta.color,
+            whiteSpace: 'nowrap',
+        }}>
+            {meta.label}
+        </span>
+    );
+}
+
+function TrendIcon({ trend, pct }: { trend: string; pct: number }) {
+    if (trend === 'up') {
+        return (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, color: C.green }}>
+                <TrendingUp size={12} />+{pct}%
+            </span>
+        );
+    }
+    if (trend === 'down') {
+        return (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, color: C.red }}>
+                <TrendingDown size={12} />-{pct}%
+            </span>
+        );
+    }
+    return (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, color: C.dim }}>
+            <Minus size={12} />Stable
+        </span>
+    );
+}
+
 export default function CustomerForecast() {
     const navigate = useNavigate();
+    const currentUser = getCurrentUser();
     const [forecasts, setForecasts] = useState<CustomerForecast[]>([]);
     const [loading, setLoading] = useState(true);
     const [aiInsight, setAiInsight] = useState('');
@@ -35,7 +162,6 @@ export default function CustomerForecast() {
             const custMap: Record<string, any> = {};
             customers.forEach(c => { custMap[String(c.id)] = c; });
 
-            // Build per-customer invoice history
             const custInvoices: Record<string, any[]> = {};
             invoices.forEach(inv => {
                 const cid = String(inv.customerId);
@@ -52,8 +178,8 @@ export default function CustomerForecast() {
                     const daysSince = Math.floor((today.getTime() - lastDate.getTime()) / 86400000);
                     const totalSpend = invs.reduce((s, i) => s + (i.grandTotal || 0), 0);
                     const avgOrder = totalSpend / invs.length;
+                    const avgInterval = avgDaysBetweenOrders(sorted);
 
-                    // Monthly breakdown for trend
                     const monthSpend: Record<string, number> = {};
                     invs.forEach(inv => {
                         const mk = inv.invoiceDate?.slice(0, 7) || '';
@@ -65,13 +191,9 @@ export default function CustomerForecast() {
                     const trendPct = older3 > 0 ? ((recent3 - older3) / older3) * 100 : 0;
                     const trend: 'up' | 'down' | 'stable' = trendPct > 10 ? 'up' : trendPct < -10 ? 'down' : 'stable';
 
-                    // Forecast next month (weighted recent activity)
                     const forecastRevenue = Math.max(0, recent3 * (trend === 'up' ? 1.1 : trend === 'down' ? 0.8 : 1.0));
+                    const risk = assessRisk(daysSince, avgInterval, totalSpend, trend);
 
-                    // Risk assessment
-                    const risk: 'high' | 'medium' | 'low' = daysSince > 60 ? 'high' : daysSince > 30 ? 'medium' : 'low';
-
-                    // Top products
                     const prodCount: Record<string, number> = {};
                     invs.forEach(inv => {
                         (inv.lineItems || []).forEach((li: any) => {
@@ -98,7 +220,7 @@ export default function CustomerForecast() {
                         trend,
                         trendPct: Math.abs(Math.round(trendPct)),
                         risk,
-                        topProducts
+                        topProducts,
                     };
                 });
 
@@ -118,21 +240,21 @@ export default function CustomerForecast() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    system: `You are Marcus, a CRM and sales advisor for a NYC distribution company. Max 150 words. No markdown. CAPS for headings.`,
+                    system: `You are Bettano, a CRM and sales advisor for a distribution company. Max 150 words. No markdown. CAPS for headings.`,
                     max_tokens: 400,
                     messages: [{
                         role: 'user',
-                        content: `Customer forecast data:
+                        content: `Customer forecast data for ${FORECAST_PERIOD}:
 
 TOP 5 BY REVENUE:
-${top5.map(f => `${f.customerName}: $${f.totalSpend.toFixed(0)} total, ${f.orderCount} orders, trend: ${f.trend} ${f.trendPct}%, last order: ${f.daysSinceOrder} days ago`).join('\n')}
+${top5.map(f => `${f.customerName}: ${formatCurrency(f.totalSpend)} total, ${f.orderCount} orders, trend: ${f.trend} ${f.trendPct}%, last order: ${f.daysSinceOrder} days ago`).join('\n')}
 
-AT-RISK CUSTOMERS (60+ days no order):
-${atRisk.length > 0 ? atRisk.map(f => `${f.customerName}: ${f.daysSinceOrder} days silent, previously spent $${f.totalSpend.toFixed(0)}`).join('\n') : 'None'}
+AT-RISK CUSTOMERS (order gap exceeds normal cadence):
+${atRisk.length > 0 ? atRisk.map(f => `${f.customerName}: ${f.daysSinceOrder} days silent, previously spent ${formatCurrency(f.totalSpend)}`).join('\n') : 'None'}
 
-Which customers should I contact TODAY and what should I say?`
-                    }]
-                })
+Which customers should I contact TODAY and what should I say?`,
+                    }],
+                }),
             });
             if (!res.ok) {
                 let detail = '';
@@ -161,141 +283,461 @@ Which customers should I contact TODAY and what should I say?`
 
     const totalForecast = forecasts.reduce((s, f) => s + f.forecastRevenue, 0);
     const atRiskCount = forecasts.filter(f => f.risk === 'high').length;
+    const growingCount = forecasts.filter(f => f.trend === 'up').length;
 
-    const TrendIcon = ({ trend, pct }: { trend: string; pct: number }) => {
-        if (trend === 'up') return <span className="flex items-center gap-0.5 text-emerald-600 text-xs font-black"><TrendingUp size={12} />+{pct}%</span>;
-        if (trend === 'down') return <span className="flex items-center gap-0.5 text-red-500 text-xs font-black"><TrendingDown size={12} />-{pct}%</span>;
-        return <span className="flex items-center gap-0.5 text-gray-400 text-xs font-black"><Minus size={12} />Stable</span>;
+    const inputStyle: CSSProperties = {
+        flex: 1,
+        minWidth: 200,
+        background: C.bg3,
+        border: '1px solid rgba(255,255,255,.1)',
+        borderRadius: 8,
+        padding: '10px 14px',
+        fontSize: 12,
+        fontWeight: 600,
+        color: C.text,
+        outline: 'none',
     };
 
     return (
-        <div className="space-y-6 max-w-[1400px] mx-auto pb-10 animate-in fade-in duration-500">
-            {/* Header */}
-            <div className="bg-gray-900 rounded-2xl p-6 text-white">
-                <button onClick={() => navigate('/ai')} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-white mb-3 transition-all">
-                    <ArrowLeft size={14} /> AI Hub
-                </button>
-                <div className="flex items-center justify-between flex-wrap gap-4">
-                    <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-purple-500/20 rounded-xl flex items-center justify-center">
-                            <Users size={24} className="text-purple-400" />
-                        </div>
-                        <div>
-                            <h1 className="text-xl font-black uppercase tracking-tight">Customer-Level Forecast</h1>
-                            <p className="text-gray-400 text-xs mt-0.5">Predict what each customer will order next month</p>
-                        </div>
-                    </div>
-                    <button onClick={getAIInsight} disabled={aiLoading || forecasts.length === 0}
-                        className="flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-black transition-all disabled:opacity-50">
-                        {aiLoading ? <RefreshCw size={14} className="animate-spin" /> : <Zap size={14} />}
-                        Ask Marcus
+        <div
+            style={{
+                display: 'flex',
+                flexDirection: 'column',
+                minHeight: '100%',
+                background: C.bg,
+                color: C.text,
+                fontFamily: 'inherit',
+                margin: '-24px -40px',
+                width: 'calc(100% + 80px)',
+                paddingBottom: 80,
+            }}
+        >
+            {/* Top bar */}
+            <div
+                style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '12px 28px',
+                    borderBottom: '1px solid rgba(255,255,255,.06)',
+                    background: C.bg2,
+                }}
+            >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: C.muted }}>
+                    <button
+                        type="button"
+                        onClick={() => navigate('/ai')}
+                        style={{ background: 'none', border: 'none', color: C.muted, cursor: 'pointer', padding: 0, fontSize: 11, fontWeight: 600 }}
+                    >
+                        AI hub
                     </button>
+                    <ChevronRight size={12} color={C.dim} />
+                    <span style={{ color: C.text, fontWeight: 600 }}>Customer-level forecast</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <button
+                        type="button"
+                        onClick={openBettanoAdvisor}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            padding: '7px 14px',
+                            borderRadius: 8,
+                            border: '1px solid rgba(245,158,11,.35)',
+                            background: 'rgba(245,158,11,.12)',
+                            color: '#FCD34D',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                        }}
+                    >
+                        <span style={{ fontSize: 13 }}>🛢</span>
+                        <MessageCircle size={13} /> Ask Bettano
+                    </button>
+                    <div
+                        style={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: '50%',
+                            background: `linear-gradient(135deg, ${C.blue}, ${C.purple})`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: '#fff',
+                        }}
+                    >
+                        {userInitials(currentUser.name)}
+                    </div>
                 </div>
             </div>
 
-            {/* KPIs */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {[
-                    { label: 'Customers Tracked', value: forecasts.length, color: 'text-gray-900' },
-                    { label: 'Next Month Forecast', value: formatCurrency(totalForecast), color: 'text-blue-600' },
-                    { label: 'At-Risk Customers', value: atRiskCount, color: atRiskCount > 0 ? 'text-red-600' : 'text-emerald-600' },
-                    { label: 'Growing Customers', value: forecasts.filter(f => f.trend === 'up').length, color: 'text-emerald-600' },
-                ].map((k, i) => (
-                    <div key={i} className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
-                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">{k.label}</p>
-                        <p className={`text-xl font-black ${k.color}`}>{loading ? '...' : k.value}</p>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '22px 28px 32px' }}>
+                {/* Page header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 18 }}>
+                    <div>
+                        <h1 style={{ fontSize: 22, fontWeight: 700, color: C.text, display: 'flex', alignItems: 'center', gap: 10, margin: 0 }}>
+                            <Users size={24} color={C.purple} />
+                            Customer-level forecast
+                        </h1>
+                        <p style={{ fontSize: 12, color: C.muted, marginTop: 5, marginBottom: 0, maxWidth: 620 }}>
+                            Predict what each customer will order next month · {FORECAST_PERIOD}
+                        </p>
                     </div>
-                ))}
-            </div>
-
-            {/* AI Insight */}
-            {aiInsight && (
-                <div className="bg-gray-900 rounded-2xl p-5 text-white">
-                    <div className="flex items-center gap-2 mb-3">
-                        <Zap size={16} className="text-orange-400" />
-                        <p className="text-sm font-black text-orange-400 uppercase tracking-widest">Marcus — Customer Intelligence</p>
-                    </div>
-                    <div className="text-sm leading-relaxed space-y-1">
-                        {aiInsight.split('\n').map((line, i) => {
-                            const t = line.trim();
-                            if (!t) return <div key={i} className="h-1" />;
-                            if (t === t.toUpperCase() && t.length > 4)
-                                return <p key={i} className="font-black text-orange-400 text-xs uppercase tracking-widest mt-3">{t}</p>;
-                            return <p key={i} className="text-sm text-gray-700 leading-relaxed">{t}</p>;
-                        })}
-                    </div>
+                    <span
+                        style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            padding: '6px 12px',
+                            borderRadius: 999,
+                            background: 'rgba(124,58,237,.12)',
+                            color: '#C4B5FD',
+                            border: '1px solid rgba(124,58,237,.35)',
+                            whiteSpace: 'nowrap',
+                        }}
+                    >
+                        {FORECAST_PERIOD}
+                    </span>
                 </div>
-            )}
 
-            {/* Controls */}
-            <div className="flex items-center gap-3 flex-wrap">
-                <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-                    placeholder="Search customer..."
-                    className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-purple-400 flex-1 min-w-[200px]" />
-                {(['revenue', 'risk', 'recent'] as const).map(s => (
-                    <button key={s} onClick={() => setSortBy(s)}
-                        className={`px-4 py-2.5 text-xs font-black rounded-xl transition-all capitalize ${sortBy === s ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
-                        {s === 'revenue' ? '💰 By Revenue' : s === 'risk' ? '⚠️ By Risk' : '🕐 By Recency'}
-                    </button>
-                ))}
-            </div>
+                {/* KPI row */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 14 }}>
+                    {[
+                        {
+                            label: 'Customers tracked',
+                            value: loading ? '…' : forecasts.length,
+                            sub: 'with order history',
+                            accent: C.purple,
+                        },
+                        {
+                            label: 'June forecast total',
+                            value: loading ? '…' : formatCurrency(totalForecast),
+                            sub: 'predicted revenue',
+                            accent: C.blue,
+                        },
+                        {
+                            label: 'At-risk customers',
+                            value: loading ? '…' : `${atRiskCount} / ${forecasts.length}`,
+                            sub: 'order gap exceeds cadence',
+                            accent: atRiskCount > 0 ? C.red : C.green,
+                        },
+                        {
+                            label: 'Growing customers',
+                            value: loading ? '…' : growingCount,
+                            sub: 'upward trend detected',
+                            accent: C.green,
+                        },
+                    ].map((kpi) => (
+                        <div
+                            key={kpi.label}
+                            style={{
+                                ...panel,
+                                padding: '14px 16px',
+                                borderTop: `3px solid ${kpi.accent}`,
+                            }}
+                        >
+                            <p style={{ fontSize: 10, fontWeight: 600, color: C.muted, margin: '0 0 6px' }}>
+                                {kpi.label}
+                            </p>
+                            <p style={{ fontSize: 22, fontWeight: 700, color: C.text, margin: '0 0 4px' }}>
+                                {kpi.value}
+                            </p>
+                            <p style={{ fontSize: 10, color: C.dim, margin: 0 }}>{kpi.sub}</p>
+                        </div>
+                    ))}
+                </div>
 
-            {/* Table */}
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                {loading ? (
-                    <div className="p-12 text-center text-gray-400 font-bold">Analyzing customer order patterns...</div>
-                ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left">
-                            <thead className="bg-gray-50 border-b border-gray-100">
-                                <tr>
-                                    {['Customer', 'Orders', 'Avg Value', 'Trend', 'Last Order', 'Next Month Est.', 'Top Products', 'Risk'].map(h => (
-                                        <th key={h} className="px-5 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">{h}</th>
-                                    ))}
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-50">
-                                {sorted.map(f => (
-                                    <tr key={f.customerId} className={`hover:bg-gray-50 transition-all ${f.risk === 'high' ? 'bg-red-50/30' : ''}`}>
-                                        <td className="px-5 py-4">
-                                            <p className="text-sm font-black text-gray-900">{f.customerName}</p>
-                                            <p className="text-xs text-gray-400">{formatCurrency(f.totalSpend)} lifetime</p>
-                                        </td>
-                                        <td className="px-5 py-4 text-sm font-black text-gray-700">{f.orderCount}</td>
-                                        <td className="px-5 py-4 text-sm font-mono font-black text-gray-700">{formatCurrency(f.avgOrderValue)}</td>
-                                        <td className="px-5 py-4"><TrendIcon trend={f.trend} pct={f.trendPct} /></td>
-                                        <td className="px-5 py-4">
-                                            <p className="text-sm font-mono text-gray-500">{f.lastOrderDate}</p>
-                                            <p className={`text-xs font-bold ${f.daysSinceOrder > 60 ? 'text-red-500' : f.daysSinceOrder > 30 ? 'text-amber-500' : 'text-emerald-500'}`}>
-                                                {f.daysSinceOrder}d ago
-                                            </p>
-                                        </td>
-                                        <td className="px-5 py-4">
-                                            <p className="text-sm font-black text-blue-600">{formatCurrency(f.forecastRevenue)}</p>
-                                            <p className="text-xs text-gray-400">est. {f.forecastNextMonth} order{f.forecastNextMonth !== 1 ? 's' : ''}</p>
-                                        </td>
-                                        <td className="px-5 py-4">
-                                            <div className="flex flex-wrap gap-1">
-                                                {f.topProducts.slice(0, 2).map((p, i) => (
-                                                    <span key={i} className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full font-bold truncate max-w-[100px]">{p}</span>
-                                                ))}
-                                            </div>
-                                        </td>
-                                        <td className="px-5 py-4">
-                                            <span className={`text-[10px] font-black px-2 py-1 rounded-full ${f.risk === 'high' ? 'bg-red-100 text-red-700' : f.risk === 'medium' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                                                {f.risk === 'high' ? '🔴 At Risk' : f.risk === 'medium' ? '🟡 Watch' : '🟢 Active'}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                {/* AI insight — shown after trigger */}
+                {aiInsight && (
+                    <div style={{
+                        ...panel,
+                        padding: '16px 18px',
+                        marginBottom: 14,
+                        background: `linear-gradient(135deg, rgba(124,58,237,.12), rgba(245,158,11,.08))`,
+                        border: '1px solid rgba(124,58,237,.25)',
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                            <div style={{
+                                width: 36,
+                                height: 36,
+                                borderRadius: 10,
+                                background: 'rgba(124,58,237,.2)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                            }}>
+                                <Zap size={18} color={C.purple} />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <p style={{ fontSize: 11, fontWeight: 700, color: C.orange, margin: '0 0 6px' }}>
+                                    Bettano — Customer intelligence
+                                </p>
+                                <div style={{ fontSize: 12, lineHeight: 1.55 }}>
+                                    {aiInsight.split('\n').map((line, i) => {
+                                        const t = line.trim();
+                                        if (!t) return <div key={i} style={{ height: 4 }} />;
+                                        if (t === t.toUpperCase() && t.length > 4) {
+                                            return (
+                                                <p key={i} style={{ fontWeight: 700, color: C.orange, fontSize: 10, textTransform: 'uppercase', margin: '8px 0 4px' }}>
+                                                    {t}
+                                                </p>
+                                            );
+                                        }
+                                        return <p key={i} style={{ margin: '2px 0', color: C.muted }}>{t}</p>;
+                                    })}
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 )}
+
+                {/* Insight trigger */}
+                {!aiInsight && !aiLoading && forecasts.length > 0 && (
+                    <div style={{ ...panel, padding: '16px 18px', marginBottom: 14, background: C.bg3 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                <div style={{
+                                    width: 36,
+                                    height: 36,
+                                    borderRadius: 10,
+                                    background: 'rgba(245,158,11,.15)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                }}>
+                                    <Bot size={18} color={C.orange} />
+                                </div>
+                                <div>
+                                    <p style={{ fontSize: 11, fontWeight: 700, color: C.orange, margin: '0 0 4px' }}>Bettano says:</p>
+                                    <p style={{ fontSize: 12, color: C.muted, margin: 0 }}>
+                                        {atRiskCount > 0
+                                            ? `${atRiskCount} at-risk customer${atRiskCount !== 1 ? 's' : ''} flagged — ask Bettano who to contact today.`
+                                            : `${forecasts.length} customers forecast — ask Bettano for outreach priorities.`}
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={getAIInsight}
+                                disabled={aiLoading || forecasts.length === 0}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    padding: '7px 14px',
+                                    borderRadius: 8,
+                                    border: 'none',
+                                    background: C.orange,
+                                    color: '#fff',
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    whiteSpace: 'nowrap',
+                                }}
+                            >
+                                <Zap size={13} /> Get insight
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {aiLoading && (
+                    <div style={{ ...panel, padding: '16px 18px', marginBottom: 14, background: C.bg3 }}>
+                        <p style={{ fontSize: 12, color: C.muted, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <RefreshCw size={14} className="animate-spin" /> Bettano is analysing customer patterns...
+                        </p>
+                    </div>
+                )}
+
+                {/* Controls row */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+                    <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
+                        <Search size={14} color={C.dim} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }} />
+                        <input
+                            type="text"
+                            value={search}
+                            onChange={e => setSearch(e.target.value)}
+                            placeholder="Search customer..."
+                            style={{ ...inputStyle, paddingLeft: 36 }}
+                        />
+                    </div>
+                    {([
+                        { key: 'revenue' as const, label: 'By revenue', icon: DollarSign },
+                        { key: 'risk' as const, label: 'By risk', icon: AlertTriangle },
+                        { key: 'recent' as const, label: 'By recency', icon: Clock },
+                    ]).map(s => {
+                        const Icon = s.icon;
+                        return (
+                            <button
+                                key={s.key}
+                                type="button"
+                                onClick={() => setSortBy(s.key)}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 5,
+                                    padding: '7px 14px',
+                                    borderRadius: 999,
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    border: sortBy === s.key ? '1px solid rgba(79,142,247,.4)' : '1px solid rgba(255,255,255,.08)',
+                                    background: sortBy === s.key ? 'rgba(79,142,247,.15)' : C.bg3,
+                                    color: sortBy === s.key ? '#93C5FD' : C.muted,
+                                }}
+                            >
+                                <Icon size={12} /> {s.label}
+                            </button>
+                        );
+                    })}
+                    <span
+                        style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            padding: '6px 12px',
+                            borderRadius: 999,
+                            background: 'rgba(124,58,237,.12)',
+                            color: '#C4B5FD',
+                            border: '1px solid rgba(124,58,237,.25)',
+                            whiteSpace: 'nowrap',
+                        }}
+                    >
+                        {FORECAST_PERIOD}
+                    </span>
+                </div>
+
+                {/* Main table */}
+                <div style={{ ...panel, overflow: 'hidden', background: C.bg3 }}>
+                    <div style={{
+                        padding: '14px 18px',
+                        borderBottom: '1px solid rgba(255,255,255,.06)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                    }}>
+                        <p style={{ fontSize: 12, fontWeight: 700, color: C.text, margin: 0 }}>
+                            Customer forecasts · {sorted.length} shown
+                        </p>
+                    </div>
+
+                    {loading ? (
+                        <div style={{ padding: 48, textAlign: 'center' }}>
+                            <RefreshCw size={32} className="animate-spin" color={C.purple} style={{ margin: '0 auto 12px' }} />
+                            <p style={{ color: C.muted, fontWeight: 700, fontSize: 12, margin: 0 }}>Analyzing customer order patterns...</p>
+                        </div>
+                    ) : sorted.length === 0 ? (
+                        <div style={{ padding: 48, textAlign: 'center' }}>
+                            <p style={{ color: C.muted, fontWeight: 700, fontSize: 14, margin: 0 }}>No customers match your search</p>
+                            <p style={{ color: C.dim, fontSize: 11, marginTop: 4 }}>Try adjusting your search term</p>
+                        </div>
+                    ) : (
+                        <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                                <thead>
+                                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,.06)' }}>
+                                        {['Customer', 'Orders', 'Avg value', 'Trend', 'Last order', 'Next month est.', 'Top products', 'Risk'].map(h => (
+                                            <th key={h} style={{
+                                                padding: '10px 16px',
+                                                fontSize: 10,
+                                                fontWeight: 600,
+                                                color: C.dim,
+                                            }}>
+                                                {h}
+                                            </th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {sorted.map(f => (
+                                        <tr
+                                            key={f.customerId}
+                                            style={{
+                                                borderBottom: '1px solid rgba(255,255,255,.04)',
+                                                background: f.risk === 'high' ? 'rgba(239,68,68,.06)' : 'transparent',
+                                                transition: 'background .12s',
+                                            }}
+                                        >
+                                            <td style={{ padding: '12px 16px' }}>
+                                                <p style={{ fontSize: 12, fontWeight: 700, color: C.text, margin: 0 }}>{f.customerName}</p>
+                                                <p style={{ fontSize: 10, color: C.dim, margin: '3px 0 0' }}>{formatCurrency(f.totalSpend)} lifetime</p>
+                                            </td>
+                                            <td style={{ padding: '12px 16px', fontSize: 12, fontWeight: 700, color: C.text }}>
+                                                {f.orderCount}
+                                            </td>
+                                            <td style={{ padding: '12px 16px', fontSize: 11, fontWeight: 600, color: C.muted, fontFamily: 'monospace' }}>
+                                                {formatCurrency(f.avgOrderValue)}
+                                            </td>
+                                            <td style={{ padding: '12px 16px' }}>
+                                                <TrendIcon trend={f.trend} pct={f.trendPct} />
+                                            </td>
+                                            <td style={{ padding: '12px 16px' }}>
+                                                <p style={{ fontSize: 11, fontFamily: 'monospace', color: C.muted, margin: 0 }}>{f.lastOrderDate}</p>
+                                                <p style={{
+                                                    fontSize: 10,
+                                                    fontWeight: 700,
+                                                    margin: '3px 0 0',
+                                                    color: f.risk === 'high' ? C.red : f.risk === 'medium' ? C.orange : C.green,
+                                                }}>
+                                                    {f.daysSinceOrder}d ago
+                                                </p>
+                                            </td>
+                                            <td style={{ padding: '12px 16px' }}>
+                                                <p style={{ fontSize: 12, fontWeight: 700, color: C.blue, margin: 0 }}>{formatCurrency(f.forecastRevenue)}</p>
+                                                <p style={{ fontSize: 10, color: C.dim, margin: '3px 0 0' }}>
+                                                    est. {f.forecastNextMonth} order{f.forecastNextMonth !== 1 ? 's' : ''}
+                                                </p>
+                                            </td>
+                                            <td style={{ padding: '12px 16px' }}>
+                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                                    {f.topProducts.slice(0, 2).map((p, i) => (
+                                                        <span
+                                                            key={i}
+                                                            style={{
+                                                                fontSize: 9,
+                                                                fontWeight: 600,
+                                                                padding: '3px 8px',
+                                                                borderRadius: 999,
+                                                                background: C.bg4,
+                                                                color: C.muted,
+                                                                maxWidth: 100,
+                                                                overflow: 'hidden',
+                                                                textOverflow: 'ellipsis',
+                                                                whiteSpace: 'nowrap',
+                                                            }}
+                                                        >
+                                                            {p}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </td>
+                                            <td style={{ padding: '12px 16px' }}>
+                                                <RiskBadge risk={f.risk} />
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
             </div>
-            <p className="text-xs text-gray-400 text-center">
-                Forecast based on historical order patterns + trend analysis · Red rows = customer hasn't ordered in 60+ days
-            </p>
+
+            {/* Footer note */}
+            <div style={{
+                position: 'sticky',
+                bottom: 0,
+                padding: '12px 28px',
+                borderTop: '1px solid rgba(255,255,255,.06)',
+                background: C.bg2,
+                textAlign: 'center',
+            }}>
+                <p style={{ fontSize: 10, color: C.dim, margin: 0 }}>
+                    Forecast based on historical order patterns and trend analysis · At-risk = order gap exceeds normal cadence
+                </p>
+            </div>
         </div>
     );
 }
