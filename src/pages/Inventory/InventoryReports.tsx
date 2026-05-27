@@ -1,24 +1,28 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, type CSSProperties } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { formatCurrency as globalFormatCurrency, getSystemSettings } from '../../services/settingsService';
 import {
     BarChart3,
     Download,
-    Filter,
-    Calendar,
     ArrowRight,
     TrendingUp,
     PieChart,
     Activity,
     DollarSign,
     Package,
-    ArrowUpRight,
     Search,
-    ChevronDown,
     X,
     FileText,
-    AlertTriangle
+    AlertTriangle,
+    Sparkles,
+    Bot,
+    Brain,
+    Layers,
+    ChevronRight,
+    Eye,
+    Play,
 } from 'lucide-react';
-import clsx from 'clsx';
+import { getProducts, type Product } from '../../services/productService';
 import {
     getInventoryMetrics,
     calculateInventoryValuation,
@@ -37,70 +41,143 @@ import {
     type LossLeakage,
     type ForecastingData,
     type InventoryMetrics,
-    type CostMethodValuation
+    type CostMethodValuation,
 } from '../../services/inventoryService';
 
 type ReportType = 'valuation' | 'fifo' | 'lifo' | 'avgcost' | 'movement' | 'deadstock' | 'supplier' | 'loss' | 'forecast' | null;
+type PageTab = 'overview' | 'material-audit' | 'stock-adjustment' | 'forecasting' | 'supplier-accuracy';
+type PeriodKey = 'may' | 'q2' | 'ytd' | 'fy' | 'custom';
+type ValuationMethod = 'Average' | 'FIFO' | 'LIFO';
+type QueryMode = 'nl' | 'sql';
 
+const C = {
+    bg: '#0b1120',
+    surface: '#161e2d',
+    blue: '#4F8EF7',
+    green: '#22C55E',
+    red: '#EF4444',
+    amber: '#F59E0B',
+    purple: '#9B6FE4',
+    text: '#EEF2FF',
+    muted: '#8BA3C7',
+    dim: '#3E5678',
+};
 
-// ── Cost Method Report Component ─────────────────────────────
+const panel: CSSProperties = {
+    background: C.surface,
+    border: '1px solid rgba(255,255,255,.07)',
+    borderRadius: 10,
+};
+
+const ghostBtn: CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 5,
+    padding: '6px 12px',
+    borderRadius: 8,
+    fontSize: 10,
+    fontWeight: 500,
+    cursor: 'pointer',
+    border: '1px solid rgba(255,255,255,.12)',
+    background: 'rgba(255,255,255,.04)',
+    color: C.muted,
+    fontFamily: 'inherit',
+};
+
+const PERIOD_PILLS: { key: PeriodKey; label: string }[] = [
+    { key: 'may', label: 'May 2026' },
+    { key: 'q2', label: 'Q2 2026' },
+    { key: 'ytd', label: 'YTD 2026' },
+    { key: 'fy', label: 'FY 2025' },
+    { key: 'custom', label: 'Custom' },
+];
+
+const PAGE_TABS: { id: PageTab; label: string }[] = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'material-audit', label: 'Material audit' },
+    { id: 'stock-adjustment', label: 'Stock adjustment' },
+    { id: 'forecasting', label: 'Forecasting' },
+    { id: 'supplier-accuracy', label: 'Supplier accuracy' },
+];
+
+const QUERY_CHIPS = ['Fast movers', 'Dead stock', 'High margin', 'Low turnover', 'Overstock risk', 'Reorder needed'];
+
+const AI_INSIGHTS = [
+    { color: C.red, title: 'Dead stock capital alert', body: 'Slow-moving SKUs are locking significant working capital — review dead stock audit for liquidation candidates.' },
+    { color: C.amber, title: 'Variance detected in field counts', body: 'Loss & leakage report shows stock record variance above threshold on high-velocity lines.' },
+    { color: C.purple, title: 'Reorder timing opportunity', body: 'Demand forecasting suggests fast movers may stock out within 14 days without replenishment.' },
+];
+
+const AI_ACTIONS = [
+    { color: C.red, title: 'Run dead stock audit', detail: 'Identify non-moving SKUs and quantify locked capital.', report: 'deadstock' as ReportType },
+    { color: C.amber, title: 'Review loss & leakage', detail: 'Compare expected vs actual stock on top variance SKUs.', report: 'loss' as ReportType },
+    { color: C.blue, title: 'Generate demand forecast', detail: '30/60/90-day AI forecast for reorder planning.', report: 'forecast' as ReportType },
+    { color: C.purple, title: 'Export valuation snapshot', detail: 'Full inventory valuation using active cost method.', report: 'valuation' as ReportType },
+];
+
+function fmtCompactUsd(value: number): string {
+    if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
+    if (value >= 1000) return `$${Math.round(value / 1000)}K`;
+    return `$${value.toFixed(0)}`;
+}
+
+function getTotalStock(p: Product): number {
+    return p.locations?.reduce((a, b) => a + (b.currentStock ?? 0), 0) ?? 0;
+}
+
 function CostMethodReport({ data }: { data: CostMethodValuation }) {
     const formatCurr = (v: number) => `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    const methodColors: Record<string, string> = { FIFO: 'blue', LIFO: 'purple', Average: 'orange' };
-    const col = methodColors[data.method] || 'gray';
+    const accent = data.method === 'FIFO' ? C.blue : data.method === 'LIFO' ? C.purple : C.amber;
     return (
         <div className="space-y-6">
-            {/* Summary */}
-            <div className={`grid grid-cols-3 gap-4`}>
+            <div className="grid grid-cols-3 gap-4">
                 {[
                     { label: 'Method', value: data.method },
                     { label: 'Total Inventory Value', value: formatCurr(data.totalValue) },
                     { label: 'Total Units', value: data.totalUnits.toLocaleString() },
                 ].map((s, i) => (
-                    <div key={i} className={`bg-${col}-50 border border-${col}-200 rounded-2xl p-5`}>
-                        <p className={`text-[10px] font-black text-${col}-500 uppercase tracking-widest mb-1`}>{s.label}</p>
-                        <p className={`text-2xl font-black text-${col}-900`}>{s.value}</p>
+                    <div key={i} style={{ ...panel, padding: '16px 18px', borderColor: `${accent}33` }}>
+                        <p style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>{s.label}</p>
+                        <p style={{ fontSize: 22, fontWeight: 700, color: C.text }}>{s.value}</p>
                     </div>
                 ))}
             </div>
-            {/* Method explanation */}
-            <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4">
-                <p className="text-xs font-black text-gray-600 mb-1">
-                    {data.method === 'FIFO' && '📦 FIFO — First In, First Out: Oldest purchased stock is valued first. Higher profits during inflation.'}
-                    {data.method === 'LIFO' && '📦 LIFO — Last In, First Out: Newest purchased stock is valued first. Lower profits during inflation (tax benefit).'}
-                    {data.method === 'Average' && '📦 Average Cost: Stock is valued at the weighted average purchase price. Simple and most common.'}
+            <div style={{ ...panel, padding: 14, background: 'rgba(255,255,255,.03)' }}>
+                <p style={{ fontSize: 11, color: C.muted, lineHeight: 1.5 }}>
+                    {data.method === 'FIFO' && 'FIFO — First In, First Out: Oldest purchased stock is valued first. Higher profits during inflation.'}
+                    {data.method === 'LIFO' && 'LIFO — Last In, First Out: Newest purchased stock is valued first. Lower profits during inflation (tax benefit).'}
+                    {data.method === 'Average' && 'Average Cost: Stock is valued at the weighted average purchase price. Simple and most common.'}
                 </p>
             </div>
-            {/* Product breakdown */}
-            <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
-                <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
-                    <p className="text-xs font-black text-gray-700 uppercase tracking-widest">Product-wise {data.method} Valuation</p>
+            <div style={{ ...panel, overflow: 'hidden', padding: 0 }}>
+                <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,.07)' }}>
+                    <p style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Product-wise {data.method} Valuation</p>
                 </div>
                 <table className="w-full">
-                    <thead className="bg-gray-50 border-b border-gray-100">
-                        <tr>
+                    <thead>
+                        <tr style={{ borderBottom: '1px solid rgba(255,255,255,.07)' }}>
                             {['Product', 'SKU', 'Units', `Unit Cost (${data.method})`, 'Total Value'].map(h => (
-                                <th key={h} className="px-5 py-3 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">{h}</th>
+                                <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontSize: 9, fontWeight: 700, color: C.dim, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</th>
                             ))}
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-50">
-                        {data.items.filter((it: any) => it.units > 0).map((item: any, i: number) => (
-                            <tr key={i} className="hover:bg-gray-50">
-                                <td className="px-5 py-3 text-sm font-black text-gray-900">{item.name}</td>
-                                <td className="px-5 py-3 text-xs font-mono text-gray-500">{item.sku || '—'}</td>
-                                <td className="px-5 py-3 text-sm font-mono font-black text-gray-700">{item.units}</td>
-                                <td className={`px-5 py-3 text-sm font-black font-mono text-${col}-600`}>{formatCurr(item.unitCost)}</td>
-                                <td className="px-5 py-3 text-sm font-black font-mono text-gray-900">{formatCurr(item.totalValue)}</td>
+                    <tbody>
+                        {data.items.filter(it => it.units > 0).map((item, i) => (
+                            <tr key={i} style={{ borderTop: '1px solid rgba(255,255,255,.04)' }}>
+                                <td style={{ padding: '10px 16px', fontSize: 12, fontWeight: 600, color: C.text }}>{item.name}</td>
+                                <td style={{ padding: '10px 16px', fontSize: 11, fontFamily: 'monospace', color: C.muted }}>{item.sku || '—'}</td>
+                                <td style={{ padding: '10px 16px', fontSize: 12, fontFamily: 'monospace', color: C.text }}>{item.units}</td>
+                                <td style={{ padding: '10px 16px', fontSize: 12, fontFamily: 'monospace', color: accent }}>{formatCurr(item.unitCost)}</td>
+                                <td style={{ padding: '10px 16px', fontSize: 12, fontFamily: 'monospace', color: C.text }}>{formatCurr(item.totalValue)}</td>
                             </tr>
                         ))}
                     </tbody>
-                    <tfoot className="border-t-2 border-gray-900 bg-gray-900">
-                        <tr>
-                            <td colSpan={2} className="px-5 py-3 text-xs font-black text-white uppercase">Total</td>
-                            <td className="px-5 py-3 text-sm font-black text-white font-mono">{data.totalUnits}</td>
-                            <td className="px-5 py-3 text-xs font-black text-gray-400">Avg: {formatCurr(data.unitCost)}</td>
-                            <td className="px-5 py-3 text-sm font-black text-orange-400 font-mono">{formatCurr(data.totalValue)}</td>
+                    <tfoot>
+                        <tr style={{ background: C.bg, borderTop: '2px solid rgba(255,255,255,.12)' }}>
+                            <td colSpan={2} style={{ padding: '10px 16px', fontSize: 9, fontWeight: 700, color: C.muted, textTransform: 'uppercase' }}>Total</td>
+                            <td style={{ padding: '10px 16px', fontSize: 12, fontWeight: 700, color: C.text, fontFamily: 'monospace' }}>{data.totalUnits}</td>
+                            <td style={{ padding: '10px 16px', fontSize: 10, color: C.dim }}>Avg: {formatCurr(data.unitCost)}</td>
+                            <td style={{ padding: '10px 16px', fontSize: 12, fontWeight: 700, color: C.amber, fontFamily: 'monospace' }}>{formatCurr(data.totalValue)}</td>
                         </tr>
                     </tfoot>
                 </table>
@@ -110,13 +187,27 @@ function CostMethodReport({ data }: { data: CostMethodValuation }) {
 }
 
 export default function InventoryReports() {
+    const navigate = useNavigate();
     const [metrics, setMetrics] = useState<InventoryMetrics | null>(null);
     const [loading, setLoading] = useState(true);
     const [activeReport, setActiveReport] = useState<ReportType>(null);
     const [reportData, setReportData] = useState<any>(null);
+    const [activeTab, setActiveTab] = useState<PageTab>('material-audit');
+    const [activePeriod, setActivePeriod] = useState<PeriodKey>('may');
+    const [valuationMethod, setValuationMethod] = useState<ValuationMethod>(() => {
+        const m = getSystemSettings().valuationMethod || 'Average Cost';
+        if (m === 'FIFO') return 'FIFO';
+        if (m === 'LIFO') return 'LIFO';
+        return 'Average';
+    });
+    const [queryMode, setQueryMode] = useState<QueryMode>('nl');
+    const [queryText, setQueryText] = useState('');
+    const [activeChip, setActiveChip] = useState<string | null>(null);
+    const [queryProducts, setQueryProducts] = useState<Product[]>([]);
 
     useEffect(() => {
-        loadMetrics();
+        void loadMetrics();
+        void loadQueryProducts();
     }, []);
 
     const loadMetrics = async () => {
@@ -128,6 +219,15 @@ export default function InventoryReports() {
             console.error('Failed to load metrics:', error);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const loadQueryProducts = async () => {
+        try {
+            const products = await getProducts();
+            setQueryProducts(products);
+        } catch (error) {
+            console.error('Failed to load products for query engine:', error);
         }
     };
 
@@ -156,18 +256,15 @@ export default function InventoryReports() {
                 case 'forecast':
                     data = await generateForecastingData();
                     break;
-                case 'fifo': {
+                case 'fifo':
                     data = await calculateFIFOValuation();
                     break;
-                }
-                case 'lifo': {
+                case 'lifo':
                     data = await calculateLIFOValuation();
                     break;
-                }
-                case 'avgcost': {
+                case 'avgcost':
                     data = await calculateAvgCostValuation();
                     break;
-                }
             }
             setReportData(data);
         } catch (error) {
@@ -182,227 +279,445 @@ export default function InventoryReports() {
         setReportData(null);
     };
 
-    const formatCurrency = (value: number) => {
-        if (value >= 1000000) {
-            return `$${(value / 1000000).toFixed(2)}M`;
-        } else if (value >= 1000) {
-            return `$${(value / 1000).toFixed(0)}k`;
+    const handleTabClick = (tab: PageTab) => {
+        if (tab === 'stock-adjustment') {
+            navigate('/products');
+            return;
         }
-        return `$${value.toFixed(2)}`;
+        setActiveTab(tab);
+        if (tab === 'forecasting') void runReport('forecast');
+        if (tab === 'supplier-accuracy') void runReport('supplier');
     };
 
+    const exportAllPdfs = () => {
+        window.print();
+    };
+
+    const generateGlobalAudit = () => {
+        void loadMetrics();
+        void runReport('valuation');
+    };
+
+    const filteredQueryRows = useMemo(() => {
+        let rows = queryProducts.filter(p => getTotalStock(p) >= 0);
+        const q = queryText.trim().toLowerCase();
+        if (q) {
+            rows = rows.filter(p =>
+                p.name.toLowerCase().includes(q) ||
+                p.sku.toLowerCase().includes(q) ||
+                p.category.toLowerCase().includes(q),
+            );
+        }
+        if (activeChip === 'Fast movers') rows = rows.filter(p => p.velocityStatus === 'Fast');
+        else if (activeChip === 'Dead stock') rows = rows.filter(p => p.velocityStatus === 'Dead' || p.velocityStatus === 'Slow');
+        else if (activeChip === 'High margin') rows = rows.filter(p => (p.grossMarginPercent ?? 0) >= 30);
+        else if (activeChip === 'Low turnover') rows = rows.filter(p => p.velocityStatus === 'Slow' || p.velocityStatus === 'Dead');
+        else if (activeChip === 'Overstock risk') rows = rows.filter(p => p.overstockRisk === 'High' || p.overstockRisk === 'Medium');
+        else if (activeChip === 'Reorder needed') rows = rows.filter(p => getTotalStock(p) <= (p.reorderLevel || 10));
+        return rows.slice(0, 12);
+    }, [queryProducts, queryText, activeChip]);
+
     const reports = [
-        {
-            id: 'valuation',
-            title: 'Inventory Valuation (Avg)',
-            description: 'Financial audit using weighted average cost method.',
-            icon: DollarSign,
-            color: 'text-emerald-500'
-        },
-        {
-            id: 'fifo',
-            title: 'FIFO Valuation',
-            description: 'First In First Out — oldest purchase costs used first.',
-            icon: DollarSign,
-            color: 'text-blue-500'
-        },
-        {
-            id: 'lifo',
-            title: 'LIFO Valuation',
-            description: 'Last In First Out — newest purchase costs used first.',
-            icon: DollarSign,
-            color: 'text-purple-500'
-        },
-        {
-            id: 'avgcost',
-            title: 'Average Cost',
-            description: 'Weighted average cost valuation per product.',
-            icon: DollarSign,
-            color: 'text-orange-500'
-        },
-        {
-            id: 'movement',
-            title: 'Stock Movement',
-            description: 'Real-time velocity and node transfer analysis.',
-            icon: Activity,
-            color: 'text-blue-500'
-        },
-        {
-            id: 'deadstock',
-            title: 'Dead Stock Audit',
-            description: 'Identifying capital locked in non-moving SKUs.',
-            icon: Package,
-            color: 'text-red-500'
-        },
-        {
-            id: 'supplier',
-            title: 'Supplier Accuracy',
-            description: 'Lead time and quality performance audit.',
-            icon: TrendingUp,
-            color: 'text-amber-500'
-        },
-        {
-            id: 'loss',
-            title: 'Loss & Leakage',
-            description: 'Tracking field sales discrepancies and damages.',
-            icon: BarChart3,
-            color: 'text-redwood-brand'
-        },
-        {
-            id: 'forecast',
-            title: 'Forecasting Run',
-            description: '30/60/90 day demand predicted by AI.',
-            icon: PieChart,
-            color: 'text-pink-500'
-        },
+        { id: 'valuation' as ReportType, title: 'Inventory valuation', description: 'Financial audit using weighted average cost method.', icon: DollarSign, iconColor: C.green, iconBg: 'rgba(34,197,94,.12)' },
+        { id: 'fifo' as ReportType, title: 'FIFO valuation', description: 'First In First Out — oldest purchase costs used first.', icon: Layers, iconColor: C.blue, iconBg: 'rgba(79,142,247,.12)' },
+        { id: 'lifo' as ReportType, title: 'LIFO valuation', description: 'Last In First Out — newest purchase costs used first.', icon: Layers, iconColor: C.purple, iconBg: 'rgba(155,111,228,.12)' },
+        { id: 'movement' as ReportType, title: 'Stock movement', description: 'Real-time velocity and node transfer analysis.', icon: Activity, iconColor: C.blue, iconBg: 'rgba(79,142,247,.12)' },
+        { id: 'deadstock' as ReportType, title: 'Dead stock audit', description: 'Identifying capital locked in non-moving SKUs.', icon: Package, iconColor: C.red, iconBg: 'rgba(239,68,68,.12)' },
+        { id: 'supplier' as ReportType, title: 'Supplier accuracy', description: 'Lead time and quality performance audit.', icon: TrendingUp, iconColor: C.amber, iconBg: 'rgba(245,158,11,.12)' },
+        { id: 'loss' as ReportType, title: 'Loss & leakage', description: 'Tracking field sales discrepancies and damages.', icon: BarChart3, iconColor: C.red, iconBg: 'rgba(239,68,68,.12)' },
+        { id: 'avgcost' as ReportType, title: 'Average cost detail', description: 'Weighted average cost valuation per product.', icon: DollarSign, iconColor: C.amber, iconBg: 'rgba(245,158,11,.12)' },
+        { id: 'forecast' as ReportType, title: 'Demand forecasting', description: '30/60/90 day demand predicted by AI.', icon: PieChart, iconColor: C.purple, iconBg: 'rgba(155,111,228,.12)' },
     ];
 
+    const pillBtn = (active: boolean, activeStyle?: { border: string; bg: string; color: string }) => ({
+        padding: '4px 11px',
+        borderRadius: 999,
+        fontSize: 9,
+        fontWeight: 600,
+        cursor: 'pointer',
+        border: '1px solid',
+        borderColor: active ? (activeStyle?.border ?? 'rgba(79,142,247,.45)') : 'rgba(255,255,255,.08)',
+        background: active ? (activeStyle?.bg ?? 'rgba(79,142,247,.15)') : 'rgba(255,255,255,.04)',
+        color: active ? (activeStyle?.color ?? C.blue) : C.muted,
+        fontFamily: 'inherit',
+    } as CSSProperties);
+
+    const showMaterialAudit = activeTab === 'material-audit';
+
     return (
-        <div className="space-y-8 pb-20 animate-in fade-in slide-in-from-bottom-4 duration-700">
+        <div
+            style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+                paddingBottom: 40,
+                fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+                fontSize: 12,
+                color: C.text,
+            }}
+        >
             {/* Header */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-white p-8 rounded-2xl border border-gray-100 shadow-sm">
-                <div>
-                    <h1 className="text-3xl font-black text-gray-900 tracking-tighter uppercase flex items-center gap-3">
-                        <BarChart3 className="text-redwood-brand" size={32} />
-                        Inventory Intelligence Hub
-                    </h1>
-                    <p className="text-[11px] font-black text-gray-400 uppercase tracking-[0.2em] mt-1">Enterprise Material Audit & Reporting</p>
-                    {/* ITEM 2 — Current valuation method badge. Pulls from
-                        SystemSettings.valuationMethod (default 'Average Cost').
-                        Change via Settings → Currency tab. */}
-                    {(() => {
-                        const method = getSystemSettings().valuationMethod || 'Average Cost';
-                        const badgeColor = method === 'FIFO' ? 'bg-blue-50 text-blue-700 border-blue-200'
-                            : method === 'LIFO' ? 'bg-purple-50 text-purple-700 border-purple-200'
-                            : 'bg-orange-50 text-orange-700 border-orange-200';
-                        return (
-                            <div className={`inline-flex items-center gap-2 mt-3 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border ${badgeColor}`}>
-                                <DollarSign size={11} />
-                                Current Valuation Method: {method}
+            <div style={{ ...panel, padding: '14px 16px' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(79,142,247,.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <BarChart3 size={20} style={{ color: '#93C5FD' }} />
+                        </div>
+                        <div>
+                            <div style={{ fontSize: 18, fontWeight: 600, color: C.text, fontFamily: "'Syne',sans-serif" }}>
+                                Enterprise material audit & reporting
                             </div>
-                        );
-                    })()}
-                </div>
-                <div className="flex items-center gap-3">
-                    <button
-                        onClick={loadMetrics}
-                        aria-label="Refresh metrics for current period"
-                        className="px-5 py-3 bg-gray-50 border border-gray-100 text-gray-600 text-[11px] font-black uppercase tracking-widest rounded-xl flex items-center gap-2 hover:bg-gray-100 transition-all"
-                    >
-                        <Calendar size={18} /> Jan 2024 <ChevronDown size={14} />
-                    </button>
-                    <button
-                        onClick={loadMetrics}
-                        className="px-8 py-4 bg-gray-900 text-white text-[11px] font-black uppercase tracking-widest rounded-xl flex items-center gap-3 hover:bg-black transition-all shadow-xl shadow-gray-200"
-                    >
-                        <Download size={20} /> Generate Global Audit
-                    </button>
+                            <div style={{ fontSize: 11, color: C.muted, marginTop: 3, lineHeight: 1.45 }}>
+                                9 AI-powered audit reports · inventory valuation · movement · dead stock · supplier accuracy · forecasting · USD ($)
+                            </div>
+                        </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <button type="button" onClick={exportAllPdfs} style={ghostBtn}>
+                            <Download size={13} /> Export all PDFs
+                        </button>
+                        <button
+                            type="button"
+                            onClick={generateGlobalAudit}
+                            style={{
+                                ...ghostBtn,
+                                border: 'none',
+                                background: `linear-gradient(135deg, ${C.purple} 0%, #7C3AED 100%)`,
+                                color: '#fff',
+                                fontWeight: 600,
+                                boxShadow: '0 4px 14px rgba(155,111,228,.35)',
+                            }}
+                        >
+                            <Sparkles size={13} /> Generate global audit
+                        </button>
+                    </div>
                 </div>
             </div>
 
-            {/* Quick Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                <div className="bg-white p-8 rounded-2xl border border-gray-100 shadow-sm group">
-                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-4">Total Asset Valuation</span>
-                    <p className="text-3xl font-black text-gray-900 tracking-tighter">
-                        {loading ? '...' : formatCurrency(metrics?.totalAssetValuation || 0)}
-                    </p>
-                    <p className="text-[10px] font-bold text-emerald-600 mt-2 uppercase flex items-center gap-1">
-                        <ArrowUpRight size={12} /> +{metrics?.growthRate.toFixed(1)}% Growth
-                    </p>
+            {/* Period pills + Tabs */}
+            <div style={{ ...panel, padding: '12px 14px' }}>
+                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 12 }}>
+                    {PERIOD_PILLS.map(p => (
+                        <button
+                            key={p.key}
+                            type="button"
+                            onClick={() => { setActivePeriod(p.key); void loadMetrics(); }}
+                            style={pillBtn(
+                                activePeriod === p.key,
+                                p.key === 'ytd'
+                                    ? { border: 'rgba(34,197,94,.45)', bg: 'rgba(34,197,94,.15)', color: C.green }
+                                    : p.key === 'may'
+                                        ? { border: 'rgba(155,111,228,.45)', bg: 'rgba(155,111,228,.18)', color: '#C4B5FD' }
+                                        : undefined,
+                            )}
+                        >
+                            {p.label}
+                        </button>
+                    ))}
                 </div>
-                <div className="bg-white p-8 rounded-2xl border border-gray-100 shadow-sm">
-                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-4">Avg Turnover</span>
-                    <p className="text-3xl font-black text-gray-900 tracking-tighter">
-                        {loading ? '...' : (metrics?.avgTurnover || 0).toFixed(1)}x
-                    </p>
-                    <p className="text-[10px] font-bold text-gray-500 mt-2 uppercase tracking-widest">Global Weighted Average</p>
-                </div>
-                <div className="bg-white p-8 rounded-2xl border border-gray-100 shadow-sm">
-                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-4">Stock Accuracy</span>
-                    <p className="text-3xl font-black text-gray-900 tracking-tighter">
-                        {loading ? '...' : (metrics?.stockAccuracy || 0).toFixed(1)}%
-                    </p>
-                    <p className="text-[10px] font-bold text-emerald-600 mt-2 uppercase tracking-widest">Post-Audit Resilience</p>
-                </div>
-                <div className="bg-white p-8 rounded-2xl border border-gray-100 shadow-sm border-l-4 border-l-redwood-brand">
-                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-4">Locked Capital</span>
-                    <p className="text-3xl font-black text-redwood-brand tracking-tighter">
-                        {loading ? '...' : formatCurrency(metrics?.lockedCapital || 0)}
-                    </p>
-                    <p className="text-[10px] font-bold text-gray-500 mt-2 uppercase tracking-widest">In Slow/Dead Stocks</p>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,.06)', paddingTop: 10 }}>
+                    {PAGE_TABS.map(tab => (
+                        <button
+                            key={tab.id}
+                            type="button"
+                            onClick={() => handleTabClick(tab.id)}
+                            style={{
+                                padding: '6px 12px',
+                                borderRadius: 8,
+                                fontSize: 10,
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                border: '1px solid',
+                                borderColor: activeTab === tab.id ? 'rgba(155,111,228,.45)' : 'transparent',
+                                background: activeTab === tab.id ? 'rgba(155,111,228,.15)' : 'transparent',
+                                color: activeTab === tab.id ? '#C4B5FD' : C.muted,
+                                fontFamily: 'inherit',
+                            }}
+                        >
+                            {tab.label}
+                        </button>
+                    ))}
                 </div>
             </div>
 
-            {/* Reports Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                {reports.map((report, i) => (
-                    <div key={i} className="bg-white p-8 rounded-3xl border border-gray-100 shadow-sm hover:shadow-2xl hover:border-redwood-brand/20 transition-all group cursor-pointer relative overflow-hidden">
-                        <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 translate-x-8 -translate-y-8 group-hover:translate-x-0 group-hover:translate-y-0 transition-all duration-700">
-                            <report.icon size={120} />
-                        </div>
-
-                        <div className="flex items-center gap-5 mb-8 relative">
-                            <div className={clsx("w-14 h-14 bg-gray-50 rounded-2xl flex items-center justify-center border border-gray-100 group-hover:bg-redwood-brand group-hover:text-white transition-all duration-500 shadow-inner", report.color)}>
-                                <report.icon size={24} />
-                            </div>
-                            <div>
-                                <h3 className="text-lg font-black text-gray-900 uppercase tracking-tight">{report.title}</h3>
-                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-0.5">Automated Intelligence</p>
-                            </div>
-                        </div>
-
-                        <p className="text-[11px] font-bold text-gray-500 uppercase tracking-[0.05em] leading-relaxed mb-10 relative">
-                            {report.description}
-                        </p>
-
-                        <div className="flex items-center justify-between pt-6 border-t border-gray-50 relative">
-                            <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Last Run: 2h ago</span>
-                            <button
-                                onClick={() => runReport(report.id as ReportType)}
-                                className="flex items-center gap-2 text-[10px] font-black text-redwood-brand uppercase tracking-widest hover:translate-x-1 transition-transform"
-                            >
-                                Run Report <ArrowRight size={14} />
-                            </button>
-                        </div>
+            {/* KPI row */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+                {[
+                    {
+                        label: 'Total Asset Valuation',
+                        value: loading ? '…' : fmtCompactUsd(metrics?.totalAssetValuation || 0),
+                        sub: `+${(metrics?.growthRate ?? 5.9).toFixed(1)}%`,
+                        subColor: C.green,
+                        valueColor: C.green,
+                        stripe: C.green,
+                    },
+                    {
+                        label: 'Avg Inventory Turnover',
+                        value: loading ? '…' : `${(metrics?.avgTurnover || 0).toFixed(2)}x`,
+                        sub: 'Global weighted average',
+                        subColor: C.muted,
+                        valueColor: C.text,
+                        stripe: C.blue,
+                    },
+                    {
+                        label: 'Stock Record Accuracy',
+                        value: loading ? '…' : `${(metrics?.stockAccuracy || 0).toFixed(1)}%`,
+                        sub: 'Post-audit resilience',
+                        subColor: C.green,
+                        valueColor: C.text,
+                        stripe: C.green,
+                    },
+                    {
+                        label: 'Locked Capital',
+                        value: loading ? '…' : fmtCompactUsd(metrics?.lockedCapital || 0),
+                        sub: 'In slow / dead stocks',
+                        subColor: C.red,
+                        valueColor: C.red,
+                        stripe: C.red,
+                    },
+                ].map(kpi => (
+                    <div key={kpi.label} style={{ ...panel, padding: '14px 16px', borderLeft: `3px solid ${kpi.stripe}` }}>
+                        <div style={{ fontSize: 9, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>{kpi.label}</div>
+                        <div style={{ fontSize: 24, fontWeight: 700, color: kpi.valueColor, fontFamily: "'Syne',sans-serif" }}>{kpi.value}</div>
+                        <div style={{ fontSize: 9, fontWeight: 600, color: kpi.subColor, marginTop: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{kpi.sub}</div>
                     </div>
                 ))}
             </div>
 
-            {/* Custom Query Builder (Oracle Style) */}
-            <div className="bg-gray-900 p-12 rounded-3xl shadow-2xl relative overflow-hidden group">
-                <div className="absolute top-0 right-0 p-8 transform translate-x-12 -translate-y-12 opacity-5">
-                    <Filter size={280} className="text-redwood-brand" />
-                </div>
-                <div className="relative">
-                    <h3 className="text-2xl font-black text-white uppercase tracking-tighter mb-10 flex items-center gap-4">
-                        <Search size={28} className="text-redwood-brand shadow-2xl shadow-redwood-brand/20" />
-                        Universal Material Query Engine
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                        <div className="md:col-span-2">
-                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2 px-1">Global Filter String</label>
-                            <input type="text" placeholder="e.g. status='active' AND velocity='fast' AND margin > 30%" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 text-white font-mono text-sm outline-none focus:border-redwood-brand transition-all" />
-                        </div>
-                        <div>
-                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2 px-1">Sort Metric</label>
-                            <select className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 text-white font-black uppercase text-[10px] tracking-widest outline-none appearance-none">
-                                <option>Revenue Contribution</option>
-                                <option>Stock Age</option>
-                                <option>Margin Efficiency</option>
-                            </select>
-                        </div>
-                        <div className="flex items-end">
-                            <button
-                                onClick={() => runReport('valuation')}
-                                className="w-full py-4 bg-redwood-brand text-white text-[11px] font-black uppercase tracking-widest rounded-xl hover:brightness-110 shadow-lg shadow-redwood-brand/20 transition-all"
-                            >Execute Query</button>
+            {showMaterialAudit && (
+                <>
+                    {/* Valuation method toggle */}
+                    <div style={{ ...panel, padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: C.text }}>Valuation method</div>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                            {(['Average', 'FIFO', 'LIFO'] as ValuationMethod[]).map(method => (
+                                <button
+                                    key={method}
+                                    type="button"
+                                    onClick={() => {
+                                        setValuationMethod(method);
+                                        const reportMap: Record<ValuationMethod, ReportType> = { Average: 'avgcost', FIFO: 'fifo', LIFO: 'lifo' };
+                                        void runReport(reportMap[method]);
+                                    }}
+                                    style={pillBtn(valuationMethod === method, {
+                                        border: valuationMethod === method ? 'rgba(245,158,11,.45)' : 'rgba(255,255,255,.08)',
+                                        bg: valuationMethod === method ? 'rgba(245,158,11,.15)' : 'rgba(255,255,255,.04)',
+                                        color: valuationMethod === method ? C.amber : C.muted,
+                                    })}
+                                >
+                                    {method === 'Average' ? 'Average cost' : method}
+                                </button>
+                            ))}
                         </div>
                     </div>
-                </div>
-            </div>
 
-            {/* Report Modal */}
+                    {/* AI-Powered Audit Reports */}
+                    <div style={{ ...panel, padding: '12px 14px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                            <Sparkles size={15} style={{ color: '#C4B5FD' }} />
+                            <div style={{ fontSize: 12, fontWeight: 600, color: C.text, fontFamily: "'Syne',sans-serif" }}>AI-Powered Audit Reports</div>
+                            <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(155,111,228,.15)', color: '#C4B5FD', border: '1px solid rgba(155,111,228,.25)' }}>9 reports</span>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 10 }}>
+                            {reports.map(report => (
+                                <div
+                                    key={report.id}
+                                    style={{
+                                        background: 'rgba(11,17,32,.65)',
+                                        border: '1px solid rgba(255,255,255,.07)',
+                                        borderRadius: 10,
+                                        padding: '14px 14px 12px',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: 10,
+                                        minHeight: 180,
+                                    }}
+                                >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                        <div style={{ width: 36, height: 36, borderRadius: 8, background: report.iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            <report.icon size={17} style={{ color: report.iconColor }} />
+                                        </div>
+                                        <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: 'rgba(155,111,228,.18)', color: '#C4B5FD', border: '1px solid rgba(155,111,228,.3)' }}>AI</span>
+                                    </div>
+                                    <div style={{ flex: 1 }}>
+                                        <div style={{ fontSize: 11, fontWeight: 600, color: C.text, marginBottom: 4 }}>{report.title}</div>
+                                        <div style={{ fontSize: 9, color: C.muted, lineHeight: 1.45 }}>{report.description}</div>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,.06)', paddingTop: 10 }}>
+                                        <span style={{ fontSize: 8, fontWeight: 600, color: C.dim, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Last run: 2h ago</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => void runReport(report.id)}
+                                            style={{
+                                                ...ghostBtn,
+                                                padding: '5px 10px',
+                                                fontSize: 9,
+                                                color: '#C4B5FD',
+                                                borderColor: 'rgba(155,111,228,.35)',
+                                                background: 'rgba(155,111,228,.12)',
+                                            }}
+                                        >
+                                            Run report <ArrowRight size={11} />
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Universal Material Query Engine */}
+                    <div style={{ ...panel, padding: '14px 16px', background: C.bg, border: '1px solid rgba(79,142,247,.15)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                            <Search size={16} style={{ color: C.blue }} />
+                            <div style={{ fontSize: 13, fontWeight: 600, color: C.text, fontFamily: "'Syne',sans-serif" }}>Universal Material Query Engine</div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                            <div style={{ flex: 1, minWidth: 220, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 999, background: C.surface, border: '1px solid rgba(255,255,255,.08)' }}>
+                                <Search size={14} style={{ color: C.dim, flexShrink: 0 }} />
+                                <input
+                                    type="text"
+                                    value={queryText}
+                                    onChange={e => setQueryText(e.target.value)}
+                                    placeholder={queryMode === 'nl' ? 'Ask in natural language… e.g. show fast movers with margin above 30%' : "SQL-style filter… e.g. velocity='Fast' AND margin > 30"}
+                                    style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: 10, color: C.text, fontFamily: queryMode === 'sql' ? 'monospace' : 'inherit' }}
+                                />
+                            </div>
+                            <div style={{ display: 'flex', gap: 4 }}>
+                                <button type="button" onClick={() => setQueryMode('nl')} style={pillBtn(queryMode === 'nl')}>Natural language</button>
+                                <button type="button" onClick={() => setQueryMode('sql')} style={pillBtn(queryMode === 'sql')}>SQL</button>
+                            </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 12 }}>
+                            {QUERY_CHIPS.map(chip => (
+                                <button
+                                    key={chip}
+                                    type="button"
+                                    onClick={() => setActiveChip(activeChip === chip ? null : chip)}
+                                    style={pillBtn(activeChip === chip, { border: 'rgba(79,142,247,.45)', bg: 'rgba(79,142,247,.15)', color: '#93C5FD' })}
+                                >
+                                    {chip}
+                                </button>
+                            ))}
+                        </div>
+                        <div style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,.07)' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                <thead>
+                                    <tr style={{ background: 'rgba(255,255,255,.03)' }}>
+                                        {['Product', 'Stock', 'Velocity', 'Margin', 'Days Left'].map(h => (
+                                            <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 9, fontWeight: 700, color: C.dim, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filteredQueryRows.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={5} style={{ padding: 24, textAlign: 'center', fontSize: 11, color: C.dim }}>No products match your query.</td>
+                                        </tr>
+                                    ) : (
+                                        filteredQueryRows.map(p => (
+                                            <tr key={p.id} style={{ borderTop: '1px solid rgba(255,255,255,.04)' }}>
+                                                <td style={{ padding: '8px 12px', fontSize: 11, fontWeight: 600, color: C.text }}>{p.name}</td>
+                                                <td style={{ padding: '8px 12px', fontSize: 11, fontFamily: 'monospace', color: C.muted }}>{getTotalStock(p)}</td>
+                                                <td style={{ padding: '8px 12px' }}>
+                                                    <span style={{
+                                                        fontSize: 8,
+                                                        fontWeight: 700,
+                                                        padding: '2px 7px',
+                                                        borderRadius: 999,
+                                                        background: p.velocityStatus === 'Fast' ? 'rgba(34,197,94,.15)' : p.velocityStatus === 'Dead' ? 'rgba(239,68,68,.15)' : 'rgba(79,142,247,.12)',
+                                                        color: p.velocityStatus === 'Fast' ? C.green : p.velocityStatus === 'Dead' ? C.red : C.blue,
+                                                    }}>
+                                                        {p.velocityStatus}
+                                                    </span>
+                                                </td>
+                                                <td style={{ padding: '8px 12px', fontSize: 11, fontFamily: 'monospace', color: (p.grossMarginPercent ?? 0) >= 30 ? C.green : C.muted }}>
+                                                    {(p.grossMarginPercent ?? 0).toFixed(1)}%
+                                                </td>
+                                                <td style={{ padding: '8px 12px', fontSize: 11, fontFamily: 'monospace', color: (p.daysStockRemaining ?? 0) <= 14 ? C.amber : C.text }}>
+                                                    {Math.round(p.daysStockRemaining ?? 0)}
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    {/* AI Insights + Suggested Actions */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 10 }}>
+                        <div style={{ ...panel, padding: '14px 16px', background: 'rgba(239,68,68,.04)', border: '1px solid rgba(239,68,68,.12)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                                <Brain size={15} style={{ color: C.red }} />
+                                <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>AI Material Audit Insights</div>
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                {AI_INSIGHTS.map((insight, i) => (
+                                    <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                                        <span style={{ width: 7, height: 7, borderRadius: '50%', background: insight.color, marginTop: 4, flexShrink: 0 }} />
+                                        <div>
+                                            <div style={{ fontSize: 10, fontWeight: 600, color: C.text, marginBottom: 2 }}>{insight.title}</div>
+                                            <div style={{ fontSize: 9, color: C.muted, lineHeight: 1.45 }}>{insight.body}</div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                        <div style={{ ...panel, padding: '14px 16px', background: 'rgba(155,111,228,.05)', border: '1px solid rgba(155,111,228,.15)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                                <Bot size={15} style={{ color: '#C4B5FD' }} />
+                                <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>AI Suggested Actions</div>
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                {AI_ACTIONS.map((action, i) => (
+                                    <div key={i} style={{ ...panel, padding: '10px 12px', background: 'rgba(11,17,32,.5)' }}>
+                                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
+                                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: action.color, marginTop: 5, flexShrink: 0 }} />
+                                            <div style={{ flex: 1 }}>
+                                                <div style={{ fontSize: 10, fontWeight: 600, color: C.text }}>{action.title}</div>
+                                                <div style={{ fontSize: 9, color: C.muted, marginTop: 2, lineHeight: 1.4 }}>{action.detail}</div>
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: 6 }}>
+                                            <button
+                                                type="button"
+                                                onClick={() => void runReport(action.report)}
+                                                style={{ ...ghostBtn, fontSize: 9, color: '#C4B5FD', borderColor: 'rgba(155,111,228,.35)', background: 'rgba(155,111,228,.12)' }}
+                                            >
+                                                <Play size={10} /> Run
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => void runReport(action.report)}
+                                                style={{ ...ghostBtn, fontSize: 9 }}
+                                            >
+                                                <Eye size={10} /> Preview
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.06)', fontSize: 9, color: C.dim, lineHeight: 1.5 }}>
+                        AI-generated insights are for guidance only. Verify figures against source systems before filing or sharing externally. All monetary values are shown in USD ($).
+                    </div>
+                </>
+            )}
+
+            {activeTab === 'overview' && (
+                <div style={{ ...panel, padding: '14px 16px' }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: C.text, marginBottom: 8 }}>Inventory overview</div>
+                    <div style={{ fontSize: 10, color: C.muted, lineHeight: 1.5, marginBottom: 12 }}>
+                        High-level KPIs for {PERIOD_PILLS.find(p => p.key === activePeriod)?.label}. Switch to Material audit for the full 9-report grid and query engine.
+                    </div>
+                    <button type="button" onClick={() => setActiveTab('material-audit')} style={{ ...ghostBtn, color: '#C4B5FD', borderColor: 'rgba(155,111,228,.35)', background: 'rgba(155,111,228,.12)' }}>
+                        Open material audit <ChevronRight size={12} />
+                    </button>
+                </div>
+            )}
+
             {activeReport && (
                 <ReportModal
                     type={activeReport}
@@ -415,11 +730,13 @@ export default function InventoryReports() {
     );
 }
 
-// Report Modal Component
 function ReportModal({ type, data, onClose, loading }: { type: ReportType; data: any; onClose: () => void; loading: boolean }) {
     const getReportTitle = () => {
         switch (type) {
             case 'valuation': return 'Inventory Valuation Report';
+            case 'fifo': return 'FIFO Valuation Report';
+            case 'lifo': return 'LIFO Valuation Report';
+            case 'avgcost': return 'Average Cost Detail Report';
             case 'movement': return 'Stock Movement Analysis';
             case 'deadstock': return 'Dead Stock Audit';
             case 'supplier': return 'Supplier Accuracy Report';
@@ -430,32 +747,27 @@ function ReportModal({ type, data, onClose, loading }: { type: ReportType; data:
     };
 
     return (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-300">
-            <div className="bg-white rounded-3xl shadow-2xl max-w-6xl w-full max-h-[90vh] overflow-hidden animate-in slide-in-from-bottom-8 duration-500">
-                {/* Header */}
-                <div className="bg-gradient-to-r from-gray-900 to-gray-800 p-8 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                        <FileText className="text-redwood-brand" size={32} />
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-300">
+            <div style={{ background: C.surface, borderRadius: 16, boxShadow: '0 24px 60px rgba(0,0,0,.5)', maxWidth: 960, width: '100%', maxHeight: '90vh', overflow: 'hidden', border: '1px solid rgba(255,255,255,.08)' }}>
+                <div style={{ background: `linear-gradient(135deg, ${C.bg} 0%, ${C.surface} 100%)`, padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,.07)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                        <FileText style={{ color: C.purple }} size={28} />
                         <div>
-                            <h2 className="text-2xl font-black text-white uppercase tracking-tight">{getReportTitle()}</h2>
-                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">
-                                Generated: {new Date().toLocaleString()}
+                            <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text }}>{getReportTitle()}</h2>
+                            <p style={{ fontSize: 9, fontWeight: 600, color: C.dim, textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2 }}>
+                                Generated: {new Date().toLocaleString()} · USD ($)
                             </p>
                         </div>
                     </div>
-                    <button
-                        onClick={onClose}
-                        className="w-10 h-10 bg-white/10 hover:bg-white/20 rounded-xl flex items-center justify-center transition-all"
-                    >
-                        <X className="text-white" size={20} />
+                    <button type="button" onClick={onClose} style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(255,255,255,.08)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <X style={{ color: C.text }} size={18} />
                     </button>
                 </div>
 
-                {/* Content */}
-                <div className="p-8 overflow-y-auto max-h-[calc(90vh-120px)]">
+                <div style={{ padding: 24, overflowY: 'auto', maxHeight: 'calc(90vh - 130px)', background: C.bg }}>
                     {loading ? (
-                        <div className="flex items-center justify-center py-20">
-                            <div className="animate-spin rounded-full h-12 w-12 border-4 border-redwood-brand border-t-transparent"></div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 0' }}>
+                            <div className="animate-spin rounded-full h-12 w-12 border-4 border-t-transparent" style={{ borderColor: C.purple, borderTopColor: 'transparent' }} />
                         </div>
                     ) : (
                         <>
@@ -472,16 +784,16 @@ function ReportModal({ type, data, onClose, loading }: { type: ReportType; data:
                     )}
                 </div>
 
-                {/* Footer */}
-                <div className="bg-gray-50 p-6 flex items-center justify-between border-t border-gray-100">
-                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                        SOLTOL ONE • Inventory Intelligence
+                <div style={{ background: C.surface, padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,.07)' }}>
+                    <p style={{ fontSize: 9, fontWeight: 700, color: C.dim, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                        SOLTOL ONE · Inventory Intelligence
                     </p>
                     <button
+                        type="button"
                         onClick={() => window.print()}
-                        className="px-6 py-3 bg-redwood-brand text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:brightness-110 transition-all flex items-center gap-2"
+                        style={{ ...ghostBtn, border: 'none', background: C.purple, color: '#fff', fontWeight: 600 }}
                     >
-                        <Download size={16} /> Export PDF
+                        <Download size={14} /> Export PDF
                     </button>
                 </div>
             </div>
@@ -489,87 +801,57 @@ function ReportModal({ type, data, onClose, loading }: { type: ReportType; data:
     );
 }
 
-// Individual Report Components
 function ValuationReport({ data }: { data: InventoryValuation }) {
     const formatCurrency = globalFormatCurrency;
+    const card = (label: string, value: string, color: string) => (
+        <div style={{ ...panel, padding: '16px 18px', borderColor: `${color}33` }}>
+            <p style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{label}</p>
+            <p style={{ fontSize: 22, fontWeight: 700, color }}>{value}</p>
+        </div>
+    );
 
     return (
-        <div className="space-y-8">
-            {/* Summary Cards */}
-            <div className="grid grid-cols-3 gap-6">
-                <div className="bg-emerald-50 p-6 rounded-2xl border border-emerald-100">
-                    <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-2">Total Asset Value</p>
-                    <p className="text-2xl font-black text-emerald-900">{formatCurrency(data.totalAssetValue)}</p>
-                </div>
-                <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100">
-                    <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-2">Total Units</p>
-                    <p className="text-2xl font-black text-blue-900">{data.totalUnits.toLocaleString()}</p>
-                </div>
-                <div className="bg-purple-50 p-6 rounded-2xl border border-purple-100">
-                    <p className="text-[10px] font-black text-purple-600 uppercase tracking-widest mb-2">Avg Unit Cost</p>
-                    <p className="text-2xl font-black text-purple-900">{formatCurrency(data.averageUnitCost)}</p>
-                </div>
+        <div className="space-y-6">
+            <div className="grid grid-cols-3 gap-4">
+                {card('Total Asset Value', formatCurrency(data.totalAssetValue), C.green)}
+                {card('Total Units', data.totalUnits.toLocaleString(), C.blue)}
+                {card('Avg Unit Cost', formatCurrency(data.averageUnitCost), C.purple)}
             </div>
+            <ReportTable title="Valuation by Category" headers={['Category', 'Value', 'Units', '% of Total']} rows={data.byCategory.map(cat => [cat.category, formatCurrency(cat.value), cat.units.toLocaleString(), `${cat.percentage.toFixed(1)}%`])} />
+            <ReportTable title="Valuation by Location" headers={['Location', 'Value', 'Units']} rows={data.byLocation.map(loc => [loc.location, formatCurrency(loc.value), loc.units.toLocaleString()])} />
+        </div>
+    );
+}
 
-            {/* By Category */}
-            <div>
-                <h3 className="text-lg font-black text-gray-900 uppercase mb-4">Valuation by Category</h3>
-                <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
-                    <table className="w-full">
-                        <thead className="bg-gray-50">
-                            <tr>
-                                <th className="text-left p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Category</th>
-                                <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Value</th>
-                                <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Units</th>
-                                <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">% of Total</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {data.byCategory.map((cat, i) => (
-                                <tr key={i} className="border-t border-gray-100">
-                                    <td className="p-4 font-bold text-gray-900">{cat.category}</td>
-                                    <td className="p-4 text-right font-bold text-gray-900">{formatCurrency(cat.value)}</td>
-                                    <td className="p-4 text-right font-bold text-gray-600">{cat.units.toLocaleString()}</td>
-                                    <td className="p-4 text-right font-bold text-emerald-600">{cat.percentage.toFixed(1)}%</td>
-                                </tr>
+function ReportTable({ title, headers, rows }: { title: string; headers: string[]; rows: string[][] }) {
+    return (
+        <div>
+            <h3 style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 10 }}>{title}</h3>
+            <div style={{ ...panel, overflow: 'hidden', padding: 0 }}>
+                <table className="w-full">
+                    <thead>
+                        <tr style={{ borderBottom: '1px solid rgba(255,255,255,.07)', background: 'rgba(255,255,255,.03)' }}>
+                            {headers.map(h => (
+                                <th key={h} style={{ padding: '10px 14px', textAlign: h === headers[0] ? 'left' : 'right', fontSize: 9, fontWeight: 700, color: C.dim, textTransform: 'uppercase' }}>{h}</th>
                             ))}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            {/* By Location */}
-            <div>
-                <h3 className="text-lg font-black text-gray-900 uppercase mb-4">Valuation by Location</h3>
-                <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
-                    <table className="w-full">
-                        <thead className="bg-gray-50">
-                            <tr>
-                                <th className="text-left p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Location</th>
-                                <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Value</th>
-                                <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Units</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows.map((row, i) => (
+                            <tr key={i} style={{ borderTop: '1px solid rgba(255,255,255,.04)' }}>
+                                {row.map((cell, j) => (
+                                    <td key={j} style={{ padding: '10px 14px', textAlign: j === 0 ? 'left' : 'right', fontSize: 12, fontWeight: j === 0 ? 600 : 500, color: C.text }}>{cell}</td>
+                                ))}
                             </tr>
-                        </thead>
-                        <tbody>
-                            {data.byLocation.map((loc, i) => (
-                                <tr key={i} className="border-t border-gray-100">
-                                    <td className="p-4 font-bold text-gray-900">{loc.location}</td>
-                                    <td className="p-4 text-right font-bold text-gray-900">{formatCurrency(loc.value)}</td>
-                                    <td className="p-4 text-right font-bold text-gray-600">{loc.units.toLocaleString()}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
+                        ))}
+                    </tbody>
+                </table>
             </div>
         </div>
     );
 }
 
 function MovementReport({ data }: { data: StockMovement[] }) {
-    // ITEM 9 — Inventory Summary aggregate: rolls the per-product opening/
-    // closing values up to a header so the user gets a one-glance picture
-    // of capital tied up at the start vs end of the period.
     const totals = data.reduce((acc, r) => ({
         openingStock: acc.openingStock + (r.openingStock || 0),
         closingStock: acc.closingStock + (r.closingStock || 0),
@@ -583,94 +865,49 @@ function MovementReport({ data }: { data: StockMovement[] }) {
 
     return (
         <div className="space-y-6">
-            {/* ITEM 9 — Opening vs Closing value summary cards. */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5">
-                    <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-1">Opening Value</p>
-                    <p className="text-2xl font-black text-blue-900 font-mono">{globalFormatCurrency(totals.openingValue)}</p>
-                    <p className="text-[10px] font-bold text-blue-500 mt-1">{totals.openingStock.toLocaleString()} units in stock at period start</p>
+                <div style={{ ...panel, padding: 16, borderColor: 'rgba(79,142,247,.25)' }}>
+                    <p style={{ fontSize: 10, fontWeight: 700, color: C.blue, textTransform: 'uppercase', marginBottom: 4 }}>Opening Value</p>
+                    <p style={{ fontSize: 22, fontWeight: 700, color: C.text, fontFamily: 'monospace' }}>{globalFormatCurrency(totals.openingValue)}</p>
                 </div>
-                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5">
-                    <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-1">Closing Value</p>
-                    <p className="text-2xl font-black text-emerald-900 font-mono">{globalFormatCurrency(totals.closingValue)}</p>
-                    <p className="text-[10px] font-bold text-emerald-500 mt-1">{totals.closingStock.toLocaleString()} units in stock now</p>
+                <div style={{ ...panel, padding: 16, borderColor: 'rgba(34,197,94,.25)' }}>
+                    <p style={{ fontSize: 10, fontWeight: 700, color: C.green, textTransform: 'uppercase', marginBottom: 4 }}>Closing Value</p>
+                    <p style={{ fontSize: 22, fontWeight: 700, color: C.text, fontFamily: 'monospace' }}>{globalFormatCurrency(totals.closingValue)}</p>
                 </div>
-                <div className={clsx(
-                    'border rounded-2xl p-5',
-                    valueDelta >= 0 ? 'bg-amber-50 border-amber-200' : 'bg-rose-50 border-rose-200'
-                )}>
-                    <p className={clsx('text-[10px] font-black uppercase tracking-widest mb-1', valueDelta >= 0 ? 'text-amber-500' : 'text-rose-500')}>Net Movement</p>
-                    <p className={clsx('text-2xl font-black font-mono', valueDelta >= 0 ? 'text-amber-900' : 'text-rose-900')}>
-                        {valueDelta >= 0 ? '+' : ''}{globalFormatCurrency(valueDelta)}
-                    </p>
-                    <p className={clsx('text-[10px] font-bold mt-1', valueDelta >= 0 ? 'text-amber-500' : 'text-rose-500')}>
-                        {deltaPct >= 0 ? '+' : ''}{deltaPct.toFixed(1)}% vs opening
+                <div style={{ ...panel, padding: 16, borderColor: valueDelta >= 0 ? 'rgba(245,158,11,.25)' : 'rgba(239,68,68,.25)' }}>
+                    <p style={{ fontSize: 10, fontWeight: 700, color: valueDelta >= 0 ? C.amber : C.red, textTransform: 'uppercase', marginBottom: 4 }}>Net Movement</p>
+                    <p style={{ fontSize: 22, fontWeight: 700, color: C.text, fontFamily: 'monospace' }}>
+                        {valueDelta >= 0 ? '+' : ''}{globalFormatCurrency(valueDelta)} ({deltaPct >= 0 ? '+' : ''}{deltaPct.toFixed(1)}%)
                     </p>
                 </div>
             </div>
-
-            <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
-                <table className="w-full">
-                    <thead className="bg-gray-50">
-                        <tr>
-                            <th className="text-left p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Product</th>
-                            <th className="text-left p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">SKU</th>
-                            <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Opening</th>
-                            <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Opening Value</th>
-                            <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Purchases</th>
-                            <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Sales</th>
-                            <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Closing</th>
-                            <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Closing Value</th>
-                            <th className="text-center p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Velocity</th>
-                            <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Turnover</th>
+            <div style={{ ...panel, overflow: 'hidden', padding: 0 }}>
+                <table className="w-full text-sm">
+                    <thead>
+                        <tr style={{ background: 'rgba(255,255,255,.03)', borderBottom: '1px solid rgba(255,255,255,.07)' }}>
+                            {['Product', 'SKU', 'Opening', 'Purchases', 'Sales', 'Closing', 'Velocity', 'Turnover'].map(h => (
+                                <th key={h} style={{ padding: '8px 12px', textAlign: h === 'Product' || h === 'SKU' ? 'left' : 'right', fontSize: 9, fontWeight: 700, color: C.dim, textTransform: 'uppercase' }}>{h}</th>
+                            ))}
                         </tr>
                     </thead>
                     <tbody>
                         {data.length === 0 ? (
-                            <tr>
-                                <td colSpan={10} className="p-12 text-center text-sm text-gray-400 font-bold">No products in inventory yet.</td>
+                            <tr><td colSpan={8} style={{ padding: 32, textAlign: 'center', color: C.dim }}>No products in inventory yet.</td></tr>
+                        ) : data.map((item, i) => (
+                            <tr key={i} style={{ borderTop: '1px solid rgba(255,255,255,.04)' }}>
+                                <td style={{ padding: '8px 12px', fontWeight: 600, color: C.text }}>{item.productName}</td>
+                                <td style={{ padding: '8px 12px', fontFamily: 'monospace', color: C.muted, fontSize: 11 }}>{item.sku}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', color: C.muted }}>{item.openingStock}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', color: C.green }}>+{item.purchases}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', color: C.red }}>-{item.sales}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', color: C.text }}>{item.closingStock}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                                    <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: 'rgba(79,142,247,.12)', color: C.blue }}>{item.velocity}</span>
+                                </td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', color: C.text }}>{item.turnoverRate.toFixed(1)}x</td>
                             </tr>
-                        ) : (
-                            data.map((item, i) => (
-                                <tr key={i} className="border-t border-gray-100 hover:bg-gray-50">
-                                    <td className="p-4 font-bold text-gray-900">{item.productName}</td>
-                                    <td className="p-4 font-mono text-sm text-gray-600">{item.sku}</td>
-                                    <td className="p-4 text-right font-bold text-gray-600">{item.openingStock}</td>
-                                    <td className="p-4 text-right font-bold text-blue-700 font-mono text-xs">{globalFormatCurrency(item.openingValue)}</td>
-                                    <td className="p-4 text-right font-bold text-emerald-600">+{item.purchases}</td>
-                                    <td className="p-4 text-right font-bold text-red-600">-{item.sales}</td>
-                                    <td className="p-4 text-right font-bold text-gray-900">{item.closingStock}</td>
-                                    <td className="p-4 text-right font-bold text-emerald-700 font-mono text-xs">{globalFormatCurrency(item.closingValue)}</td>
-                                    <td className="p-4 text-center">
-                                        <span className={clsx(
-                                            "px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest",
-                                            item.velocity === 'Fast' && "bg-emerald-100 text-emerald-700",
-                                            item.velocity === 'Medium' && "bg-blue-100 text-blue-700",
-                                            item.velocity === 'Slow' && "bg-amber-100 text-amber-700",
-                                            item.velocity === 'Dead' && "bg-red-100 text-red-700"
-                                        )}>
-                                            {item.velocity}
-                                        </span>
-                                    </td>
-                                    <td className="p-4 text-right font-bold text-gray-900">{item.turnoverRate.toFixed(1)}x</td>
-                                </tr>
-                            ))
-                        )}
+                        ))}
                     </tbody>
-                    {data.length > 0 && (
-                        <tfoot className="bg-gray-900 text-white">
-                            <tr>
-                                <td colSpan={2} className="p-4 text-[10px] font-black uppercase tracking-widest">Totals ({data.length} products)</td>
-                                <td className="p-4 text-right font-mono font-black">{totals.openingStock.toLocaleString()}</td>
-                                <td className="p-4 text-right font-mono font-black text-blue-300">{globalFormatCurrency(totals.openingValue)}</td>
-                                <td className="p-4 text-right font-mono font-black text-emerald-300">+{totals.purchases.toLocaleString()}</td>
-                                <td className="p-4 text-right font-mono font-black text-rose-300">-{totals.sales.toLocaleString()}</td>
-                                <td className="p-4 text-right font-mono font-black">{totals.closingStock.toLocaleString()}</td>
-                                <td className="p-4 text-right font-mono font-black text-emerald-300">{globalFormatCurrency(totals.closingValue)}</td>
-                                <td colSpan={2}></td>
-                            </tr>
-                        </tfoot>
-                    )}
                 </table>
             </div>
         </div>
@@ -679,175 +916,62 @@ function MovementReport({ data }: { data: StockMovement[] }) {
 
 function DeadStockReport({ data }: { data: DeadStock[] }) {
     const formatCurrency = globalFormatCurrency;
-
     return (
         <div className="space-y-6">
-            <div className="bg-red-50 border border-red-200 rounded-2xl p-6 flex items-start gap-4">
-                <AlertTriangle className="text-red-600 flex-shrink-0" size={24} />
-                <div>
-                    <h3 className="font-black text-red-900 uppercase text-sm mb-2">Critical Alert</h3>
-                    <p className="text-sm text-red-700">
-                        {data.length} products identified as slow-moving or dead stock.
-                        Total locked capital: {formatCurrency(data.reduce((sum, d) => sum + d.lockedCapital, 0))}
-                    </p>
+            <div style={{ ...panel, padding: 16, background: 'rgba(239,68,68,.08)', borderColor: 'rgba(239,68,68,.2)' }}>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                    <AlertTriangle style={{ color: C.red, flexShrink: 0 }} size={22} />
+                    <div>
+                        <h3 style={{ fontWeight: 700, color: C.red, fontSize: 12, marginBottom: 4 }}>Critical Alert</h3>
+                        <p style={{ fontSize: 11, color: C.muted, lineHeight: 1.5 }}>
+                            {data.length} products identified as slow-moving or dead stock. Total locked capital: {formatCurrency(data.reduce((sum, d) => sum + d.lockedCapital, 0))}
+                        </p>
+                    </div>
                 </div>
             </div>
-
-            <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
-                <table className="w-full">
-                    <thead className="bg-gray-50">
-                        <tr>
-                            <th className="text-left p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Product</th>
-                            <th className="text-left p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">SKU</th>
-                            <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Stock</th>
-                            <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Days Idle</th>
-                            <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Locked Capital</th>
-                            <th className="text-left p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {data.map((item, i) => (
-                            <tr key={i} className="border-t border-gray-100 hover:bg-gray-50">
-                                <td className="p-4 font-bold text-gray-900">{item.productName}</td>
-                                <td className="p-4 font-mono text-sm text-gray-600">{item.sku}</td>
-                                <td className="p-4 text-right font-bold text-gray-900">{item.currentStock}</td>
-                                <td className="p-4 text-right font-bold text-red-600">{item.daysSinceLastSale}</td>
-                                <td className="p-4 text-right font-bold text-red-700">{formatCurrency(item.lockedCapital)}</td>
-                                <td className="p-4 text-[10px] font-black text-amber-600 uppercase">{item.recommendedAction}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
+            <ReportTable
+                title="Dead Stock Detail"
+                headers={['Product', 'SKU', 'Stock', 'Days Idle', 'Locked Capital', 'Action']}
+                rows={data.map(item => [item.productName, item.sku, String(item.currentStock), String(item.daysSinceLastSale), formatCurrency(item.lockedCapital), item.recommendedAction])}
+            />
         </div>
     );
 }
 
 function SupplierReport({ data }: { data: SupplierAccuracy[] }) {
     return (
-        <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
-            <table className="w-full">
-                <thead className="bg-gray-50">
-                    <tr>
-                        <th className="text-left p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Supplier</th>
-                        <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Total Orders</th>
-                        <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">On Time</th>
-                        <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Late</th>
-                        <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Accuracy</th>
-                        <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Avg Lead Time</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {data.map((supplier, i) => (
-                        <tr key={i} className="border-t border-gray-100 hover:bg-gray-50">
-                            <td className="p-4 font-bold text-gray-900">{supplier.supplierName}</td>
-                            <td className="p-4 text-right font-bold text-gray-900">{supplier.totalOrders}</td>
-                            <td className="p-4 text-right font-bold text-emerald-600">{supplier.onTimeDeliveries}</td>
-                            <td className="p-4 text-right font-bold text-red-600">{supplier.lateDeliveries}</td>
-                            <td className="p-4 text-right">
-                                <span className={clsx(
-                                    "px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest",
-                                    supplier.accuracyScore >= 90 && "bg-emerald-100 text-emerald-700",
-                                    supplier.accuracyScore >= 70 && supplier.accuracyScore < 90 && "bg-amber-100 text-amber-700",
-                                    supplier.accuracyScore < 70 && "bg-red-100 text-red-700"
-                                )}>
-                                    {supplier.accuracyScore.toFixed(1)}%
-                                </span>
-                            </td>
-                            <td className="p-4 text-right font-bold text-gray-900">{supplier.averageLeadTime.toFixed(1)} days</td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-        </div>
+        <ReportTable
+            title="Supplier Accuracy"
+            headers={['Supplier', 'Orders', 'On Time', 'Late', 'Accuracy', 'Avg Lead Time']}
+            rows={data.map(s => [s.supplierName, String(s.totalOrders), String(s.onTimeDeliveries), String(s.lateDeliveries), `${s.accuracyScore.toFixed(1)}%`, `${s.averageLeadTime.toFixed(1)} days`])}
+        />
     );
 }
 
 function LossReport({ data }: { data: LossLeakage[] }) {
     const formatCurrency = globalFormatCurrency;
     const totalLoss = data.reduce((sum, item) => sum + Math.abs(item.estimatedLoss), 0);
-
     return (
         <div className="space-y-6">
-            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6">
-                <h3 className="font-black text-amber-900 uppercase text-sm mb-2">Total Estimated Loss</h3>
-                <p className="text-3xl font-black text-amber-700">{formatCurrency(totalLoss)}</p>
+            <div style={{ ...panel, padding: 16, background: 'rgba(245,158,11,.08)', borderColor: 'rgba(245,158,11,.2)' }}>
+                <h3 style={{ fontWeight: 700, color: C.amber, fontSize: 12, marginBottom: 4 }}>Total Estimated Loss</h3>
+                <p style={{ fontSize: 24, fontWeight: 700, color: C.amber }}>{formatCurrency(totalLoss)}</p>
             </div>
-
-            <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
-                <table className="w-full">
-                    <thead className="bg-gray-50">
-                        <tr>
-                            <th className="text-left p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Product</th>
-                            <th className="text-left p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">SKU</th>
-                            <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Expected</th>
-                            <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Actual</th>
-                            <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Variance</th>
-                            <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Loss Value</th>
-                            <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Leakage %</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {data.map((item, i) => (
-                            <tr key={i} className="border-t border-gray-100 hover:bg-gray-50">
-                                <td className="p-4 font-bold text-gray-900">{item.productName}</td>
-                                <td className="p-4 font-mono text-sm text-gray-600">{item.sku}</td>
-                                <td className="p-4 text-right font-bold text-gray-600">{item.expectedStock}</td>
-                                <td className="p-4 text-right font-bold text-gray-900">{item.actualStock}</td>
-                                <td className="p-4 text-right font-bold text-red-600">{item.variance}</td>
-                                <td className="p-4 text-right font-bold text-red-700">{formatCurrency(Math.abs(item.estimatedLoss))}</td>
-                                <td className="p-4 text-right font-bold text-amber-600">{item.leakageRate.toFixed(1)}%</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
+            <ReportTable
+                title="Loss & Leakage Detail"
+                headers={['Product', 'SKU', 'Expected', 'Actual', 'Variance', 'Loss Value', 'Leakage %']}
+                rows={data.map(item => [item.productName, item.sku, String(item.expectedStock), String(item.actualStock), String(item.variance), formatCurrency(Math.abs(item.estimatedLoss)), `${item.leakageRate.toFixed(1)}%`])}
+            />
         </div>
     );
 }
 
 function ForecastReport({ data }: { data: ForecastingData[] }) {
     return (
-        <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
-            <table className="w-full">
-                <thead className="bg-gray-50">
-                    <tr>
-                        <th className="text-left p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Product</th>
-                        <th className="text-left p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">SKU</th>
-                        <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Current Stock</th>
-                        <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Avg Daily Sales</th>
-                        <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">30-Day Forecast</th>
-                        <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">60-Day Forecast</th>
-                        <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">90-Day Forecast</th>
-                        <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Reorder Point</th>
-                        <th className="text-right p-4 text-[10px] font-black text-gray-600 uppercase tracking-widest">Confidence</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {data.map((item, i) => (
-                        <tr key={i} className="border-t border-gray-100 hover:bg-gray-50">
-                            <td className="p-4 font-bold text-gray-900">{item.productName}</td>
-                            <td className="p-4 font-mono text-sm text-gray-600">{item.sku}</td>
-                            <td className="p-4 text-right font-bold text-gray-900">{item.currentStock}</td>
-                            <td className="p-4 text-right font-bold text-gray-600">{item.avgDailySales.toFixed(1)}</td>
-                            <td className="p-4 text-right font-bold text-blue-600">{item.forecast30Days}</td>
-                            <td className="p-4 text-right font-bold text-purple-600">{item.forecast60Days}</td>
-                            <td className="p-4 text-right font-bold text-pink-600">{item.forecast90Days}</td>
-                            <td className="p-4 text-right font-bold text-emerald-600">{item.recommendedReorder}</td>
-                            <td className="p-4 text-right">
-                                <span className={clsx(
-                                    "px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest",
-                                    item.confidenceLevel >= 80 && "bg-emerald-100 text-emerald-700",
-                                    item.confidenceLevel >= 60 && item.confidenceLevel < 80 && "bg-amber-100 text-amber-700",
-                                    item.confidenceLevel < 60 && "bg-red-100 text-red-700"
-                                )}>
-                                    {item.confidenceLevel}%
-                                </span>
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-        </div>
+        <ReportTable
+            title="Demand Forecast"
+            headers={['Product', 'SKU', 'Current Stock', 'Avg Daily Sales', '30-Day', '60-Day', '90-Day', 'Reorder', 'Confidence']}
+            rows={data.map(item => [item.productName, item.sku, String(item.currentStock), item.avgDailySales.toFixed(1), String(item.forecast30Days), String(item.forecast60Days), String(item.forecast90Days), String(item.recommendedReorder), `${item.confidenceLevel}%`])}
+        />
     );
 }
