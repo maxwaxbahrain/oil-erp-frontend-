@@ -1,8 +1,63 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, Fragment, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, AlertTriangle, TrendingUp, TrendingDown, Zap, RefreshCw, Eye } from 'lucide-react';
+import {
+    AlertTriangle,
+    TrendingUp,
+    TrendingDown,
+    Zap,
+    RefreshCw,
+    Eye,
+    Search,
+    Bot,
+    ChevronRight,
+    MessageCircle,
+} from 'lucide-react';
 import { getInvoices, getProducts, getCustomers } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
+import { getCurrentUser } from '../../store/authStore';
+
+const C = {
+    bg: '#060f1c',
+    bg2: '#0a1726',
+    bg3: '#0f1f33',
+    blue: '#4F8EF7',
+    green: '#22C55E',
+    purple: '#7C3AED',
+    orange: '#F59E0B',
+    red: '#EF4444',
+    text: '#EEF2FF',
+    muted: '#8BA3C7',
+    dim: '#3E5678',
+};
+
+const panel: CSSProperties = {
+    background: C.bg2,
+    border: '1px solid rgba(255,255,255,.07)',
+    borderRadius: 12,
+};
+
+function userInitials(name: string): string {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    if (parts.length === 1 && parts[0].length >= 2) return parts[0].slice(0, 2).toUpperCase();
+    return 'AQ';
+}
+
+function openMarcusAdvisor() {
+    window.dispatchEvent(new CustomEvent('soltol:open-ai-advisor'));
+}
+
+function formatRelativeTime(ts: number | null): string {
+    if (!ts) return '—';
+    const mins = Math.floor((Date.now() - ts) / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins === 1) return '1 min ago';
+    if (mins < 60) return `${mins} min ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs === 1) return '1 hr ago';
+    if (hrs < 24) return `${hrs} hr ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
+}
 
 interface Anomaly {
     id: string;
@@ -15,13 +70,34 @@ interface Anomaly {
     relatedTo: string;
 }
 
+const SEV_GROUP: Record<string, { label: string; color: string; bg: string; border: string }> = {
+    critical: { label: 'CRITICAL', color: C.red, bg: 'rgba(239,68,68,.08)', border: 'rgba(239,68,68,.25)' },
+    high: { label: 'HIGH PRIORITY', color: C.orange, bg: 'rgba(245,158,11,.08)', border: 'rgba(245,158,11,.25)' },
+    medium: { label: 'MEDIUM', color: '#FCD34D', bg: 'rgba(250,204,21,.06)', border: 'rgba(250,204,21,.2)' },
+};
+
+function getSeverityBadge(anomaly: Anomaly): { label: string; color: string; bg: string } {
+    if (anomaly.severity === 'critical') {
+        return { label: 'Critical', color: '#FCA5A5', bg: 'rgba(239,68,68,.15)' };
+    }
+    if (anomaly.severity === 'high') {
+        return { label: 'High risk', color: '#FCA5A5', bg: 'rgba(239,68,68,.12)' };
+    }
+    if (anomaly.type === 'price_anomaly') {
+        return { label: 'Pricing error', color: '#FCD34D', bg: 'rgba(245,158,11,.15)' };
+    }
+    return { label: 'Medium', color: '#FCD34D', bg: 'rgba(250,204,21,.12)' };
+}
+
 export default function AnomalyDetection() {
     const navigate = useNavigate();
+    const currentUser = getCurrentUser();
     const [anomalies, setAnomalies] = useState<Anomaly[]>([]);
     const [loading, setLoading] = useState(true);
     const [aiInsight, setAiInsight] = useState('');
     const [aiLoading, setAiLoading] = useState(false);
     const [filter, setFilter] = useState<'all' | 'critical' | 'high' | 'medium'>('all');
+    const [lastCheckedAt, setLastCheckedAt] = useState<number | null>(null);
 
     useEffect(() => {
         detectAnomalies();
@@ -164,6 +240,7 @@ export default function AnomalyDetection() {
             console.error('Anomaly detection failed:', e);
         } finally {
             setLoading(false);
+            setLastCheckedAt(Date.now());
         }
     };
 
@@ -212,139 +289,469 @@ Which 2-3 need my attention TODAY, and what exactly should I do?`
         stock_anomaly: Eye,
     };
 
-    const SEV_STYLE: Record<string, string> = {
-        critical: 'bg-red-50 border-red-200 border-l-red-500',
-        high: 'bg-orange-50 border-orange-200 border-l-orange-500',
-        medium: 'bg-amber-50 border-amber-200 border-l-amber-500',
-    };
+    const thisMonthCount = useMemo(() => {
+        const now = new Date();
+        const month = now.getMonth();
+        const year = now.getFullYear();
+        return anomalies.filter(a => {
+            const d = new Date(a.detectedAt);
+            return d.getMonth() === month && d.getFullYear() === year;
+        }).length;
+    }, [anomalies]);
 
-    const SEV_BADGE: Record<string, string> = {
-        critical: 'bg-red-100 text-red-700',
-        high: 'bg-orange-100 text-orange-700',
-        medium: 'bg-amber-100 text-amber-700',
+    const groupedFiltered = useMemo(() => {
+        if (filter !== 'all') return { [filter]: filtered };
+        const groups: Record<string, Anomaly[]> = { critical: [], high: [], medium: [] };
+        filtered.forEach(a => groups[a.severity].push(a));
+        return groups;
+    }, [filtered, filter]);
+
+    const criticalCount = anomalies.filter(a => a.severity === 'critical').length;
+    const highCount = anomalies.filter(a => a.severity === 'high').length;
+    const mediumCount = anomalies.filter(a => a.severity === 'medium').length;
+
+    const renderAnomalyCard = (anomaly: Anomaly) => {
+        const Icon = ICON_MAP[anomaly.type] || AlertTriangle;
+        const badge = getSeverityBadge(anomaly);
+        const group = SEV_GROUP[anomaly.severity];
+
+        return (
+            <div
+                key={anomaly.id}
+                style={{
+                    padding: '14px 16px',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    justifyContent: 'space-between',
+                    gap: 16,
+                    borderBottom: '1px solid rgba(255,255,255,.04)',
+                    background: group.bg,
+                }}
+            >
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flex: 1, minWidth: 0 }}>
+                    <div style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 10,
+                        background: badge.bg,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                    }}>
+                        <Icon size={16} color={badge.color} />
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
+                            <p style={{ fontSize: 12, fontWeight: 700, color: C.text, margin: 0 }}>{anomaly.title}</p>
+                            <span style={{
+                                fontSize: 9,
+                                fontWeight: 700,
+                                padding: '3px 8px',
+                                borderRadius: 999,
+                                background: badge.bg,
+                                color: badge.color,
+                            }}>
+                                {badge.label}
+                            </span>
+                        </div>
+                        <p style={{ fontSize: 11, color: C.muted, margin: '0 0 4px', lineHeight: 1.5 }}>{anomaly.description}</p>
+                        <p style={{ fontSize: 10, color: C.dim, margin: 0 }}>Detected: {anomaly.detectedAt}</p>
+                    </div>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <p style={{ fontSize: 12, fontWeight: 700, fontFamily: 'monospace', color: C.text, margin: 0 }}>{anomaly.value}</p>
+                </div>
+            </div>
+        );
     };
 
     return (
-        <div className="space-y-6 max-w-[1200px] mx-auto pb-10 animate-in fade-in duration-500">
-
-            {/* Header */}
-            <div className="bg-gray-900 rounded-2xl p-6 text-white">
-                <button onClick={() => navigate('/ai')} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-white mb-3 transition-all">
-                    <ArrowLeft size={14} /> AI Hub
-                </button>
-                <div className="flex items-center justify-between flex-wrap gap-4">
-                    <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-orange-500/20 rounded-xl flex items-center justify-center">
-                            <AlertTriangle size={24} className="text-orange-400" />
-                        </div>
-                        <div>
-                            <h1 className="text-xl font-black uppercase tracking-tight">Anomaly Detection</h1>
-                            <p className="text-gray-400 text-xs mt-0.5">AI monitors every transaction · Flags unusual patterns instantly</p>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                        <button onClick={detectAnomalies} disabled={loading}
-                            className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-black transition-all">
-                            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Re-scan
-                        </button>
-                        <button onClick={getAIInsight} disabled={aiLoading || anomalies.length === 0}
-                            className="flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-black transition-all disabled:opacity-50">
-                            {aiLoading ? <RefreshCw size={14} className="animate-spin" /> : <Zap size={14} />}
-                            Ask Marcus
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            {/* KPIs */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {[
-                    { label: 'Total Anomalies', value: anomalies.length, color: 'text-gray-900' },
-                    { label: 'Critical', value: anomalies.filter(a => a.severity === 'critical').length, color: 'text-red-600' },
-                    { label: 'High Priority', value: anomalies.filter(a => a.severity === 'high').length, color: 'text-orange-600' },
-                    { label: 'Medium', value: anomalies.filter(a => a.severity === 'medium').length, color: 'text-amber-600' },
-                ].map((k, i) => (
-                    <div key={i} className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
-                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">{k.label}</p>
-                        <p className={`text-2xl font-black ${k.color}`}>{loading ? '...' : k.value}</p>
-                    </div>
-                ))}
-            </div>
-
-            {/* AI Insight */}
-            {aiInsight && (
-                <div className="bg-gray-900 rounded-2xl p-5 text-white">
-                    <div className="flex items-center gap-2 mb-3">
-                        <Zap size={16} className="text-orange-400" />
-                        <p className="text-sm font-black text-orange-400 uppercase tracking-widest">Marcus — Priority Actions</p>
-                    </div>
-                    <div className="text-sm leading-relaxed space-y-1">
-                        {aiInsight.split('\n').map((line, i) => {
-                            const t = line.trim();
-                            if (!t) return <div key={i} className="h-1" />;
-                            if (t === t.toUpperCase() && t.length > 4)
-                                return <p key={i} className="font-black text-orange-400 text-xs uppercase tracking-widest mt-3">{t}</p>;
-                            return <p key={i} className="text-sm text-gray-700 leading-relaxed">{t}</p>;
-                        })}
-                    </div>
-                </div>
-            )}
-
-            {/* Filter */}
-            <div className="flex items-center gap-3">
-                {(['all', 'critical', 'high', 'medium'] as const).map(f => (
-                    <button key={f} onClick={() => setFilter(f)}
-                        className={`px-4 py-2 text-xs font-black rounded-xl transition-all capitalize ${filter === f ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
-                        {f === 'all' ? `All (${anomalies.length})` : `${f} (${anomalies.filter(a => a.severity === f).length})`}
+        <div
+            style={{
+                display: 'flex',
+                flexDirection: 'column',
+                minHeight: '100%',
+                background: C.bg,
+                color: C.text,
+                fontFamily: 'inherit',
+                margin: '-24px -40px',
+                width: 'calc(100% + 80px)',
+                paddingBottom: 80,
+            }}
+        >
+            {/* Top bar */}
+            <div
+                style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '12px 28px',
+                    borderBottom: '1px solid rgba(255,255,255,.06)',
+                    background: C.bg2,
+                }}
+            >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: C.muted }}>
+                    <button
+                        type="button"
+                        onClick={() => navigate('/ai')}
+                        style={{ background: 'none', border: 'none', color: C.muted, cursor: 'pointer', padding: 0, fontSize: 11, fontWeight: 600 }}
+                    >
+                        AI hub
                     </button>
-                ))}
+                    <ChevronRight size={12} color={C.dim} />
+                    <span style={{ color: C.text, fontWeight: 600 }}>Anomaly detection</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <button
+                        type="button"
+                        onClick={openMarcusAdvisor}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            padding: '7px 14px',
+                            borderRadius: 8,
+                            border: '1px solid rgba(245,158,11,.35)',
+                            background: 'rgba(245,158,11,.12)',
+                            color: '#FCD34D',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                        }}
+                    >
+                        <MessageCircle size={13} /> Ask Bettano
+                    </button>
+                    <div
+                        style={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: '50%',
+                            background: `linear-gradient(135deg, ${C.blue}, ${C.purple})`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: '#fff',
+                        }}
+                    >
+                        {userInitials(currentUser.name)}
+                    </div>
+                </div>
             </div>
 
-            {/* Anomaly List */}
-            {loading ? (
-                <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center shadow-sm">
-                    <RefreshCw size={32} className="animate-spin text-orange-400 mx-auto mb-3" />
-                    <p className="text-gray-400 font-bold">Scanning your business data for anomalies...</p>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '22px 28px 32px' }}>
+                {/* Page header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 18 }}>
+                    <div>
+                        <h1 style={{ fontSize: 22, fontWeight: 700, color: C.text, display: 'flex', alignItems: 'center', gap: 10, margin: 0 }}>
+                            <Search size={24} color={C.red} />
+                            Anomaly detection
+                        </h1>
+                        <p style={{ fontSize: 12, color: C.muted, marginTop: 5, marginBottom: 0, maxWidth: 620 }}>
+                            AI monitors every transaction · Flags unusual patterns · human review required
+                        </p>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <button
+                            type="button"
+                            onClick={detectAnomalies}
+                            disabled={loading}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                padding: '7px 14px',
+                                borderRadius: 8,
+                                border: '1px solid rgba(255,255,255,.12)',
+                                background: C.bg3,
+                                color: C.text,
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: loading ? 'not-allowed' : 'pointer',
+                                opacity: loading ? 0.6 : 1,
+                            }}
+                        >
+                            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Re-scan
+                        </button>
+                        <span
+                            style={{
+                                fontSize: 10,
+                                fontWeight: 700,
+                                padding: '6px 12px',
+                                borderRadius: 999,
+                                background: 'rgba(34,197,94,.12)',
+                                color: '#86EFAC',
+                                border: '1px solid rgba(34,197,94,.35)',
+                                whiteSpace: 'nowrap',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                            }}
+                        >
+                            <Bot size={12} /> Live · scanning
+                        </span>
+                    </div>
                 </div>
-            ) : filtered.length === 0 ? (
-                <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center shadow-sm">
-                    <p className="text-gray-400 font-bold text-lg">✅ No anomalies detected</p>
-                    <p className="text-gray-300 text-sm mt-1">Your business data looks normal for this category</p>
+
+                {/* KPI row */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 14 }}>
+                    {[
+                        {
+                            label: 'Total anomalies',
+                            value: loading ? '…' : `${thisMonthCount} / ${anomalies.length}`,
+                            sub: 'this month / all detected',
+                            accent: C.blue,
+                        },
+                        {
+                            label: 'Critical',
+                            value: loading ? '…' : criticalCount,
+                            sub: 'needs immediate action',
+                            accent: C.red,
+                        },
+                        {
+                            label: 'High priority',
+                            value: loading ? '…' : highCount,
+                            sub: 'review today',
+                            accent: C.orange,
+                        },
+                        {
+                            label: 'Last checked',
+                            value: loading ? '…' : formatRelativeTime(lastCheckedAt),
+                            sub: 'auto-scan on load',
+                            accent: C.green,
+                        },
+                    ].map((kpi) => (
+                        <div
+                            key={kpi.label}
+                            style={{
+                                ...panel,
+                                padding: '14px 16px',
+                                borderTop: `3px solid ${kpi.accent}`,
+                            }}
+                        >
+                            <p style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.4px', textTransform: 'uppercase', color: C.muted, margin: '0 0 6px' }}>
+                                {kpi.label}
+                            </p>
+                            <p style={{ fontSize: 22, fontWeight: 700, color: C.text, margin: '0 0 4px', fontFamily: typeof kpi.value === 'number' ? 'monospace' : 'inherit' }}>
+                                {kpi.value}
+                            </p>
+                            <p style={{ fontSize: 10, color: C.dim, margin: 0 }}>{kpi.sub}</p>
+                        </div>
+                    ))}
                 </div>
-            ) : (
-                <div className="space-y-3">
-                    {filtered.map(anomaly => {
-                        const Icon = ICON_MAP[anomaly.type] || AlertTriangle;
-                        return (
-                            <div key={anomaly.id} className={`border-2 border-l-4 rounded-2xl p-5 ${SEV_STYLE[anomaly.severity]}`}>
-                                <div className="flex items-start justify-between gap-4">
-                                    <div className="flex items-start gap-3">
-                                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${SEV_BADGE[anomaly.severity]} bg-opacity-50`}>
-                                            <Icon size={18} />
-                                        </div>
-                                        <div>
-                                            <div className="flex items-center gap-2 mb-1">
-                                                <p className="text-sm font-black text-gray-900">{anomaly.title}</p>
-                                                <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${SEV_BADGE[anomaly.severity]}`}>
-                                                    {anomaly.severity.toUpperCase()}
-                                                </span>
-                                            </div>
-                                            <p className="text-xs text-gray-600 leading-relaxed">{anomaly.description}</p>
-                                            <p className="text-[10px] text-gray-400 mt-1">Detected: {anomaly.detectedAt}</p>
-                                        </div>
-                                    </div>
-                                    <div className="text-right flex-shrink-0">
-                                        <p className="text-sm font-black font-mono text-gray-900">{anomaly.value}</p>
-                                    </div>
+
+                {/* AI Insight — shown after Ask Marcus trigger */}
+                {aiInsight && (
+                    <div style={{
+                        ...panel,
+                        padding: '16px 18px',
+                        marginBottom: 14,
+                        background: `linear-gradient(135deg, rgba(124,58,237,.12), rgba(245,158,11,.08))`,
+                        border: '1px solid rgba(124,58,237,.25)',
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                            <div style={{
+                                width: 36,
+                                height: 36,
+                                borderRadius: 10,
+                                background: 'rgba(124,58,237,.2)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                            }}>
+                                <Zap size={18} color={C.purple} />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <p style={{ fontSize: 11, fontWeight: 700, color: C.orange, margin: '0 0 6px' }}>Marcus — Priority Actions</p>
+                                <div style={{ fontSize: 12, lineHeight: 1.55 }}>
+                                    {aiInsight.split('\n').map((line, i) => {
+                                        const t = line.trim();
+                                        if (!t) return <div key={i} style={{ height: 4 }} />;
+                                        if (t === t.toUpperCase() && t.length > 4) {
+                                            return <p key={i} style={{ fontWeight: 700, color: C.orange, fontSize: 10, textTransform: 'uppercase', margin: '8px 0 4px' }}>{t}</p>;
+                                        }
+                                        return <p key={i} style={{ margin: '2px 0', color: C.muted }}>{t}</p>;
+                                    })}
                                 </div>
                             </div>
-                        );
-                    })}
+                        </div>
+                    </div>
+                )}
+
+                {/* Ask Marcus trigger (preserves existing handler) */}
+                {!aiInsight && !aiLoading && anomalies.length > 0 && (
+                    <div style={{ ...panel, padding: '16px 18px', marginBottom: 14, background: C.bg3 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                <div style={{
+                                    width: 36,
+                                    height: 36,
+                                    borderRadius: 10,
+                                    background: 'rgba(245,158,11,.15)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                }}>
+                                    <Bot size={18} color={C.orange} />
+                                </div>
+                                <div>
+                                    <p style={{ fontSize: 11, fontWeight: 700, color: C.orange, margin: '0 0 4px' }}>Bettano says:</p>
+                                    <p style={{ fontSize: 12, color: C.muted, margin: 0 }}>
+                                        {criticalCount > 0
+                                            ? `${criticalCount} critical anomal${criticalCount !== 1 ? 'ies' : 'y'} detected — ask Marcus which need attention today.`
+                                            : `${anomalies.length} anomal${anomalies.length !== 1 ? 'ies' : 'y'} flagged — ask Marcus for priority actions.`}
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={getAIInsight}
+                                disabled={aiLoading || anomalies.length === 0}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    padding: '7px 14px',
+                                    borderRadius: 8,
+                                    border: 'none',
+                                    background: C.orange,
+                                    color: '#fff',
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    whiteSpace: 'nowrap',
+                                }}
+                            >
+                                <Zap size={13} /> Ask Marcus
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {aiLoading && (
+                    <div style={{ ...panel, padding: '16px 18px', marginBottom: 14, background: C.bg3 }}>
+                        <p style={{ fontSize: 12, color: C.muted, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <RefreshCw size={14} className="animate-spin" /> Marcus is analysing anomalies...
+                        </p>
+                    </div>
+                )}
+
+                {/* Filter pills */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+                    {([
+                        { key: 'all' as const, label: `All (${anomalies.length})` },
+                        { key: 'critical' as const, label: `Critical (${criticalCount})` },
+                        { key: 'high' as const, label: `High (${highCount})` },
+                        { key: 'medium' as const, label: `Medium (${mediumCount})` },
+                    ]).map(f => (
+                        <button
+                            key={f.key}
+                            type="button"
+                            onClick={() => setFilter(f.key)}
+                            style={{
+                                padding: '7px 14px',
+                                borderRadius: 999,
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                border: filter === f.key ? '1px solid rgba(79,142,247,.4)' : '1px solid rgba(255,255,255,.08)',
+                                background: filter === f.key ? 'rgba(79,142,247,.15)' : C.bg3,
+                                color: filter === f.key ? '#93C5FD' : C.muted,
+                            }}
+                        >
+                            {f.label}
+                        </button>
+                    ))}
                 </div>
-            )}
-            <p className="text-xs text-gray-400 text-center">
-                AI runs statistical analysis across all invoices, customers, products, and payments · Click Re-scan to check again
-            </p>
+
+                {/* Anomaly list */}
+                <div style={{ ...panel, overflow: 'hidden' }}>
+                    <div style={{
+                        padding: '14px 18px',
+                        borderBottom: '1px solid rgba(255,255,255,.06)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                    }}>
+                        <p style={{ fontSize: 12, fontWeight: 700, color: C.text, margin: 0 }}>
+                            Detected anomalies · {filtered.length} shown
+                        </p>
+                        <button
+                            type="button"
+                            onClick={detectAnomalies}
+                            disabled={loading}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 5,
+                                background: 'none',
+                                border: 'none',
+                                fontSize: 10,
+                                fontWeight: 700,
+                                color: C.blue,
+                                cursor: loading ? 'not-allowed' : 'pointer',
+                                opacity: loading ? 0.5 : 1,
+                            }}
+                        >
+                            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} /> Re-scan
+                        </button>
+                    </div>
+
+                    {loading ? (
+                        <div style={{ padding: 48, textAlign: 'center' }}>
+                            <RefreshCw size={32} className="animate-spin" color={C.orange} style={{ margin: '0 auto 12px' }} />
+                            <p style={{ color: C.muted, fontWeight: 700, fontSize: 12, margin: 0 }}>Scanning your business data for anomalies...</p>
+                        </div>
+                    ) : filtered.length === 0 ? (
+                        <div style={{ padding: 48, textAlign: 'center' }}>
+                            <p style={{ color: C.muted, fontWeight: 700, fontSize: 14, margin: 0 }}>✅ No anomalies detected</p>
+                            <p style={{ color: C.dim, fontSize: 11, marginTop: 4 }}>Your business data looks normal for this category</p>
+                        </div>
+                    ) : (
+                        <div>
+                            {(filter === 'all' ? (['critical', 'high', 'medium'] as const) : [filter]).map(sevKey => {
+                                const items = groupedFiltered[sevKey] || [];
+                                if (items.length === 0) return null;
+                                const meta = SEV_GROUP[sevKey];
+                                return (
+                                    <Fragment key={sevKey}>
+                                        {filter === 'all' && (
+                                            <div style={{
+                                                padding: '8px 16px',
+                                                background: meta.bg,
+                                                borderTop: `1px solid ${meta.border}`,
+                                                borderBottom: `1px solid ${meta.border}`,
+                                            }}>
+                                                <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '.6px', color: meta.color }}>
+                                                    {meta.label} · {items.length} anomal{items.length !== 1 ? 'ies' : 'y'}
+                                                </span>
+                                            </div>
+                                        )}
+                                        {items.map(renderAnomalyCard)}
+                                    </Fragment>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Footer disclaimer */}
+            <div style={{
+                position: 'sticky',
+                bottom: 0,
+                padding: '12px 28px',
+                borderTop: '1px solid rgba(255,255,255,.06)',
+                background: C.bg2,
+                textAlign: 'center',
+            }}>
+                <p style={{ fontSize: 10, color: C.dim, margin: 0 }}>
+                    Statistical analysis across invoices, customers, products, payments · Re-scan anytime
+                </p>
+            </div>
         </div>
     );
 }
