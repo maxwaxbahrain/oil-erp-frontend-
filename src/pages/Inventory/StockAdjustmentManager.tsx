@@ -1,21 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, type CSSProperties } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
     Brain,
     Zap,
     AlertTriangle,
     CheckCircle2,
-    TrendingUp,
     RefreshCw,
     ShieldAlert,
-    Clock,
     ArrowRight,
     X,
     Check,
     BarChart3,
-    Package,
-    Filter,
     ClipboardList,
-    Trash2
+    Trash2,
+    SlidersHorizontal,
 } from 'lucide-react';
 import { aiStockService, type AIStockAdjustment, type AIInsight } from '../../services/aiStockService';
 import { getProducts, type Product } from '../../services/productService';
@@ -32,20 +30,97 @@ type DecisionLogItem = {
 };
 
 const DECISION_LOG_KEY = 'zavi_stock_adjustment_decision_log';
+const AUTO_APPROVE_KEY = 'zavi_stock_auto_approve_threshold';
+
+const C = {
+    bg: '#060f1c',
+    bg2: '#0a1726',
+    bg3: '#0f1f33',
+    blue: '#4F8EF7',
+    green: '#22C55E',
+    red: '#EF4444',
+    amber: '#F59E0B',
+    purple: '#9B6FE4',
+    text: '#EEF2FF',
+    muted: '#8BA3C7',
+    dim: '#3E5678',
+};
+
+const panel: CSSProperties = {
+    background: C.bg2,
+    border: '1px solid rgba(255,255,255,.07)',
+    borderRadius: 12,
+};
+
+const ghostBtn: CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 5,
+    padding: '6px 11px',
+    borderRadius: 8,
+    fontSize: 10.5,
+    fontWeight: 500,
+    cursor: 'pointer',
+    border: '1px solid rgba(255,255,255,.12)',
+    background: 'transparent',
+    color: C.muted,
+    fontFamily: 'inherit',
+};
+
+const purpleBtn: CSSProperties = {
+    ...ghostBtn,
+    border: 'none',
+    background: C.purple,
+    color: '#fff',
+    fontWeight: 600,
+};
+
+function fmtUsd(n: number): string {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
+}
+
+function fmtTime(iso: string): string {
+    return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function getProductSku(products: Product[], productId: string, productName: string): string {
+    const p = products.find(x => x.id === productId || x.name === productName);
+    return p?.sku || productId;
+}
+
+function getUnitCost(products: Product[], productId: string, productName: string): number {
+    const p = products.find(x => x.id === productId || x.name === productName);
+    if (!p) return 12;
+    const cost = p.pricing?.landedCost ?? p.priceHistory?.[0]?.cost;
+    if (cost && cost > 0) return cost;
+    const sell = p.pricing?.sellingPrice ?? p.priceHistory?.[0]?.selling ?? 0;
+    return sell > 0 ? sell * 0.55 : 12;
+}
 
 export default function StockAdjustmentManager() {
+    const navigate = useNavigate();
     const [adjustments, setAdjustments] = useState<AIStockAdjustment[]>([]);
     const [insights, setInsights] = useState<AIInsight[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
     const [loading, setLoading] = useState(true);
     const [processingId, setProcessingId] = useState<string | null>(null);
+    const [bulkProcessing, setBulkProcessing] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [filterType, setFilterType] = useState<'all' | 'auto' | 'approval_required' | 'investigation_required'>('all');
     const [decisionLog, setDecisionLog] = useState<DecisionLogItem[]>([]);
+    const [manualOpen, setManualOpen] = useState(false);
     const [manualProductId, setManualProductId] = useState('');
     const [manualDelta, setManualDelta] = useState<number>(0);
     const [manualNote, setManualNote] = useState('');
     const [manualFeedback, setManualFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+    const [autoApproveThreshold, setAutoApproveThreshold] = useState(() => {
+        try {
+            const v = localStorage.getItem(AUTO_APPROVE_KEY);
+            return v ? Number(v) : 90;
+        } catch {
+            return 90;
+        }
+    });
 
     useEffect(() => {
         loadData();
@@ -58,10 +133,7 @@ export default function StockAdjustmentManager() {
     }, []);
 
     useEffect(() => {
-        // Keep auto-log and approvals live while tab is open.
-        const timer = setInterval(() => {
-            void loadData();
-        }, 30000);
+        const timer = setInterval(() => { void loadData(); }, 30000);
         return () => clearInterval(timer);
     }, []);
 
@@ -71,7 +143,7 @@ export default function StockAdjustmentManager() {
             const [adjs, ins, prods] = await Promise.all([
                 aiStockService.scanForAnomalies(),
                 aiStockService.getInsights(),
-                getProducts()
+                getProducts(),
             ]);
             setAdjustments(adjs);
             setInsights(ins);
@@ -103,7 +175,7 @@ export default function StockAdjustmentManager() {
                         productName: adjustment.productName,
                         quantityChange: adjustment.suggestedAdjustment,
                         timestamp: new Date().toISOString(),
-                        note: 'Approved from Pending Management Approval and applied to stock.'
+                        note: 'Approved from Pending Management Approval and applied to stock.',
                     });
                 }
             } else {
@@ -117,15 +189,13 @@ export default function StockAdjustmentManager() {
                         productName: adjustment.productName,
                         quantityChange: adjustment.suggestedAdjustment,
                         timestamp: new Date().toISOString(),
-                        note: 'Rejected from Pending Management Approval.'
+                        note: 'Rejected from Pending Management Approval.',
                     });
                 }
             }
-
-            // Remove from list locally for instant feedback
             setAdjustments(prev => prev.filter(a => a.id !== id));
             await loadData();
-        } catch (err) {
+        } catch {
             alert('Action failed');
         } finally {
             setProcessingId(null);
@@ -148,11 +218,6 @@ export default function StockAdjustmentManager() {
             return;
         }
 
-        // Persist to the backend so the Product Catalog reflects the adjustment (TC-48).
-        // Source of truth is the backend's current stock: we look the product up by name
-        // (case-insensitive) on the live backend, read its current stock, then PUT
-        // current + delta. This avoids drift if the localStorage product copy is stale
-        // or has a non-backend id (e.g. P-... from a previous import session).
         let backendOk = false;
         let backendErr = '';
         let backendNewStock: number | null = null;
@@ -165,7 +230,8 @@ export default function StockAdjustmentManager() {
                 const list = await listResp.json();
                 const arr = Array.isArray(list) ? list : (list?.results || list?.data || []);
                 const targetName = String(product.name || '').trim().toLowerCase();
-                const backendProduct = arr.find((p: any) => String(p?.name || '').trim().toLowerCase() === targetName);
+                const backendProduct = arr.find((p: { name?: string; id?: string | number; stock?: number }) =>
+                    String(p?.name || '').trim().toLowerCase() === targetName);
                 if (!backendProduct) {
                     backendErr = `No backend product matches "${product.name}". Catalog may be stale.`;
                 } else {
@@ -187,10 +253,9 @@ export default function StockAdjustmentManager() {
             backendErr = e instanceof Error ? e.message : String(e);
         }
 
-        const safeLocations = product.locations && product.locations.length > 0
+        const safeLocations = product.locations?.length
             ? product.locations
             : [{ id: `LOC-MAIN-${product.id}`, name: 'Main Warehouse', type: 'Warehouse' as const, currentStock: 0 }];
-        // Use the backend-confirmed new stock when available; otherwise apply delta locally.
         const newFirstLocStock = backendNewStock != null
             ? backendNewStock
             : (Number(safeLocations[0]?.currentStock) || 0) + manualDelta;
@@ -212,7 +277,7 @@ export default function StockAdjustmentManager() {
             productName: product.name,
             quantityChange: manualDelta,
             timestamp: new Date().toISOString(),
-            note: manualNote.trim() || 'Manual adjustment from Stock Adjustment Manager.'
+            note: manualNote.trim() || 'Manual adjustment from Stock Adjustment Manager.',
         });
         setManualDelta(0);
         setManualNote('');
@@ -224,484 +289,500 @@ export default function StockAdjustmentManager() {
         });
     };
 
-    // Calculate statistics
-    const autoAdjustedCount = adjustments.filter(a => a.type === 'auto').length;
-    const pendingCount = adjustments.filter(a => a.type === 'approval_required').length;
-    const criticalCount = adjustments.filter(a => a.type === 'investigation_required').length;
-    const avgConfidence = adjustments.length > 0
-        ? Math.round(adjustments.reduce((sum, a) => sum + a.confidence, 0) / adjustments.length)
-        : 0;
+    const handleThresholdChange = (value: number) => {
+        setAutoApproveThreshold(value);
+        localStorage.setItem(AUTO_APPROVE_KEY, String(value));
+    };
 
-    // Filter adjustments
-    const filteredAdjustments = adjustments.filter(adj => {
+    const filteredAdjustments = useMemo(() => adjustments.filter(adj => {
         const matchesSearch = adj.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
             adj.description.toLowerCase().includes(searchTerm.toLowerCase());
         const matchesFilter = filterType === 'all' || adj.type === filterType;
         return matchesSearch && matchesFilter;
-    });
+    }), [adjustments, searchTerm, filterType]);
 
-    const getReasonIcon = (reason: string) => {
-        switch (reason) {
-            case 'shrinkage': return <TrendingUp className="text-orange-500" size={18} />;
-            case 'damage': return <AlertTriangle className="text-red-500" size={18} />;
-            case 'sales_reconciliation': return <RefreshCw className="text-blue-500" size={18} />;
-            case 'expiry': return <Clock className="text-amber-500" size={18} />;
-            case 'demand_reorder': return <Package className="text-purple-500" size={18} />;
-            default: return <Brain className="text-purple-500" size={18} />;
+    const autoAdjustedCount = adjustments.filter(a => a.type === 'auto').length;
+    const pendingItems = filteredAdjustments.filter(a => a.type === 'approval_required');
+    const criticalItems = filteredAdjustments.filter(a => a.type === 'investigation_required');
+    const pendingCount = adjustments.filter(a => a.type === 'approval_required').length;
+    const criticalCount = adjustments.filter(a => a.type === 'investigation_required').length;
+    const zeroStockCount = adjustments.filter(a => a.currentStock <= 0).length;
+    const avgConfidence = adjustments.length > 0
+        ? Math.round(adjustments.reduce((sum, a) => sum + a.confidence, 0) / adjustments.length)
+        : 0;
+
+    const highConfPending = pendingItems.filter(a => a.confidence >= autoApproveThreshold);
+    const lowConfPending = pendingItems.filter(a => a.confidence < autoApproveThreshold);
+
+    const criticalPending = [
+        ...criticalItems,
+        ...pendingItems.filter(a => (a.aiAnalysis?.riskScore ?? 0) >= 80 || a.currentStock < 0),
+    ];
+    const highZeroPending = pendingItems.filter(
+        a => a.currentStock === 0 && !criticalPending.some(c => c.id === a.id),
+    );
+    const otherPending = pendingItems.filter(
+        a => !criticalPending.some(c => c.id === a.id) && !highZeroPending.some(h => h.id === a.id),
+    );
+
+    const confidenceBuckets = useMemo(() => {
+        const buckets = [
+            { label: '90–100%', min: 90, max: 100, color: C.green },
+            { label: '80–89%', min: 80, max: 89, color: C.blue },
+            { label: '70–79%', min: 70, max: 79, color: C.amber },
+            { label: '<70%', min: 0, max: 69, color: C.red },
+        ];
+        const total = Math.max(adjustments.length, 1);
+        return buckets.map(b => ({
+            ...b,
+            count: adjustments.filter(a => a.confidence >= b.min && a.confidence <= b.max).length,
+            pct: Math.round((adjustments.filter(a => a.confidence >= b.min && a.confidence <= b.max).length / total) * 100),
+        }));
+    }, [adjustments]);
+
+    const costImpact = useMemo(() => {
+        const restockUnits = pendingItems.reduce((s, a) => s + Math.max(0, a.suggestedAdjustment), 0);
+        const restockCost = pendingItems.reduce(
+            (s, a) => s + Math.max(0, a.suggestedAdjustment) * getUnitCost(products, a.productId, a.productName),
+            0,
+        );
+        const revenueUnlock = Math.round(restockCost * 2.7);
+        const roi = restockCost > 0 ? (revenueUnlock / restockCost).toFixed(1) : '2.7';
+        return { restockUnits, restockCost, revenueUnlock, roi };
+    }, [pendingItems, products]);
+
+    const autoLogItems = filteredAdjustments.filter(a => a.type === 'auto').slice(0, 12);
+
+    const handleBulkApprove = async () => {
+        const ids = highConfPending.map(a => a.id);
+        if (ids.length === 0) return;
+        setBulkProcessing(true);
+        try {
+            for (const id of ids) {
+                await handleAction(id, 'approve');
+            }
+        } finally {
+            setBulkProcessing(false);
         }
     };
 
-    const getReasonBadgeColor = (reason: string) => {
-        switch (reason) {
-            case 'shrinkage': return 'bg-orange-100 text-orange-700';
-            case 'damage': return 'bg-red-100 text-red-700';
-            case 'sales_reconciliation': return 'bg-blue-100 text-blue-700';
-            case 'expiry': return 'bg-amber-100 text-amber-700';
-            case 'demand_reorder': return 'bg-purple-100 text-purple-700';
-            default: return 'bg-gray-100 text-gray-700';
-        }
+    const renderPendingCard = (adj: AIStockAdjustment, isCritical: boolean) => {
+        const sku = getProductSku(products, adj.productId, adj.productName);
+        const suggestedStock = adj.currentStock + adj.suggestedAdjustment;
+        return (
+            <div
+                key={adj.id}
+                style={{
+                    ...panel,
+                    padding: '12px 14px',
+                    marginBottom: 8,
+                    borderLeft: `3px solid ${isCritical ? C.red : C.amber}`,
+                }}
+            >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: C.text, marginBottom: 2 }}>{adj.productName}</div>
+                        <div style={{ fontSize: 9.5, color: C.dim, marginBottom: 8 }}>{sku}</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+                            {isCritical && (
+                                <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 6px', borderRadius: 20, background: 'rgba(239,68,68,.15)', color: C.red }}>
+                                    Critical
+                                </span>
+                            )}
+                            <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 6px', borderRadius: 20, background: 'rgba(155,111,228,.15)', color: C.purple }}>
+                                AI {adj.confidence}%
+                            </span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, marginBottom: 8 }}>
+                            <span style={{ color: C.muted }}>{adj.currentStock}</span>
+                            <ArrowRight size={12} color={C.dim} />
+                            <span style={{ color: C.green, fontWeight: 600 }}>{suggestedStock}</span>
+                            <span style={{ fontSize: 9, color: C.dim }}>units</span>
+                        </div>
+                        <p style={{ fontSize: 10, color: C.muted, lineHeight: 1.45, margin: 0 }}>{adj.description}</p>
+                    </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+                    <button
+                        type="button"
+                        onClick={() => handleAction(adj.id, 'reject')}
+                        disabled={processingId === adj.id || bulkProcessing}
+                        style={{ ...ghostBtn, flex: 1, justifyContent: 'center', fontSize: 10 }}
+                    >
+                        <X size={12} /> Skip
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => handleAction(adj.id, 'approve')}
+                        disabled={processingId === adj.id || bulkProcessing}
+                        style={{
+                            ...ghostBtn,
+                            flex: 1,
+                            justifyContent: 'center',
+                            fontSize: 10,
+                            border: 'none',
+                            background: C.green,
+                            color: '#fff',
+                            fontWeight: 600,
+                        }}
+                    >
+                        {processingId === adj.id ? <RefreshCw size={12} className="animate-spin" /> : <Check size={12} />}
+                        Approve restock
+                    </button>
+                </div>
+            </div>
+        );
     };
 
     if (loading) {
         return (
-            <div className="flex items-center justify-center h-screen">
-                <div className="text-center">
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
-                    <p className="mt-4 text-gray-600 font-bold">Loading AI Stock Control...</p>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 320 }}>
+                <div style={{ textAlign: 'center' }}>
+                    <RefreshCw size={28} color={C.purple} style={{ animation: 'spin 1s linear infinite' }} />
+                    <p style={{ marginTop: 12, fontSize: 11, color: C.muted }}>Loading stock adjustment manager…</p>
                 </div>
             </div>
         );
     }
 
     return (
-        <div className="max-w-[1800px] mx-auto space-y-6 pb-20 px-6">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {/* Header */}
-            <div className="bg-white border-b border-gray-200 -mx-6 px-6 py-6 sticky top-0 z-10 shadow-sm">
-                <div className="flex items-center justify-between mb-4">
-                    <div>
-                        <div className="flex items-center gap-3 mb-2">
-                            <div className="p-2.5 bg-purple-600 rounded-lg text-white shadow-md">
-                                <Brain size={24} />
-                            </div>
-                            <div>
-                                <h1 className="text-2xl font-black text-gray-900 uppercase tracking-tight">
-                                    STOCK ADJUSTMENT MANAGER
-                                </h1>
-                                <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mt-0.5">
-                                    System Controls: Active • Auto-Adjusted (24h)
-                                </p>
-                            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                <div>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: C.text }}>Stock adjustment manager</div>
+                    <div style={{ fontSize: 10.5, color: C.muted, marginTop: 3 }}>
+                        AI monitors stock 24h · suggests adjustments · human approves · full audit log
+                    </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button type="button" onClick={loadData} style={ghostBtn}>
+                        <RefreshCw size={12} /> Refresh
+                    </button>
+                    <button type="button" onClick={() => setManualOpen(true)} style={ghostBtn}>
+                        Manual adjustment
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setFilterType('all');
+                            setSearchTerm('');
+                            navigate('/inventory/ai-stock-control');
+                        }}
+                        style={purpleBtn}
+                    >
+                        <Brain size={12} /> Stock Control AI
+                    </button>
+                </div>
+            </div>
+
+            {/* KPI Cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+                {[
+                    {
+                        label: 'Auto-Adjusted (24h)',
+                        value: autoAdjustedCount,
+                        sub: 'Saved 1.5 hours',
+                        subColor: C.green,
+                        valueColor: C.green,
+                        icon: <CheckCircle2 size={14} color={C.green} />,
+                    },
+                    {
+                        label: 'Pending Approval',
+                        value: pendingCount,
+                        sub: `avg confidence ${avgConfidence}%`,
+                        subColor: C.amber,
+                        valueColor: C.amber,
+                        icon: <Zap size={14} color={C.amber} />,
+                    },
+                    {
+                        label: 'Critical Flags',
+                        value: criticalCount,
+                        sub: `${zeroStockCount} SKUs at 0 units`,
+                        subColor: C.red,
+                        valueColor: C.red,
+                        icon: <ShieldAlert size={14} color={C.red} />,
+                    },
+                    {
+                        label: 'System Confidence',
+                        value: `${avgConfidence}%`,
+                        sub: insights[0]?.metric || 'Live catalog',
+                        subColor: C.purple,
+                        valueColor: C.purple,
+                        icon: <Brain size={14} color={C.purple} />,
+                    },
+                ].map(card => (
+                    <div key={card.label} style={{ ...panel, padding: '12px 14px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                            <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: C.dim }}>
+                                {card.label}
+                            </span>
+                            {card.icon}
+                        </div>
+                        <div style={{ fontSize: 26, fontWeight: 700, color: card.valueColor, lineHeight: 1 }}>{card.value}</div>
+                        <div style={{ fontSize: 9.5, color: card.subColor, marginTop: 4, display: 'flex', alignItems: 'center', gap: 3 }}>
+                            {card.label.startsWith('Auto') && <Zap size={10} fill="currentColor" />}
+                            {card.sub}
                         </div>
                     </div>
-                    <div className="flex gap-3">
+                ))}
+            </div>
+
+            {/* Automation */}
+            <div style={{ ...panel, padding: '12px 14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <SlidersHorizontal size={14} color={C.muted} />
+                        <span style={{ fontSize: 11, fontWeight: 600, color: C.text }}>Auto-approve threshold</span>
+                        <span style={{ fontSize: 10, color: C.muted }}>≥ {autoApproveThreshold}%</span>
+                        <span style={{
+                            fontSize: 8,
+                            fontWeight: 700,
+                            padding: '2px 7px',
+                            borderRadius: 20,
+                            background: 'rgba(34,197,94,.15)',
+                            color: C.green,
+                            textTransform: 'uppercase',
+                        }}>
+                            Active
+                        </span>
+                    </div>
+                    <input
+                        type="range"
+                        min={70}
+                        max={99}
+                        value={autoApproveThreshold}
+                        onChange={e => handleThresholdChange(Number(e.target.value))}
+                        style={{ width: 160, accentColor: C.green }}
+                    />
+                </div>
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 10,
+                    flexWrap: 'wrap',
+                    padding: '10px 12px',
+                    borderRadius: 10,
+                    background: 'rgba(34,197,94,.08)',
+                    border: '1px solid rgba(34,197,94,.2)',
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <CheckCircle2 size={16} color={C.green} />
+                        <span style={{ fontSize: 11, fontWeight: 600, color: C.green }}>
+                            {highConfPending.length} suggestion{highConfPending.length !== 1 ? 's' : ''} ≥ {autoApproveThreshold}%
+                        </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
                         <button
-                            onClick={loadData}
-                            className="px-5 py-2.5 bg-white border-2 border-gray-200 text-gray-700 rounded-lg text-xs font-black uppercase tracking-wider hover:border-gray-400 hover:bg-gray-50 transition-all flex items-center gap-2"
-                        >
-                            <RefreshCw size={16} />
-                            Refresh
-                        </button>
-                        <button
-                            onClick={() => {
-                                setFilterType('all');
-                                setSearchTerm('');
-                                void loadData();
+                            type="button"
+                            onClick={handleBulkApprove}
+                            disabled={highConfPending.length === 0 || bulkProcessing}
+                            style={{
+                                ...ghostBtn,
+                                border: 'none',
+                                background: C.green,
+                                color: '#fff',
+                                fontWeight: 600,
+                                opacity: highConfPending.length === 0 ? 0.5 : 1,
                             }}
-                            className="px-5 py-2.5 bg-purple-600 text-white rounded-lg text-xs font-black uppercase tracking-wider hover:bg-purple-700 transition-all shadow-md flex items-center gap-2"
                         >
-                            <Brain size={16} />
-                            Stock Control AI
+                            {bulkProcessing ? <RefreshCw size={12} /> : <Check size={12} />}
+                            Approve all {highConfPending.length}
                         </button>
                         <button
-                            onClick={applyManualAdjustment}
-                            disabled={!manualProductId || manualDelta === 0}
-                            className="px-5 py-2.5 bg-gray-900 text-white rounded-lg text-xs font-black uppercase tracking-wider hover:bg-gray-800 transition-all shadow-md disabled:opacity-40 disabled:cursor-not-allowed"
+                            type="button"
+                            onClick={() => setFilterType('approval_required')}
+                            style={ghostBtn}
                         >
-                            Manual Adjustment
+                            Review {lowConfPending.length} low confidence
                         </button>
                     </div>
                 </div>
-
-                {/* Search and Filter Bar */}
-                <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
-                    <div className="flex-1 relative">
-                        <input
-                            type="text"
-                            placeholder="Search products, adjustments, or reasons..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pr-4 py-2.5 border-2 border-gray-200 rounded-lg text-sm font-medium focus:border-purple-500 focus:outline-none"
-                        />
-                    </div>
-                    <div className="flex items-center gap-2 bg-gray-50 px-4 py-2 rounded-lg border-2 border-gray-200">
-                        <Filter size={16} className="text-gray-500" />
-                        <select
-                            value={filterType}
-                            onChange={(e) => setFilterType(e.target.value as any)}
-                            className="bg-transparent text-sm font-bold text-gray-700 focus:outline-none cursor-pointer"
-                        >
-                            <option value="all">All Types</option>
-                            <option value="auto">Auto-Adjusted</option>
-                            <option value="approval_required">Pending Approval</option>
-                            <option value="investigation_required">Critical Flags</option>
-                        </select>
-                    </div>
-                    <select
-                        value={manualProductId}
-                        onChange={(e) => setManualProductId(e.target.value)}
-                        className="bg-white px-3 py-2.5 border-2 border-gray-200 rounded-lg text-sm font-semibold"
-                    >
-                        <option value="">Manual Product</option>
-                        {products.map((p) => (
-                            <option key={p.id} value={p.id}>{p.name}</option>
-                        ))}
-                    </select>
-                    <input
-                        type="number"
-                        value={manualDelta}
-                        onChange={(e) => {
-                            const raw = e.target.value;
-                            setManualDelta(raw === '' ? 0 : Number(raw));
-                        }}
-                        placeholder="Qty +/-"
-                        className="bg-white px-3 py-2.5 border-2 border-gray-200 rounded-lg text-sm font-semibold"
-                    />
-                    <input
-                        type="text"
-                        value={manualNote}
-                        onChange={(e) => setManualNote(e.target.value)}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') applyManualAdjustment();
-                        }}
-                        placeholder="Manual note"
-                        className="bg-white px-3 py-2.5 border-2 border-gray-200 rounded-lg text-sm font-medium"
-                    />
-                </div>
-                {manualFeedback && (
-                    <div
-                        className={`mt-3 rounded-lg px-4 py-2 text-xs font-bold ${
-                            manualFeedback.type === 'success'
-                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                : 'bg-red-50 text-red-700 border border-red-200'
-                        }`}
-                    >
-                        {manualFeedback.message}
-                    </div>
-                )}
             </div>
 
-            {/* KPI Dashboard */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
-                {/* Auto-Adjusted Card */}
-                <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 p-6 rounded-2xl border-2 border-emerald-200 shadow-sm relative overflow-hidden">
-                    <div className="absolute right-0 top-0 p-4 opacity-10">
-                        <CheckCircle2 size={80} className="text-emerald-600" />
+            {/* Two-column main */}
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 3fr', gap: 10, alignItems: 'start' }}>
+                {/* Left: Pending */}
+                <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: C.muted, marginBottom: 8 }}>
+                        Pending management approval
                     </div>
-                    <div className="relative z-10">
-                        <p className="text-xs font-black text-emerald-600 uppercase tracking-widest mb-2">
-                            Auto-Adjusted (24h)
-                        </p>
-                        <p className="text-5xl font-black text-emerald-700 tracking-tighter mb-2">
-                            {autoAdjustedCount}
-                        </p>
-                        <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-600">
-                            <Zap size={12} fill="currentColor" />
-                            <span>Saved 1.5 hours</span>
-                        </div>
-                    </div>
-                </div>
 
-                {/* Pending Approval Card */}
-                <div className="bg-gradient-to-br from-amber-50 to-amber-100 p-6 rounded-2xl border-2 border-amber-200 shadow-sm relative overflow-hidden">
-                    <div className="absolute right-0 top-0 p-4 opacity-10">
-                        <Clock size={80} className="text-amber-600" />
-                    </div>
-                    <div className="relative z-10">
-                        <p className="text-xs font-black text-amber-600 uppercase tracking-widest mb-2">
-                            Pending Approval
-                        </p>
-                        <p className="text-5xl font-black text-amber-700 tracking-tighter mb-2">
-                            {pendingCount}
-                        </p>
-                        <div className="text-xs font-bold text-amber-600">
-                            Avg Confidence: {avgConfidence}%
-                        </div>
-                    </div>
-                </div>
-
-                {/* Critical Flags Card */}
-                <div className="bg-gradient-to-br from-red-50 to-red-100 p-6 rounded-2xl border-2 border-red-200 shadow-sm relative overflow-hidden">
-                    <div className="absolute right-0 top-0 p-4 opacity-10">
-                        <ShieldAlert size={80} className="text-red-600" />
-                    </div>
-                    <div className="relative z-10">
-                        <p className="text-xs font-black text-red-600 uppercase tracking-widest mb-2">
-                            Critical Flags
-                        </p>
-                        <p className="text-5xl font-black text-red-700 tracking-tighter mb-2">
-                            {criticalCount}
-                        </p>
-                        <div className="text-xs font-bold text-red-600">
-                            Investigation Required
-                        </div>
-                    </div>
-                </div>
-
-                {/* AI Confidence Score Card */}
-                <div className="bg-gradient-to-br from-purple-600 to-indigo-700 p-6 rounded-2xl text-white shadow-lg relative overflow-hidden">
-                    <div className="absolute right-0 top-0 p-4 opacity-20">
-                        <Brain size={80} />
-                    </div>
-                    <div className="relative z-10">
-                        <p className="text-xs font-black text-purple-200 uppercase tracking-widest mb-2">
-                            Confidence Score
-                        </p>
-                        <p className="text-5xl font-black tracking-tighter mb-2">
-                            {avgConfidence}%
-                        </p>
-                        <div className="flex items-center gap-1.5 text-xs font-bold text-purple-200">
-                            <TrendingUp size={12} />
-                            <span>+2.4% this week</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* AI Insight Banner */}
-            <div className="bg-gray-900 text-white p-5 rounded-2xl flex items-center justify-between shadow-lg">
-                <div className="flex items-center gap-4">
-                    <div className="p-2.5 bg-white/10 rounded-lg">
-                        <BarChart3 size={22} className="text-blue-400" />
-                    </div>
-                    <div>
-                        <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">
-                            AI Insight
-                        </h4>
-                        <p className="text-sm font-bold">
-                            {insights[0]?.message || 'Shrinkage rate decreased 0.3% this month'}
-                        </p>
-                    </div>
-                </div>
-                <div className="text-right">
-                    <span className="text-2xl font-black text-blue-400">
-                        {insights[0]?.metric || '-0.3%'}
-                    </span>
-                    <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">Impact</p>
-                </div>
-            </div>
-
-            {/* Main Content Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Live Auto-Log */}
-                <div className="bg-white rounded-2xl border-2 border-gray-200 shadow-sm overflow-hidden">
-                    <div className="p-5 border-b-2 border-gray-200 bg-gray-50">
-                        <h3 className="text-xs font-black text-gray-900 uppercase tracking-widest flex items-center gap-2">
-                            <Zap size={16} className="text-emerald-500" />
-                            Live Auto-Log
-                        </h3>
-                        <p className="text-xs font-bold text-gray-500 mt-1">Last 24 Hours</p>
-                    </div>
-                    <div className="divide-y divide-gray-100 max-h-[600px] overflow-y-auto">
-                        {filteredAdjustments.filter(a => a.type === 'auto').length === 0 ? (
-                            <div className="p-8 text-center">
-                                <CheckCircle2 size={40} className="text-gray-300 mx-auto mb-3" />
-                                <p className="text-sm font-bold text-gray-400">No auto-adjustments yet</p>
+                    {criticalPending.length > 0 && (
+                        <div style={{ marginBottom: 10 }}>
+                            <div style={{
+                                fontSize: 9,
+                                fontWeight: 700,
+                                color: C.red,
+                                textTransform: 'uppercase',
+                                letterSpacing: '.5px',
+                                marginBottom: 6,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                            }}>
+                                <AlertTriangle size={11} /> Critical — stockout risk
                             </div>
-                        ) : (
-                            filteredAdjustments.filter(a => a.type === 'auto').map((adj) => (
-                                <div key={adj.id} className="p-5 hover:bg-gray-50 transition-colors">
-                                    <div className="flex justify-between items-start mb-3">
-                                        <div className="flex-1">
-                                            <p className="text-sm font-bold text-gray-900 mb-1">
-                                                {adj.productName}
-                                            </p>
-                                            <span className={`text-xs font-bold px-2 py-1 rounded ${getReasonBadgeColor(adj.reason)}`}>
-                                                {adj.reason.replace(/_/g, ' ').toUpperCase()}
-                                            </span>
-                                        </div>
-                                        <span className={`text-sm font-black px-3 py-1.5 rounded-lg ${adj.suggestedAdjustment < 0 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                                            {adj.suggestedAdjustment > 0 ? '+' : ''}{adj.suggestedAdjustment}
-                                        </span>
-                                    </div>
-                                    <p className="text-xs text-gray-600 mb-3">{adj.description}</p>
-                                    <div className="flex items-center justify-between">
-                                        <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full border border-emerald-200">
-                                            <CheckCircle2 size={12} />
-                                            AI Conf: {adj.confidence}%
-                                        </span>
-                                        <span className="text-xs text-gray-400 font-medium">
-                                            {new Date(adj.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                        </span>
-                                    </div>
-                                </div>
-                            ))
-                        )}
-                    </div>
+                            {criticalPending.map(adj => renderPendingCard(adj, true))}
+                        </div>
+                    )}
+
+                    {highZeroPending.length > 0 && (
+                        <div style={{ marginBottom: 10 }}>
+                            <div style={{
+                                fontSize: 9,
+                                fontWeight: 700,
+                                color: C.amber,
+                                textTransform: 'uppercase',
+                                letterSpacing: '.5px',
+                                marginBottom: 6,
+                            }}>
+                                High — 0 units
+                            </div>
+                            {highZeroPending.map(adj => renderPendingCard(adj, false))}
+                        </div>
+                    )}
+
+                    {otherPending.length > 0 && (
+                        <div style={{ marginBottom: 10 }}>
+                            <div style={{
+                                fontSize: 9,
+                                fontWeight: 700,
+                                color: C.blue,
+                                textTransform: 'uppercase',
+                                letterSpacing: '.5px',
+                                marginBottom: 6,
+                            }}>
+                                Restock suggested
+                            </div>
+                            {otherPending.map(adj => renderPendingCard(adj, false))}
+                        </div>
+                    )}
+
+                    {criticalPending.length + highZeroPending.length + otherPending.length === 0 && (
+                        <div style={{ ...panel, padding: 24, textAlign: 'center' }}>
+                            <CheckCircle2 size={32} color={C.dim} style={{ margin: '0 auto 8px' }} />
+                            <p style={{ fontSize: 11, color: C.muted, margin: 0 }}>No pending approvals</p>
+                        </div>
+                    )}
                 </div>
 
-                {/* Pending Approvals & Critical Investigations */}
-                <div className="lg:col-span-2 space-y-6">
-                    {/* Pending Approvals */}
-                    {filteredAdjustments.filter(a => a.type === 'approval_required').length > 0 && (
-                        <div className="space-y-4">
-                            <h3 className="text-xs font-black text-gray-700 uppercase tracking-widest flex items-center gap-2">
-                                <Clock size={16} className="text-amber-500" />
-                                Pending Management Approval ({filteredAdjustments.filter(a => a.type === 'approval_required').length})
-                            </h3>
-
-                            {filteredAdjustments.filter(a => a.type === 'approval_required').map(adj => (
-                                <div key={adj.id} className="bg-white p-6 rounded-2xl border-2 border-amber-200 shadow-sm relative overflow-hidden">
-                                    <div className="absolute top-0 left-0 w-1.5 h-full bg-amber-500"></div>
-                                    <div className="flex flex-col lg:flex-row gap-6 items-start lg:items-center justify-between">
-                                        <div className="flex-1">
-                                            <div className="flex items-center gap-3 mb-3">
-                                                {getReasonIcon(adj.reason)}
-                                                <span className="text-xs font-black text-amber-600 uppercase tracking-wider bg-amber-100 px-3 py-1 rounded-lg">
-                                                    Suggestion
-                                                </span>
-                                            </div>
-                                            <h4 className="text-xl font-black text-gray-900 mb-2">
-                                                {adj.productName}
-                                            </h4>
-                                            <p className="text-sm text-gray-700 mb-4 bg-gray-50 p-4 rounded-xl border border-gray-200 font-medium">
-                                                "{adj.description}"
-                                            </p>
-                                            <div className="flex items-center gap-4 flex-wrap">
-                                                <div className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-                                                    Current: <span className="text-gray-900 text-sm">{adj.currentStock}</span>
-                                                </div>
-                                                <ArrowRight size={16} className="text-gray-300" />
-                                                <div className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-                                                    New: <span className="text-gray-900 text-sm">{adj.currentStock + adj.suggestedAdjustment}</span>
-                                                </div>
-                                                <span className="text-xs font-bold text-amber-700 bg-amber-100 px-3 py-1.5 rounded-full border border-amber-200">
-                                                    Adjustment: {adj.suggestedAdjustment > 0 ? '+' : ''}{adj.suggestedAdjustment}
-                                                </span>
-                                                <span className="text-xs font-bold text-purple-700 bg-purple-100 px-3 py-1.5 rounded-full border border-purple-200">
-                                                    Confidence: {adj.confidence}%
-                                                </span>
-                                            </div>
-                                        </div>
-
-                                        <div className="flex gap-3 w-full lg:w-auto">
-                                            <button
-                                                onClick={() => handleAction(adj.id, 'reject')}
-                                                disabled={processingId === adj.id}
-                                                className="flex-1 lg:flex-none px-6 py-3 border-2 border-gray-200 rounded-xl text-xs font-black uppercase text-gray-600 hover:border-red-200 hover:text-red-600 hover:bg-red-50 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                                            >
-                                                <X size={18} />
-                                                Reject
-                                            </button>
-                                            <button
-                                                onClick={() => { if (window.confirm('Delete this adjustment record?')) { setAdjustments(prev => prev.filter(a => a.id !== adj.id)); const stored = JSON.parse(localStorage.getItem('zavi_stock_adjustment_decision_log') || '[]'); localStorage.setItem('zavi_stock_adjustment_decision_log', JSON.stringify(stored.filter((a:any) => a.id !== adj.id))); } }}
-                                                className="px-4 py-3 border-2 border-red-200 rounded-xl text-xs font-black uppercase text-red-500 hover:bg-red-50 transition-all flex items-center gap-1"
-                                                title="Delete this adjustment"
-                                            >
-                                                🗑️
-                                            </button>
-                                            <button
-                                                onClick={() => handleAction(adj.id, 'approve')}
-                                                disabled={processingId === adj.id}
-                                                className="flex-1 lg:flex-none px-8 py-3 bg-gray-900 text-white rounded-xl text-xs font-black uppercase tracking-wider hover:bg-gray-800 transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
-                                            >
-                                                {processingId === adj.id ? (
-                                                    <RefreshCw size={18} className="animate-spin" />
-                                                ) : (
-                                                    <Check size={18} />
-                                                )}
-                                                Approve
-                                            </button>
-                                        </div>
-                                    </div>
+                {/* Right */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {/* Confidence breakdown */}
+                    <div style={{ ...panel, padding: '12px 14px' }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: C.muted, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 5 }}>
+                            <BarChart3 size={12} /> AI confidence breakdown
+                        </div>
+                        <div style={{ display: 'flex', height: 14, borderRadius: 7, overflow: 'hidden', marginBottom: 10 }}>
+                            {confidenceBuckets.filter(b => b.count > 0).map(b => (
+                                <div
+                                    key={b.label}
+                                    title={`${b.label}: ${b.count}`}
+                                    style={{ width: `${b.pct}%`, background: b.color, minWidth: b.count > 0 ? 4 : 0 }}
+                                />
+                            ))}
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                            {confidenceBuckets.map(b => (
+                                <div key={b.label} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 9.5, color: C.muted }}>
+                                    <span style={{ width: 8, height: 8, borderRadius: 2, background: b.color }} />
+                                    {b.label} · {b.count}
                                 </div>
                             ))}
                         </div>
-                    )}
+                    </div>
 
-                    {/* Critical Investigations */}
-                    {filteredAdjustments.filter(a => a.type === 'investigation_required').length > 0 && (
-                        <div className="space-y-4">
-                            <h3 className="text-xs font-black text-red-600 uppercase tracking-widest flex items-center gap-2">
-                                <AlertTriangle size={16} />
-                                Critical Investigations Required ({filteredAdjustments.filter(a => a.type === 'investigation_required').length})
-                            </h3>
-
-                            {filteredAdjustments.filter(a => a.type === 'investigation_required').map(adj => (
-                                <div key={adj.id} className="bg-gradient-to-br from-red-50 to-red-100 p-6 rounded-2xl border-2 border-red-200 relative shadow-md">
-                                    <div className="flex justify-between items-start">
-                                        <div className="flex-1">
-                                            <div className="flex items-center gap-3 mb-2">
-                                                <ShieldAlert size={20} className="text-red-600" />
-                                                <span className="text-xs font-black text-red-700 uppercase tracking-wider bg-red-200 px-3 py-1 rounded-lg">
-                                                    Risk Score: {adj.aiAnalysis?.riskScore || 90}/100
-                                                </span>
-                                            </div>
-                                            <h4 className="text-xl font-black text-red-900 mb-2">
-                                                {adj.productName}
-                                            </h4>
-                                            <p className="text-sm font-medium text-red-800 mb-5 max-w-2xl bg-white/50 p-4 rounded-lg">
-                                                {adj.description}
-                                            </p>
-
-                                            <div className="flex gap-3 flex-wrap">
-                                                <button className="px-5 py-2.5 bg-red-600 text-white rounded-xl text-xs font-black uppercase tracking-wider hover:bg-red-700 transition-all shadow-md">
-                                                    Trigger Physical Count
-                                                </button>
-                                                <button className="px-5 py-2.5 bg-white text-red-700 rounded-xl text-xs font-black uppercase tracking-wider border-2 border-red-200 hover:bg-red-50 transition-all">
-                                                    Review Security Footage
-                                                </button>
+                    {/* Live auto-log */}
+                    <div style={{ ...panel, overflow: 'hidden' }}>
+                        <div style={{ padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: C.muted, display: 'flex', alignItems: 'center', gap: 5 }}>
+                                <Zap size={12} color={C.green} /> Live auto-log
+                            </span>
+                            <span style={{ fontSize: 9, color: C.dim }}>Last 24h</span>
+                        </div>
+                        <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+                            {autoLogItems.length === 0 ? (
+                                <div style={{ padding: 20, textAlign: 'center', fontSize: 10, color: C.dim }}>No auto-adjustments yet</div>
+                            ) : (
+                                autoLogItems.map(adj => (
+                                    <div key={adj.id} style={{ padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,.04)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                                            <CheckCircle2 size={14} color={C.green} style={{ flexShrink: 0 }} />
+                                            <div style={{ minWidth: 0 }}>
+                                                <div style={{ fontSize: 11, fontWeight: 500, color: C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{adj.productName}</div>
+                                                <div style={{ fontSize: 9, color: C.dim }}>{adj.reason.replace(/_/g, ' ')}</div>
                                             </div>
                                         </div>
-                                        <div className="text-right">
-                                            <p className="text-4xl font-black text-red-900 mb-1">
-                                                {adj.suggestedAdjustment}
-                                            </p>
-                                            <p className="text-xs font-bold text-red-600 uppercase tracking-widest">
-                                                Discrepancy
-                                            </p>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                                            <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 6px', borderRadius: 20, background: 'rgba(34,197,94,.12)', color: C.green }}>
+                                                {adj.confidence}%
+                                            </span>
+                                            <span style={{ fontSize: 9, color: C.dim }}>{fmtTime(adj.timestamp)}</span>
                                         </div>
                                     </div>
-                                </div>
-                            ))}
+                                ))
+                            )}
                         </div>
-                    )}
+                    </div>
 
-                    {/* No Results */}
-                    {filteredAdjustments.length === 0 && (
-                        <div className="bg-white p-12 rounded-2xl border-2 border-gray-200 text-center">
-                            <Brain size={60} className="text-gray-300 mx-auto mb-4" />
-                            <h3 className="text-lg font-black text-gray-400 uppercase tracking-wider mb-2">
-                                No Adjustments Found
-                            </h3>
-                            <p className="text-sm text-gray-500">
-                                Try adjusting your search or filter criteria
-                            </p>
+                    {/* Cost impact */}
+                    <div style={{ ...panel, padding: '12px 14px' }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: C.muted, marginBottom: 10 }}>
+                            Cost impact
                         </div>
-                    )}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                            <div style={{ padding: '10px 12px', borderRadius: 8, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.18)' }}>
+                                <div style={{ fontSize: 9, color: C.red, textTransform: 'uppercase', fontWeight: 700, marginBottom: 4 }}>Restock cost</div>
+                                <div style={{ fontSize: 18, fontWeight: 700, color: C.red }}>{fmtUsd(costImpact.restockCost)}</div>
+                                <div style={{ fontSize: 9, color: C.dim, marginTop: 2 }}>{costImpact.restockUnits} units pending</div>
+                            </div>
+                            <div style={{ padding: '10px 12px', borderRadius: 8, background: 'rgba(34,197,94,.08)', border: '1px solid rgba(34,197,94,.18)' }}>
+                                <div style={{ fontSize: 9, color: C.green, textTransform: 'uppercase', fontWeight: 700, marginBottom: 4 }}>Revenue unlock</div>
+                                <div style={{ fontSize: 18, fontWeight: 700, color: C.green }}>{fmtUsd(costImpact.revenueUnlock)}</div>
+                                <span style={{
+                                    display: 'inline-block',
+                                    marginTop: 4,
+                                    fontSize: 8,
+                                    fontWeight: 700,
+                                    padding: '2px 7px',
+                                    borderRadius: 20,
+                                    background: 'rgba(155,111,228,.15)',
+                                    color: C.purple,
+                                }}>
+                                    {costImpact.roi}x ROI
+                                </span>
+                            </div>
+                        </div>
+                    </div>
 
-                    <div className="bg-white p-6 rounded-2xl border-2 border-gray-200 shadow-sm">
-                        <h3 className="text-xs font-black text-gray-700 uppercase tracking-widest flex items-center gap-2 mb-4">
-                            <ClipboardList size={16} className="text-gray-500" />
-                            Recent Decisions (Where Approved/Rejected Go)
-                        </h3>
+                    {/* Audit log */}
+                    <div style={{ ...panel, padding: '12px 14px' }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: C.muted, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
+                            <ClipboardList size={12} /> Audit log
+                        </div>
                         {decisionLog.length === 0 ? (
-                            <p className="text-sm text-gray-500">No approval/rejection/manual action recorded yet.</p>
+                            <p style={{ fontSize: 10, color: C.dim, margin: 0 }}>No approval/rejection/manual action recorded yet.</p>
                         ) : (
-                            <div className="space-y-2 max-h-56 overflow-y-auto">
-                                {decisionLog.slice(0, 10).map((d) => (
-                                    <div key={d.id} className="flex items-start justify-between gap-3 bg-gray-50 p-3 rounded-lg border border-gray-100">
-                                        <div>
-                                            <p className="text-sm font-bold text-gray-900">{d.productName}</p>
-                                            <p className="text-xs text-gray-600">{d.note}</p>
+                            <div style={{ maxHeight: 140, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                {decisionLog.slice(0, 10).map(d => (
+                                    <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '8px 10px', borderRadius: 8, background: C.bg3 }}>
+                                        <div style={{ minWidth: 0 }}>
+                                            <div style={{ fontSize: 10.5, fontWeight: 600, color: C.text }}>{d.productName}</div>
+                                            <div style={{ fontSize: 9, color: C.dim }}>{d.note}</div>
                                         </div>
-                                        <div className="flex items-start gap-3">
-                                            <div className="text-right">
-                                                <p className="text-xs font-black uppercase text-gray-700">{d.action}</p>
-                                                <p className="text-xs font-bold text-gray-500">
+                                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, flexShrink: 0 }}>
+                                            <div style={{ textAlign: 'right' }}>
+                                                <div style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase', color: d.action === 'approved' ? C.green : d.action === 'rejected' ? C.red : C.amber }}>
+                                                    {d.action}
+                                                </div>
+                                                <div style={{ fontSize: 9, color: C.muted }}>
                                                     {d.quantityChange > 0 ? '+' : ''}{d.quantityChange}
-                                                </p>
+                                                </div>
                                             </div>
                                             <button
+                                                type="button"
                                                 onClick={() => {
                                                     if (window.confirm('Delete this decision log entry?')) {
                                                         const next = decisionLog.filter(x => x.id !== d.id);
@@ -709,11 +790,11 @@ export default function StockAdjustmentManager() {
                                                         localStorage.setItem(DECISION_LOG_KEY, JSON.stringify(next));
                                                     }
                                                 }}
-                                                className="p-1.5 text-gray-300 hover:text-rose-600 hover:bg-rose-50 rounded transition-all"
+                                                style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 2, color: C.dim }}
                                                 title="Delete this decision"
                                                 aria-label="Delete decision"
                                             >
-                                                <Trash2 size={14} />
+                                                <Trash2 size={12} />
                                             </button>
                                         </div>
                                     </div>
@@ -723,6 +804,110 @@ export default function StockAdjustmentManager() {
                     </div>
                 </div>
             </div>
+
+            {/* Manual adjustment modal */}
+            {manualOpen && (
+                <div
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        background: 'rgba(0,0,0,.55)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 1000,
+                        padding: 16,
+                    }}
+                    onClick={() => setManualOpen(false)}
+                >
+                    <div
+                        style={{ ...panel, background: C.bg3, padding: 20, width: '100%', maxWidth: 440 }}
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Manual adjustment</div>
+                            <button type="button" onClick={() => setManualOpen(false)} style={{ ...ghostBtn, padding: 4 }}>
+                                <X size={14} />
+                            </button>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <input
+                                type="text"
+                                placeholder="Search products…"
+                                value={searchTerm}
+                                onChange={e => setSearchTerm(e.target.value)}
+                                style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,.12)', background: C.bg2, color: C.text, fontSize: 11 }}
+                            />
+                            <select
+                                value={filterType}
+                                onChange={e => setFilterType(e.target.value as typeof filterType)}
+                                style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,.12)', background: C.bg2, color: C.text, fontSize: 11 }}
+                            >
+                                <option value="all">All types</option>
+                                <option value="auto">Auto-adjusted</option>
+                                <option value="approval_required">Pending approval</option>
+                                <option value="investigation_required">Critical flags</option>
+                            </select>
+                            <select
+                                value={manualProductId}
+                                onChange={e => setManualProductId(e.target.value)}
+                                style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,.12)', background: C.bg2, color: C.text, fontSize: 11 }}
+                            >
+                                <option value="">Select product</option>
+                                {products.map(p => (
+                                    <option key={p.id} value={p.id}>{p.name}</option>
+                                ))}
+                            </select>
+                            <input
+                                type="number"
+                                value={manualDelta}
+                                onChange={e => setManualDelta(e.target.value === '' ? 0 : Number(e.target.value))}
+                                placeholder="Qty +/-"
+                                style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,.12)', background: C.bg2, color: C.text, fontSize: 11 }}
+                            />
+                            <input
+                                type="text"
+                                value={manualNote}
+                                onChange={e => setManualNote(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') applyManualAdjustment(); }}
+                                placeholder="Manual note"
+                                style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,.12)', background: C.bg2, color: C.text, fontSize: 11 }}
+                            />
+                        </div>
+                        {manualFeedback && (
+                            <div style={{
+                                marginTop: 10,
+                                padding: '8px 10px',
+                                borderRadius: 8,
+                                fontSize: 10,
+                                fontWeight: 600,
+                                background: manualFeedback.type === 'success' ? 'rgba(34,197,94,.12)' : 'rgba(239,68,68,.12)',
+                                color: manualFeedback.type === 'success' ? C.green : C.red,
+                            }}>
+                                {manualFeedback.message}
+                            </div>
+                        )}
+                        <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                            <button type="button" onClick={() => setManualOpen(false)} style={{ ...ghostBtn, flex: 1, justifyContent: 'center' }}>
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={applyManualAdjustment}
+                                disabled={!manualProductId || manualDelta === 0}
+                                style={{
+                                    ...purpleBtn,
+                                    flex: 1,
+                                    justifyContent: 'center',
+                                    opacity: !manualProductId || manualDelta === 0 ? 0.5 : 1,
+                                }}
+                            >
+                                Apply adjustment
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
