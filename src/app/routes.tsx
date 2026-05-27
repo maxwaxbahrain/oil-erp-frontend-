@@ -113,7 +113,7 @@ import TaxAdvisor from '../pages/TaxSystem/TaxAdvisor';
 // Session 3C — live Tax Dashboard.
 import TaxDashboard from '../pages/TaxSystem/TaxDashboard';
 import AmazonIntegration from '../pages/Amazon/AmazonIntegration';
-import Pulse from '../pages/Pulse/Pulse';
+import Pulse from '../pages/Pulse/PulseDashboard';
 import DataMigration from '../pages/Migration/DataMigration'; // CRM exports as 'CRM'
 import AIContentStudio from '../pages/Marketing/AIContentStudio';
 import { CustomerSegments, CampaignManager, MarketingAnalytics } from '../pages/Marketing/MarketingPages';
