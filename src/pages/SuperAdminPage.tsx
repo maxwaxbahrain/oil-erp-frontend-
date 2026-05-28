@@ -156,7 +156,7 @@ export default function SuperAdminPage() {
     }
   };
 
-  if (user?.username !== 'admin') {
+  if (user?.role !== 'admin') {
     return (
       <div style={{ ...panel, padding: 24, color: C.muted, maxWidth: 640 }}>
         Super Admin access is restricted to the platform administrator account.
