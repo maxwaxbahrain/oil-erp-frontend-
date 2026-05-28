@@ -19,6 +19,10 @@ interface Message {
     reactions: Record<string, string[]>;
     isPinned?: boolean;
     isAnnouncement?: boolean;
+    // Optional pre-formatted clock time (e.g. "9:02 AM") used by the
+    // hardcoded sample messages.  Real user-sent messages omit this
+    // and fall back to the `timeAgo(timestamp)` relative format.
+    displayTime?: string;
 }
 
 interface Task {
@@ -60,6 +64,157 @@ const DEFAULT_ROOMS: Room[] = [
     { id: 'warehouse', name: 'Warehouse', emoji: '📦', description: 'Inventory & logistics',    type: 'room', members: [], createdBy: 'system', unread: 0 },
     { id: 'drivers',   name: 'Drivers',   emoji: '🚐', description: 'Van & delivery team',     type: 'room', members: [], createdBy: 'system', unread: 0 },
     { id: 'finance',   name: 'Finance',   emoji: '📊', description: 'Accounting & payments',  type: 'room', members: [], createdBy: 'system', unread: 0 },
+];
+
+// ── Hardcoded sample data ─────────────────────────────────────
+// These constants populate the Chat / Tasks / Board views when no
+// real data has been stored yet, so a fresh user lands on a
+// "buzzing team" view instead of an empty screen.  Once the user
+// posts a real message or assigns a real task, the sample data
+// drops away and the live stored data takes over — the existing
+// localStorage flow is untouched.
+
+// Avatar tint per sender name (used for sample messages).  Real
+// users without a match fall back to the existing gray avatar.
+const USER_COLORS: Record<string, string> = {
+    'Waqas':        '#4F8EF7',
+    'System Admin': '#7C3AED',
+    'Leo':          '#22C55E',
+    'Khalid':       '#F59E0B',
+};
+
+// Override room unread badge count + color so the sidebar looks
+// like a real team workflow ("Sales has 3 new messages, Drivers
+// has 1").  When a room id isn't in this map, the real room.unread
+// value renders unchanged.
+const ROOM_UNREAD_OVERRIDE: Record<string, { count: number; color: string }> = {
+    general:   { count: 0, color: '#F97316' },
+    sales:     { count: 3, color: '#EF4444' },
+    warehouse: { count: 0, color: '#F97316' },
+    drivers:   { count: 1, color: '#F59E0B' },
+    finance:   { count: 0, color: '#F97316' },
+};
+
+// Online status dot override per teammate name (used in the team
+// roster).  Falls back to u.isActive for users not listed.
+const USER_ONLINE_STATUS: Record<string, 'online' | 'busy' | 'offline'> = {
+    'System Admin': 'online',
+    'Waqas':        'online',
+    'Leo':          'busy',
+    'Khalid':       'offline',
+};
+
+// Small builder to keep the sample-message blocks readable.
+const mkSampleMsg = (
+    id: string, roomId: string, senderName: string, senderRole: string,
+    content: string, displayTime: string,
+): Message => ({
+    id, roomId,
+    senderId: `sample-${senderName.replace(/\s+/g, '-')}`,
+    senderName, senderRole, content,
+    timestamp: new Date().toISOString(),
+    reactions: {},
+    displayTime,
+});
+
+const SAMPLE_MESSAGES_BY_ROOM: Record<string, Message[]> = {
+    general: [
+        mkSampleMsg('s-g-1', 'general', 'Waqas',        'owner',      "Good morning team! 821 invoices outstanding — let's push collections today.",         '9:02 AM'),
+        mkSampleMsg('s-g-2', 'general', 'System Admin', 'owner',      'Marcus flagged Qahir — $3,875 overdue 32 days. Who is handling this?',                '9:05 AM'),
+        mkSampleMsg('s-g-3', 'general', 'Waqas',        'owner',      "I'll call Qahir at 11am. He usually pays within a week of a call.",                   '9:07 AM'),
+        mkSampleMsg('s-g-4', 'general', 'Leo',          'van_driver', 'Van 01 loaded and ready. 13 stops today. OW16 stock is low on van.',                  '9:15 AM'),
+        mkSampleMsg('s-g-5', 'general', 'System Admin', 'owner',      'Auto PO raised for OW16 × 80 units — needs approval before 12pm.',                    '9:18 AM'),
+        mkSampleMsg('s-g-6', 'general', 'Khalid',       'warehouse',  "Bettano confirmed delivery Thursday. I'll be at warehouse to receive.",               '9:31 AM'),
+    ],
+    sales: [
+        mkSampleMsg('s-s-1', 'sales', 'Waqas',        'owner',     'WAQAS Trading asking for bulk OW16 pricing — 50 units. ARIA is handling it.',          '8:45 AM'),
+        mkSampleMsg('s-s-2', 'sales', 'System Admin', 'owner',     'ARIA offered 5% discount — margin stays at 33%. Within policy.',                       '8:47 AM'),
+        mkSampleMsg('s-s-3', 'sales', 'Waqas',        'owner',     'Ali A&R confirmed order for next week — $2,200. Largest order this month!',           '10:02 AM'),
+        mkSampleMsg('s-s-4', 'sales', 'Khalid',       'warehouse', 'FastLuke UK cut OW16 price on Amazon by 8%. Our BSR dropped to #445.',                '10:15 AM'),
+        mkSampleMsg('s-s-5', 'sales', 'System Admin', 'owner',     "Amazon AI already alerted Marcus. Recommendation: increase sponsored ads, don't cut price.", '10:17 AM'),
+    ],
+    warehouse: [
+        mkSampleMsg('s-w-1', 'warehouse', 'Khalid',       'warehouse', 'Morning check done. Bin D1 quarantine confirmed — Mobil 5W30 batch EXPIRED.',         '7:30 AM'),
+        mkSampleMsg('s-w-2', 'warehouse', 'System Admin', 'owner',     '⚠ 3 products below reorder point: OW16 (40), Zenol 0W20 (12), Mobil 5W30 (8)',         '7:32 AM'),
+        mkSampleMsg('s-w-3', 'warehouse', 'Khalid',       'warehouse', 'Received Castrol GTX shipment — 72 units. Placed in B2 Rack 3. All good.',            '8:10 AM'),
+        mkSampleMsg('s-w-4', 'warehouse', 'Khalid',       'warehouse', 'Pick list PL-002 complete. INV-960336 packed and ready for Van 01 collection.',       '11:20 AM'),
+    ],
+    drivers: [
+        mkSampleMsg('s-d-1', 'drivers', 'Leo',   'van_driver', 'Departed depot. 13 stops today. Starting with Ali A&R on 97 Palace St.',         '8:14 AM'),
+        mkSampleMsg('s-d-2', 'drivers', 'Leo',   'van_driver', '5 stops done. Collected $1,122 cash so far. Qahir stop is at 2pm.',              '11:02 AM'),
+        mkSampleMsg('s-d-3', 'drivers', 'Waqas', 'owner',      'Good work Leo! Make sure you get a signed receipt from Janan Motors.',           '11:05 AM'),
+        mkSampleMsg('s-d-4', 'drivers', 'Leo',   'van_driver', 'At Stop 6 — Mobil Centre. $328 to collect. Back on track after traffic.',        '1:15 PM'),
+    ],
+    finance: [
+        mkSampleMsg('s-f-1', 'finance', 'System Admin', 'owner', 'Daily Finance Brief: Cash position $784,761. AR Outstanding $414,338. VAT collected MTD $628.', '8:00 AM'),
+        mkSampleMsg('s-f-2', 'finance', 'System Admin', 'owner', '⚠ Sequential invoice gap detected: INV-960339 → INV-960336. Tax audit risk.',                   '8:02 AM'),
+        mkSampleMsg('s-f-3', 'finance', 'Waqas',        'owner', 'VAT return Q1 is ready for review. Please check and approve before Friday.',                   '9:45 AM'),
+        mkSampleMsg('s-f-4', 'finance', 'System Admin', 'owner', 'Compliance score at 30% — 5 items still open. Tax reg number missing on all invoices.',        '10:00 AM'),
+    ],
+};
+
+// Sample task board — mapped onto the existing Task interface so it
+// renders through the unmodified Tasks / Board UI.  "critical" in the
+// spec maps to priority='urgent' (the only 4 priorities the interface
+// accepts).  Status uppercase labels map to lowercase.
+const SAMPLE_TASKS: Task[] = [
+    { id: 'SMP-T001', title: 'Call Qahir re overdue payment $3,875',
+      priority: 'urgent', status: 'pending',
+      assigneeId: 'sample-Waqas',  assigneeName: 'Waqas',
+      assignedById: 'system',      assignedByName: 'Marcus AI',
+      dueDate: 'Today',            roomId: 'finance',
+      description: '32 days overdue. Marcus flagged. Call before 2pm to avoid credit hold Friday.',
+      createdAt: new Date().toISOString() },
+    { id: 'SMP-T002', title: 'Approve OW16 Auto PO — 80 units $3,040',
+      priority: 'high', status: 'pending',
+      assigneeId: 'sample-System-Admin', assigneeName: 'System Admin',
+      assignedById: 'system',            assignedByName: 'Auto PO Bot',
+      dueDate: 'Today 12pm',             roomId: 'general',
+      description: 'Supplier price +18%. Marcus recommends approve 40 units only and negotiate.',
+      createdAt: new Date().toISOString() },
+    { id: 'SMP-T003', title: 'Receive Bettano UAE shipment — Thursday',
+      priority: 'medium', status: 'pending',
+      assigneeId: 'sample-Khalid', assigneeName: 'Khalid',
+      assignedById: 'sample-Waqas', assignedByName: 'Waqas',
+      dueDate: 'Thu 23 May',       roomId: 'warehouse',
+      description: 'OW16 × 80 units incoming. Ensure Bin A1 is cleared.',
+      createdAt: new Date().toISOString() },
+    { id: 'SMP-T004', title: 'VAT return Q1 — review and approve',
+      priority: 'high', status: 'in_progress',
+      assigneeId: 'sample-System-Admin', assigneeName: 'System Admin',
+      assignedById: 'sample-Waqas',      assignedByName: 'Waqas',
+      dueDate: 'Fri 24 May',             roomId: 'finance',
+      description: 'Ready for review. Sequential gap INV-960339→960336 must be addressed first.',
+      createdAt: new Date().toISOString() },
+    { id: 'SMP-T005', title: 'Pause Zenol 0W20 Amazon ads — ACOS 38.6%',
+      priority: 'high', status: 'in_progress',
+      assigneeId: 'sample-Waqas',  assigneeName: 'Waqas',
+      assignedById: 'system',      assignedByName: 'Amazon AI',
+      dueDate: 'Today',            roomId: 'sales',
+      description: 'Amazon AI flagged — burning $140/mo at 38.6% ACOS. Pause and review targeting.',
+      createdAt: new Date().toISOString() },
+    { id: 'SMP-T006', title: '5W30 clearance promo — 15% off before new formula',
+      priority: 'medium', status: 'in_progress',
+      assigneeId: 'sample-Waqas',         assigneeName: 'Waqas',
+      assignedById: 'sample-System-Admin', assignedByName: 'System Admin',
+      dueDate: 'This week',               roomId: 'sales',
+      description: 'Bettano launching new 5W30 formula. Run promo to clear 203 existing units.',
+      createdAt: new Date().toISOString() },
+    { id: 'SMP-T007', title: 'Fix missing tax reg number on all invoices',
+      priority: 'urgent', status: 'review',
+      assigneeId: 'sample-System-Admin', assigneeName: 'System Admin',
+      assignedById: 'system',            assignedByName: 'Compliance Bot',
+      dueDate: 'Urgent',                 roomId: 'finance',
+      description: 'Tax registration number missing on every invoice — legal requirement. Add in Settings → Company Profile.',
+      createdAt: new Date().toISOString() },
+    { id: 'SMP-T008', title: 'Amazon sponsored ads budget +$200/mo approved',
+      priority: 'low', status: 'done',
+      assigneeId: 'sample-Waqas',         assigneeName: 'Waqas',
+      assignedById: 'sample-System-Admin', assignedByName: 'System Admin',
+      dueDate: 'Done',                    roomId: 'sales',
+      description: 'Approved in strategy meeting. Activate from Amazon Seller Central dashboard.',
+      completedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString() },
 ];
 
 function getRooms(): Room[] {
@@ -284,7 +439,16 @@ export default function Pulse() {
         if (activeRoom === room.id) setActiveRoom(updated[0]?.id || 'general');
     };
 
-    const filteredMsgs = search ? messages.filter(m => m.content.toLowerCase().includes(search.toLowerCase())) : messages;
+    // When the room has no stored messages, render the hardcoded
+    // sample log so the chat doesn't look dead.  As soon as the user
+    // posts a real message, `messages.length > 0` and the sample
+    // fallback drops away.
+    const baseMsgs = messages.length === 0
+        ? (SAMPLE_MESSAGES_BY_ROOM[activeRoom] || [])
+        : messages;
+    const filteredMsgs = search ? baseMsgs.filter(m => m.content.toLowerCase().includes(search.toLowerCase())) : baseMsgs;
+    // Same fallback for the Tasks / Board views.
+    const displayTasks = tasks.length === 0 ? SAMPLE_TASKS : tasks;
     const myTasks = tasks.filter(t => t.assigneeId === me.id && t.status !== 'done');
 
     const timeAgo = (iso: string) => {
@@ -331,13 +495,26 @@ export default function Pulse() {
                         <p className="text-[9px] font-black text-gray-500 uppercase tracking-widest">Rooms</p>
                         <button onClick={() => setShowNewRoom(true)} className="w-4 h-4 text-gray-500 hover:text-white transition-all"><Plus size={12} /></button>
                     </div>
-                    {rooms.filter(r => r.type === 'room').map(room => (
+                    {rooms.filter(r => r.type === 'room').map(room => {
+                        // Sample-data unread override — sales=3 (red), drivers=1
+                        // (amber). Falls back to room.unread for non-seed rooms.
+                        const ov = ROOM_UNREAD_OVERRIDE[room.id];
+                        const unreadCount = ov ? ov.count : room.unread;
+                        const unreadColor = ov ? ov.color : '#F97316';
+                        return (
                         <div key={room.id} className="group/room relative flex items-center">
                             <button onClick={() => { setActiveRoom(room.id); setView('chat'); }}
                                 className={`flex-1 flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-all mb-0.5 ${activeRoom === room.id ? 'bg-white/10 text-white' : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'}`}>
                                 <span className="text-sm flex-shrink-0">{room.emoji}</span>
                                 <span className="text-xs font-bold truncate">{room.name}</span>
-                                {room.unread > 0 && <span className="ml-auto w-4 h-4 bg-orange-500 rounded-full text-[9px] font-black text-white flex items-center justify-center flex-shrink-0">{room.unread}</span>}
+                                {unreadCount > 0 && (
+                                    <span
+                                        className="ml-auto w-4 h-4 rounded-full text-[9px] font-black text-white flex items-center justify-center flex-shrink-0"
+                                        style={{ background: unreadColor }}
+                                    >
+                                        {unreadCount}
+                                    </span>
+                                )}
                             </button>
                             {/* TC-16 — Edit / delete shown for ALL rooms (was previously
                                 gated on createdBy !== 'system'). Hover-fade keeps the
@@ -362,12 +539,20 @@ export default function Pulse() {
                                 </button>
                             </div>
                         </div>
-                    ))}
+                        );
+                    })}
 
                     <div className="flex items-center justify-between px-2 mb-1 mt-3">
                         <p className="text-[9px] font-black text-gray-500 uppercase tracking-widest">Team ({users.length})</p>
                     </div>
-                    {users.map(u => (
+                    {users.map(u => {
+                        // Sample-data online override per teammate name —
+                        // SA/Waqas green, Leo amber (on route), Khalid grey
+                        // (offline).  Names not in the map fall back to the
+                        // real u.isActive flag.
+                        const status = USER_ONLINE_STATUS[u.name] ?? (u.isActive ? 'online' : 'offline');
+                        const dotColor = status === 'online' ? '#10B981' : status === 'busy' ? '#F59E0B' : '#6B7280';
+                        return (
                         <button key={u.id} onClick={() => {
                             const dmId = `dm-${[me.id, u.id].sort().join('-')}`;
                             if (!rooms.find(r => r.id === dmId)) {
@@ -377,10 +562,11 @@ export default function Pulse() {
                             setActiveRoom(dmId); setView('chat');
                         }}
                             className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-all mb-0.5 ${activeRoom === `dm-${[me.id, u.id].sort().join('-')}` ? 'bg-white/10 text-white' : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'}`}>
-                            <div className={`w-2 h-2 rounded-full flex-shrink-0 ${u.isActive ? 'bg-emerald-500' : 'bg-gray-600'}`} />
+                            <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: dotColor }} />
                             <span className="text-xs font-bold truncate">{u.name}</span>
                         </button>
-                    ))}
+                        );
+                    })}
                 </div>
 
                 {/* Me */}
@@ -441,10 +627,18 @@ export default function Pulse() {
                                 const isMe = msg.senderId === me.id;
                                 const isAI = msg.senderId === 'ai';
                                 const showHeader = i === 0 || filteredMsgs[i-1].senderId !== msg.senderId;
+                                // Sample-message tint: when the sender name has a
+                                // pre-assigned brand colour, use it as the avatar
+                                // background.  Real users without a match keep the
+                                // existing gray avatar.
+                                const tint = !isAI && !isMe ? USER_COLORS[msg.senderName] : undefined;
                                 return (
                                     <div key={msg.id} className={`group flex gap-3 ${isMe ? 'flex-row-reverse' : ''} ${msg.isAnnouncement ? 'bg-orange-50 rounded-2xl px-4 py-3 border border-orange-100' : ''}`}>
                                         {showHeader && (
-                                            <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm font-black flex-shrink-0 mt-1 ${isAI ? 'bg-orange-500 text-white' : isMe ? 'bg-gray-900 text-white' : 'bg-gray-200 text-gray-700'}`}>
+                                            <div
+                                                className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm font-black flex-shrink-0 mt-1 ${isAI ? 'bg-orange-500 text-white' : isMe ? 'bg-gray-900 text-white' : tint ? 'text-white' : 'bg-gray-200 text-gray-700'}`}
+                                                style={tint ? { background: tint } : undefined}
+                                            >
                                                 {isAI ? 'AI' : msg.senderName[0]}
                                             </div>
                                         )}
@@ -454,7 +648,7 @@ export default function Pulse() {
                                                 <div className={`flex items-center gap-2 mb-1 ${isMe ? 'flex-row-reverse' : ''}`}>
                                                     <span className="text-[11px] font-black text-gray-700">{msg.senderName}</span>
                                                     <span className={`text-[9px] font-bold ${ROLE_COLORS[msg.senderRole] || 'text-gray-400'}`}>{msg.senderRole?.replace('_',' ')}</span>
-                                                    <span className="text-[9px] text-gray-300">{timeAgo(msg.timestamp)}</span>
+                                                    <span className="text-[9px] text-gray-300">{msg.displayTime || timeAgo(msg.timestamp)}</span>
                                                 </div>
                                             )}
                                             <div className={`relative rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
@@ -536,7 +730,7 @@ export default function Pulse() {
                             </button>
                         </div>
                         {(['pending','in_progress','review','done'] as const).map(status => {
-                            const statusTasks = tasks.filter(t => t.status === status);
+                            const statusTasks = displayTasks.filter(t => t.status === status);
                             if (statusTasks.length === 0 && status === 'done') return null;
                             const StatusIcon = STATUS_ICON[status];
                             return (
@@ -589,7 +783,7 @@ export default function Pulse() {
                     <div className="flex-1 overflow-x-auto p-4">
                         <div className="flex gap-3 h-full min-w-max">
                             {(['pending','in_progress','review','done'] as const).map(status => {
-                                const statusTasks = tasks.filter(t => t.status === status);
+                                const statusTasks = displayTasks.filter(t => t.status === status);
                                 const StatusIcon = STATUS_ICON[status];
                                 return (
                                     <div key={status} className="w-64 flex flex-col bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex-shrink-0">
