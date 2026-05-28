@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Edit2, Save, X, RefreshCw, Check, AlertTriangle } from 'lucide-react';
+import { useTracking } from '../../hooks/useTracking';
 import { getPayments, getCustomers, type Payment, type Customer } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
 
@@ -8,6 +9,8 @@ const PAYMENT_METHODS = ['Cash', 'Bank Transfer', 'Cheque', 'Credit Card', 'Onli
 
 export default function PaymentEdit() {
     const navigate = useNavigate();
+    const { trackPage } = useTracking();
+    useEffect(() => { trackPage('payments'); }, [trackPage]);
     // ITEM 13 — ?id=<paymentId> deep-link from per-row Edit buttons opens
     // the matching row in edit mode automatically. Keeps the page useful
     // even after we drop the standalone sidebar link.

@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState, type CSSProperties } from 'react';
-import { Shield, RefreshCw, Users, Clock, AlertTriangle, DollarSign, Sparkles } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { Shield, RefreshCw, Users, Clock, AlertTriangle, DollarSign, Sparkles, Brain, Mail } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../contexts/AuthContext';
+import EmailRemindersPage from './EmailRemindersPage';
 
 const C = {
   bg: '#060f1c',
@@ -126,6 +128,14 @@ function OverviewCard({
 
 export default function SuperAdminPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const activeTab = location.pathname === '/superadmin/emails' || searchParams.get('tab') === 'emails'
+    ? 'emails'
+    : searchParams.get('tab') === 'tenants'
+      ? 'tenants'
+      : 'overview';
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -133,19 +143,23 @@ export default function SuperAdminPage() {
   const [aiUsage, setAiUsage] = useState<AIUsageRow[]>([]);
   const [pageActivity, setPageActivity] = useState<PageActivityRow[]>([]);
   const [actionLoading, setActionLoading] = useState<number | null>(null);
+  const [atRiskCount, setAtRiskCount] = useState(0);
+  const [customerQuery, setCustomerQuery] = useState('');
 
   const loadData = useCallback(async () => {
     try {
-      const [overviewRes, tenantsRes, usageRes, activityRes] = await Promise.all([
+      const [overviewRes, tenantsRes, usageRes, activityRes, statsRes] = await Promise.all([
         api.get<Overview>('/api/superadmin/overview'),
         api.get<TenantRow[]>('/api/superadmin/tenants'),
         api.get<AIUsageRow[]>('/api/superadmin/ai-usage'),
         api.get<PageActivityRow[]>('/api/superadmin/page-activity'),
+        api.get<{ at_risk_count: number }>('/api/superadmin/emails/stats').catch(() => ({ data: { at_risk_count: 0 } })),
       ]);
       setOverview(overviewRes.data);
       setTenants(tenantsRes.data);
       setAiUsage(usageRes.data);
       setPageActivity(activityRes.data);
+      setAtRiskCount(statsRes.data.at_risk_count ?? 0);
       setError('');
     } catch (err: unknown) {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
@@ -183,6 +197,17 @@ export default function SuperAdminPage() {
     } finally {
       setActionLoading(null);
     }
+  };
+
+  const trialAtRiskCount = useMemo(
+    () => tenants.filter(t => t.plan === 'trial' && t.is_active && !t.is_trial_expired && t.days_left <= 3).length,
+    [tenants],
+  );
+
+  const setTab = (tab: 'overview' | 'tenants' | 'emails') => {
+    if (tab === 'overview') navigate('/superadmin');
+    else if (tab === 'emails') navigate('/superadmin/emails');
+    else navigate('/superadmin?tab=tenants');
   };
 
   if (user?.role !== 'admin') {
@@ -241,6 +266,77 @@ export default function SuperAdminPage() {
         </button>
       </div>
 
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+        {[
+          { id: 'overview' as const, label: 'Overview' },
+          { id: 'tenants' as const, label: 'Tenant Profile' },
+          { id: 'emails' as const, label: 'Email Reminders' },
+        ].map(tab => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setTab(tab.id)}
+            style={{
+              background: activeTab === tab.id ? 'rgba(79,142,247,0.15)' : C.bg3,
+              border: `1px solid ${activeTab === tab.id ? 'rgba(79,142,247,0.35)' : 'rgba(255,255,255,0.08)'}`,
+              color: activeTab === tab.id ? C.blue : C.muted,
+              borderRadius: 8,
+              padding: '8px 14px',
+              fontSize: 12,
+              cursor: 'pointer',
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'emails' && <EmailRemindersPage />}
+
+      {activeTab === 'tenants' && (
+        <div style={{ ...panel, padding: 16 }}>
+          <h2 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Tenant Profiles</h2>
+          <div style={{ display: 'grid', gap: 8 }}>
+            {tenants.map(t => (
+              <Link key={t.id} to={`/superadmin/tenant/${t.id}`} style={{ textDecoration: 'none', color: C.text, background: C.bg3, borderRadius: 8, padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontWeight: 600 }}>{t.company_name}</span>
+                <span style={{ fontSize: 12, color: C.muted }}>{t.plan} · {t.total_users} users</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'overview' && (
+        <>
+      {(atRiskCount > 0 || trialAtRiskCount > 0) && (
+        <div style={{ ...panel, padding: 14, marginBottom: 16, background: 'rgba(239,68,68,0.08)', borderColor: 'rgba(239,68,68,0.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#FCA5A5' }}>
+            <AlertTriangle size={18} />
+            <span>{Math.max(atRiskCount, trialAtRiskCount)} tenant(s) at churn risk</span>
+          </div>
+          <button type="button" onClick={() => setTab('emails')} style={{ background: C.red, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 12px', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Mail size={14} /> View reminders
+          </button>
+        </div>
+      )}
+
+      <div style={{ ...panel, padding: 12, marginBottom: 16, display: 'flex', gap: 8 }}>
+        <input
+          value={customerQuery}
+          onChange={e => setCustomerQuery(e.target.value)}
+          placeholder="Ask anything about your customers..."
+          style={{ flex: 1, background: C.bg3, border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, color: C.text, padding: '10px 12px', fontSize: 13 }}
+        />
+        <button
+          type="button"
+          onClick={() => navigate('/ai/hub', { state: { prompt: customerQuery || 'Which tenants are at churn risk?' } })}
+          style={{ background: C.blue, color: '#fff', border: 'none', borderRadius: 8, padding: '0 14px', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+        >
+          <Brain size={14} /> Ask AI
+        </button>
+      </div>
+
       {error && (
         <div style={{ ...panel, padding: 12, marginBottom: 16, color: '#FCA5A5', borderColor: 'rgba(239,68,68,0.25)' }}>
           {error}
@@ -280,7 +376,9 @@ export default function SuperAdminPage() {
               const status = !t.is_active ? 'Inactive' : t.is_trial_expired ? 'Trial expired' : t.plan === 'trial' ? 'Active trial' : t.plan;
               return (
                 <tr key={t.id} style={{ background: rowBg }}>
-                  <td style={{ ...td, color: C.text, fontWeight: 600 }}>{t.company_name}</td>
+                  <td style={{ ...td, color: C.text, fontWeight: 600 }}>
+                    <Link to={`/superadmin/tenant/${t.id}`} style={{ color: C.blue, textDecoration: 'none' }}>{t.company_name}</Link>
+                  </td>
                   <td style={td}>{t.company_email}</td>
                   <td style={td}>{t.plan}</td>
                   <td style={td}>{t.days_left}</td>
@@ -365,6 +463,8 @@ export default function SuperAdminPage() {
           </table>
         </div>
       </div>
+        </>
+      )}
     </div>
   );
 }

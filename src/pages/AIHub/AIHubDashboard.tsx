@@ -1,5 +1,6 @@
 import { useState, useEffect, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTracking } from '../../hooks/useTracking';
 import {
   AreaChart, Area,
   BarChart, Bar,
@@ -260,6 +261,8 @@ function InsightCard(ins: typeof INSIGHTS[number]) {
 // ─── Main component ──────────────────────────────────────────────
 export default function AIHubDashboard() {
   const navigate = useNavigate();
+  const { trackPage } = useTracking();
+  useEffect(() => { trackPage('ai_hub'); }, [trackPage]);
 
   // Responsive
   const [cols, setCols] = useState({

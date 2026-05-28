@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
+import { useTracking } from '../../hooks/useTracking';
 import {
   Calendar,
   ChevronDown,
@@ -106,6 +107,8 @@ function statusBadgeClass(status: Invoice['status']): string {
 
 export default function Invoices() {
   const navigate = useNavigate();
+  const { trackPage } = useTracking();
+  useEffect(() => { trackPage('invoices'); }, [trackPage]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [company, setCompany] = useState<CompanySettings | null>(null);

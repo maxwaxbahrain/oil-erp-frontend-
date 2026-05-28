@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTracking } from '../../hooks/useTracking';
 import ProductCatalog from './ProductCatalog';
 import Categories, { type CategoriesHandle } from './Categories';
 import LowStockAlerts from './LowStockAlerts';
@@ -25,6 +26,8 @@ function getTotalStock(p: Product): number {
 
 export default function ProductManagement() {
     const navigate = useNavigate();
+    const { trackPage } = useTracking();
+    useEffect(() => { trackPage('inventory'); }, [trackPage]);
     const categoriesRef = useRef<CategoriesHandle>(null);
     const [activeTab, setActiveTab] = useState<TabType>('Products');
     const [lowStockCount, setLowStockCount] = useState(0);

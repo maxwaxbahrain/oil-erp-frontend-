@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RefreshCw, X, Calendar } from 'lucide-react';
+import { useTracking } from '../../hooks/useTracking';
 import {
     getCustomers, getInvoices, getProducts, getSalesOrders, getVans, getPayments,
     type Invoice, type Product,
@@ -55,6 +56,8 @@ function _fmtDate(d?: string): string {
 
 export default function Dashboard() {
     const navigate = useNavigate();
+    const { trackPage } = useTracking();
+    useEffect(() => { trackPage('dashboard'); }, [trackPage]);
 
     // Data state (preserved from previous build) ────────────────
     const [invoices, setInvoices] = useState<Invoice[]>([]);

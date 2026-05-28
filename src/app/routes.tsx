@@ -5,6 +5,7 @@ import LoginPage from '../pages/LoginPage';
 import SignupPage from '../pages/SignupPage';
 import BillingPage from '../pages/BillingPage';
 import SuperAdminPage from '../pages/SuperAdminPage';
+import TenantProfilePage from '../pages/TenantProfilePage';
 
 // Pages
 import Dashboard from '../pages/Dashboard/Dashboard';
@@ -353,6 +354,8 @@ export const AppRoutes = () => {
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/settings/billing" element={<BillingPage />} />
                 <Route path="/superadmin" element={<SuperAdminPage />} />
+                <Route path="/superadmin/emails" element={<SuperAdminPage />} />
+                <Route path="/superadmin/tenant/:tenantId" element={<TenantProfilePage />} />
                 <Route path="/settings/users" element={<UserManagement />} />
             </Route>
 
