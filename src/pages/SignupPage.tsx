@@ -2,6 +2,7 @@ import { type FormEvent, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { Building2, Loader2, Lock, Mail, User } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import api from '../api/axios';
 
 const C = {
   bg: '#060f1c',
@@ -72,23 +73,14 @@ export default function SignupPage() {
 
     setSubmitting(true);
     try {
-      const payload = {
+      const formData = {
         company_name: companyName.trim(),
         company_email: companyEmail.trim(),
         admin_full_name: fullName.trim(),
         admin_username: username.trim(),
         admin_password: password,
       };
-      const baseURL = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
-      const response = await fetch(`${baseURL}/api/tenants/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw { response: { status: response.status, data } };
-      }
+      await api.post('/api/tenants/register', formData);
       navigate('/login', { replace: true });
     } catch (err: unknown) {
       setError(extractApiErrorDetail(err));
