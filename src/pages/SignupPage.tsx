@@ -2,7 +2,6 @@ import { type FormEvent, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { Building2, Loader2, Lock, Mail, User } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import api from '../api/axios';
 
 const C = {
   bg: '#060f1c',
@@ -13,6 +12,38 @@ const C = {
   muted: '#8BA3C7',
   dim: '#3E5678',
 };
+
+function extractApiErrorDetail(err: unknown): string {
+  const axiosErr = err as {
+    response?: { status?: number; data?: { detail?: unknown } };
+    message?: string;
+  };
+
+  console.error('Signup registration error:', {
+    status: axiosErr.response?.status,
+    data: axiosErr.response?.data,
+    message: axiosErr.message,
+    error: err,
+  });
+
+  const detail = axiosErr.response?.data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item: { msg?: string; loc?: (string | number)[] }) => {
+        const field = item.loc?.[item.loc.length - 1] ?? 'field';
+        return `${field}: ${item.msg ?? 'invalid'}`;
+      })
+      .join('; ');
+  }
+  if (detail && typeof detail === 'object') {
+    return JSON.stringify(detail);
+  }
+  if (axiosErr.message && !axiosErr.response) {
+    return axiosErr.message;
+  }
+  return 'Registration failed. Please try again.';
+}
 
 export default function SignupPage() {
   const navigate = useNavigate();
@@ -41,19 +72,26 @@ export default function SignupPage() {
 
     setSubmitting(true);
     try {
-      await api.post('/api/tenants/register', {
+      const payload = {
         company_name: companyName.trim(),
         company_email: companyEmail.trim(),
         admin_full_name: fullName.trim(),
         admin_username: username.trim(),
         admin_password: password,
+      };
+      const baseURL = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+      const response = await fetch(`${baseURL}/api/tenants/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw { response: { status: response.status, data } };
+      }
       navigate('/login', { replace: true });
     } catch (err: unknown) {
-      const detail =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
-        'Registration failed. Please try again.';
-      setError(typeof detail === 'string' ? detail : 'Registration failed. Please try again.');
+      setError(extractApiErrorDetail(err));
     } finally {
       setSubmitting(false);
     }
@@ -102,20 +140,23 @@ export default function SignupPage() {
             { id: 'confirmPassword', label: 'Confirm Password', icon: Lock, type: 'password', value: confirmPassword, set: setConfirmPassword },
           ].map(field => {
             const Icon = field.icon;
+            const hasContent = field.value.length > 0;
             return (
               <div key={field.id}>
                 <label htmlFor={field.id} className="mb-1.5 block text-xs font-semibold uppercase tracking-wider" style={{ color: C.muted }}>
                   {field.label}
                 </label>
                 <div className="relative">
-                  <Icon size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" style={{ color: C.dim }} />
+                  {!hasContent && (
+                    <Icon size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" style={{ color: C.dim }} />
+                  )}
                   <input
                     id={field.id}
                     type={field.type}
                     value={field.value}
                     onChange={(e) => field.set(e.target.value)}
                     required
-                    className="w-full rounded-lg py-2.5 pl-10 pr-3 text-sm outline-none"
+                    className={`w-full rounded-lg py-2.5 pr-3 text-sm outline-none ${hasContent ? 'pl-3' : 'pl-10'}`}
                     style={inputStyle}
                   />
                 </div>
