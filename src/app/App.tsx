@@ -249,7 +249,7 @@ function App() {
 
   const navigate = useNavigate();
 
-  if (location.pathname === '/login' || location.pathname === '/signup') {
+  if (location.pathname === '/' || location.pathname === '/login' || location.pathname === '/signup') {
     return <AppRoutes />;
   }
 
