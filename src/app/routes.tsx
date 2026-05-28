@@ -3,6 +3,7 @@ import { Construction } from 'lucide-react';
 import ProtectedRoute from '../components/ProtectedRoute';
 import LoginPage from '../pages/LoginPage';
 import SignupPage from '../pages/SignupPage';
+import LandingPage from '../pages/LandingPage';
 import BillingPage from '../pages/BillingPage';
 import SuperAdminPage from '../pages/SuperAdminPage';
 import TenantProfilePage from '../pages/TenantProfilePage';
@@ -168,9 +169,10 @@ export const AppRoutes = () => {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />
             <Route path="/invoice/:token" element={<PublicInvoice />} />
+            <Route path="/" element={<LandingPage />} />
 
             <Route element={<ProtectedRoute />}>
-            <Route path="/" element={<Dashboard />} />
+            <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/finance/dashboard" element={<FinanceDashboard />} />
             <Route path="/sales/dashboard" element={<SalesDashboard />} />
             <Route path="/warehouse/dashboard" element={<WarehouseDashboard />} />
