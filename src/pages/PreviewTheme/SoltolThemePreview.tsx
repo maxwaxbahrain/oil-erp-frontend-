@@ -95,7 +95,7 @@ export default function SoltolThemePreview() {
         <div className={wrapperClass}>
             {/* ── TOP NAV ─────────────────────────────────────── */}
             <header className="soltol-topnav">
-                <div className="soltol-logo-icon">S1</div>
+                <div className="soltol-logo-icon">S</div>
                 <div className="soltol-logo-text">SOLTOL ONE</div>
 
                 {/* AI Command bar (visual only — preview) */}

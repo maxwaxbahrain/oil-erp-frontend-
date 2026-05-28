@@ -112,7 +112,7 @@ export default function SignupPage() {
             className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl text-lg font-bold text-white"
             style={{ background: C.blue, fontFamily: "'Syne', sans-serif" }}
           >
-            S1
+            S
           </div>
           <h1 className="text-2xl font-semibold tracking-tight" style={{ fontFamily: "'Syne', sans-serif" }}>
             Start your free trial

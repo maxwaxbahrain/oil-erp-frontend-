@@ -180,7 +180,7 @@ export default function LandingPage() {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 34, height: 34, background: C.accent, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 500 }}>S1</div>
+          <div style={{ width: 34, height: 34, background: C.accent, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 500 }}>S</div>
           <span style={{ fontSize: 17, fontWeight: 500, letterSpacing: '0.5px' }}>SOLTOL</span>
           <span style={{ fontSize: 10, color: C.accentLight, background: 'rgba(79,107,244,0.15)', border: '0.5px solid rgba(79,107,244,0.3)', padding: '2px 7px', borderRadius: 4 }}>ONE</span>
         </div>
@@ -360,7 +360,7 @@ export default function LandingPage() {
           <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr 78px', gap: 6, padding: 10 }}>
             <div style={{ background: '#0d0f1a', borderRadius: 7, padding: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
-                <div style={{ width: 20, height: 20, background: C.accent, borderRadius: 4, fontSize: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>S1</div>
+                <div style={{ width: 20, height: 20, background: C.accent, borderRadius: 4, fontSize: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>S</div>
                 <span style={{ fontSize: 9 }}>SOLTOL ONE</span>
               </div>
               {['Overview', 'Finance & tax', 'Warehouse', 'Field & mobile', 'Sales & CRM'].map((m, i) => (
@@ -729,7 +729,7 @@ export default function LandingPage() {
       {/* FOOTER */}
       <footer style={{ background: C.bgCard, borderTop: '1px solid rgba(79,107,244,0.1)', padding: isMobile ? '16px 20px' : '14px 28px', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'rgba(255,255,255,0.25)' }}>
-          <div style={{ width: 26, height: 26, background: C.accent, borderRadius: 4, fontSize: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>S1</div>
+          <div style={{ width: 26, height: 26, background: C.accent, borderRadius: 4, fontSize: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>S</div>
           SOLTOL ONE · © 2025 · Built in USA
         </div>
         <div style={{ background: 'rgba(79,107,244,0.1)', border: '1px solid rgba(79,107,244,0.25)', borderRadius: 20, padding: '5px 12px', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.accentLight }}>

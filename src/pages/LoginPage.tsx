@@ -95,16 +95,18 @@ export default function LoginPage() {
         <div className="mb-8 text-center">
           <div className="flex items-center justify-center gap-2.5">
             <div
-              className="flex items-center justify-center font-bold text-white"
+              className="flex items-center justify-center text-white"
               style={{
                 width: '44px',
                 height: '44px',
                 background: '#4F6BF4',
                 borderRadius: '11px',
                 fontFamily: "'Syne', sans-serif",
+                fontSize: '24px',
+                fontWeight: 500,
               }}
             >
-              S1
+              S
             </div>
             <span
               className="font-semibold"

@@ -408,7 +408,7 @@ function App() {
                 className="w-[30px] h-[30px] rounded-lg flex items-center justify-center text-white text-[12px] font-bold flex-shrink-0"
                 style={{ background: '#4F8EF7', fontFamily: "'Syne',sans-serif" }}
               >
-                S1
+                S
               </div>
               <div className="flex flex-col leading-none whitespace-nowrap">
                 <span style={{ fontFamily: "'Syne',sans-serif", fontSize: '15px', fontWeight: 600, color: 'var(--color-redwood-text-main)', letterSpacing: '-0.3px' }}>

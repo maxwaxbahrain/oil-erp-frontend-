@@ -102,7 +102,7 @@ export default function Sidebar({
                 <div className="flex items-center gap-3 w-full">
                     {/* SOLTOL ONE Logo */}
                     <div className="w-9 h-9 bg-redwood-brand rounded-sm flex items-center justify-center text-white font-black text-sm shadow-lg rotate-3 flex-shrink-0">
-                        <span className="drop-shadow-sm">S1</span>
+                        <span className="drop-shadow-sm">S</span>
                     </div>
                     <div className="flex flex-col min-w-0">
                         {/* Software brand — always fixed */}
