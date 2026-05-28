@@ -39,6 +39,7 @@ import CommandBar from '../components/VoiceAssistant/CommandBar';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { getInvoices, getCustomers, getProducts, getPayments } from '../services/api';
 import { getPurchaseOrders } from '../services/purchasesService';
+import api from '../api/axios';
 
 // Six role dashboards — pill cycles through these; each route must exist.
 const ROLES = ['System Admin', 'Accountant', 'Sales Manager', 'Warehouse', 'Van Driver', 'AI Hub'] as const;
@@ -135,6 +136,7 @@ function App() {
   const [showAlertBar, setShowAlertBar] = useState(() => {
     try { return sessionStorage.getItem('soltol_alert_dismissed') !== '1'; } catch { return true; }
   });
+  const [trialBanner, setTrialBanner] = useState<{ daysLeft: number } | null>(null);
   const alertCounts = useMemo(() => {
     const invs = (aiCtx.invoices as any[]) || [];
     const prods = (aiCtx.products as any[]) || [];
@@ -150,6 +152,25 @@ function App() {
     const lowStock = prods.filter((p) => Number(p.current_stock || 0) < 10).length;
     return { unpaid, unpaidTotal, overdue, lowStock };
   }, [aiCtx]);
+
+  useEffect(() => {
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      setTrialBanner(null);
+      return;
+    }
+    api
+      .get<{ plan: string; days_left: number; is_trial_expired: boolean }>('/api/tenants/me')
+      .then(res => {
+        const { plan, days_left, is_trial_expired } = res.data;
+        if (plan === 'trial' && !is_trial_expired && days_left < 3) {
+          setTrialBanner({ daysLeft: days_left });
+        } else {
+          setTrialBanner(null);
+        }
+      })
+      .catch(() => setTrialBanner(null));
+  }, [location.pathname]);
 
   // TC-03 — Build a short list of "notifications" from live ERP data
   // so the dropdown shows something concrete instead of the canned
@@ -227,7 +248,7 @@ function App() {
 
   const navigate = useNavigate();
 
-  if (location.pathname === '/login') {
+  if (location.pathname === '/login' || location.pathname === '/signup') {
     return <AppRoutes />;
   }
 
@@ -246,7 +267,16 @@ function App() {
   }
 
   return (
-    <div className="flex h-screen bg-redwood-bg-light overflow-hidden text-redwood-text-main font-inter">
+    <div className="flex h-screen flex-col bg-redwood-bg-light overflow-hidden text-redwood-text-main font-inter">
+      {trialBanner && (
+        <div className="bg-[rgba(245,158,11,0.15)] border-b border-[rgba(245,158,11,0.25)] px-3 py-2 text-center text-[11px] text-[#FCD34D] print:hidden">
+          ⚠️ Your free trial expires in {trialBanner.daysLeft} day{trialBanner.daysLeft === 1 ? '' : 's'}.{' '}
+          <button type="button" onClick={() => navigate('/settings/billing')} className="font-semibold underline hover:no-underline">
+            Upgrade now
+          </button>
+        </div>
+      )}
+    <div className="flex flex-1 min-h-0 overflow-hidden">
       {/* ── 54px icon RAIL — always visible on lg+, hidden on mobile.
           Click any rail icon to open the drawer with that group
           pre-expanded. Rail itself is in the flex flow and reserves
@@ -788,6 +818,7 @@ function App() {
           );
         })}
       </nav>
+    </div>
     </div>
   );
 }

@@ -122,6 +122,13 @@ export default function LoginPage() {
             Sign In
           </button>
         </form>
+
+        <p className="mt-6 text-center text-sm" style={{ color: '#8BA3C7' }}>
+          Don&apos;t have an account?{' '}
+          <a href="/signup" className="font-semibold" style={{ color: '#4F8EF7' }}>
+            Start your free trial →
+          </a>
+        </p>
       </div>
     </div>
   );

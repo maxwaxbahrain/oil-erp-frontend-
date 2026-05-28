@@ -1,0 +1,152 @@
+import { type FormEvent, useState } from 'react';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Building2, Loader2, Lock, Mail, User } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+import api from '../api/axios';
+
+const C = {
+  bg: '#060f1c',
+  bg2: '#0a1726',
+  bg3: '#0f1f33',
+  blue: '#4F8EF7',
+  text: '#EEF2FF',
+  muted: '#8BA3C7',
+  dim: '#3E5678',
+};
+
+export default function SignupPage() {
+  const navigate = useNavigate();
+  const { isAuthenticated, isLoading } = useAuth();
+  const [companyName, setCompanyName] = useState('');
+  const [companyEmail, setCompanyEmail] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  if (!isLoading && isAuthenticated) {
+    return <Navigate to="/" replace />;
+  }
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    setError('');
+
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await api.post('/api/tenants/register', {
+        company_name: companyName.trim(),
+        company_email: companyEmail.trim(),
+        admin_full_name: fullName.trim(),
+        admin_username: username.trim(),
+        admin_password: password,
+      });
+      navigate('/login', { replace: true });
+    } catch (err: unknown) {
+      const detail =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+        'Registration failed. Please try again.';
+      setError(typeof detail === 'string' ? detail : 'Registration failed. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const inputStyle = {
+    background: C.bg3,
+    border: '1px solid rgba(255,255,255,0.12)',
+    color: C.text,
+  };
+
+  return (
+    <div
+      className="flex min-h-screen items-center justify-center px-4 font-inter antialiased"
+      style={{ background: C.bg, color: C.text }}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl p-8 shadow-2xl"
+        style={{
+          background: C.bg2,
+          border: '1px solid rgba(255,255,255,0.07)',
+        }}
+      >
+        <div className="mb-8 text-center">
+          <div
+            className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl text-lg font-bold text-white"
+            style={{ background: C.blue, fontFamily: "'Syne', sans-serif" }}
+          >
+            S1
+          </div>
+          <h1 className="text-2xl font-semibold tracking-tight" style={{ fontFamily: "'Syne', sans-serif" }}>
+            Start your free trial
+          </h1>
+          <p className="mt-2 text-sm" style={{ color: C.muted }}>
+            7 days free · ZAVI ERP 2.0 multi-tenant SaaS
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-3">
+          {[
+            { id: 'companyName', label: 'Company Name', icon: Building2, type: 'text', value: companyName, set: setCompanyName },
+            { id: 'companyEmail', label: 'Company Email', icon: Mail, type: 'email', value: companyEmail, set: setCompanyEmail },
+            { id: 'fullName', label: 'Full Name', icon: User, type: 'text', value: fullName, set: setFullName },
+            { id: 'username', label: 'Username', icon: User, type: 'text', value: username, set: setUsername },
+            { id: 'password', label: 'Password', icon: Lock, type: 'password', value: password, set: setPassword },
+            { id: 'confirmPassword', label: 'Confirm Password', icon: Lock, type: 'password', value: confirmPassword, set: setConfirmPassword },
+          ].map(field => {
+            const Icon = field.icon;
+            return (
+              <div key={field.id}>
+                <label htmlFor={field.id} className="mb-1.5 block text-xs font-semibold uppercase tracking-wider" style={{ color: C.muted }}>
+                  {field.label}
+                </label>
+                <div className="relative">
+                  <Icon size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" style={{ color: C.dim }} />
+                  <input
+                    id={field.id}
+                    type={field.type}
+                    value={field.value}
+                    onChange={(e) => field.set(e.target.value)}
+                    required
+                    className="w-full rounded-lg py-2.5 pl-10 pr-3 text-sm outline-none"
+                    style={inputStyle}
+                  />
+                </div>
+              </div>
+            );
+          })}
+
+          {error && (
+            <p className="rounded-lg px-3 py-2 text-sm" style={{ background: 'rgba(239,68,68,0.12)', color: '#FCA5A5' }}>
+              {error}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={submitting || isLoading}
+            className="flex w-full items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white transition-opacity disabled:opacity-60"
+            style={{ background: C.blue }}
+          >
+            {(submitting || isLoading) && <Loader2 size={16} className="animate-spin" />}
+            Start Free 7-Day Trial
+          </button>
+        </form>
+
+        <p className="mt-6 text-center text-sm" style={{ color: C.muted }}>
+          Already have an account?{' '}
+          <Link to="/login" style={{ color: C.blue }}>
+            Sign in
+          </Link>
+        </p>
+      </div>
+    </div>
+  );
+}
