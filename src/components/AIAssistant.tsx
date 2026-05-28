@@ -47,23 +47,20 @@ export default function AIAssistant({ context }: AIAssistantProps) {
     } = useMicInput(setInput);
     const [loading, setLoading] = useState(false);
     const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
-    const DAILY_LIMIT = 20;
-
-    const getTodayCount = () => {
-        const today = new Date().toISOString().slice(0, 10);
-        const stored = JSON.parse(localStorage.getItem('ai_usage') || '{}');
-        return stored[today] || 0;
-    };
-
-    const incrementCount = () => {
-        const today = new Date().toISOString().slice(0, 10);
-        const stored = JSON.parse(localStorage.getItem('ai_usage') || '{}');
-        stored[today] = (stored[today] || 0) + 1;
-        localStorage.setItem('ai_usage', JSON.stringify(stored));
-    };
-
+    const [rateLimitMinutes, setRateLimitMinutes] = useState<number | null>(null);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (rateLimitMinutes === null || rateLimitMinutes <= 0) return;
+        const timer = window.setInterval(() => {
+            setRateLimitMinutes(prev => {
+                if (prev === null || prev <= 1) return null;
+                return prev - 1;
+            });
+        }, 60000);
+        return () => window.clearInterval(timer);
+    }, [rateLimitMinutes]);
 
     useEffect(() => {
         if (messagesEndRef.current) {
@@ -296,15 +293,13 @@ ${text.split('\n').map(line => {
         const query = text || input.trim();
         if (!query || loading) return;
 
-        // Rate limit check
-        if (getTodayCount() >= DAILY_LIMIT) {
+        if (rateLimitMinutes !== null && rateLimitMinutes > 0) {
             setMessages(prev => [...prev, {
                 role: 'assistant',
-                content: 'You have used all 20 free queries for today. Your limit resets tomorrow at midnight. Upgrade to Pro for unlimited daily queries.'
+                content: `You have used all 20 questions for this 2-hour session. You can ask again in ${rateLimitMinutes} minute${rateLimitMinutes === 1 ? '' : 's'}.`
             }]);
             return;
         }
-        incrementCount();
 
         const userMsg: Message = { role: 'user', content: query };
         setMessages(prev => [...prev, userMsg]);
@@ -313,10 +308,13 @@ ${text.split('\n').map(line => {
 
         try {
             const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+            const token = localStorage.getItem('access_token');
+            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+            if (token) headers.Authorization = `Bearer ${token}`;
 
             const response = await fetch(`${API_HOST}/ai/chat`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify({
                     system: buildSystemPrompt(),
                     max_tokens: 2000,
@@ -327,9 +325,23 @@ ${text.split('\n').map(line => {
                 })
             });
 
+            if (response.status === 429) {
+                const err = await response.json().catch(() => ({}));
+                const detail = err.detail;
+                if (detail && typeof detail === 'object' && detail.error === 'rate_limit_exceeded') {
+                    const mins = Number(detail.reset_in_minutes ?? 0);
+                    setRateLimitMinutes(mins > 0 ? mins : 1);
+                    setMessages(prev => [...prev, {
+                        role: 'assistant',
+                        content: `You have used all 20 questions for this 2-hour session. You can ask again in ${mins} minute${mins === 1 ? '' : 's'}.`
+                    }]);
+                    return;
+                }
+            }
+
             if (!response.ok) {
                 const err = await response.json().catch(() => ({}));
-                throw new Error(err.detail || `Server error ${response.status}`);
+                throw new Error(typeof err.detail === 'string' ? err.detail : `Server error ${response.status}`);
             }
 
             const data = await response.json();
