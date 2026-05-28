@@ -224,7 +224,7 @@ async function fetchCustomersRows(primaryUrl: string): Promise<Customer[]> {
         const sniff = text.trim().slice(0, 80).toLowerCase();
         if (sniff.startsWith('<!') || sniff.includes('<html')) {
             throw new Error(
-                'Customers API returned HTML instead of JSON. Usually the Vite proxy is not forwarding /api — keep npm run dev running and open the app at http://localhost:5174'
+                'Cannot connect to server. Please check your connection.'
             );
         }
         throw new Error(`Customers API returned ${ct || 'unknown type'}, expected JSON.`);

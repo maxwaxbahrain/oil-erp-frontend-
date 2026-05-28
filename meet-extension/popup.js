@@ -1,5 +1,13 @@
 let isRecording = false;
 
+const CONFIG = {
+  API_URL: 'https://bettano-erp-backend.onrender.com',
+  STAGING_API_URL: 'https://bettano-erp-backend-staging.onrender.com',
+  IS_STAGING: false
+};
+
+const API_BASE = CONFIG.IS_STAGING ? CONFIG.STAGING_API_URL : CONFIG.API_URL;
+
 document.getElementById('start').addEventListener('click', async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab.url.includes('meet.google.com')) {
@@ -25,7 +33,7 @@ document.getElementById('stop').addEventListener('click', async () => {
   chrome.tabs.sendMessage(tab.id, { action: 'stop' }, async (response) => {
     if (response && response.transcript) {
       try {
-        const res = await fetch('https://bettano-erp-backend.onrender.com/api/ai/meeting/process', {
+        const res = await fetch(`${API_BASE}/api/ai/meeting/process`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

@@ -24,3 +24,9 @@ dist-ssr
 *.sw?
 # Claude Code agent worktrees — never track these
 .claude/
+
+# Environment
+.env
+.env.local
+.env.staging
+.env.production

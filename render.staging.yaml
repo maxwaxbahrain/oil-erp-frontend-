@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: soltol-frontend-staging
+    env: static
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://bettano-erp-backend-staging.onrender.com
+      - key: VITE_API_BASE_URL
+        value: https://bettano-erp-backend-staging.onrender.com/api
+      - key: VITE_APP_ENV
+        value: staging
+      - key: VITE_APP_URL
+        value: https://app.soltol.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

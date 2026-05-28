@@ -10,6 +10,7 @@
   "host_permissions": [
     "https://meet.google.com/*",
     "https://bettano-erp-backend.onrender.com/*",
+    "https://bettano-erp-backend-staging.onrender.com/*",
     "http://localhost:5174/*"
   ]
 }

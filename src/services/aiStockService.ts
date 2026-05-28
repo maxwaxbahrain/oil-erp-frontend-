@@ -46,12 +46,14 @@ class AIStockService {
 
     private getProductApiBases(): string[] {
         const envBase = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
+        const envApiUrl = import.meta.env.VITE_API_URL
+            ? `${String(import.meta.env.VITE_API_URL).trim().replace(/\/+$/, '')}/api`
+            : 'http://localhost:8000/api';
         const candidates = [
             defaultApiPrefix(),
             envBase,
             '/api',
-            'http://127.0.0.1:8000/api',
-            'http://localhost:8000/api',
+            envApiUrl,
         ].filter(Boolean);
         return Array.from(new Set(candidates));
     }

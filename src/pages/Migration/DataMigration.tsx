@@ -3,7 +3,7 @@ import { Upload, CheckCircle, RefreshCw, Trash2, Users, Package, FileText, Credi
 import { createSupplier, getSuppliers } from '../../services/purchasesService';
 import { saveImportedProduct } from '../../services/productService';
 
-const API = ((import.meta.env.VITE_API_URL as string) || 'https://bettano-erp-backend.onrender.com').replace(/\/$/, '');
+const API = (import.meta.env.VITE_API_URL as string || 'http://localhost:8000').replace(/\/$/, '');
 
 interface LogEntry { time: string; msg: string; type: 'info' | 'success' | 'error' | 'warn'; }
 interface Results { customers?: number; products?: number; suppliers?: number; invoices?: number; supplierPurchases?: number; supplierPayments?: number; }
