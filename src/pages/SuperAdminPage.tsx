@@ -56,6 +56,8 @@ interface AIUsageRow {
   tokens_used: number;
   cost_usd: number;
   ip_address: string | null;
+  country: string | null;
+  country_code: string | null;
   created_at: string;
 }
 
@@ -72,6 +74,32 @@ function formatDate(value: string) {
   } catch {
     return value;
   }
+}
+
+const FLAG_BY_CODE: Record<string, string> = {
+  BH: '🇧🇭',
+  US: '🇺🇸',
+  GB: '🇬🇧',
+  IN: '🇮🇳',
+  AE: '🇦🇪',
+  SA: '🇸🇦',
+  PK: '🇵🇰',
+  DE: '🇩🇪',
+};
+
+function countryCodeToFlag(code: string | null | undefined): string {
+  if (!code || code.length !== 2) return '';
+  const upper = code.toUpperCase();
+  if (FLAG_BY_CODE[upper]) return FLAG_BY_CODE[upper];
+  return String.fromCodePoint(...[...upper].map(char => 0x1F1E6 - 65 + char.charCodeAt(0)));
+}
+
+function formatLocation(row: AIUsageRow): string {
+  if (row.country) {
+    const flag = countryCodeToFlag(row.country_code);
+    return flag ? `${flag} ${row.country}` : row.country;
+  }
+  return row.ip_address ?? '—';
 }
 
 function OverviewCard({
@@ -293,7 +321,7 @@ export default function SuperAdminPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 860 }}>
             <thead>
               <tr>
-                {['Company', 'User', 'Feature', 'Tokens', 'Cost ($)', 'IP Address', 'Date'].map(h => (
+                {['Company', 'User', 'Feature', 'Tokens', 'Cost ($)', 'Location', 'Date'].map(h => (
                   <th key={h} style={th}>{h}</th>
                 ))}
               </tr>
@@ -306,7 +334,7 @@ export default function SuperAdminPage() {
                   <td style={td}>{row.feature}</td>
                   <td style={td}>{row.tokens_used.toLocaleString()}</td>
                   <td style={td}>${row.cost_usd.toFixed(4)}</td>
-                  <td style={td}>{row.ip_address ?? '—'}</td>
+                  <td style={td}>{formatLocation(row)}</td>
                   <td style={td}>{formatDate(row.created_at)}</td>
                 </tr>
               ))}
