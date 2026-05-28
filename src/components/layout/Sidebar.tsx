@@ -421,6 +421,9 @@ export default function Sidebar({
                     <LogOut size={14} />
                     Logout
                 </button>
+                {user?.username === 'admin' && (
+                    <NavItem to="/superadmin" icon={Shield} label="Super Admin" />
+                )}
                 <div className="flex items-center gap-2 mb-1">
                     <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
                     <span className="uppercase tracking-widest font-bold">SYSTEM UPDATED</span>

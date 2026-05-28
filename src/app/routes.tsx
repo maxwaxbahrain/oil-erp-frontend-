@@ -4,6 +4,7 @@ import ProtectedRoute from '../components/ProtectedRoute';
 import LoginPage from '../pages/LoginPage';
 import SignupPage from '../pages/SignupPage';
 import BillingPage from '../pages/BillingPage';
+import SuperAdminPage from '../pages/SuperAdminPage';
 
 // Pages
 import Dashboard from '../pages/Dashboard/Dashboard';
@@ -351,6 +352,7 @@ export const AppRoutes = () => {
                 <Route path="/users/partners" element={<PartnerDirectory />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/settings/billing" element={<BillingPage />} />
+                <Route path="/superadmin" element={<SuperAdminPage />} />
                 <Route path="/settings/users" element={<UserManagement />} />
             </Route>
 
