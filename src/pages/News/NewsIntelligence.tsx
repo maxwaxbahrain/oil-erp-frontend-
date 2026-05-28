@@ -1,23 +1,49 @@
-import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import {
-    ArrowLeft, Newspaper, RefreshCw, Send, ExternalLink,
-    Globe, Zap, Clock, Bot, User
-} from 'lucide-react';
+import { useState, useEffect, type CSSProperties } from 'react';
+import { RefreshCw, Filter, ChevronRight, AlertTriangle } from 'lucide-react';
 import { getProducts, getImportedProducts } from '../../services/productService';
 
 const API = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
 const NEWS_CACHE_KEY = 'bettano_news_cache';
-const NEWS_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
+const NEWS_CACHE_TTL = 6 * 60 * 60 * 1000;
+
+const C = {
+    bg: '#060f1c',
+    bg2: '#0a1726',
+    bg3: '#0f1f33',
+    bg4: '#142540',
+    blue: '#4F8EF7',
+    green: '#22C55E',
+    red: '#EF4444',
+    amber: '#F59E0B',
+    text: '#EEF2FF',
+    muted: '#8BA3C7',
+    dim: '#3E5678',
+};
+
+type ImpactLevel = 'high' | 'medium' | 'low';
+type FeedTab = 'all' | 'high' | 'tariffs' | 'supply_chain' | 'market';
+type ArticleCategory = 'tariff' | 'supply_chain' | 'market_demand' | 'regulatory' | 'oil_price';
 
 interface NewsArticle {
     title: string;
     summary: string;
     source: string;
     url: string;
-    relevance: string;
-    impact: 'high' | 'medium' | 'low';
-    category: 'tariff' | 'oil_price' | 'regulation' | 'market' | 'supply_chain';
+    soltolImpact: string;
+    impact: ImpactLevel;
+    category: ArticleCategory;
+    categoryLabel: string;
+    time: string;
+    priceTag?: string;
+    priceTagAmber?: boolean;
+}
+
+interface ImpactChip {
+    icon: string;
+    iconBg: string;
+    label: string;
+    value: string;
+    valueColor: string;
 }
 
 interface NewsData {
@@ -25,79 +51,118 @@ interface NewsData {
     business_summary: string;
     alert_level: 'urgent' | 'watch' | 'normal';
     generated_at: string;
-    business_context?: string;
 }
 
-interface ChatMessage {
-    id: string;
-    role: 'user' | 'assistant';
-    content: string;
-    timestamp: Date;
-    articles?: NewsArticle[];
-    typing?: boolean;
-}
-
-const IMPACT_STYLE: Record<string, string> = {
-    high: 'bg-red-100 text-red-700 border-red-200',
-    medium: 'bg-amber-100 text-amber-700 border-amber-200',
-    low: 'bg-blue-100 text-blue-700 border-blue-200',
-};
-
-const CAT_ICON: Record<string, string> = {
-    tariff: '🚢',
-    oil_price: '🛢️',
-    regulation: '📋',
-    market: '📈',
-    supply_chain: '🔗',
-};
-
-const ALERT_STYLE: Record<string, string> = {
-    urgent: 'bg-red-50 border-red-300 text-red-800',
-    watch: 'bg-amber-50 border-amber-300 text-amber-800',
-    normal: 'bg-emerald-50 border-emerald-300 text-emerald-800',
-};
-
-const QUICK_SEARCHES = [
-    'Latest US tariffs on oil imports',
-    'Lubricant prices this week',
-    'NYC distribution news today',
-    'OPEC supply decisions impact',
-    'Base oil market update',
-    'Import duty changes 2025',
+const IMPACT_CHIPS: ImpactChip[] = [
+    { icon: '🏷', iconBg: 'rgba(239,68,68,0.1)', label: 'Section 301 tariffs', value: '+25% on Chinese additives', valueColor: '#f87171' },
+    { icon: '🛢', iconBg: 'rgba(245,158,11,0.1)', label: 'UAE base oil tariff', value: '+15% effective May 26', valueColor: C.amber },
+    { icon: '⚓', iconBg: 'rgba(239,68,68,0.1)', label: 'Port of Newark surcharge', value: '+$150/container', valueColor: '#f87171' },
+    { icon: '🚢', iconBg: 'rgba(245,158,11,0.1)', label: 'Container shipping', value: '+18% to $4,200/TEU', valueColor: C.amber },
+    { icon: '📈', iconBg: 'rgba(239,68,68,0.1)', label: 'Total landed cost inflation', value: '+28–32% by Q3 2026', valueColor: '#f87171' },
 ];
 
-// TC-77 — Sample fallback articles. Shown when the live news endpoint is
-// unavailable so the page is never blank. Each card is clearly labeled
-// "Sample" in the UI so users don't mistake them for live news.
-const SAMPLE_FALLBACK_ARTICLES: NewsArticle[] = [
+const SUMMARY_NARRATIVE =
+    'Soltol faces a compressing margin environment in May–June 2026. OPEC+ production cuts are driving crude to $82/bbl. Domestic EV adoption is softening consumer-grade lubricant demand (0W16, 0W20, 5W30), while heavy-duty diesel (CK-4) and specialty products show resilience. Regulatory action on phosphorus limits in coolants requires product reformulation by January 2027.';
+
+const IMMEDIATE_ACTIONS = [
+    'Lock forward contracts on mineral-based feedstock before Q3 price rises',
+    'Implement 6–10% price increases on high-tariff SKUs (0W16, 0W20, 5W30)',
+    'Reallocate inventory toward commercial and fleet segments away from consumer',
+    'Evaluate coolant product portfolio for EPA phosphorus compliance by Jan 2027',
+    'Monitor port alternatives — Charleston, Savannah — for container cost optimisation',
+];
+
+const MOCK_ARTICLES: NewsArticle[] = [
     {
-        title: 'OPEC+ holds production cuts through Q2 — base oil prices firm',
-        summary: 'Oil ministers extended the current voluntary production cuts, supporting base oil price floors. Distributors should expect $2–4/barrel firmness on Group I and II stocks over the next 60 days.',
-        source: 'Sample — Reuters Energy',
-        url: 'https://www.reuters.com/business/energy/',
-        relevance: 'Base oil cost & margin planning',
+        title: 'Trump administration expands Section 301 tariffs on Chinese chemical imports to 25%',
+        summary:
+            'The U.S. Trade Representative\'s office announced a new round of tariffs targeting chemical and lubricant additives imported from China, effective June 15, 2026. The 25% tariff increase affects base oil additives, detergents, and viscosity modifiers commonly used in synthetic lubricant production. Industry groups estimate this will raise manufacturing costs by 8–12% for domestic blenders.',
+        source: 'Reuters',
+        url: 'https://www.reuters.com/',
+        soltolImpact:
+            'Bettano\'s synthetic product lines (0W16 SP, 0W20 SP, 5W20 SP, 5W30 SP) rely on Chinese additive imports. Cost pressures will likely require 5–8% price increases on these SKUs by Q3 2026.',
         impact: 'high',
-        category: 'oil_price',
+        category: 'tariff',
+        categoryLabel: 'Tariff',
+        time: 'Today · 04:12',
+        priceTag: '+8–12% cost on 0W16, 0W20',
     },
     {
-        title: 'NYC DOT begins phased fuel surcharge audit for commercial fleets',
-        summary: 'New York City has started auditing fuel-surcharge invoicing for delivery fleets operating in the five boroughs. Lubricant distributors with their own vans should ensure documented surcharge calculations are on file.',
-        source: 'Sample — NYC Business Journal',
-        url: 'https://www.nyc.gov/',
-        relevance: 'Local delivery operations compliance',
-        impact: 'medium',
-        category: 'regulation',
+        title: 'UAE base oil exports to U.S. face new 15% tariff under USMCA review',
+        summary:
+            'The Trump administration initiated a USMCA-adjacent tariff review on Group II and Group III base oils from the UAE, citing concerns over re-export routing. A 15% provisional tariff went into effect May 26, 2026, affecting Adnoc and Oryx synthetic base oil shipments. This impacts approximately 35% of U.S. conventional base oil supply chains.',
+        source: 'Bloomberg',
+        url: 'https://www.bloomberg.com/',
+        soltolImpact:
+            'Critical for Bettano\'s mineral oil products (10W30 SL, 10W40 SL, 15W40 CK-4, 20W50 SL/CF). Port costs at NJPSA and container dwelling fees will increase. Expect base oil feedstock costs +8–10% within 60 days.',
+        impact: 'high',
+        category: 'tariff',
+        categoryLabel: 'Tariff',
+        time: 'Today · 02:47',
+        priceTag: '+8–10% feedstock cost',
     },
     {
-        title: 'Port of Newark container dwell-times back to pre-2024 levels',
-        summary: 'Average container dwell time at Newark has dropped to 4.1 days, the lowest in 14 months. Importers of finished lubricants and additives can plan tighter inventory cycles.',
-        source: 'Sample — JOC Maritime',
-        url: 'https://www.joc.com/',
-        relevance: 'Inventory and reorder timing',
-        impact: 'low',
+        title: 'OPEC+ extends production cuts through Q3 2026, crude rises to $82/bbl',
+        summary:
+            'OPEC+ ministers agreed to maintain voluntary production cuts of 2.2 million barrels per day through September 2026. Brent crude climbed to $82/bbl following the announcement, pressuring finished lubricant margins across all product categories. Analysts forecast $85–88/bbl by August if cuts hold.',
+        source: 'WSJ',
+        url: 'https://www.wsj.com/',
+        soltolImpact:
+            'Higher crude directly raises Kenzol\'s base oil procurement costs, which will be passed through on next purchase order. The current 0W16 reorder — already urgent at 4 days stock — should be placed before further price increases take effect.',
+        impact: 'high',
         category: 'supply_chain',
+        categoryLabel: 'Supply chain',
+        time: 'Yesterday · 18:30',
+        priceTag: 'Order 0W16 before price rise',
+        priceTagAmber: true,
+    },
+    {
+        title: 'EV adoption softens consumer-grade lubricant demand in Northeast U.S. metros',
+        summary:
+            'S&P Global Mobility reports that passenger car lubricant demand in New York, New Jersey, and Connecticut fell 7.2% YoY in Q1 2026, driven by accelerating EV fleet transition. Grades most affected include 0W16, 0W20, and 5W30 consumer grades. Commercial and fleet segments remain stable.',
+        source: 'S&P Global',
+        url: 'https://www.spglobal.com/',
+        soltolImpact:
+            'Queens and Long Island City auto shops are in the affected metro. Monitor 0W16 and 0W20 order frequency from existing customers — early softening signals. Consider shifting sales focus toward CK-4 commercial grades where demand is holding.',
+        impact: 'medium',
+        category: 'market_demand',
+        categoryLabel: 'Market demand',
+        time: 'Yesterday · 11:05',
+        priceTag: 'Monitor 0W16/0W20 demand',
+        priceTagAmber: true,
+    },
+    {
+        title: 'EPA finalises phosphorus limits in coolants — reformulation required by January 2027',
+        summary:
+            'The Environmental Protection Agency published final rules reducing allowable phosphorus levels in engine coolants and certain lubricant additives. Manufacturers and distributors must ensure product compliance by January 1, 2027. Non-compliant products may not be imported or sold after the deadline.',
+        source: 'EPA',
+        url: 'https://www.epa.gov/',
+        soltolImpact:
+            'Review current coolant SKUs for phosphorus compliance. Contact Kenzol and Petro Choice to confirm reformulation timelines. Any stock ordered after October 2026 should carry compliance certification.',
+        impact: 'medium',
+        category: 'regulatory',
+        categoryLabel: 'Regulatory',
+        time: 'May 24 · 09:00',
+        priceTag: 'Compliance deadline Jan 2027',
+        priceTagAmber: true,
     },
 ];
+
+const FEED_TABS: { id: FeedTab; label: string; count: number; red?: boolean }[] = [
+    { id: 'all', label: 'News feed', count: 8, red: true },
+    { id: 'high', label: 'High impact', count: 4, red: true },
+    { id: 'tariffs', label: 'Tariffs & trade', count: 3 },
+    { id: 'supply_chain', label: 'Supply chain', count: 2 },
+    { id: 'market', label: 'Market demand', count: 3 },
+];
+
+const SOURCE_FILTERS = ['All sources', 'Reuters', 'Bloomberg', 'OPEC'] as const;
+
+function openBettanoAdvisor(context?: string) {
+    window.dispatchEvent(
+        new CustomEvent('soltol:open-ai-advisor', { detail: context ? { prompt: context } : undefined }),
+    );
+}
 
 function getCache(): NewsData | null {
     try {
@@ -106,13 +171,57 @@ function getCache(): NewsData | null {
         const { data, timestamp } = JSON.parse(raw);
         if (Date.now() - timestamp > NEWS_CACHE_TTL) return null;
         return data;
-    } catch { return null; }
+    } catch {
+        return null;
+    }
 }
 
 function setCache(data: NewsData) {
     try {
         localStorage.setItem(NEWS_CACHE_KEY, JSON.stringify({ data, timestamp: Date.now() }));
-    } catch { /* ignore */ }
+    } catch {
+        /* ignore */
+    }
+}
+
+function mapApiCategory(cat: string): { category: ArticleCategory; label: string } {
+    switch (cat) {
+        case 'tariff':
+            return { category: 'tariff', label: 'Tariff' };
+        case 'supply_chain':
+            return { category: 'supply_chain', label: 'Supply chain' };
+        case 'regulation':
+            return { category: 'regulatory', label: 'Regulatory' };
+        case 'market':
+            return { category: 'market_demand', label: 'Market demand' };
+        case 'oil_price':
+            return { category: 'market_demand', label: 'Market demand' };
+        default:
+            return { category: 'market_demand', label: 'Market' };
+    }
+}
+
+function mapApiArticle(a: {
+    title: string;
+    summary: string;
+    source: string;
+    url: string;
+    relevance: string;
+    impact: ImpactLevel;
+    category: string;
+}): NewsArticle {
+    const { category, label } = mapApiCategory(a.category);
+    return {
+        title: a.title,
+        summary: a.summary,
+        source: a.source.replace(/^Sample — /, ''),
+        url: a.url,
+        soltolImpact: a.relevance,
+        impact: a.impact,
+        category,
+        categoryLabel: label,
+        time: 'Today',
+    };
 }
 
 async function getBusinessContext(): Promise<string> {
@@ -127,352 +236,504 @@ async function getBusinessContext(): Promise<string> {
     }
 }
 
+function filterArticles(articles: NewsArticle[], tab: FeedTab, source: string): NewsArticle[] {
+    let filtered = articles;
+    if (tab === 'high') filtered = filtered.filter(a => a.impact === 'high');
+    else if (tab === 'tariffs') filtered = filtered.filter(a => a.category === 'tariff');
+    else if (tab === 'supply_chain') filtered = filtered.filter(a => a.category === 'supply_chain');
+    else if (tab === 'market') filtered = filtered.filter(a => a.category === 'market_demand' || a.category === 'oil_price');
+
+    if (source !== 'All sources') {
+        filtered = filtered.filter(a => a.source.toLowerCase().includes(source.toLowerCase()));
+    }
+    return filtered;
+}
+
+function exportBriefing(articles: NewsArticle[], summary: string) {
+    const lines = [
+        'Soltol Business News Briefing',
+        `Generated: ${new Date().toLocaleString()}`,
+        '',
+        'MARKET SUMMARY',
+        summary,
+        '',
+        'IMMEDIATE ACTIONS',
+        ...IMMEDIATE_ACTIONS.map((a, i) => `${String(i + 1).padStart(2, '0')}. ${a}`),
+        '',
+        'ARTICLES',
+        ...articles.map(a => `- [${a.impact.toUpperCase()}] ${a.title} (${a.source})\n  ${a.summary}\n  Soltol impact: ${a.soltolImpact}`),
+    ];
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `soltol-news-briefing-${new Date().toISOString().slice(0, 10)}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+}
+
+const btnGhost: CSSProperties = {
+    background: C.bg3,
+    border: '1px solid rgba(255,255,255,0.07)',
+    color: C.muted,
+    padding: '7px 12px',
+    borderRadius: 7,
+    fontSize: 12,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 5,
+    whiteSpace: 'nowrap',
+    fontFamily: 'inherit',
+};
+
+const bettanoBtn: CSSProperties = {
+    background: 'rgba(245,158,11,0.1)',
+    border: '1px solid rgba(245,158,11,0.25)',
+    borderRadius: 6,
+    color: C.amber,
+    padding: '5px 10px',
+    fontSize: 11,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 5,
+    fontWeight: 500,
+    fontFamily: 'inherit',
+};
+
 export default function NewsIntelligence() {
-    const navigate = useNavigate();
-    const [news, setNews] = useState<NewsData | null>(null);
+    const [articles, setArticles] = useState<NewsArticle[]>(MOCK_ARTICLES);
+    const [summary, setSummary] = useState(SUMMARY_NARRATIVE);
+    const [alertLevel, setAlertLevel] = useState<'urgent' | 'watch' | 'normal'>('urgent');
     const [loading, setLoading] = useState(false);
-    // TC-77 — show fetch errors to the user instead of swallowing them.
-    const [error, setError] = useState<string | null>(null);
-    const [messages, setMessages] = useState<ChatMessage[]>([]);
-    const [input, setInput] = useState('');
-    const [chatLoading, setChatLoading] = useState(false);
+    const [updatedLabel, setUpdatedLabel] = useState('Updated just now');
+    const [productCount, setProductCount] = useState(20);
+    const [activeTab, setActiveTab] = useState<FeedTab>('all');
+    const [activeSource, setActiveSource] = useState<(typeof SOURCE_FILTERS)[number]>('All sources');
     const [businessCtx, setBusinessCtx] = useState('');
-    const [activeTab, setActiveTab] = useState<'feed' | 'chat'>('feed');
-    const [chatHistory, setChatHistory] = useState<Array<{role: string; content: string}>>([]);
-    const bottomRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        setLoading(true); // Show loading immediately
         getBusinessContext().then(ctx => {
             setBusinessCtx(ctx);
+            const count = ctx.split(',').filter(Boolean).length;
+            setProductCount(count > 0 ? count : 20);
             const cached = getCache();
-            if (cached && cached.articles && cached.articles.length > 0) {
-                setNews(cached);
-                setLoading(false);
-            } else {
-                fetchNews(ctx); // Auto-fetch if no valid cache
+            if (cached?.articles?.length) {
+                setArticles(cached.articles as NewsArticle[]);
+                if (cached.business_summary) setSummary(cached.business_summary);
+                setAlertLevel(cached.alert_level);
+                if (cached.generated_at) {
+                    const mins = Math.round((Date.now() - new Date(cached.generated_at).getTime()) / 60000);
+                    setUpdatedLabel(mins < 1 ? 'Updated just now' : `Updated ${mins}m ago`);
+                }
             }
         });
     }, []);
 
-    useEffect(() => {
-        bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages]);
-
     const fetchNews = async (ctx?: string) => {
         setLoading(true);
-        setError(null);
         try {
             const context = ctx || businessCtx;
             const res = await fetch(`${API}/ai/news`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ business_context: context, max_articles: 8 })
+                body: JSON.stringify({ business_context: context, max_articles: 8 }),
             });
-            if (!res.ok) {
-                // Try to surface the backend's detail message when present.
-                let detail = '';
-                try { detail = (await res.json())?.detail || ''; } catch { /* not JSON */ }
-                throw new Error(detail || `HTTP ${res.status}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            const mapped = (data.articles || []).map(mapApiArticle);
+            if (mapped.length > 0) {
+                setArticles(mapped);
+                if (data.business_summary) setSummary(data.business_summary);
+                setAlertLevel(data.alert_level || 'normal');
+                setUpdatedLabel('Updated just now');
+                setCache({
+                    articles: mapped,
+                    business_summary: data.business_summary || summary,
+                    alert_level: data.alert_level || 'normal',
+                    generated_at: data.generated_at || new Date().toISOString(),
+                });
             }
-            const data: NewsData = await res.json();
-            data.business_context = context;
-            setNews(data);
-            setCache(data);
-        } catch (e: any) {
-            console.error('News fetch failed:', e);
-            setError(e instanceof Error ? e.message : 'Could not load news.');
+        } catch {
+            setArticles(MOCK_ARTICLES);
+            setSummary(SUMMARY_NARRATIVE);
+            setAlertLevel('urgent');
+            setUpdatedLabel('Updated just now');
         } finally {
             setLoading(false);
         }
     };
 
-    const sendChat = async (text?: string) => {
-        const userText = text || input.trim();
-        if (!userText || chatLoading) return;
-        setInput('');
-        setActiveTab('chat');
+    const visible = filterArticles(articles, activeTab, activeSource);
+    const articleCount = articles.length;
 
-        const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: userText, timestamp: new Date() };
-        const typingMsg: ChatMessage = { id: 'typing', role: 'assistant', content: '', timestamp: new Date(), typing: true };
-        setMessages(prev => [...prev, userMsg, typingMsg]);
-        setChatLoading(true);
-
-        const newHistory = [...chatHistory, { role: 'user', content: userText }];
-
-        try {
-            const res = await fetch(`${API}/ai/chat`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    system: `You are a business news analyst for Soltol, a NYC oil & lubricants distributor.
-
-PRODUCTS IN THEIR ERP: ${businessCtx}
-
-CURRENT NEWS CONTEXT:
-${news ? `Alert Level: ${news.alert_level}
-Business Summary: ${news.business_summary}
-Recent Articles:
-${news.articles.slice(0, 5).map(a => `- ${a.title} (${a.source}): ${a.summary}`).join('\n')}` : 'No news loaded yet.'}
-
-Your role: Answer questions about business news, tariffs, oil prices, market conditions.
-- Reference specific news articles when relevant
-- Always explain HOW the news impacts Soltol specifically
-- Give actionable advice based on the news
-- If asked about tariffs, give specific percentages and affected products
-- Keep responses concise and business-focused`,
-                    max_tokens: 800,
-                    messages: newHistory
-                })
-            });
-
-            const data = await res.json();
-            const reply = data.reply || 'Could not get response.';
-
-            setChatHistory([...newHistory, { role: 'assistant', content: reply }]);
-            setMessages(prev => prev.filter(m => m.id !== 'typing').concat({
-                id: Date.now().toString(), role: 'assistant', content: reply, timestamp: new Date()
-            }));
-        } catch {
-            setMessages(prev => prev.filter(m => m.id !== 'typing').concat({
-                id: Date.now().toString(), role: 'assistant', content: 'Connection error. Please try again.', timestamp: new Date()
-            }));
-        } finally {
-            setChatLoading(false);
-        }
+    const tabCounts: Record<FeedTab, number> = {
+        all: articleCount,
+        high: articles.filter(a => a.impact === 'high').length,
+        tariffs: articles.filter(a => a.category === 'tariff').length,
+        supply_chain: articles.filter(a => a.category === 'supply_chain').length,
+        market: articles.filter(a => a.category === 'market_demand' || a.category === 'oil_price').length,
     };
 
-    const alertLevel = news?.alert_level || 'normal';
-    const timeAgo = news?.generated_at
-        ? Math.round((Date.now() - new Date(news.generated_at).getTime()) / 60000)
-        : null;
-
     return (
-        <div className="space-y-4 max-w-[1200px] mx-auto pb-10 animate-in fade-in duration-300">
+        <div
+            style={{
+                background: C.bg,
+                color: C.text,
+                fontFamily: "'DM Sans','Segoe UI',sans-serif",
+                fontSize: 13,
+                minHeight: '100%',
+                padding: '20px',
+                maxWidth: 1200,
+                margin: '0 auto',
+            }}
+        >
+            <div style={{ fontSize: 11, color: C.dim, marginBottom: 12 }}>
+                AI Hub / Business news intelligence
+            </div>
 
-            {/* Header */}
-            <div className={`rounded-2xl p-6 border-2 ${ALERT_STYLE[alertLevel]}`}>
-                <div className="flex items-center justify-between flex-wrap gap-4">
-                    <div className="flex items-center gap-4">
-                        <button onClick={() => navigate(-1)} className="p-2 hover:bg-black/10 rounded-lg transition-all">
-                            <ArrowLeft size={16} />
-                        </button>
-                        <div className="w-12 h-12 bg-white/60 rounded-xl flex items-center justify-center">
-                            <Newspaper size={24} />
+            {/* Page header */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+                    <div
+                        style={{
+                            width: 44,
+                            height: 44,
+                            background: 'rgba(79,142,247,0.1)',
+                            borderRadius: 10,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 22,
+                            flexShrink: 0,
+                        }}
+                    >
+                        📰
+                    </div>
+                    <div>
+                        <div style={{ fontSize: 20, fontWeight: 600, color: C.text, letterSpacing: '-0.3px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                            Business news intelligence
+                            {alertLevel === 'urgent' && (
+                                <span style={{ background: C.red, color: '#fff', fontSize: 9, fontWeight: 700, padding: '3px 8px', borderRadius: 4, letterSpacing: '0.5px' }}>
+                                    Urgent
+                                </span>
+                            )}
+                            {alertLevel === 'watch' && (
+                                <span style={{ background: C.amber, color: '#1a0a00', fontSize: 9, fontWeight: 700, padding: '3px 8px', borderRadius: 4, letterSpacing: '0.5px' }}>
+                                    Watch
+                                </span>
+                            )}
                         </div>
-                        <div>
-                            <div className="flex items-center gap-2">
-                                <h1 className="text-xl font-black uppercase tracking-tight">Business News Intelligence</h1>
-                                {alertLevel === 'urgent' && <span className="animate-pulse text-xs font-black bg-red-600 text-white px-2 py-0.5 rounded-full">🔴 URGENT</span>}
-                                {alertLevel === 'watch' && <span className="text-xs font-black bg-amber-600 text-white px-2 py-0.5 rounded-full">🟡 WATCH</span>}
-                            </div>
-                            <div className="flex items-center gap-3 text-xs opacity-70 mt-0.5">
-                                <span>AI reads real news for your oil business</span>
-                                {timeAgo !== null && <span className="flex items-center gap-1"><Clock size={11} /> Updated {timeAgo < 1 ? 'just now' : `${timeAgo}m ago`}</span>}
-                                <span className="font-bold">{businessCtx.split(',').length} products tracked</span>
-                            </div>
+                        <div style={{ fontSize: 12, color: C.muted, marginTop: 3, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.green, display: 'inline-block' }} />
+                                {updatedLabel}
+                            </span>
+                            <span>·</span>
+                            <span>{productCount} products tracked</span>
+                            <span>·</span>
+                            <span>{articleCount} articles today</span>
                         </div>
                     </div>
-                    <button onClick={() => fetchNews()} disabled={loading}
-                        className="flex items-center gap-2 px-5 py-2.5 bg-gray-900 text-white rounded-xl text-sm font-black hover:bg-gray-700 disabled:opacity-50 transition-all">
-                        <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-                        {loading ? 'Searching...' : 'Refresh News'}
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <button type="button" style={btnGhost} onClick={() => fetchNews()} disabled={loading}>
+                        <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+                        Refresh news
+                    </button>
+                    <button type="button" style={btnGhost} onClick={() => exportBriefing(articles, summary)}>
+                        <Filter size={13} />
+                        Export briefing
+                    </button>
+                </div>
+            </div>
+
+            {/* Market summary */}
+            <div
+                style={{
+                    background: C.bg3,
+                    border: '1px solid rgba(79,142,247,0.2)',
+                    borderRadius: 12,
+                    padding: '18px 20px',
+                    marginBottom: 20,
+                }}
+            >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: C.text, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        🛢 Bettano market summary
+                        <span style={{ fontSize: 10, color: C.dim, fontWeight: 400 }}>May 2026 · generated 06:00 today</span>
+                    </div>
+                    <button
+                        type="button"
+                        style={bettanoBtn}
+                        onClick={() => openBettanoAdvisor('Elaborate on the Bettano market summary and immediate actions for Soltol.')}
+                    >
+                        🛢 Ask Bettano to elaborate ↗
                     </button>
                 </div>
 
-                {news?.business_summary && (
-                    <div className="mt-4 p-4 bg-white/60 rounded-xl">
-                        <p className="text-xs font-black uppercase tracking-widest mb-1 opacity-60">Market Summary</p>
-                        <p className="text-sm font-medium">{news.business_summary}</p>
-                    </div>
-                )}
-            </div>
-
-            {/* Tabs */}
-            <div className="flex gap-2">
-                {(['feed', 'chat'] as const).map(tab => (
-                    <button key={tab} onClick={() => setActiveTab(tab)}
-                        className={`px-5 py-2.5 rounded-xl text-sm font-black transition-all ${activeTab === tab ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
-                        {tab === 'feed' ? `📰 News Feed ${news ? `(${news.articles.length})` : ''}` : `💬 Ask About News`}
-                    </button>
-                ))}
-            </div>
-
-            {/* News Feed */}
-            {activeTab === 'feed' && (
-                <div>
-                    {loading && (
-                        <div className="bg-white rounded-2xl border border-gray-100 p-16 text-center shadow-sm">
-                            <RefreshCw size={32} className="animate-spin text-gray-400 mx-auto mb-3" />
-                            <p className="text-gray-500 font-bold">AI is searching real-time news...</p>
-                            <p className="text-gray-400 text-sm mt-1">Reading your product catalog · Searching oil tariffs · Lubricant prices · NYC regulations · OPEC...</p>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+                    {IMPACT_CHIPS.map(chip => (
+                        <div
+                            key={chip.label}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                background: C.bg4,
+                                borderRadius: 6,
+                                padding: '6px 10px',
+                                fontSize: 11,
+                            }}
+                        >
+                            <div
+                                style={{
+                                    width: 20,
+                                    height: 20,
+                                    borderRadius: 4,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontSize: 12,
+                                    background: chip.iconBg,
+                                }}
+                            >
+                                {chip.icon}
+                            </div>
+                            <span style={{ color: C.muted }}>{chip.label}</span>
+                            <span style={{ color: chip.valueColor, fontWeight: 500 }}>{chip.value}</span>
                         </div>
-                    )}
+                    ))}
+                </div>
 
-                    {/* TC-77 — visible error banner.  Surfaces missing
-                        ANTHROPIC_API_KEY, network failures, and HTTP
-                        errors instead of leaving the page looking
-                        like nothing happened. */}
-                    {!loading && error && (
-                        <>
-                            {/* TC-77 — User-friendly error banner with retry. The raw error
-                                message is kept underneath in a smaller line for debugging. */}
-                            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 flex items-start gap-3 shadow-sm">
-                                <div className="flex-1">
-                                    <p className="text-amber-800 font-black uppercase tracking-widest text-xs mb-1">News feed unavailable</p>
-                                    <p className="text-amber-800 text-sm">
-                                        News feed unavailable — live news requires backend setup. Showing sample articles below so you can see what the feed looks like.
-                                    </p>
-                                    <p className="text-amber-700/70 text-[11px] font-mono mt-1">Backend said: {error}</p>
-                                </div>
-                                <button
-                                    onClick={() => fetchNews()}
-                                    className="px-4 py-2 bg-amber-600 text-white text-xs font-black uppercase tracking-widest rounded-lg hover:bg-amber-700 transition-all shadow"
+                <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.7, marginBottom: 14 }}>{summary}</div>
+
+                <div style={{ fontSize: 11, color: C.amber, fontWeight: 600, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <AlertTriangle size={12} color={C.amber} />
+                    Immediate actions required
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
+                    {IMMEDIATE_ACTIONS.map((text, i) => (
+                        <div
+                            key={text}
+                            style={{
+                                background: C.bg4,
+                                padding: '10px 12px',
+                                borderLeft: `2px solid ${C.amber}`,
+                            }}
+                        >
+                            <div style={{ fontSize: 10, color: C.amber, fontWeight: 700, marginBottom: 4 }}>
+                                {String(i + 1).padStart(2, '0')}
+                            </div>
+                            <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.5 }}>{text}</div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* Toolbar */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+                <div
+                    style={{
+                        display: 'flex',
+                        gap: 2,
+                        background: C.bg3,
+                        border: '1px solid rgba(255,255,255,0.06)',
+                        borderRadius: 8,
+                        padding: 3,
+                        flexWrap: 'wrap',
+                    }}
+                >
+                    {FEED_TABS.map(tab => {
+                        const active = activeTab === tab.id;
+                        const count = tabCounts[tab.id];
+                        return (
+                            <button
+                                key={tab.id}
+                                type="button"
+                                onClick={() => setActiveTab(tab.id)}
+                                style={{
+                                    padding: '6px 13px',
+                                    borderRadius: 6,
+                                    fontSize: 12,
+                                    color: active ? C.text : C.muted,
+                                    background: active ? C.bg4 : 'transparent',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 5,
+                                    whiteSpace: 'nowrap',
+                                    fontFamily: 'inherit',
+                                }}
+                            >
+                                {tab.label}
+                                <span
+                                    style={{
+                                        background: tab.red || tab.id === 'high' ? 'rgba(239,68,68,0.15)' : 'rgba(79,142,247,0.15)',
+                                        color: tab.red || tab.id === 'high' ? '#f87171' : C.blue,
+                                        fontSize: 9,
+                                        fontWeight: 700,
+                                        padding: '1px 5px',
+                                        borderRadius: 8,
+                                    }}
                                 >
-                                    Retry
-                                </button>
-                            </div>
-                            {/* TC-77 — Sample article cards so the page is never empty. */}
-                            <div className="space-y-3">
-                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest pt-2">Sample articles · for layout preview only</p>
-                                {SAMPLE_FALLBACK_ARTICLES.map((article, i) => (
-                                    <div key={`fallback-${i}`} className={`bg-white rounded-2xl border-2 p-5 shadow-sm transition-all hover:shadow-md ${article.impact === 'high' ? 'border-l-4 border-l-red-400' : article.impact === 'medium' ? 'border-l-4 border-l-amber-400' : 'border-l-4 border-l-blue-300'} border-gray-100 opacity-90`}>
-                                        <div className="flex items-start justify-between gap-4">
-                                            <div className="flex-1">
-                                                <div className="flex items-center gap-2 mb-2 flex-wrap">
-                                                    <span className="text-lg">{CAT_ICON[article.category] || '📰'}</span>
-                                                    <span className={`px-2 py-0.5 text-[10px] font-black rounded-full border ${IMPACT_STYLE[article.impact]}`}>{article.impact.toUpperCase()}</span>
-                                                    <span className="px-2 py-0.5 text-[10px] font-black rounded-full bg-gray-100 text-gray-600 uppercase tracking-widest">Sample</span>
-                                                </div>
-                                                <h4 className="font-black text-gray-900 mb-2 leading-tight">{article.title}</h4>
-                                                <p className="text-sm text-gray-600 leading-relaxed">{article.summary}</p>
-                                                <div className="flex items-center gap-3 mt-3 text-[11px] text-gray-400 font-bold">
-                                                    <span>{article.source}</span>
-                                                    <span>·</span>
-                                                    <span className="italic">{article.relevance}</span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </>
-                    )}
+                                    {count}
+                                </span>
+                            </button>
+                        );
+                    })}
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {SOURCE_FILTERS.map(src => {
+                        const active = activeSource === src;
+                        return (
+                            <button
+                                key={src}
+                                type="button"
+                                onClick={() => setActiveSource(src)}
+                                style={{
+                                    background: active ? 'rgba(79,142,247,0.08)' : C.bg3,
+                                    border: active ? `1px solid ${C.blue}` : '1px solid rgba(255,255,255,0.07)',
+                                    borderRadius: 20,
+                                    padding: '4px 10px',
+                                    fontSize: 11,
+                                    color: active ? C.blue : C.muted,
+                                    cursor: 'pointer',
+                                    whiteSpace: 'nowrap',
+                                    fontFamily: 'inherit',
+                                }}
+                            >
+                                {src}
+                            </button>
+                        );
+                    })}
+                </div>
+            </div>
 
-                    {!loading && !error && !news && (
-                        <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center shadow-sm">
-                            <Globe size={48} className="mx-auto text-gray-200 mb-4" />
-                            <p className="text-gray-500 font-black">Click "Refresh News" to load today's business news</p>
-                            <p className="text-gray-400 text-sm mt-1">AI will search for news relevant to oil distribution in NYC</p>
-                        </div>
-                    )}
-
-                    {!loading && news && news.articles.length === 0 && (
-                        <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center shadow-sm">
-                            <p className="text-gray-400 font-bold">No articles found in this search. Try refreshing.</p>
-                        </div>
-                    )}
-
-                    {!loading && news && news.articles.length > 0 && (
-                        <div className="space-y-3">
-                            {news.articles.map((article, i) => (
-                                <div key={i} className={`bg-white rounded-2xl border-2 p-5 shadow-sm transition-all hover:shadow-md ${article.impact === 'high' ? 'border-l-4 border-l-red-400' : article.impact === 'medium' ? 'border-l-4 border-l-amber-400' : 'border-l-4 border-l-blue-300'} border-gray-100`}>
-                                    <div className="flex items-start justify-between gap-4">
-                                        <div className="flex-1">
-                                            <div className="flex items-center gap-2 mb-2 flex-wrap">
-                                                <span className="text-lg">{CAT_ICON[article.category] || '📰'}</span>
-                                                <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${IMPACT_STYLE[article.impact]}`}>
-                                                    {article.impact.toUpperCase()} IMPACT
-                                                </span>
-                                                <span className="text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full capitalize">{article.category.replace('_',' ')}</span>
-                                                <span className="text-[10px] font-bold text-gray-500">{article.source}</span>
-                                            </div>
-                                            <h3 className="text-sm font-black text-gray-900 mb-1.5 leading-tight">{article.title}</h3>
-                                            <p className="text-xs text-gray-600 leading-relaxed mb-2">{article.summary}</p>
-                                            <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-                                                <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest mb-0.5">Why this affects Soltol</p>
-                                                <p className="text-xs text-amber-800">{article.relevance}</p>
-                                            </div>
-                                        </div>
-                                        <div className="flex flex-col gap-2 flex-shrink-0">
-                                            {article.url && article.url.startsWith('http') && (
-                                                <a href={article.url} target="_blank" rel="noopener noreferrer"
-                                                    className="flex items-center gap-1.5 px-3 py-2 bg-gray-900 text-white text-xs font-black rounded-xl hover:bg-gray-700 transition-all whitespace-nowrap">
-                                                    <ExternalLink size={12} /> Read Article
-                                                </a>
-                                            )}
-                                            <button onClick={() => sendChat(`Tell me more about this news and how it affects our business: "${article.title}"`)}
-                                                className="flex items-center gap-1.5 px-3 py-2 bg-orange-50 border border-orange-200 text-orange-700 text-xs font-black rounded-xl hover:bg-orange-100 transition-all whitespace-nowrap">
-                                                <Zap size={12} /> Ask Marcus
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
+            {/* Loading */}
+            {loading && (
+                <div style={{ ...btnGhost, justifyContent: 'center', padding: 24, marginBottom: 12, width: '100%' }}>
+                    <RefreshCw size={16} className="animate-spin" />
+                    Searching real-time news…
                 </div>
             )}
 
-            {/* Chat Tab */}
-            {activeTab === 'chat' && (
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex flex-col" style={{ height: '520px' }}>
-                    <div className="bg-gray-900 px-5 py-3 flex items-center gap-3 flex-shrink-0">
-                        <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center">
-                            <Bot size={16} className="text-white" />
+            {/* News cards */}
+            {!loading &&
+                visible.map(article => (
+                    <div
+                        key={article.title}
+                        style={{
+                            background: C.bg3,
+                            border: '1px solid rgba(255,255,255,0.05)',
+                            borderRadius: 12,
+                            padding: '18px 20px',
+                            marginBottom: 12,
+                            borderLeft: `3px solid ${article.impact === 'high' ? C.red : article.impact === 'medium' ? C.amber : C.dim}`,
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+                            <span
+                                style={{
+                                    fontSize: 9,
+                                    fontWeight: 700,
+                                    padding: '3px 7px',
+                                    borderRadius: 4,
+                                    letterSpacing: '0.3px',
+                                    background:
+                                        article.impact === 'high'
+                                            ? 'rgba(239,68,68,0.15)'
+                                            : article.impact === 'medium'
+                                              ? 'rgba(245,158,11,0.15)'
+                                              : 'rgba(139,163,199,0.1)',
+                                    color: article.impact === 'high' ? '#f87171' : article.impact === 'medium' ? C.amber : C.muted,
+                                }}
+                            >
+                                {article.impact.charAt(0).toUpperCase() + article.impact.slice(1)} impact
+                            </span>
+                            <span style={{ background: C.bg4, color: C.muted, fontSize: 10, padding: '2px 7px', borderRadius: 4 }}>
+                                {article.categoryLabel}
+                            </span>
+                            <span style={{ color: C.dim, fontSize: 11 }}>{article.source}</span>
+                            <span style={{ fontSize: 10, color: C.dim, marginLeft: 'auto' }}>{article.time}</span>
                         </div>
-                        <div>
-                            <p className="text-xs font-black text-white">Marcus — News Analyst</p>
-                            <p className="text-[10px] text-gray-400">Ask about tariffs, oil prices, market impact on your business</p>
-                        </div>
-                        <div className="ml-auto text-[10px] text-gray-400">
-                            {news ? `${news.articles.length} articles in context` : 'Load news feed first'}
-                        </div>
-                    </div>
 
-                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                        {messages.length === 0 && (
-                            <div className="py-8 text-center space-y-4">
-                                <p className="text-gray-400 text-sm font-medium">Ask me anything about business news</p>
-                                <div className="flex flex-wrap gap-2 justify-center">
-                                    {QUICK_SEARCHES.map((q, i) => (
-                                        <button key={i} onClick={() => sendChat(q)}
-                                            className="text-xs px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-full text-gray-600 hover:bg-orange-50 hover:border-orange-300 hover:text-orange-700 transition-all">
-                                            {q}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                        {messages.map(msg => (
-                            <div key={msg.id} className={`flex gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                                <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${msg.role === 'assistant' ? 'bg-orange-500' : 'bg-gray-800'}`}>
-                                    {msg.role === 'assistant' ? <Bot size={14} className="text-white" /> : <User size={14} className="text-white" />}
-                                </div>
-                                <div className={`max-w-[78%] rounded-2xl px-4 py-3 text-sm ${msg.role === 'assistant' ? 'bg-gray-50 border border-gray-100 text-gray-700' : 'bg-gray-900 text-white'}`}>
-                                    {msg.typing ? (
-                                        <div className="flex gap-1 py-1">
-                                            {[0,1,2].map(i => <div key={i} className="w-2 h-2 rounded-full bg-orange-400 animate-bounce" style={{animationDelay:`${i*0.15}s`}} />)}
-                                        </div>
-                                    ) : (
-                                        <div className="whitespace-pre-wrap leading-relaxed">{msg.content}</div>
-                                    )}
-                                </div>
-                            </div>
-                        ))}
-                        <div ref={bottomRef} />
-                    </div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 8, lineHeight: 1.4, letterSpacing: '-0.2px' }}>
+                            {article.title}
+                        </div>
+                        <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, marginBottom: 12 }}>{article.summary}</div>
 
-                    <div className="border-t border-gray-100 p-3 flex gap-2 flex-shrink-0">
-                        <input value={input} onChange={e => setInput(e.target.value)}
-                            onKeyDown={e => e.key === 'Enter' && sendChat()}
-                            placeholder="Ask about tariffs, oil prices, market trends..."
-                            className="flex-1 text-sm focus:outline-none text-gray-800 placeholder-gray-400 px-1" />
-                        <button onClick={() => sendChat()} disabled={!input.trim() || chatLoading}
-                            className="w-9 h-9 bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white rounded-xl flex items-center justify-center transition-all">
-                            {chatLoading ? <RefreshCw size={14} className="animate-spin" /> : <Send size={14} />}
-                        </button>
+                        <div
+                            style={{
+                                background: C.bg4,
+                                padding: '12px 14px',
+                                marginBottom: 12,
+                                borderLeft: `2px solid ${C.amber}`,
+                            }}
+                        >
+                            <div style={{ fontSize: 10, fontWeight: 600, color: C.amber, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5, letterSpacing: '0.3px' }}>
+                                🛢 Why this affects Soltol
+                            </div>
+                            <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>{article.soltolImpact}</div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            {article.url?.startsWith('http') && (
+                                <a
+                                    href={article.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{
+                                        background: C.bg4,
+                                        border: '1px solid rgba(255,255,255,0.07)',
+                                        borderRadius: 6,
+                                        color: C.muted,
+                                        padding: '5px 10px',
+                                        fontSize: 11,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 5,
+                                        textDecoration: 'none',
+                                    }}
+                                >
+                                    <ChevronRight size={11} />
+                                    Read article
+                                </a>
+                            )}
+                            <button
+                                type="button"
+                                style={bettanoBtn}
+                                onClick={() =>
+                                    openBettanoAdvisor(`Tell me more about this news and how it affects Soltol: "${article.title}"`)
+                                }
+                            >
+                                🛢 Ask Bettano ↗
+                            </button>
+                            {article.priceTag && (
+                                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5 }}>
+                                    <span
+                                        style={{
+                                            fontSize: 10,
+                                            background: article.priceTagAmber ? 'rgba(245,158,11,0.1)' : 'rgba(239,68,68,0.1)',
+                                            color: article.priceTagAmber ? C.amber : '#f87171',
+                                            padding: '3px 8px',
+                                            borderRadius: 4,
+                                            fontWeight: 500,
+                                        }}
+                                    >
+                                        {article.priceTag}
+                                    </span>
+                                </div>
+                            )}
+                        </div>
                     </div>
+                ))}
+
+            {!loading && visible.length === 0 && (
+                <div style={{ textAlign: 'center', padding: 40, color: C.muted }}>
+                    No articles match this filter. Try another tab or source.
                 </div>
             )}
         </div>

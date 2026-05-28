@@ -19,7 +19,7 @@ import {
     TrendingUp,
     User,
     MapPin
-, Tag , BookOpen , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 , Mail , LogOut , Sparkles , Lock } from 'lucide-react';
+, Tag , BookOpen , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 , Mail , LogOut , Sparkles , Lock , Activity } from 'lucide-react';
 import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
 
@@ -53,7 +53,8 @@ export default function Sidebar({
         reports: false,
         ai: true,
         marketing: true,
-        agents: true
+        agents: true,
+        voice: true,
     });
 
     const toggleSection = (section: string) => {
@@ -121,6 +122,7 @@ export default function Sidebar({
                 </div>
                 <NavItem to="/" icon={LayoutDashboard} label="Dashboard" />
                 <NavItem to="/pulse" icon={Send} label="PULSE — Team Chat" />
+                <NavItem to="/pulse/notes" icon={FileText} label="Meeting Notes" />
                 <NavItem to="/migrate" icon={Database} label="📥 Data Migration" />
                 <NavItem to="/portal" icon={User} label="Employee Portal" />
 
@@ -338,6 +340,23 @@ export default function Sidebar({
                             <NavItem to="/marketing/segments" icon={Users} label="Customer Segments" />
                             <NavItem to="/marketing/campaigns" icon={Send} label="Campaign Manager" />
                             <NavItem to="/marketing/analytics" icon={BarChart2} label="Analytics" />
+                        </div>
+                    )}
+                </div>
+
+                {/* SOLTOL VOICE */}
+                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-emerald-400/80 px-4 py-2 mt-1 flex items-center gap-1.5">
+                    <span>🎤</span> Soltol Voice
+                </div>
+                <div>
+                    <SectionHeader label="Voice AI" isOpen={sections.voice} onClick={() => toggleSection('voice')} />
+                    {sections.voice && (
+                        <div className="space-y-0.5 pl-2 border-l-2 border-emerald-500/20 ml-2">
+                            <NavItem to="/voice/dashboard" icon={LayoutDashboard} label="Voice Dashboard" />
+                            <NavItem to="/voice/calls" icon={Headphones} label="Call History" />
+                            <NavItem to="/voice/analytics" icon={Activity} label="Voice Analytics" />
+                            <NavItem to="/voice/coaching-rules" icon={Brain} label="Coaching Rules" />
+                            <NavItem to="/voice/onboard" icon={Briefcase} label="Onboard Tenant" />
                         </div>
                     )}
                 </div>

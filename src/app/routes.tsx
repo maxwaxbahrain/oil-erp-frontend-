@@ -114,6 +114,13 @@ import TaxAdvisor from '../pages/TaxSystem/TaxAdvisor';
 import TaxDashboard from '../pages/TaxSystem/TaxDashboard';
 import AmazonIntegration from '../pages/Amazon/AmazonIntegration';
 import Pulse from '../pages/Pulse/PulseDashboard';
+import MeetingNotes from '../pages/Pulse/MeetingNotes';
+import VoiceDashboard from '../pages/Voice/VoiceDashboard';
+import VoiceCallHistory from '../pages/Voice/CallHistory';
+import VoiceCallDetail from '../pages/Voice/CallDetail';
+import VoiceAnalytics from '../pages/Voice/Analytics';
+import VoiceCoachingRules from '../pages/Voice/CoachingRules';
+import VoiceTenantOnboard from '../pages/Voice/TenantOnboard';
 import DataMigration from '../pages/Migration/DataMigration'; // CRM exports as 'CRM'
 import AIContentStudio from '../pages/Marketing/AIContentStudio';
 import { CustomerSegments, CampaignManager, MarketingAnalytics } from '../pages/Marketing/MarketingPages';
@@ -276,6 +283,14 @@ export const AppRoutes = () => {
             <Route path="/tax/dashboard" element={<TaxDashboard />} />
             <Route path="/amazon" element={<AmazonIntegration />} />
             <Route path="/pulse" element={<Pulse />} />
+            <Route path="/pulse/notes" element={<MeetingNotes />} />
+            <Route path="/voice" element={<Navigate to="/voice/dashboard" replace />} />
+            <Route path="/voice/dashboard" element={<VoiceDashboard />} />
+            <Route path="/voice/calls" element={<VoiceCallHistory />} />
+            <Route path="/voice/calls/:callId" element={<VoiceCallDetail />} />
+            <Route path="/voice/analytics" element={<VoiceAnalytics />} />
+            <Route path="/voice/coaching-rules" element={<VoiceCoachingRules />} />
+            <Route path="/voice/onboard" element={<VoiceTenantOnboard />} />
             <Route path="/migrate" element={<DataMigration />} />
             <Route path="/marketing" element={<MarketingHub />} />
             <Route path="/marketing/studio" element={<AIContentStudio />} />
