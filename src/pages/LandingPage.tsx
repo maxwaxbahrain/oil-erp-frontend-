@@ -55,7 +55,7 @@ function SectionTitle({ title, sub }: { title: string; sub?: string }) {
   return (
     <>
       <h2 style={{ fontSize: 26, fontWeight: 500, color: C.textPrimary, letterSpacing: '-0.3px', marginBottom: sub ? 6 : 0 }}>{title}</h2>
-      {sub && <p style={{ fontSize: 14, color: C.textSecondary, lineHeight: 1.65, maxWidth: 480, margin: '0 auto 28px' }}>{sub}</p>}
+      {sub && <p style={{ fontSize: 16, color: C.textSecondary, lineHeight: 1.65, maxWidth: 480, margin: '0 auto 28px' }}>{sub}</p>}
     </>
   );
 }
@@ -260,7 +260,7 @@ export default function LandingPage() {
         <h1 style={{ fontSize: isMobile ? 24 : 42, fontWeight: 500, letterSpacing: '-1px', lineHeight: 1.2, maxWidth: 520, margin: '0 auto 10px' }}>
           The <span style={{ color: C.accent }}>one platform</span> that runs your entire distribution business
         </h1>
-        <p style={{ fontSize: 15, color: C.textSecondary, lineHeight: 1.75, maxWidth: 380, margin: '0 auto 22px' }}>
+        <p style={{ fontSize: 16, color: C.textSecondary, lineHeight: 1.75, maxWidth: 380, margin: '0 auto 22px' }}>
           Voice invoicing, AI forecasting, driver app, credit intelligence — speak in your language, run your business your way.
         </p>
 
@@ -296,7 +296,7 @@ export default function LandingPage() {
         </div>
 
         <div style={{ background: '#0d1020', border: '1px solid rgba(79,107,244,0.15)', borderRadius: 10, padding: '14px 18px', maxWidth: 520, margin: '0 auto 20px', minHeight: 52 }}>
-          <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)', lineHeight: 1.65, margin: 0 }}>{PERSONA_COPY[activeTab]}</p>
+          <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)', lineHeight: 1.65, margin: 0 }}>{PERSONA_COPY[activeTab]}</p>
         </div>
 
         <div style={{ maxWidth: 420, margin: '0 auto' }}>
@@ -308,7 +308,7 @@ export default function LandingPage() {
               placeholder="Enter your work email"
               style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, padding: '12px 16px', fontSize: 14, color: C.textPrimary, width: isMobile ? '100%' : 260, boxSizing: 'border-box', fontFamily: font }}
             />
-            <button type="button" onClick={() => joinWaitlist(heroEmail, () => scrollToId('waitlist'))} style={{ background: C.accent, color: C.textPrimary, border: 'none', borderRadius: 8, padding: '13px 22px', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: font }}>
+            <button type="button" onClick={() => joinWaitlist(heroEmail, () => scrollToId('waitlist'))} style={{ background: C.accent, color: C.textPrimary, border: 'none', borderRadius: 8, padding: '13px 28px', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: font, whiteSpace: 'nowrap', minWidth: 190 }}>
               Join waitlist free
             </button>
             <button type="button" onClick={() => scrollToId('voice')} style={{ background: 'transparent', color: 'rgba(255,255,255,0.5)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, padding: '10px 14px', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, fontFamily: font }}>
@@ -318,7 +318,7 @@ export default function LandingPage() {
           <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', marginBottom: 14 }}>Free 7-day trial at launch · No credit card · Cancel any time</p>
           <div style={{ display: 'flex', justifyContent: 'center', gap: 14, flexWrap: 'wrap', marginBottom: 20 }}>
             {['Go live in days', 'Switch from QuickBooks easily', '100% private data', '36+ languages'].map((t) => (
-              <span key={t} style={{ fontSize: 12, color: C.textSecondary, display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span key={t} style={{ fontSize: 15, color: C.textSecondary, display: 'flex', alignItems: 'center', gap: 4 }}>
                 <TablerIcon name="check" size={11} color="rgba(99,153,34,0.7)" /> {t}
               </span>
             ))}
@@ -343,8 +343,9 @@ export default function LandingPage() {
       </section>
 
       {/* PRODUCT MOCKUP */}
+      <section style={{ background: C.bgCard, padding: '0 16px', borderBottom: '0.5px solid rgba(255,255,255,0.05)' }}>
       {!isMobile ? (
-        <div style={{ margin: '22px 16px 0', background: C.bgCard, border: '1px solid rgba(79,107,244,0.12)', borderRadius: 10, overflow: 'hidden' }}>
+        <div style={{ background: C.bgCard, border: '1px solid rgba(79,107,244,0.12)', borderRadius: 10, overflow: 'hidden' }}>
           <div style={{ background: '#0d0f1a', padding: '8px 12px', borderBottom: '1px solid rgba(79,107,244,0.1)', display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{ display: 'flex', gap: 5 }}>
               {['#E24B4A', '#EF9F27', '#639922'].map((c) => (
@@ -416,7 +417,7 @@ export default function LandingPage() {
           </div>
         </div>
       ) : (
-        <div style={{ margin: '16px', display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap', paddingBottom: 16 }}>
           {[['$24,850', 'Revenue today'], ['48', 'Deliveries'], ['4', 'Stock alerts']].map(([v, l]) => (
             <div key={l} style={{ background: C.bgCard, border: '1px solid rgba(79,107,244,0.15)', borderRadius: 8, padding: '10px 16px', textAlign: 'center' }}>
               <div style={{ fontSize: 22, fontWeight: 500 }}>{v}</div>
@@ -425,9 +426,10 @@ export default function LandingPage() {
           ))}
         </div>
       )}
+      </section>
 
       {/* HOW IT WORKS */}
-      <section id="how-it-works" style={{ background: C.bgMain, padding: '56px 40px', borderBottom: '0.5px solid rgba(255,255,255,0.05)', textAlign: 'center' }}>
+      <section id="how-it-works" style={{ background: C.bgMain, padding: '64px 48px', borderBottom: '0.5px solid rgba(255,255,255,0.05)', textAlign: 'center' }}>
         <Eyebrow>How it works</Eyebrow>
         <SectionTitle title="Go live in days — not months" sub="No IT team. No fees. No consultants. Just sign up and go." />
         <div style={{ display: 'grid', gridTemplateColumns: `repeat(${gridCols(4, 2, 1)}, 1fr)`, gap: 12, maxWidth: 900, margin: '0 auto' }}>
@@ -439,15 +441,15 @@ export default function LandingPage() {
           ].map(([n, t, d]) => (
             <div key={n as string} style={{ background: C.bgCard, border: '1px solid rgba(79,107,244,0.12)', borderRadius: 12, padding: 18, textAlign: 'left' }}>
               <div style={{ width: 36, height: 36, borderRadius: 7, background: 'rgba(79,107,244,0.15)', border: '1px solid rgba(79,107,244,0.3)', color: C.accentLight, fontSize: 15, fontWeight: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 9 }}>{n as string}</div>
-              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>{t as string}</div>
-              <div style={{ fontSize: 13, color: C.textSecondary, lineHeight: 1.55 }}>{d as string}</div>
+              <div style={{ fontSize: 17, fontWeight: 500, marginBottom: 4 }}>{t as string}</div>
+              <div style={{ fontSize: 16, color: C.textSecondary, lineHeight: 1.55 }}>{d as string}</div>
             </div>
           ))}
         </div>
       </section>
 
       {/* FEATURES */}
-      <section id="features" style={{ background: C.bgCard, padding: '56px 40px', borderBottom: '0.5px solid rgba(255,255,255,0.05)', textAlign: 'center' }}>
+      <section id="features" style={{ background: C.bgCard, padding: '64px 48px', borderBottom: '0.5px solid rgba(255,255,255,0.05)', textAlign: 'center' }}>
         <Eyebrow>Core features</Eyebrow>
         <SectionTitle title="80+ features built for your business" sub="Every plan includes every feature — no module upsells" />
         <div style={{ display: 'grid', gridTemplateColumns: `repeat(${gridCols(3, 2, 1)}, 1fr)`, gap: 8, maxWidth: 960, margin: '0 auto 16px' }}>
@@ -463,8 +465,8 @@ export default function LandingPage() {
               <div style={{ width: 40, height: 40, borderRadius: 9, background: ibg as string, color: icol as string, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 10 }}>
                 <TablerIcon name={icon as string} size={20} color={icol as string} />
               </div>
-              <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 4 }}>{title as string}</div>
-              <div style={{ fontSize: 13, color: C.textSecondary, lineHeight: 1.55, flex: 1, marginBottom: 8 }}>{desc as string}</div>
+              <div style={{ fontSize: 17, fontWeight: 500, marginBottom: 4 }}>{title as string}</div>
+              <div style={{ fontSize: 16, color: C.textSecondary, lineHeight: 1.55, flex: 1, marginBottom: 8 }}>{desc as string}</div>
               <span style={{ fontSize: 11, fontWeight: 500, background: bbg as string, color: bcol as string, padding: '2px 8px', borderRadius: 4, alignSelf: 'flex-start' }}>{badge as string}</span>
             </div>
           ))}
@@ -475,13 +477,13 @@ export default function LandingPage() {
       </section>
 
       {/* VOICE */}
-      <section id="voice" style={{ background: C.bgMain, padding: '56px 40px', borderBottom: '0.5px solid rgba(255,255,255,0.05)', textAlign: 'center' }}>
+      <section id="voice" style={{ background: C.bgMain, padding: '64px 48px', borderBottom: '0.5px solid rgba(255,255,255,0.05)', textAlign: 'center' }}>
         <Eyebrow>Multi-language voice</Eyebrow>
         <SectionTitle title="Speak your language — SOLTOL ONE understands" sub="The only ERP where your team works in their native language" />
         <div style={{ background: C.bgCard, border: '1px solid rgba(79,107,244,0.2)', borderRadius: 10, padding: 16, marginBottom: 14, maxWidth: 800, marginInline: 'auto', display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr auto 1fr', gap: 12, alignItems: 'center' }}>
           <div style={{ background: C.bgMain, border: '1px solid rgba(79,107,244,0.12)', borderRadius: 8, padding: '14px 16px', textAlign: 'left' }}>
             <div style={{ fontSize: 11, color: C.textTertiary, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}><TablerIcon name="microphone" size={14} /> Driver speaks in Spanish</div>
-            <div style={{ fontSize: 14, color: C.textPrimary }}>Cincuenta litros de diesel para el cliente Garcia, pago en efectivo</div>
+            <div style={{ fontSize: 16, color: C.textPrimary }}>Cincuenta litros de diesel para el cliente Garcia, pago en efectivo</div>
             <div style={{ fontSize: 11, color: 'rgba(79,107,244,0.7)', marginTop: 4 }}>Spanish · Mexico City, USA</div>
           </div>
           {!isMobile && (
@@ -492,7 +494,7 @@ export default function LandingPage() {
           )}
           <div style={{ background: C.bgMain, border: '1px solid rgba(79,107,244,0.12)', borderRadius: 8, padding: '14px 16px', textAlign: 'left' }}>
             <div style={{ fontSize: 11, color: C.green, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}><TablerIcon name="file-invoice" size={14} color={C.green} /> Invoice created</div>
-            <div style={{ fontSize: 14, color: C.green }}>Invoice #1847 · Garcia · 50L · $185 · Done</div>
+            <div style={{ fontSize: 16, color: C.green }}>Invoice #1847 · Garcia · 50L · $185 · Done</div>
             <div style={{ fontSize: 11, color: C.green, marginTop: 4 }}>3 seconds · English + Spanish</div>
           </div>
         </div>
@@ -509,7 +511,7 @@ export default function LandingPage() {
       </section>
 
       {/* INDUSTRIES */}
-      <section id="industries" style={{ background: C.bgCard, padding: '56px 40px', borderBottom: '0.5px solid rgba(255,255,255,0.05)', textAlign: 'center' }}>
+      <section id="industries" style={{ background: C.bgCard, padding: '64px 48px', borderBottom: '0.5px solid rgba(255,255,255,0.05)', textAlign: 'center' }}>
         <Eyebrow>Industries</Eyebrow>
         <SectionTitle title="Built for every type of distributor" sub="If you buy it, stock it, and deliver it — SOLTOL ONE runs it" />
         <div style={{ display: 'grid', gridTemplateColumns: `repeat(${gridCols(4, 2, 1)}, 1fr)`, gap: 6, maxWidth: 960, margin: '0 auto' }}>
@@ -528,7 +530,7 @@ export default function LandingPage() {
                 <TablerIcon name={icon as string} size={14} color={col as string} />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 500 }}>{name as string}</div>
+                <div style={{ fontSize: 16, fontWeight: 500 }}>{name as string}</div>
                 <div style={{ fontSize: 11, color: C.textTertiary }}>{sub as string}</div>
               </div>
               <span style={{ background: '#EAF3DE', color: '#3B6D11', fontSize: 11, fontWeight: 500, padding: '2px 6px', borderRadius: 5, flexShrink: 0 }}>{score as string}</span>
@@ -538,7 +540,7 @@ export default function LandingPage() {
       </section>
 
       {/* PLATFORM POWER */}
-      <section style={{ background: C.bgMain, padding: '56px 40px', borderBottom: '0.5px solid rgba(255,255,255,0.05)', textAlign: 'center' }}>
+      <section style={{ background: C.bgMain, padding: '64px 48px', borderBottom: '0.5px solid rgba(255,255,255,0.05)', textAlign: 'center' }}>
         <Eyebrow>Platform power</Eyebrow>
         <SectionTitle title="Numbers no competitor can match" sub="Enterprise-grade infrastructure from day one" />
         <div style={{ display: 'grid', gridTemplateColumns: `repeat(${gridCols(3, 2, 1)}, 1fr)`, gap: 8, maxWidth: 960, margin: '0 auto' }}>
@@ -552,15 +554,15 @@ export default function LandingPage() {
           ].map(([num, title, desc]) => (
             <div key={title as string} style={{ background: C.bgCard, border: '1px solid rgba(79,107,244,0.1)', borderRadius: 12, padding: 18, textAlign: 'left' }}>
               <div style={{ fontSize: 36, fontWeight: 500, color: C.accent, marginBottom: 4 }}>{num as string}</div>
-              <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 3 }}>{title as string}</div>
-              <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.38)', lineHeight: 1.55 }}>{desc as string}</div>
+              <div style={{ fontSize: 17, fontWeight: 500, marginBottom: 3 }}>{title as string}</div>
+              <div style={{ fontSize: 16, color: 'rgba(255,255,255,0.38)', lineHeight: 1.55 }}>{desc as string}</div>
             </div>
           ))}
         </div>
       </section>
 
       {/* TESTIMONIALS */}
-      <section style={{ background: C.bgCard, padding: '56px 40px', borderBottom: '0.5px solid rgba(255,255,255,0.05)', textAlign: 'center' }}>
+      <section style={{ background: C.bgCard, padding: '64px 48px', borderBottom: '0.5px solid rgba(255,255,255,0.05)', textAlign: 'center' }}>
         <Eyebrow>Testimonials</Eyebrow>
         <SectionTitle title="Trusted by distributors in USA and beyond" sub="Early access program feedback" />
         <div style={{ display: 'grid', gridTemplateColumns: `repeat(${gridCols(3, 1, 1)}, 1fr)`, gap: 8, maxWidth: 960, margin: '0 auto' }}>
@@ -575,11 +577,11 @@ export default function LandingPage() {
                   <TablerIcon key={i} name="star-filled" size={14} color="#FAC775" />
                 ))}
               </div>
-              <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.55)', fontStyle: 'italic', lineHeight: 1.65, marginBottom: 10 }}>"{quote as string}"</p>
+              <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.55)', fontStyle: 'italic', lineHeight: 1.65, marginBottom: 10 }}>"{quote as string}"</p>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div style={{ width: 36, height: 36, borderRadius: '50%', background: bg as string, color: col as string, fontSize: 10, fontWeight: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{init as string}</div>
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 500 }}>{name as string}</div>
+                  <div style={{ fontSize: 15, fontWeight: 500 }}>{name as string}</div>
                   <div style={{ fontSize: 11, color: C.textTertiary }}>{role as string}</div>
                   <div style={{ fontSize: 11, color: C.textTertiary }}>{loc as string}</div>
                 </div>
@@ -590,15 +592,15 @@ export default function LandingPage() {
       </section>
 
       {/* COMPARE */}
-      <section id="compare" style={{ background: C.bgMain, padding: '56px 40px', borderBottom: '0.5px solid rgba(255,255,255,0.05)', textAlign: 'center' }}>
+      <section id="compare" style={{ background: C.bgMain, padding: '64px 48px', borderBottom: '0.5px solid rgba(255,255,255,0.05)', textAlign: 'center' }}>
         <Eyebrow>Comparison</Eyebrow>
         <SectionTitle title="SOLTOL ONE vs the alternatives" sub="Only platform with voice invoicing, AI advisor, and driver app built in from day one" />
         <div style={{ overflowX: 'auto', maxWidth: 720, margin: '0 auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, textAlign: 'left' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 15, textAlign: 'left' }}>
             <thead>
               <tr style={{ color: 'rgba(255,255,255,0.35)' }}>
                 {['Feature', 'SOLTOL ONE', 'QuickBooks', 'NetSuite', 'Odoo'].map((h, i) => (
-                  <th key={h} style={{ padding: '11px 14px', borderBottom: '1px solid rgba(79,107,244,0.1)', background: i === 1 ? 'rgba(79,107,244,0.07)' : undefined, fontWeight: 500 }}>{h}</th>
+                  <th key={h} style={{ padding: '14px 16px', borderBottom: '1px solid rgba(79,107,244,0.1)', background: i === 1 ? 'rgba(79,107,244,0.07)' : undefined, fontWeight: 500 }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -612,9 +614,9 @@ export default function LandingPage() {
                 ['Starting price', 'Free trial', '$30/mo', '$999+/mo', '$20/user'],
               ].map(([feat, ...cols]) => (
                 <tr key={feat as string}>
-                  <td style={{ padding: '11px 14px', borderBottom: '1px solid rgba(79,107,244,0.08)', color: C.textSecondary }}>{feat as string}</td>
+                  <td style={{ padding: '14px 16px', borderBottom: '1px solid rgba(79,107,244,0.08)', color: C.textSecondary }}>{feat as string}</td>
                   {cols.map((c, i) => (
-                    <td key={i} style={{ padding: '11px 14px', borderBottom: '1px solid rgba(79,107,244,0.08)', background: i === 0 ? 'rgba(79,107,244,0.07)' : undefined, color: c === '✓' ? C.green : c === '✗' ? '#E24B4A' : c.includes('Extra') || c.includes('Add') || c.startsWith('~') ? '#EF9F27' : c === 'Free trial' ? C.green : C.textPrimary }}>{c}</td>
+                    <td key={i} style={{ padding: '14px 16px', borderBottom: '1px solid rgba(79,107,244,0.08)', background: i === 0 ? 'rgba(79,107,244,0.07)' : undefined, color: c === '✓' ? C.green : c === '✗' ? '#E24B4A' : c.includes('Extra') || c.includes('Add') || c.startsWith('~') ? '#EF9F27' : c === 'Free trial' ? C.green : C.textPrimary }}>{c}</td>
                   ))}
                 </tr>
               ))}
@@ -634,14 +636,14 @@ export default function LandingPage() {
           ['map-pin', 'Built in the United States'],
           ['world', '36+ languages'],
         ].map(([icon, text]) => (
-          <span key={text as string} style={{ fontSize: 12, color: 'rgba(255,255,255,0.32)', display: 'flex', alignItems: 'center', gap: 5 }}>
+          <span key={text as string} style={{ fontSize: 14, color: 'rgba(255,255,255,0.32)', display: 'flex', alignItems: 'center', gap: 5 }}>
             <TablerIcon name={icon as string} size={16} color={C.accent} /> {text as string}
           </span>
         ))}
       </section>
 
       {/* FAQ */}
-      <section id="faq" style={{ background: C.bgMain, padding: '56px 40px', borderBottom: '0.5px solid rgba(255,255,255,0.05)', textAlign: 'center' }}>
+      <section id="faq" style={{ background: C.bgMain, padding: '64px 48px', borderBottom: '0.5px solid rgba(255,255,255,0.05)', textAlign: 'center' }}>
         <Eyebrow>FAQ</Eyebrow>
         <SectionTitle title="Common questions answered" sub="Everything you need to know before signing up" />
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 7, maxWidth: 540, margin: '0 auto' }}>
@@ -658,7 +660,7 @@ export default function LandingPage() {
                 <TablerIcon name={icon as string} size={14} color={C.accent} />
                 {q as string}
               </div>
-              <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.38)', lineHeight: 1.6 }}>{a as string}</div>
+              <div style={{ fontSize: 16, color: 'rgba(255,255,255,0.38)', lineHeight: 1.6 }}>{a as string}</div>
             </div>
           ))}
         </div>
@@ -672,7 +674,7 @@ export default function LandingPage() {
             Launching in USA first · Bahrain · then worldwide
           </div>
           <h2 style={{ fontSize: 30, fontWeight: 500, letterSpacing: '-0.3px', marginBottom: 5 }}>Be first to transform your distribution business</h2>
-          <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.38)', marginBottom: 18 }}>Join 247 distributors on the waitlist. Get 3 months free when we launch.</p>
+          <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.38)', marginBottom: 18 }}>Join 247 distributors on the waitlist. Get 3 months free when we launch.</p>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
             {[
@@ -716,7 +718,7 @@ export default function LandingPage() {
           </div>
           <div style={{ display: 'flex', justifyContent: 'center', gap: 14, flexWrap: 'wrap' }}>
             {['3 months free', 'Priority onboarding', 'Lock in launch price', 'Cancel any time'].map((t) => (
-              <span key={t} style={{ fontSize: 12, color: C.textSecondary, display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span key={t} style={{ fontSize: 15, color: C.textSecondary, display: 'flex', alignItems: 'center', gap: 4 }}>
                 <TablerIcon name="check" size={11} color="rgba(99,153,34,0.7)" /> {t}
               </span>
             ))}
