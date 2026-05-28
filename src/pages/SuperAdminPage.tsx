@@ -55,6 +55,7 @@ interface AIUsageRow {
   feature: string;
   tokens_used: number;
   cost_usd: number;
+  ip_address: string | null;
   created_at: string;
 }
 
@@ -289,10 +290,10 @@ export default function SuperAdminPage() {
       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 16 }}>
         <div style={{ ...panel, padding: 16, overflowX: 'auto' }}>
           <h2 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Recent AI Usage</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 720 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 860 }}>
             <thead>
               <tr>
-                {['Company', 'User', 'Feature', 'Tokens', 'Cost ($)', 'Date'].map(h => (
+                {['Company', 'User', 'Feature', 'Tokens', 'Cost ($)', 'IP Address', 'Date'].map(h => (
                   <th key={h} style={th}>{h}</th>
                 ))}
               </tr>
@@ -305,6 +306,7 @@ export default function SuperAdminPage() {
                   <td style={td}>{row.feature}</td>
                   <td style={td}>{row.tokens_used.toLocaleString()}</td>
                   <td style={td}>${row.cost_usd.toFixed(4)}</td>
+                  <td style={td}>{row.ip_address ?? '—'}</td>
                   <td style={td}>{formatDate(row.created_at)}</td>
                 </tr>
               ))}
