@@ -410,14 +410,12 @@ function App() {
               >
                 S
               </div>
-              <div className="flex flex-col leading-none whitespace-nowrap">
-                <span style={{ fontFamily: "'Syne',sans-serif", fontSize: '15px', fontWeight: 600, color: 'var(--color-redwood-text-main)', letterSpacing: '-0.3px' }}>
-                  Soltol
-                </span>
-                <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: '8.5px', fontWeight: 400, color: 'var(--color-redwood-text-muted)', marginTop: '1px' }}>
-                  ERP
-                </span>
-              </div>
+              <span style={{ fontFamily: "'Syne',sans-serif", fontSize: '15px', fontWeight: 500, color: '#ffffff', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>
+                SOLTOL
+              </span>
+              <span style={{ fontSize: '11px', color: '#85B7EB', background: 'rgba(79,107,244,0.15)', border: '1px solid rgba(79,107,244,0.3)', padding: '2px 8px', borderRadius: '5px', marginLeft: '6px' }}>
+                ONE
+              </span>
             </div>
             {/* Breadcrumb pill removed — nav goes logo → role pill →
                 search directly per latest mockup. */}
