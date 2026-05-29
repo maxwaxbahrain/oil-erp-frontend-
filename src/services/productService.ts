@@ -392,7 +392,7 @@ export async function saveProduct(product: Partial<Product>): Promise<Product> {
         description: product.description ?? product.shortDescription ?? '',
         price: Number(product.pricing?.sellingPrice ?? 0),
         cost: Number(product.pricing?.landedCost ?? 0),
-        stock: Number(product.locations?.[0]?.currentStock ?? 0),
+        stock: Number((product.locations ?? []).reduce((sum, loc) => sum + (Number(loc?.currentStock) || 0), 0)),
         min_stock: Number(
             product.locations?.[0]?.reorderPoint ?? product.reorderLevel ?? 0,
         ),
