@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, CheckCircle2, ChevronRight, MapPin, Plus, Truck, RefreshCw, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Camera, CheckCircle2, ChevronRight, MapPin, Plus, Truck, RefreshCw, AlertTriangle } from 'lucide-react';
 import { createInvoice, createPayment, getCustomers, getVans, type Van } from '../../services/api';
 import { getRoutes, getRouteStops, type RouteStop } from '../../services/routeService';
 import { getSalesOrders } from '../../services/api';
 import { patchSalesOrder } from '../../services/salesService';
 import { getCurrentUser } from '../../store/authStore';
+import { completeDeliveryNote, createDeliveryNote, toDriverDeliveryStatus } from '../../services/deliveryService';
+import { compressImage } from '../../utils/imageCompression';
+import { buildCompleteDeliveryPayload, buildDeliveryNotePayload } from './driverPodMapping';
 
 const C = {
   bg: '#060f1c',
@@ -107,9 +110,15 @@ export default function DriverApp() {
   const [notes, setNotes] = useState('');
   const [signatureData, setSignatureData] = useState<string>('');
   const [isSigning, setIsSigning] = useState(false);
+  const [recipientName, setRecipientName] = useState('');
+  const [deliveryPhoto, setDeliveryPhoto] = useState('');
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [gpsLocation, setGpsLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [gpsStatus, setGpsStatus] = useState<'idle' | 'loading' | 'captured' | 'denied' | 'unavailable'>('idle');
+  const [podWarning, setPodWarning] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isDrawing = useRef(false);
-  const [successInfo, setSuccessInfo] = useState<{ customer: string; invoice: string; amount: number } | null>(null);
+  const [successInfo, setSuccessInfo] = useState<{ customer: string; invoice: string; amount: number; podWarning?: string | null } | null>(null);
   const [driverName, setDriverName] = useState('Driver');
 
   useEffect(() => {
@@ -267,8 +276,14 @@ export default function DriverApp() {
     setPaymentMethod(stop.paymentMethod);
     setAmountReceived(stop.amount);
     setNotes('');
+    setRecipientName(stop.customerName);
     setSignatureData('');
     setIsSigning(false);
+    setDeliveryPhoto('');
+    setPhotoError(null);
+    setGpsLocation(null);
+    setGpsStatus('idle');
+    setPodWarning(null);
     setTimeout(() => {
       const canvas = canvasRef.current;
       if (canvas) {
@@ -277,6 +292,41 @@ export default function DriverApp() {
       }
     }, 50);
     setStep('confirm');
+    captureGps();
+  }
+
+  function captureGps() {
+    if (!navigator.geolocation) {
+      setGpsStatus('unavailable');
+      return;
+    }
+    setGpsStatus('loading');
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setGpsLocation({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        });
+        setGpsStatus('captured');
+      },
+      (error) => {
+        console.warn('Could not capture POD GPS location:', error);
+        setGpsStatus(error.code === error.PERMISSION_DENIED ? 'denied' : 'unavailable');
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 },
+    );
+  }
+
+  async function handlePhotoCapture(file?: File | null) {
+    if (!file) return;
+    setPhotoError(null);
+    try {
+      const compressed = await compressImage(file, { maxWidth: 900, maxHeight: 900, quality: 0.72, outputFormat: 'jpeg' });
+      setDeliveryPhoto(compressed);
+    } catch (e: any) {
+      console.error(e);
+      setPhotoError(e?.message || 'Could not process delivery photo.');
+    }
   }
 
   function startDraw(e: React.TouchEvent | React.MouseEvent) {
@@ -328,7 +378,33 @@ export default function DriverApp() {
   async function confirmDelivery() {
     if (!selectedStop || !selectedVan) return;
     setLoading(true);
+    let podRecordingWarning: string | null = null;
     try {
+      if (selectedStop.orderId) {
+        try {
+          const deliveryNote = await createDeliveryNote(
+            buildDeliveryNotePayload(selectedStop, selectedVan, driverName),
+          );
+          await completeDeliveryNote(
+            deliveryNote.id,
+            buildCompleteDeliveryPayload(selectedStop, {
+              signatureData,
+              photoData: deliveryPhoto,
+              gpsLocation,
+              recipientName,
+              notes,
+            }),
+          );
+        } catch (e: any) {
+          podRecordingWarning = e?.message || 'Could not record proof of delivery.';
+          setPodWarning(`POD recording failed: ${podRecordingWarning}`);
+          console.warn('POD recording failed; continuing delivery billing flow:', e);
+        }
+      } else {
+        podRecordingWarning = 'No linked sales order id on this stop; POD note was not recorded.';
+        setPodWarning(podRecordingWarning);
+      }
+
       const customers = await getCustomers();
       const customer = customers.find((c) => c.name === selectedStop.customerName);
       const customerId = customer?.id || selectedStop.customerId || '0';
@@ -380,11 +456,12 @@ export default function DriverApp() {
         });
       }
 
-      setStops((prev) => prev.map((s) => (s.id === selectedStop.id ? { ...s, status: 'DELIVERED' } : s)));
+      setStops((prev) => prev.map((s) => (s.id === selectedStop.id ? { ...s, status: toDriverDeliveryStatus('delivered') } : s)));
       setSuccessInfo({
         customer: selectedStop.customerName,
         invoice: invoice.invoiceNumber,
         amount: selectedStop.amount,
+        podWarning: podRecordingWarning,
       });
       setStep('success');
     } catch (e) {
@@ -826,12 +903,19 @@ export default function DriverApp() {
               onChange={(e) => setAmountReceived(Number(e.target.value) || 0)}
               placeholder="Amount received"
             />
+            <input
+              type="text"
+              className="w-full min-h-12 border rounded-lg px-3 text-base"
+              value={recipientName}
+              onChange={(e) => setRecipientName(e.target.value)}
+              placeholder="Recipient name"
+            />
             <textarea
               rows={3}
               className="w-full border rounded-lg px-3 py-2 text-base"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Notes (optional)"
+              placeholder="Delivery / customer notes (optional)"
             />
             {/* Signature Pad */}
             <div>
@@ -866,6 +950,59 @@ export default function DriverApp() {
                 <p className="text-xs text-orange-600 font-bold mt-1">⚠️ Signature required for proof of delivery</p>
               )}
             </div>
+            {/* Delivery Photo */}
+            <div>
+              <div className="text-sm font-black uppercase text-gray-500 mb-2">Delivery Photo</div>
+              <label className="min-h-12 rounded-lg border border-gray-300 bg-gray-50 flex items-center justify-center gap-2 text-sm font-black text-gray-700 cursor-pointer">
+                <Camera size={16} />
+                {deliveryPhoto ? 'Retake / replace photo' : 'Capture delivery photo'}
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={(e) => {
+                    void handlePhotoCapture(e.target.files?.[0]);
+                    e.currentTarget.value = '';
+                  }}
+                />
+              </label>
+              {photoError && <p className="text-xs text-red-600 font-bold mt-1">{photoError}</p>}
+              {deliveryPhoto && (
+                <img src={deliveryPhoto} alt="Delivery proof" className="mt-2 w-full max-h-48 object-cover rounded-lg border border-gray-200" />
+              )}
+            </div>
+            {/* GPS */}
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-black uppercase text-gray-500">GPS Location</div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {gpsStatus === 'captured' && gpsLocation
+                      ? `${gpsLocation.latitude.toFixed(5)}, ${gpsLocation.longitude.toFixed(5)}`
+                      : gpsStatus === 'loading'
+                      ? 'Capturing location...'
+                      : gpsStatus === 'denied'
+                      ? 'Location permission denied. Delivery can still continue.'
+                      : gpsStatus === 'unavailable'
+                      ? 'Location unavailable. Delivery can still continue.'
+                      : 'Not captured yet.'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={captureGps}
+                  className="px-3 py-2 rounded-lg bg-white border border-gray-300 text-xs font-black text-gray-700"
+                >
+                  {gpsStatus === 'loading' ? '...' : 'Retry'}
+                </button>
+              </div>
+            </div>
+            {podWarning && (
+              <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm font-bold text-orange-700">
+                {podWarning}
+              </div>
+            )}
             <button
               onClick={confirmDelivery}
               disabled={loading || !signatureData}
@@ -893,6 +1030,17 @@ export default function DriverApp() {
               <div className="mt-3">
                 <p className="text-xs text-gray-400 mb-1 font-bold uppercase">Signature captured</p>
                 <img src={signatureData} alt="Customer signature" className="border border-gray-200 rounded-lg bg-white mx-auto max-w-[200px]" />
+              </div>
+            )}
+            {deliveryPhoto && (
+              <div className="mt-3">
+                <p className="text-xs text-gray-400 mb-1 font-bold uppercase">Photo captured</p>
+                <img src={deliveryPhoto} alt="Delivery proof" className="border border-gray-200 rounded-lg bg-white mx-auto max-w-[220px] max-h-40 object-cover" />
+              </div>
+            )}
+            {successInfo.podWarning && (
+              <div className="mt-4 rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm font-bold text-orange-700">
+                {successInfo.podWarning}
               </div>
             )}
           </div>
