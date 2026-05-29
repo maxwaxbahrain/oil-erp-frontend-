@@ -61,56 +61,10 @@ const PERIOD_PILLS: { key: PeriodKey; label: string }[] = [
     { key: 'custom', label: 'Custom' },
 ];
 
-const AI_STRATEGIC_INSIGHTS = [
-    {
-        dot: '#22C55E',
-        title: 'Strong profit momentum',
-        body: 'Net profit is tracking above prior month with improving gross margin on core lubricant SKUs.',
-        reasoning: 'Revenue grew faster than COGS due to higher-margin direct sales mix. OpEx held flat as a % of revenue.',
-        actions: ['Draft action plan', 'Draft email'],
-    },
-    {
-        dot: '#F59E0B',
-        title: 'Collections risk flagged',
-        body: 'Several high-value receivables are aging beyond 60 days — cash conversion may slip next week.',
-        reasoning: 'Overdue alerts correlate with customers showing declining order frequency in dimensional analysis.',
-        actions: ['Draft action plan'],
-    },
-    {
-        dot: '#4F8EF7',
-        title: 'Budget attainment on track',
-        body: 'Revenue is pacing within 5% of budget with OpEx under plan — net margin expansion likely.',
-        reasoning: 'MTD revenue vs budget ratio is healthy; expense ratio below target supports margin upside.',
-        actions: ['Draft email'],
-    },
-    {
-        dot: '#A78BFA',
-        title: 'Inventory turnover opportunity',
-        body: 'Low-stock alerts on fast movers suggest reorder timing could improve turnover without excess carry.',
-        reasoning: 'Top products by revenue show strong velocity; stockouts would erode margin on high-velocity lines.',
-        actions: ['Draft action plan', 'Draft email'],
-    },
-];
-
-const AI_SUGGESTED_ACTIONS = [
-    { priority: 'high', title: 'Accelerate collections on overdue AR', detail: 'Contact top 3 overdue accounts this week to protect cash flow.', color: '#EF4444' },
-    { priority: 'medium', title: 'Review wholesale pricing on OW16', detail: 'Margin compression on bulk orders — validate discount policy vs competitors.', color: '#F59E0B' },
-    { priority: 'medium', title: 'Replenish fast-moving SKUs', detail: 'Auto-PO recommendations for items below reorder point.', color: '#4F8EF7' },
-    { priority: 'low', title: 'Schedule Q2 budget review', detail: 'Align department budgets with revised revenue forecast.', color: '#22C55E' },
-];
-
-const AI_PROMPTS = [
-    'Why did net margin change vs April?',
-    'Break down revenue by channel',
-    'Forecast next month cash position',
-    'Which products drive gross margin?',
-];
-
-const PL_AI_PROMPTS = [
-    'Why did gross margin change?',
-    'Which expense grew fastest?',
-    'Compare vs budget',
-];
+const AI_STRATEGIC_INSIGHTS: Array<{ dot: string; title: string; body: string; reasoning: string; actions: string[] }> = [];
+const AI_SUGGESTED_ACTIONS: Array<{ priority: string; title: string; detail: string; color: string }> = [];
+const AI_PROMPTS: string[] = [];
+const PL_AI_PROMPTS: string[] = [];
 
 type CfCurrency = 'usd' | 'aed';
 type CfCompare = 'prior' | 'budget';
@@ -872,7 +826,11 @@ export default function ProfitabilityReports() {
     };
 
     const handleAskAi = () => {
-        const q = aiQuestion.trim() || AI_PROMPTS[0];
+        const q = aiQuestion.trim();
+        if (!q) {
+            alert('AI CFO is not connected yet.');
+            return;
+        }
         alert(
             `AI CFO (preview)\n\n"${q}"\n\nConnect the AI CFO endpoint to get live answers from your management reports.`,
         );
@@ -975,9 +933,6 @@ export default function ProfitabilityReports() {
                         </button>
                     ))}
                 </div>
-                <span style={{ fontSize: 9, color: '#22C55E', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                    Live · 2 min ago
-                </span>
             </div>
 
             {/* Navigation Tabs */}
@@ -1091,20 +1046,6 @@ export default function ProfitabilityReports() {
                             </button>
                         ))}
                     </div>
-                    <span
-                        style={{
-                            fontSize: 8,
-                            fontWeight: 700,
-                            padding: '3px 10px',
-                            borderRadius: 999,
-                            background: 'rgba(34,197,94,.12)',
-                            color: '#22C55E',
-                            border: '1px solid rgba(34,197,94,.28)',
-                            whiteSpace: 'nowrap',
-                        }}
-                    >
-                        ✓ Data verified
-                    </span>
                 </div>
             )}
 
@@ -1178,20 +1119,6 @@ export default function ProfitabilityReports() {
                             </button>
                         ))}
                     </div>
-                    <span
-                        style={{
-                            fontSize: 8,
-                            fontWeight: 700,
-                            padding: '3px 10px',
-                            borderRadius: 999,
-                            background: 'rgba(34,197,94,.12)',
-                            color: '#22C55E',
-                            border: '1px solid rgba(34,197,94,.28)',
-                            whiteSpace: 'nowrap',
-                        }}
-                    >
-                        ✓ Data verified
-                    </span>
                 </div>
             )}
 
@@ -1265,20 +1192,6 @@ export default function ProfitabilityReports() {
                             </button>
                         ))}
                     </div>
-                    <span
-                        style={{
-                            fontSize: 8,
-                            fontWeight: 700,
-                            padding: '3px 10px',
-                            borderRadius: 999,
-                            background: 'rgba(34,197,94,.12)',
-                            color: '#22C55E',
-                            border: '1px solid rgba(34,197,94,.28)',
-                            whiteSpace: 'nowrap',
-                        }}
-                    >
-                        ✓ Data verified
-                    </span>
                 </div>
             )}
 
@@ -1420,8 +1333,11 @@ export default function ProfitabilityReports() {
                                     <Brain size={14} style={{ color: '#A78BFA' }} />
                                     AI Strategic Insights
                                 </div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                    {AI_STRATEGIC_INSIGHTS.map((ins, i) => (
+                                {AI_STRATEGIC_INSIGHTS.length === 0 ? (
+                                    <div style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>No insights</div>
+                                ) : (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                        {AI_STRATEGIC_INSIGHTS.map((ins, i) => (
                                         <div key={i} style={{ borderBottom: i < AI_STRATEGIC_INSIGHTS.length - 1 ? '1px solid rgba(255,255,255,.06)' : 'none', paddingBottom: i < AI_STRATEGIC_INSIGHTS.length - 1 ? 8 : 0 }}>
                                             <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                                                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: ins.dot, marginTop: 4, flexShrink: 0 }} />
@@ -1477,8 +1393,9 @@ export default function ProfitabilityReports() {
                                                 </div>
                                             </div>
                                         </div>
-                                    ))}
-                                </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         </div>
 
@@ -1595,8 +1512,11 @@ export default function ProfitabilityReports() {
                                 <Target size={14} style={{ color: '#F59E0B' }} />
                                 AI Suggested Actions
                             </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                {AI_SUGGESTED_ACTIONS.map((action, i) => (
+                            {AI_SUGGESTED_ACTIONS.length === 0 ? (
+                                <div style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>No insights</div>
+                            ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                    {AI_SUGGESTED_ACTIONS.map((action, i) => (
                                     <div
                                         key={i}
                                         style={{
@@ -1640,8 +1560,9 @@ export default function ProfitabilityReports() {
                                             <p style={{ fontSize: 8.5, color: 'var(--color-redwood-text-muted)', margin: '3px 0 0', lineHeight: 1.45 }}>{action.detail}</p>
                                         </div>
                                     </div>
-                                ))}
-                            </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
 
                         {/* AI CFO Conversation */}
@@ -2309,7 +2230,7 @@ export default function ProfitabilityReports() {
                                             Cash flow statement — 12 months
                                         </div>
                                         <div style={{ fontSize: 11, color: '#8BA3C7', marginTop: 1 }}>
-                                            Operating · investing · financing · AI 3-month forecast · agentic alerts · drill-down
+                                            Operating · investing · financing · drill-down
                                         </div>
                                     </div>
                                 </div>
@@ -2329,15 +2250,17 @@ export default function ProfitabilityReports() {
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={() => alert('AI forecast (preview)\n\nConnect AI endpoint for 3-month cash flow forecast.')}
+                                        disabled
                                         style={{
                                             ...ghostBtn,
-                                            background: 'linear-gradient(135deg,rgba(124,58,237,.3),rgba(79,142,247,.25))',
-                                            borderColor: 'rgba(155,111,228,.4)',
+                                            background: 'rgba(124,58,237,.08)',
+                                            borderColor: 'rgba(155,111,228,.25)',
                                             color: '#C4B5FD',
+                                            cursor: 'not-allowed',
+                                            opacity: 0.65,
                                         }}
                                     >
-                                        <Sparkles size={11} /> AI forecast
+                                        <Sparkles size={11} /> Not connected
                                     </button>
                                 </div>
                             </div>
@@ -2365,32 +2288,6 @@ export default function ProfitabilityReports() {
                                         {p.label}
                                     </button>
                                 ))}
-                                <span
-                                    style={{
-                                        fontSize: 10,
-                                        color: '#22C55E',
-                                        background: 'rgba(34,197,94,.1)',
-                                        border: '0.5px solid rgba(34,197,94,.2)',
-                                        borderRadius: 20,
-                                        padding: '2px 8px',
-                                        marginLeft: 4,
-                                        fontWeight: 600,
-                                    }}
-                                >
-                                    ● Live · 2 min ago
-                                </span>
-                                <span
-                                    style={{
-                                        fontSize: 9,
-                                        color: '#9B6FE4',
-                                        background: 'rgba(124,58,237,.1)',
-                                        border: '0.5px dashed rgba(155,111,228,.3)',
-                                        borderRadius: 20,
-                                        padding: '1px 7px',
-                                    }}
-                                >
-                                    🤖 Jun–Aug 2026 AI forecast included
-                                </span>
                             </div>
                         </div>
 
@@ -2401,14 +2298,14 @@ export default function ProfitabilityReports() {
                                 label: 'Total cash in (12mo)',
                                 value: cfDisplay ? formatCompactUsd(cfDisplay.totalCashIn) : '$0',
                                 valueColor: '#22C55E',
-                                sub: '↑ +18.4% vs prior 12mo',
+                                sub: '—',
                             })}
                             {kpiCard({
                                 stripe: '#EF4444',
                                 label: 'Total cash out (12mo)',
                                 value: cfDisplay ? `−${formatCompactUsd(cfDisplay.totalCashOut).replace(/^−/, '')}` : '$0',
                                 valueColor: '#EF4444',
-                                sub: '↑ +14.2% vs prior 12mo',
+                                sub: '—',
                             })}
                             {kpiCard({
                                 stripe: '#4F8EF7',
@@ -2432,7 +2329,7 @@ export default function ProfitabilityReports() {
                         <div>
                             <div style={{ fontSize: 11, fontWeight: 500, color: '#EEF2FF', marginBottom: 9, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
                                 Monthly operating cash flow
-                                <span style={{ fontSize: 9, color: '#3E5678', fontWeight: 400 }}>Jun 2025 → May 2026 + 3-month AI forecast</span>
+                                <span style={{ fontSize: 9, color: '#3E5678', fontWeight: 400 }}>Jun 2025 → May 2026</span>
                             </div>
                             <div
                                 style={{
@@ -2522,8 +2419,6 @@ export default function ProfitabilityReports() {
                                         <text x="74" y="11" fill="#8BA3C7" fontSize="7.5">Actual operating cash flow</text>
                                         <rect x="220" y="5" width="10" height="6" fill="#22C55E" rx="1" />
                                         <text x="234" y="11" fill="#8BA3C7" fontSize="7.5">Current month (May 2026)</text>
-                                        <rect x="390" y="5" width="10" height="6" fill="rgba(155,111,228,.3)" rx="1" stroke="#9B6FE4" strokeWidth="1" strokeDasharray="2,1" />
-                                        <text x="404" y="11" fill="#9B6FE4" fontSize="7.5">AI forecast (91% confidence)</text>
                                         <text x="560" y="11" fill="#3E5678" fontSize="7.5">
                                             Trend: {cfDisplay.growthPct >= 0 ? '+' : ''}{cfDisplay.growthPct.toFixed(1)}% growth over 12 months
                                         </text>
@@ -2539,9 +2434,6 @@ export default function ProfitabilityReports() {
                             <div style={{ fontSize: 11, fontWeight: 500, color: '#EEF2FF', marginBottom: 9, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
                                 12-month cash flow detail
                                 <span style={{ fontSize: 9, color: '#3E5678', fontWeight: 400 }}>USD · hover rows to drill down</span>
-                                <span style={{ fontSize: 9, color: '#9B6FE4', background: 'rgba(124,58,237,.1)', border: '0.5px dashed rgba(155,111,228,.3)', borderRadius: 20, padding: '1px 7px' }}>
-                                    * = AI forecast
-                                </span>
                             </div>
                             <div style={{ background: '#0f1f33', border: '0.5px solid rgba(255,255,255,.07)', borderRadius: 12, overflow: 'hidden' }}>
                                 <div style={{ overflowX: 'auto' }}>
@@ -2678,7 +2570,7 @@ export default function ProfitabilityReports() {
                                     </table>
                                 </div>
                                 <div style={{ padding: '7px 12px', fontSize: 9, color: '#3E5678', borderTop: '0.5px solid rgba(255,255,255,.04)' }}>
-                                    * Jun–Aug 2026 = AI forecast · 91% confidence · based on 12-month trend + pipeline · hover rows to drill down → account ledger
+                                    Hover rows to drill down → account ledger
                                 </div>
                             </div>
                         </div>
@@ -2694,8 +2586,6 @@ export default function ProfitabilityReports() {
                         >
                             <div style={{ fontSize: 11, fontWeight: 500, color: '#C4B5FD', marginBottom: 9, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
                                 🤖 AI cash flow analysis — 12 months
-                                <span style={{ fontSize: 9, background: 'rgba(34,197,94,.12)', color: '#22C55E', borderRadius: 20, padding: '1px 6px' }}>grounded · 97% confidence</span>
-                                <span style={{ fontSize: 9, background: 'rgba(124,58,237,.1)', border: '0.5px solid rgba(155,111,228,.2)', color: '#9B6FE4', borderRadius: 20, padding: '1px 6px' }}>🧠 memory on · 14 sessions</span>
                             </div>
                             {[
                                 {
@@ -2709,20 +2599,6 @@ export default function ProfitabilityReports() {
                                     body: cfDisplay
                                         ? <>Cash conversion rate <strong style={{ color: '#4F8EF7' }}>{cfDisplay.cashConversion.toFixed(1)}%</strong> — for every $100 revenue, ${cfDisplay.cashConversion.toFixed(0)} becomes cash. Industry benchmark: 18–22%. <strong style={{ color: '#22C55E' }}>Above benchmark ✓</strong>.</>
                                         : <>Computing cash conversion metrics…</>,
-                                },
-                                {
-                                    dot: '#F59E0B',
-                                    body: cfDisplay && cfDisplay.netInvesting === 0
-                                        ? <><strong style={{ color: '#F59E0B' }}>Zero investing activity for 12 months.</strong> No equipment or asset purchases. AI recommendation: reinvest 10–15% of annual net cash into delivery capacity or warehouse to support continued growth trajectory.</>
-                                        : cfDisplay
-                                          ? <>Investing activity of <strong style={{ color: '#F59E0B' }}>{formatCompactUsd(cfDisplay.netInvesting * 12, { signed: true })}</strong> over 12 months — review capex timing vs growth targets.</>
-                                          : <>Reviewing investing activity…</>,
-                                },
-                                {
-                                    dot: '#9B6FE4',
-                                    body: cfDisplay
-                                        ? <>AI forecast Jun 26: <strong style={{ color: '#9B6FE4' }}>{formatCompactUsd(cfDisplay.forecastNetOp[0], { signed: true })}</strong> net operating ({((cfDisplay.forecastNetOp[0] / Math.max(cfDisplay.monthlyNetOp[11], 1) - 1) * 100).toFixed(1)}% vs May). Based on 12-month trend and seasonal patterns. <strong style={{ color: '#22C55E' }}>Jul 26: {formatCompactUsd(cfDisplay.forecastNetOp[1], { signed: true })} · Aug 26: {formatCompactUsd(cfDisplay.forecastNetOp[2], { signed: true })}.</strong></>
-                                        : <>Generating AI forecast…</>,
                                 },
                             ].map((ins, i) => (
                                 <div
@@ -2738,74 +2614,14 @@ export default function ProfitabilityReports() {
                                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: ins.dot, flexShrink: 0, marginTop: 3 }} />
                                     <div style={{ flex: 1, fontSize: 10, color: '#8BA3C7', lineHeight: 1.5 }}>
                                         {ins.body}
-                                        <span
-                                            style={{ fontSize: 9, color: '#4F8EF7', background: 'rgba(79,142,247,.1)', borderRadius: 20, padding: '1px 6px', cursor: 'pointer', marginLeft: 5, display: 'inline-block' }}
-                                            onClick={() => alert('AI reasoning (preview)\n\nConnect AI endpoint for detailed explanation.')}
-                                            onKeyDown={() => {}}
-                                            role="button"
-                                            tabIndex={0}
-                                        >
-                                            Why? →
-                                        </span>
                                     </div>
                                 </div>
                             ))}
 
-                            <div style={{ fontSize: 10, fontWeight: 500, color: '#C4B5FD', margin: '10px 0 7px', display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-                                🤖 AI suggested actions
-                                <span style={{ fontSize: 9, background: 'rgba(245,158,11,.12)', color: '#F59E0B', borderRadius: 20, padding: '1px 6px' }}>2 pending your approval</span>
-                                <span style={{ fontSize: 9, color: '#3E5678' }}>Human approval required for all actions</span>
+                            <div style={{ fontSize: 10, fontWeight: 500, color: '#C4B5FD', margin: '10px 0 7px' }}>
+                                AI suggested actions
                             </div>
-                            {[
-                                {
-                                    icon: '🔔',
-                                    bg: 'rgba(239,68,68,.12)',
-                                    title: `Set cash alert — notify when closing balance drops below ${cfDisplay ? formatCompactUsd(Math.round(cfDisplay.closingBalance * 0.64)) : '$500K'}`,
-                                    detail: 'AI will send Slack + email alert if cash falls below safety threshold. Prevents cash surprises.',
-                                },
-                                {
-                                    icon: '📅',
-                                    bg: 'rgba(79,142,247,.12)',
-                                    title: 'Schedule monthly cash flow review — last Friday of each month',
-                                    detail: 'Add to calendar: "Cash flow review · 20 min · review prior month closing balance and AI forecast"',
-                                },
-                            ].map((action, i) => (
-                                <div
-                                    key={i}
-                                    style={{
-                                        background: '#0a1726',
-                                        border: '0.5px solid rgba(255,255,255,.06)',
-                                        borderRadius: 8,
-                                        padding: '9px 12px',
-                                        marginBottom: 6,
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 9,
-                                    }}
-                                >
-                                    <div style={{ width: 26, height: 26, borderRadius: 6, background: action.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, flexShrink: 0 }}>
-                                        {action.icon}
-                                    </div>
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ fontSize: 11, fontWeight: 500, color: '#EEF2FF', marginBottom: 2 }}>{action.title}</div>
-                                        <div style={{ fontSize: 10, color: '#8BA3C7' }}>{action.detail}</div>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => alert('Action approved (preview)\n\nConnect agentic endpoint to execute.')}
-                                        style={{ background: '#22C55E', border: 'none', borderRadius: 6, padding: '3px 9px', fontSize: 9, color: '#fff', cursor: 'pointer', fontWeight: 600, fontFamily: 'inherit', whiteSpace: 'nowrap' }}
-                                    >
-                                        ✓ Approve
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => alert('Action declined (preview)')}
-                                        style={{ background: 'rgba(255,255,255,.05)', border: '0.5px solid rgba(255,255,255,.1)', borderRadius: 6, padding: '3px 9px', fontSize: 9, color: '#8BA3C7', cursor: 'pointer', marginLeft: 4, fontFamily: 'inherit', whiteSpace: 'nowrap' }}
-                                    >
-                                        Decline
-                                    </button>
-                                </div>
-                            ))}
+                            <div style={{ fontSize: 10, color: '#8BA3C7' }}>No insights</div>
 
                             <div
                                 style={{
@@ -2911,8 +2727,8 @@ export default function ProfitabilityReports() {
                     ];
                     const maxPosition = Math.max(...positionBars.map((b) => b.value), 1);
                     const bsTimestamp = bs?.asOfDate
-                        ? `As of ${new Date(bs.asOfDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} · Live · 2 min ago`
-                        : 'May 2026 · Live · 2 min ago';
+                        ? `As of ${new Date(bs.asOfDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
+                        : 'May 2026';
 
                     const amtCell = (v: number, color?: string, bold?: boolean) => (
                         <td
@@ -3100,20 +2916,6 @@ export default function ProfitabilityReports() {
                                             {p.label}
                                         </button>
                                     ))}
-                                    <span
-                                        style={{
-                                            fontSize: 10,
-                                            color: '#22C55E',
-                                            background: 'rgba(34,197,94,.1)',
-                                            border: '0.5px solid rgba(34,197,94,.2)',
-                                            borderRadius: 20,
-                                            padding: '2px 8px',
-                                            marginLeft: 4,
-                                            fontWeight: 600,
-                                        }}
-                                    >
-                                        ● Live · 2 min ago
-                                    </span>
                                 </div>
                             </div>
 
@@ -3502,7 +3304,6 @@ export default function ProfitabilityReports() {
 
                                 <div style={{ fontSize: 10, fontWeight: 500, color: '#C4B5FD', margin: '10px 0 7px', display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
                                     🤖 AI suggested actions
-                                    <span style={{ fontSize: 9, background: 'rgba(245,158,11,.12)', color: '#F59E0B', borderRadius: 20, padding: '1px 6px' }}>2 pending your approval</span>
                                 </div>
                                 {[
                                     {
@@ -3676,8 +3477,8 @@ export default function ProfitabilityReports() {
                     const opExpRatio = rd?.efficiency.operatingExpenseRatio ?? 0;
                     const revPerEmp = rd?.efficiency.revenuePerEmployee ?? 0;
                     const ratiosTimestamp = plData?.period.label
-                        ? `${plData.period.label} · Live · 2 min ago`
-                        : 'MTD May 2026 · Live · 2 min ago';
+                        ? plData.period.label
+                        : 'MTD May 2026';
                     const grossMarginVal = ratioData.margins[0]?.value ?? `${grossMargin.toFixed(1)}%`;
                     const netMarginVal = ratioData.margins[2]?.value ?? `${netMargin.toFixed(1)}%`;
                     const roeVal = ratioData.returns[1]?.value ?? `${roe.toFixed(1)}%`;
@@ -3835,7 +3636,6 @@ export default function ProfitabilityReports() {
                                                 </button>
                                             ))}
                                         </div>
-                                        <span style={{ fontSize: 8, color: '#22C55E', fontWeight: 600, whiteSpace: 'nowrap' }}>Live · 2 min ago</span>
                                         <button type="button" onClick={() => window.print()} style={ghostBtn}>
                                             <Printer size={11} /> Print
                                         </button>
@@ -3871,9 +3671,6 @@ export default function ProfitabilityReports() {
                                     {filterPill('Lubricant distribution', true, 'rgba(34,197,94,.12)', 'rgba(34,197,94,.28)', '#22C55E')}
                                     {filterPill('SME average', false)}
                                 </div>
-                                <span style={{ fontSize: 8, fontWeight: 700, padding: '3px 10px', borderRadius: 999, background: 'rgba(34,197,94,.12)', color: '#22C55E', border: '1px solid rgba(34,197,94,.28)', whiteSpace: 'nowrap' }}>
-                                    ✓ Data verified
-                                </span>
                             </div>
 
                             {/* 1. Profitability Ratios */}
@@ -4067,9 +3864,6 @@ export default function ProfitabilityReports() {
                                         <Brain size={14} style={{ color: '#9B6FE4' }} />
                                         AI ratio analysis — grounded on verified data
                                     </div>
-                                    <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(34,197,94,.12)', color: '#22C55E', border: '1px solid rgba(34,197,94,.28)' }}>
-                                        97% confidence
-                                    </span>
                                 </div>
 
                                 {aiInsightRow(
@@ -4091,7 +3885,6 @@ export default function ProfitabilityReports() {
 
                                 <div style={{ fontSize: 10, fontWeight: 500, color: '#C4B5FD', margin: '10px 0 7px', display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
                                     🤖 AI suggested actions
-                                    <span style={{ fontSize: 9, background: 'rgba(245,158,11,.12)', color: '#F59E0B', borderRadius: 20, padding: '1px 6px' }}>2 pending your approval</span>
                                 </div>
                                 {[
                                     {
@@ -4956,7 +4749,6 @@ export default function ProfitabilityReports() {
                                                 </button>
                                             ))}
                                         </div>
-                                        <span style={{ fontSize: 8, color: '#22C55E', fontWeight: 600, whiteSpace: 'nowrap' }}>Live · 2 min ago</span>
                                     </div>
                                 </div>
                             </div>
@@ -4986,9 +4778,6 @@ export default function ProfitabilityReports() {
                                     {filterPill('Revenue', false)}
                                     {filterPill('Margin', false)}
                                 </div>
-                                <span style={{ fontSize: 8, fontWeight: 700, padding: '3px 10px', borderRadius: 999, background: 'rgba(34,197,94,.12)', color: '#22C55E', border: '1px solid rgba(34,197,94,.28)', whiteSpace: 'nowrap' }}>
-                                    ✓ Data verified
-                                </span>
                             </div>
 
                             {/* 2×2 grid */}

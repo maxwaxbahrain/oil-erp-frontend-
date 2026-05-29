@@ -224,43 +224,36 @@ export default function FinanceDashboard() {
     return s !== null && gapSet.has(s - 1);
   };
 
-  // ─── Compliance checklist (hardcoded — no API) ─────
+  // ─── Compliance checklist ─────
   const compliance = [
-    { status: '✗', iconBg: 'rgba(239,68,68,.2)',  iconColor: '#EF4444',
+    { status: '—', iconBg: 'rgba(148,163,184,.14)', iconColor: 'var(--color-redwood-text-muted)',
       title: 'Tax registration number on every invoice',
-      sub: 'Legally mandatory — VAT reg must appear on every invoice header',
-      badge: 'Missing', badgeBg: 'rgba(239,68,68,.18)', badgeColor: '#EF4444' },
-    { status: '⚠', iconBg: 'rgba(245,158,11,.2)', iconColor: '#F59E0B',
+      sub: 'Not checked',
+      badge: 'Not checked', badgeBg: 'rgba(148,163,184,.12)', badgeColor: 'var(--color-redwood-text-muted)' },
+    { status: '—', iconBg: 'rgba(148,163,184,.14)', iconColor: 'var(--color-redwood-text-muted)',
       title: 'VAT breakdown separately on printed invoice',
-      sub: 'Column visible in table but not on invoice document itself',
-      badge: 'Partial', badgeBg: 'rgba(245,158,11,.18)', badgeColor: '#F59E0B' },
-    { status: '✗', iconBg: 'rgba(239,68,68,.2)',  iconColor: '#EF4444',
+      sub: 'Not checked',
+      badge: 'Not checked', badgeBg: 'rgba(148,163,184,.12)', badgeColor: 'var(--color-redwood-text-muted)' },
+    { status: '—', iconBg: 'rgba(148,163,184,.14)', iconColor: 'var(--color-redwood-text-muted)',
       title: 'Invoice locking — no edits after posting',
-      sub: 'Currently any user can edit posted invoices',
-      badge: 'Missing', badgeBg: 'rgba(239,68,68,.18)', badgeColor: '#EF4444' },
-    { status: '⚠', iconBg: 'rgba(245,158,11,.2)', iconColor: '#F59E0B',
-      title: 'Sequential numbering — gap detected INV-960339 → INV-960336',
-      sub: '3 invoice numbers missing — must be investigated for tax audit',
-      badge: 'Gap found', badgeBg: 'rgba(245,158,11,.18)', badgeColor: '#F59E0B' },
-    { status: '✗', iconBg: 'rgba(239,68,68,.2)',  iconColor: '#EF4444',
+      sub: 'Not checked',
+      badge: 'Not checked', badgeBg: 'rgba(148,163,184,.12)', badgeColor: 'var(--color-redwood-text-muted)' },
+    { status: '—', iconBg: 'rgba(148,163,184,.14)', iconColor: 'var(--color-redwood-text-muted)',
+      title: 'Sequential numbering',
+      sub: 'Not checked',
+      badge: 'Not checked', badgeBg: 'rgba(148,163,184,.12)', badgeColor: 'var(--color-redwood-text-muted)' },
+    { status: '—', iconBg: 'rgba(148,163,184,.14)', iconColor: 'var(--color-redwood-text-muted)',
       title: '7-year record retention — all posted invoices archived',
-      sub: 'No archival policy configured',
-      badge: 'Not set', badgeBg: 'rgba(239,68,68,.18)', badgeColor: '#EF4444' },
-    { status: '✓', iconBg: 'rgba(34,197,94,.2)',  iconColor: '#22C55E',
+      sub: 'Not checked',
+      badge: 'Not checked', badgeBg: 'rgba(148,163,184,.12)', badgeColor: 'var(--color-redwood-text-muted)' },
+    { status: '—', iconBg: 'rgba(148,163,184,.14)', iconColor: 'var(--color-redwood-text-muted)',
       title: 'VAT column on invoice table with correct 15% calculation',
-      sub: 'Net + VAT + gross total visible and correctly calculated',
-      badge: 'Done ✓', badgeBg: 'rgba(34,197,94,.18)', badgeColor: '#22C55E' },
-    { status: '✓', iconBg: 'rgba(34,197,94,.2)',  iconColor: '#22C55E',
+      sub: 'Not checked',
+      badge: 'Not checked', badgeBg: 'rgba(148,163,184,.12)', badgeColor: 'var(--color-redwood-text-muted)' },
+    { status: '—', iconBg: 'rgba(148,163,184,.14)', iconColor: 'var(--color-redwood-text-muted)',
       title: 'Payment terms on every invoice — Net 15, Net 30, COD',
-      sub: 'Sets due date and feeds AR aging report automatically',
-      badge: 'Done ✓', badgeBg: 'rgba(34,197,94,.18)', badgeColor: '#22C55E' },
-  ];
-
-  const progressBars = [
-    { label: 'Overall compliance',   pct: 30, color: '#7C3AED' },
-    { label: 'Invoice legal format', pct: 20, color: '#EF4444' },
-    { label: 'VAT compliance',       pct: 50, color: '#F59E0B' },
-    { label: 'Record keeping',       pct: 25, color: '#EF4444' },
+      sub: 'Not checked',
+      badge: 'Not checked', badgeBg: 'rgba(148,163,184,.12)', badgeColor: 'var(--color-redwood-text-muted)' },
   ];
 
   // ─── Render ─────────────────────────────────────────
@@ -490,25 +483,6 @@ export default function FinanceDashboard() {
             </div>
           ))}
 
-          {/* Progress bars */}
-          <div style={{
-            borderTop: '1px solid var(--color-redwood-border)',
-            paddingTop: '8px', marginTop: '6px',
-          }}>
-            {progressBars.map((row) => (
-              <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                <span style={{ fontSize: '9px', color: 'var(--color-redwood-text-muted)', width: '105px', flexShrink: 0 }}>
-                  {row.label}
-                </span>
-                <div style={{ flex: 1, height: '4px', background: 'rgba(255,255,255,.06)', borderRadius: '999px', overflow: 'hidden' }}>
-                  <div style={{ height: '100%', width: `${row.pct}%`, background: row.color, borderRadius: '999px' }} />
-                </div>
-                <span style={{ fontSize: '9px', fontWeight: 600, color: row.color, width: '26px', textAlign: 'right' }}>
-                  {row.pct}%
-                </span>
-              </div>
-            ))}
-          </div>
         </div>
 
         {/* D2 — Invoices Legal Format View */}

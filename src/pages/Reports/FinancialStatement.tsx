@@ -7,7 +7,6 @@ import {
     BarChart3,
     Bot,
     Briefcase,
-    ChevronRight,
     Download,
     RefreshCw,
     Sparkles,
@@ -105,39 +104,8 @@ const PERIOD_RANGES: Record<Exclude<PeriodKey, 'custom'>, { from: string; to: st
     fy2025: { from: '2025-01-01', to: '2025-12-31', rangeLabel: '01 Jan 2025 → 31 Dec 2025' },
 };
 
-const AI_PROMPTS = [
-    'Why did net margin change vs April?',
-    'Break down Amazon channel revenue',
-    'Is the balance sheet truly balanced?',
-    'Forecast June cash position',
-];
-
-const AI_INSIGHTS = [
-    {
-        title: 'Margin benchmark',
-        type: 'positive' as const,
-        body: 'Gross margin is tracking above industry median for lubricant distributors. Operating leverage improving as fixed costs are spread over higher volume.',
-        badge: 'Healthy',
-    },
-    {
-        title: 'Revenue warning',
-        type: 'warning' as const,
-        body: 'Direct sales are pacing 8% below budget for May. Amazon channel is offsetting part of the gap — review wholesale pricing on top SKUs.',
-        badge: 'Gap',
-    },
-    {
-        title: 'Amazon revenue',
-        type: 'info' as const,
-        body: 'Amazon channel contributed a growing share of MTD revenue. FBA fees and returns are stable — net contribution remains accretive vs direct.',
-        badge: 'Channel',
-    },
-    {
-        title: 'Tax provision',
-        type: 'info' as const,
-        body: 'Estimated tax provision based on 15% effective rate on net taxable income. Quarterly payment due Jun 15 — accrue now to avoid year-end spike.',
-        badge: 'Jun 15',
-    },
-];
+const AI_PROMPTS: string[] = [];
+const AI_INSIGHTS: Array<{ title: string; type: 'positive' | 'warning' | 'info'; body: string; badge: string }> = [];
 
 function formatUsd(n: number, decimals = 0): string {
     const abs = Math.abs(n);
@@ -667,7 +635,11 @@ export default function FinancialStatement() {
     };
 
     const handleAskAi = () => {
-        const q = aiQuestion.trim() || AI_PROMPTS[0];
+        const q = aiQuestion.trim();
+        if (!q) {
+            alert('AI CFO is not connected yet.');
+            return;
+        }
         alert(
             `AI CFO (preview)\n\n"${q}"\n\nConnect the AI CFO endpoint to get live answers from your financial statements.`,
         );
@@ -817,7 +789,6 @@ export default function FinancialStatement() {
                         </div>
                     )}
                     <span style={{ fontSize: 9, color: 'var(--color-redwood-text-muted)', whiteSpace: 'nowrap' }}>{rangeLabel}</span>
-                    <span style={{ fontSize: 9, color: '#22C55E', fontWeight: 600, whiteSpace: 'nowrap' }}>● Live · 2 min ago</span>
                 </div>
             </div>
 
@@ -828,7 +799,7 @@ export default function FinancialStatement() {
                     label: 'Revenue',
                     value: formatUsdFull(totals.revenue),
                     valueColor: 'var(--color-brand-green)',
-                    sub: `↑ ${pctChange(totals.revenue, aprTotals.revenue)} vs Apr · On track`,
+                    sub: `↑ ${pctChange(totals.revenue, aprTotals.revenue)} vs Apr`,
                 })}
                 {kpiCard({
                     stripe: 'linear-gradient(90deg,#22C55E,#86EFAC)',
@@ -842,7 +813,7 @@ export default function FinancialStatement() {
                     label: 'Net Cash Movement',
                     value: formatUsdFull(cf?.netChange ?? totals.cashNet),
                     valueColor: '#A78BFA',
-                    sub: `↑ Positive · ${receiptCount.toLocaleString()} receipts`,
+                    sub: `${(cf?.netChange ?? totals.cashNet) > 0 ? 'Inflow' : (cf?.netChange ?? totals.cashNet) < 0 ? 'Outflow' : 'No net change'} · ${receiptCount.toLocaleString()} receipts`,
                     subColor: '#C4B5FD',
                 })}
                 {kpiCard({
@@ -1092,14 +1063,14 @@ export default function FinancialStatement() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                     <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)', display: 'flex', alignItems: 'center', gap: 6 }}>
                         <Sparkles size={14} style={{ color: '#A78BFA' }} />
-                        AI CFO — 4 insights for May 2026
+                        AI CFO insights
                     </span>
-                    <button type="button" style={{ fontSize: 9, color: '#4F8EF7', background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 2 }}>
-                        View all <ChevronRight size={12} />
-                    </button>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: cols.twoCol ? 'repeat(2, 1fr)' : '1fr', gap: 6 }}>
-                    {AI_INSIGHTS.map((ins) => {
+                {AI_INSIGHTS.length === 0 ? (
+                    <div style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>No insights</div>
+                ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: cols.twoCol ? 'repeat(2, 1fr)' : '1fr', gap: 6 }}>
+                        {AI_INSIGHTS.map((ins) => {
                         const accent =
                             ins.type === 'warning'
                                 ? { bg: 'rgba(245,158,11,.1)', border: 'rgba(245,158,11,.25)', color: '#F59E0B' }
@@ -1136,8 +1107,9 @@ export default function FinancialStatement() {
                                 <p style={{ fontSize: 8.5, color: 'var(--color-redwood-text-muted)', margin: 0, lineHeight: 1.45 }}>{ins.body}</p>
                             </div>
                         );
-                    })}
-                </div>
+                        })}
+                    </div>
+                )}
             </div>
 
             {/* Footer — Ask AI bar */}
