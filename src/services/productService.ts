@@ -152,7 +152,7 @@ function mapApiProductToProduct(raw: Record<string, unknown>): Product {
     const stock = num(raw.stock);
     const minStock = num(raw.min_stock);
     const price = num(raw.price);
-    const cost = num(raw.cost, price);
+    const cost = num(raw.cost);
     const unit = raw.unit != null ? String(raw.unit) : '';
     const barcode = raw.barcode != null ? String(raw.barcode) : undefined;
     const image = raw.image != null ? String(raw.image) : undefined;

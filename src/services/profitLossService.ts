@@ -17,8 +17,8 @@ export interface ProfitLossStatement {
     };
     revenue: {
         productSales: number;
-        serviceRevenue: number;
-        otherRevenue: number;
+        serviceRevenue: number | null;
+        otherRevenue: number | null;
         totalRevenue: number;
     };
     cogs: {
@@ -26,6 +26,9 @@ export interface ProfitLossStatement {
         directLabor: number;
         freight: number;
         totalCOGS: number;
+        isPartial?: boolean;
+        missingCostLines?: number;
+        costedLines?: number;
     };
     grossProfit: {
         amount: number;
@@ -46,10 +49,10 @@ export interface ProfitLossStatement {
         margin: number;
     };
     otherIncomeExpenses: {
-        interestIncome: number;
-        interestExpense: number;
-        otherIncome: number;
-        otherExpenses: number;
+        interestIncome: number | null;
+        interestExpense: number | null;
+        otherIncome: number | null;
+        otherExpenses: number | null;
         netOther: number;
     };
     netProfit: {
@@ -191,6 +194,27 @@ function isWithinPeriod(date: string, startDate: Date, endDate: Date): boolean {
     return d >= startDate && d <= endDate;
 }
 
+export function getKnownProductUnitCost(product: unknown): number | null {
+    if (!product || typeof product !== 'object') return null;
+    const p = product as {
+        cost?: unknown;
+        pricing?: {
+            landedCost?: unknown;
+            purchasePriceExWorks?: unknown;
+        };
+    };
+    const candidates = [
+        p.pricing?.landedCost,
+        p.pricing?.purchasePriceExWorks,
+        p.cost,
+    ];
+    for (const candidate of candidates) {
+        const cost = Number(candidate);
+        if (Number.isFinite(cost) && cost > 0) return cost;
+    }
+    return null;
+}
+
 // ============================================================================
 // PROFIT & LOSS CALCULATION
 // ============================================================================
@@ -229,25 +253,34 @@ export async function calculateProfitLoss(months: number = 1): Promise<ProfitLos
     // Product sales from invoices (most accurate)
     const productSales = periodInvoices.reduce((sum, inv) => sum + inv.grandTotal, 0);
 
-    // Service revenue (if any service items exist)
-    const serviceRevenue = 0; // Can be enhanced if you have service items
+    // Service revenue is not sourced yet.
+    const serviceRevenue = null;
 
-    // Other revenue
-    const otherRevenue = 0;
+    // Other revenue is not sourced yet.
+    const otherRevenue = null;
 
-    const totalRevenue = productSales + serviceRevenue + otherRevenue;
+    const totalRevenue = productSales + (serviceRevenue ?? 0) + (otherRevenue ?? 0);
 
     // ========== COGS CALCULATION ==========
     // Calculate COGS based on products sold
     let rawMaterials = 0;
+    let missingCostLines = 0;
+    let costedLines = 0;
 
     periodSales.forEach(sale => {
         sale.items.forEach(item => {
             const product = products.find(p => p.id === item.product_id || p.name === item.product_name);
-            if (product && product.pricing) {
-                // Use landed cost as COGS
-                const unitCost = product.pricing.landedCost || product.pricing.sellingPrice || 0;
-                rawMaterials += unitCost * item.quantity;
+            const quantity = Number(item.quantity) || 0;
+            if (product && quantity > 0) {
+                const unitCost = getKnownProductUnitCost(product);
+                if (unitCost !== null) {
+                    rawMaterials += unitCost * quantity;
+                    costedLines += 1;
+                } else {
+                    missingCostLines += 1;
+                }
+            } else if (quantity > 0) {
+                missingCostLines += 1;
             }
         });
     });
@@ -317,11 +350,11 @@ export async function calculateProfitLoss(months: number = 1): Promise<ProfitLos
     const operatingMargin = totalRevenue > 0 ? (operatingProfitAmount / totalRevenue) * 100 : 0;
 
     // ========== OTHER INCOME/EXPENSES ==========
-    const interestIncome = 0; // Can be enhanced
-    const interestExpense = 0; // Can be enhanced
-    const otherIncome = 0;
-    const otherExpenses = 0;
-    const netOther = interestIncome - interestExpense + otherIncome - otherExpenses;
+    const interestIncome = null;
+    const interestExpense = null;
+    const otherIncome = null;
+    const otherExpenses = null;
+    const netOther = (interestIncome ?? 0) - (interestExpense ?? 0) + (otherIncome ?? 0) - (otherExpenses ?? 0);
 
     // ========== NET PROFIT ==========
     const netProfitBeforeTax = operatingProfitAmount + netOther;
@@ -350,7 +383,10 @@ export async function calculateProfitLoss(months: number = 1): Promise<ProfitLos
             rawMaterials,
             directLabor,
             freight,
-            totalCOGS
+            totalCOGS,
+            isPartial: missingCostLines > 0,
+            missingCostLines,
+            costedLines
         },
         grossProfit: {
             amount: grossProfitAmount,
@@ -525,7 +561,7 @@ export async function calculateDimensionalAnalysis(months: number = 1): Promise<
         sale.items.forEach(item => {
             const product = products.find(p => p.id === item.product_id || p.name === item.product_name);
             const itemRevenue = item.unit_price * item.quantity;
-            const itemCost = product?.pricing?.landedCost || product?.pricing?.sellingPrice || 0;
+            const itemCost = getKnownProductUnitCost(product) ?? 0;
             const itemProfit = itemRevenue - (itemCost * item.quantity);
 
             saleRevenue += itemRevenue;
@@ -560,7 +596,7 @@ export async function calculateDimensionalAnalysis(months: number = 1): Promise<
             const data = productMap.get(productId) || { revenue: 0, cogs: 0, units: 0 };
 
             const itemRevenue = item.unit_price * item.quantity;
-            const itemCost = (product?.pricing?.landedCost || product?.pricing?.sellingPrice || 0) * item.quantity;
+            const itemCost = (getKnownProductUnitCost(product) ?? 0) * item.quantity;
 
             data.revenue += itemRevenue;
             data.cogs += itemCost;
@@ -595,7 +631,7 @@ export async function calculateDimensionalAnalysis(months: number = 1): Promise<
         sale.items.forEach(item => {
             const product = products.find(p => p.id === item.product_id || p.name === item.product_name);
             const itemRevenue = item.unit_price * item.quantity;
-            const itemCost = product?.pricing?.landedCost || product?.pricing?.sellingPrice || 0;
+            const itemCost = getKnownProductUnitCost(product) ?? 0;
             const itemProfit = itemRevenue - (itemCost * item.quantity);
 
             saleRevenue += itemRevenue;
@@ -632,7 +668,7 @@ export async function calculateDimensionalAnalysis(months: number = 1): Promise<
         sale.items.forEach(item => {
             const product = products.find(p => p.id === item.product_id || p.name === item.product_name);
             const itemRevenue = item.unit_price * item.quantity;
-            const itemCost = product?.pricing?.landedCost || product?.pricing?.sellingPrice || 0;
+            const itemCost = getKnownProductUnitCost(product) ?? 0;
             const itemProfit = itemRevenue - (itemCost * item.quantity);
 
             saleRevenue += itemRevenue;
@@ -674,7 +710,7 @@ export async function calculateFinancialRatios(): Promise<FinancialRatios> {
     // Calculate inventory value
     const inventoryValue = products.reduce((sum, p) => {
         const stock = p.locations?.reduce((s, loc) => s + (loc.currentStock ?? 0), 0) || 0;
-        const cost = p.pricing?.landedCost || p.pricing?.sellingPrice || 0;
+        const cost = getKnownProductUnitCost(p) ?? 0;
         return sum + (stock * cost);
     }, 0);
 

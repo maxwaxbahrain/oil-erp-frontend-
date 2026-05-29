@@ -261,7 +261,7 @@ function LineRow({
     bold,
 }: {
     label: string;
-    value: number;
+    value: number | null;
     positive?: boolean;
     indent?: boolean;
     bold?: boolean;
@@ -272,6 +272,7 @@ function LineRow({
             : positive === false
               ? 'var(--color-brand-red)'
               : 'var(--color-redwood-text-main)';
+    const display = value === null ? '—' : formatUsdFull(value);
     return (
         <div style={{ ...rowStyle, paddingLeft: indent ? 14 : 8 }}>
             <span
@@ -282,7 +283,7 @@ function LineRow({
             >
                 {label}
             </span>
-            <span style={{ color, fontWeight: bold ? 700 : 600 }}>{formatUsdFull(value)}</span>
+            <span style={{ color, fontWeight: bold ? 700 : 600 }}>{display}</span>
         </div>
     );
 }
@@ -657,6 +658,18 @@ export default function FinancialStatement() {
     const pl = plData;
     const cf = cashFlowData;
     const bs = balanceSheetData;
+    const isPlCogsPartial = Boolean(pl?.cogs.isPartial);
+    const plExpenseRows = pl
+        ? [
+              { label: 'Salaries', value: pl.operatingExpenses.salariesWages },
+              { label: 'Rent & utilities', value: pl.operatingExpenses.rentUtilities },
+              { label: 'Administrative', value: pl.operatingExpenses.administrative },
+              { label: 'Marketing', value: pl.operatingExpenses.marketing },
+              { label: 'Transportation', value: pl.operatingExpenses.transportation },
+              { label: 'Depreciation', value: pl.operatingExpenses.depreciation },
+              { label: 'Other', value: pl.operatingExpenses.other },
+          ].filter((row) => row.value > 0)
+        : [];
 
     return (
         <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', paddingBottom: '100px' }}>
@@ -845,22 +858,22 @@ export default function FinancialStatement() {
                     <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', marginBottom: 4, fontWeight: 600 }}>
                         INCOME
                     </div>
-                    <LineRow label="Direct sales" value={pl?.revenue.productSales ?? totals.revenue * 0.78} positive />
-                    <LineRow label="Amazon channel" value={pl?.revenue.serviceRevenue ?? totals.revenue * 0.22} positive />
                     <LineRow label="Gross Revenue" value={pl?.revenue.totalRevenue ?? totals.revenue} positive bold />
                     <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', margin: '6px 0 4px', fontWeight: 600 }}>
                         COGS
                     </div>
-                    <LineRow label="Cost of goods sold" value={-(pl?.cogs.totalCOGS ?? totals.cogs)} positive={false} />
-                    <LineRow label="Gross Profit" value={pl?.grossProfit.amount ?? totals.grossProfit} positive bold />
+                    <LineRow label="Cost of goods sold" value={pl ? (isPlCogsPartial ? null : -pl.cogs.totalCOGS) : -totals.cogs} positive={false} />
+                    <LineRow label="Gross Profit" value={pl ? (isPlCogsPartial ? null : pl.grossProfit.amount) : totals.grossProfit} positive bold />
                     <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', margin: '6px 0 4px', fontWeight: 600 }}>
                         OPERATING EXPENSES
                     </div>
-                    <LineRow label="Salaries" value={-(pl?.operatingExpenses.salariesWages ?? totals.expenses * 0.42)} positive={false} indent />
-                    <LineRow label="Rent" value={-(pl?.operatingExpenses.rentUtilities ?? totals.expenses * 0.18)} positive={false} indent />
-                    <LineRow label="Software" value={-(pl?.operatingExpenses.administrative ?? totals.expenses * 0.12)} positive={false} indent />
-                    <LineRow label="Maintenance" value={-(pl?.operatingExpenses.other ?? totals.expenses * 0.1)} positive={false} indent />
-                    <LineRow label="Vehicle" value={-(pl?.operatingExpenses.transportation ?? totals.expenses * 0.08)} positive={false} indent />
+                    {plExpenseRows.length > 0 ? (
+                        plExpenseRows.map((row) => (
+                            <LineRow key={row.label} label={row.label} value={-row.value} positive={false} indent />
+                        ))
+                    ) : (
+                        <LineRow label="Expense categories" value={null} positive={false} indent />
+                    )}
                     <div
                         style={{
                             ...rowStyle,
@@ -871,7 +884,7 @@ export default function FinancialStatement() {
                     >
                         <span style={{ fontWeight: 700, color: 'var(--color-brand-green)' }}>Net Profit</span>
                         <span style={{ color: 'var(--color-brand-green)', fontWeight: 700, fontFamily: "'Syne',sans-serif" }}>
-                            {formatUsdFull(pl?.netProfit.afterTax ?? totals.netProfit)}
+                            {pl && isPlCogsPartial ? '—' : formatUsdFull(pl?.netProfit.afterTax ?? totals.netProfit)}
                         </span>
                     </div>
                     <MiniBarChart title="Revenue trend (6 months)" data={revenueTrend} dataKey="value" color="#22C55E" />

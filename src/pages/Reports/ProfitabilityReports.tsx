@@ -20,6 +20,7 @@ import {
     calculateCashFlow,
     calculateDimensionalAnalysis,
     calculateFinancialRatios,
+    getKnownProductUnitCost,
     type ProfitLossStatement,
     type CashFlowStatement,
     type DimensionalAnalysis,
@@ -136,6 +137,34 @@ function pctChange(current: number, prior: number): string {
     return `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`;
 }
 
+export type MonthlyProfitPoint = { month: string; revenue: number; profit: number | null; cogs: number | null; cogsPartial?: boolean };
+
+export function getRealMonthCompare(monthlyData: MonthlyProfitPoint[]) {
+    const withData = monthlyData.filter((m) => m.revenue > 0 || (m.profit ?? 0) > 0 || (m.cogs ?? 0) > 0);
+    if (withData.length < 2) {
+        return {
+            hasPrior: false,
+            revenuePct: null,
+            profitPct: null,
+            expensePct: null,
+            lastMonthRevenue: null,
+            lastMonthProfit: null,
+            lastMonthCogs: null,
+        };
+    }
+    const curr = withData[withData.length - 1];
+    const prev = withData[withData.length - 2];
+    return {
+        hasPrior: true,
+        revenuePct: pctChange(curr.revenue, prev.revenue),
+        profitPct: curr.profit === null || prev.profit === null ? null : pctChange(curr.profit, prev.profit),
+        expensePct: curr.cogs === null || prev.cogs === null ? null : pctChange(curr.cogs, prev.cogs),
+        lastMonthRevenue: prev.revenue,
+        lastMonthProfit: prev.profit,
+        lastMonthCogs: prev.cogs,
+    };
+}
+
 function kpiCard(cfg: {
     stripe: string;
     label: string;
@@ -227,7 +256,7 @@ export default function ProfitabilityReports() {
     const [balanceSheetData, setBalanceSheetData] = useState<BalanceSheet | null>(null);
     const [dimensionalData, setDimensionalData] = useState<DimensionalAnalysis | null>(null);
     const [ratiosData, setRatiosData] = useState<FinancialRatios | null>(null);
-    const [monthlyData, setMonthlyData] = useState<Array<{month: string; revenue: number; profit: number; cogs: number}>>([]);
+    const [monthlyData, setMonthlyData] = useState<MonthlyProfitPoint[]>([]);
     const [topCustomers, setTopCustomers] = useState<Array<{name: string; revenue: number; invoices: number; margin: number}>>([]);
     const [topProducts, setTopProducts] = useState<Array<{name: string; revenue: number; profit: number; margin: number; units: number}>>([]);
     const [overdueAlerts, setOverdueAlerts] = useState<Array<{customer: string; amount: number; days: number; invoice: string}>>([]);
@@ -297,51 +326,46 @@ export default function ProfitabilityReports() {
             ]);
 
             // Build a normalised name → product.cost lookup so we can compute
-            // REAL COGS per invoice line instead of the old hardcoded
-            // `revenue * 0.65` guess. Normalisation matches the same fuzzy
+            // COGS per invoice line from known product costs. Normalisation matches the same fuzzy
             // strategy used in inventoryService FIFO/LIFO so we hit the same
             // products: lowercase + strip non-alphanumeric, then prefix/contains.
             const norm = (s: string) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
             const productCostByNorm: { key: string; cost: number }[] = (products as any[])
-                .map(p => ({ key: norm(p.name || ''), cost: Number(p.cost) || 0 }))
+                .map(p => ({ key: norm(p.name || ''), cost: getKnownProductUnitCost(p) ?? 0 }))
                 .filter(p => p.key && p.cost > 0);
-            const costForLineName = (lineName: string): number => {
+            const costForLineName = (lineName: string): number | null => {
                 const k = norm(lineName);
-                if (!k) return 0;
+                if (!k) return null;
                 const exact = productCostByNorm.find(p => p.key === k);
                 if (exact) return exact.cost;
                 const contains = productCostByNorm.find(p => k.includes(p.key) || p.key.includes(k));
-                return contains?.cost || 0;
+                return contains?.cost ?? null;
             };
             // Per-invoice COGS = sum over lines of (qty × matched-product cost).
-            // Falls back to 65% of grandTotal only if NO line matches (legacy
-            // data with no product linkage at all).
-            const cogsForInvoice = (inv: any): number => {
+            const cogsForInvoice = (inv: any): { cogs: number; partial: boolean } => {
                 const lines = (inv.items as any[]) || (inv.lineItems as any[]) || [];
                 let cogs = 0;
-                let matched = 0;
+                let partial = false;
                 for (const line of lines) {
                     const qty = Number(line.quantity) || 0;
                     const c = costForLineName(line.product || line.productName || line.description || '');
-                    if (c > 0 && qty > 0) {
+                    if (c !== null && qty > 0) {
                         cogs += qty * c;
-                        matched += qty;
+                    } else if (qty > 0) {
+                        partial = true;
                     }
                 }
-                // No product matches → fallback so the report still shows
-                // SOMETHING (was the old default for the entire dataset).
-                if (matched === 0) return (inv.grandTotal || 0) * 0.65;
-                return cogs;
+                return { cogs, partial };
             };
 
             // Monthly Revenue (last 12 months)
-            const monthMap: Record<string, {revenue: number; profit: number; cogs: number}> = {};
+            const monthMap: Record<string, {revenue: number; profit: number; cogs: number; cogsPartial: boolean}> = {};
             const now = new Date();
             for (let i = 11; i >= 0; i--) {
                 const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
                 const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
                 const key = `${months[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`;
-                monthMap[key] = { revenue: 0, profit: 0, cogs: 0 };
+                monthMap[key] = { revenue: 0, profit: 0, cogs: 0, cogsPartial: false };
             }
             invoices.forEach(inv => {
                 const d = new Date(inv.invoiceDate || inv.createdAt || '');
@@ -349,13 +373,20 @@ export default function ProfitabilityReports() {
                 const key = `${months2[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`;
                 if (monthMap[key]) {
                     const rev = inv.grandTotal || 0;
-                    const cogs = cogsForInvoice(inv);
+                    const { cogs, partial } = cogsForInvoice(inv);
                     monthMap[key].revenue += rev;
                     monthMap[key].cogs += cogs;
+                    monthMap[key].cogsPartial = monthMap[key].cogsPartial || partial;
                     monthMap[key].profit += rev - cogs;
                 }
             });
-            setMonthlyData(Object.entries(monthMap).map(([month, v]) => ({ month, ...v })));
+            setMonthlyData(Object.entries(monthMap).map(([month, v]) => ({
+                month,
+                revenue: v.revenue,
+                cogs: v.cogsPartial ? null : v.cogs,
+                profit: v.cogsPartial ? null : v.profit,
+                cogsPartial: v.cogsPartial,
+            })));
 
             // Top Customers
             const custMap: Record<string, {revenue: number; invoices: number}> = {};
@@ -370,10 +401,9 @@ export default function ProfitabilityReports() {
             invoices.forEach(inv => {
                 const name = inv.customerName || 'Unknown';
                 if (!custMarginMap[name]) custMarginMap[name] = 0;
-                // Real margin per invoice: (revenue − real COGS) / revenue.
-                // Was previously using `subtotal * 0.65` as a fake COGS guess.
-                const cogs = cogsForInvoice(inv);
-                const margin = inv.grandTotal > 0 ? ((inv.grandTotal - cogs) / inv.grandTotal) * 100 : 0;
+                // Real margin per invoice: (revenue − known COGS) / revenue.
+                const { cogs, partial } = cogsForInvoice(inv);
+                const margin = !partial && inv.grandTotal > 0 ? ((inv.grandTotal - cogs) / inv.grandTotal) * 100 : 0;
                 custMarginMap[name] = Math.max(custMarginMap[name], margin);
             });
             setTopCustomers(
@@ -394,7 +424,8 @@ export default function ProfitabilityReports() {
                     if (!prodMap[name]) prodMap[name] = { revenue: 0, units: 0, cogs: 0 };
                     const qty = Number(item.quantity) || 0;
                     const revLine = Number(item.amount) || (Number(item.rate) || 0) * qty;
-                    const costLine = costForLineName(name) * qty;
+                    const unitCost = costForLineName(name);
+                    const costLine = unitCost === null ? 0 : unitCost * qty;
                     prodMap[name].revenue += revLine;
                     prodMap[name].units += qty;
                     prodMap[name].cogs += costLine;
@@ -466,17 +497,7 @@ export default function ProfitabilityReports() {
 
     // Format currency (USD display)
     const formatCurrency = (value: number) => formatUsdFull(value);
-
-    // Revenue trend data (simplified - last 7 months)
-    const revenueTrendData = [
-        { month: 'Jun', value: plData ? plData.revenue.totalRevenue * 0.75 : 0 },
-        { month: 'Jul', value: plData ? plData.revenue.totalRevenue * 0.80 : 0 },
-        { month: 'Aug', value: plData ? plData.revenue.totalRevenue * 0.85 : 0 },
-        { month: 'Sep', value: plData ? plData.revenue.totalRevenue * 0.90 : 0 },
-        { month: 'Oct', value: plData ? plData.revenue.totalRevenue * 0.92 : 0 },
-        { month: 'Nov', value: plData ? plData.revenue.totalRevenue * 0.95 : 0 },
-        { month: 'Dec', value: plData ? plData.revenue.totalRevenue : 0 },
-    ];
+    const formatOptionalCurrency = (value: number | null) => value === null ? '—' : formatCurrency(value);
 
     // Balance sheet chart data
     const balanceSheetChartData = balanceSheetData ? [
@@ -608,102 +629,33 @@ export default function ProfitabilityReports() {
         [topCustomers],
     );
 
-    const monthCompare = useMemo(() => {
-        const withData = monthlyData.filter((m) => m.revenue > 0 || m.profit > 0);
-        if (withData.length >= 2) {
-            const curr = withData[withData.length - 1];
-            const prev = withData[withData.length - 2];
-            return {
-                revenuePct: pctChange(curr.revenue, prev.revenue),
-                profitPct: pctChange(curr.profit, prev.profit),
-                expensePct: pctChange(curr.cogs, prev.cogs),
-                lastMonthRevenue: prev.revenue,
-                lastMonthProfit: prev.profit,
-                lastMonthCogs: prev.cogs,
-            };
-        }
-        return {
-            revenuePct: '+12.4%',
-            profitPct: '+18%',
-            expensePct: '+8.1%',
-            lastMonthRevenue: plData ? plData.revenue.totalRevenue * 0.88 : 0,
-            lastMonthProfit: plData ? plData.netProfit.afterTax * 0.85 : 0,
-            lastMonthCogs: plData ? plData.cogs.totalCOGS * 0.92 : 0,
-        };
-    }, [monthlyData, plData]);
+    const monthCompare = useMemo(() => getRealMonthCompare(monthlyData), [monthlyData]);
 
     const chartTrendData = useMemo(() => {
         const slice = monthlyData.slice(-6);
-        return slice.map((m) => ({
+        return slice
+            .filter((m) => m.revenue > 0 || m.profit !== null)
+            .map((m) => ({
             month: m.month.split(' ')[0],
             revenue: m.revenue,
             profit: m.profit,
-            budget: m.revenue * 1.08,
         }));
     }, [monthlyData]);
 
-    const totalExpensesDisplay = plData
+    const isPlCogsPartial = Boolean(plData?.cogs.isPartial);
+    const totalExpensesDisplay = plData && !isPlCogsPartial
         ? plData.cogs.totalCOGS + plData.operatingExpenses.totalOpEx
-        : 0;
+        : null;
 
-    const budgetRows = useMemo(() => {
-        if (!plData) return [];
-        const budgetRevenue = plData.revenue.totalRevenue * 1.086;
-        const budgetCogs = plData.cogs.totalCOGS * 1.05;
-        const budgetOpEx = plData.operatingExpenses.totalOpEx * 0.97;
-        const budgetNet = budgetRevenue - budgetCogs - budgetOpEx;
-        return [
-            {
-                item: 'Revenue',
-                actual: plData.revenue.totalRevenue,
-                budget: budgetRevenue,
-                lastMo: monthCompare.lastMonthRevenue,
-                color: '#22C55E',
-            },
-            {
-                item: 'COGS',
-                actual: plData.cogs.totalCOGS,
-                budget: budgetCogs,
-                lastMo: monthCompare.lastMonthCogs,
-                color: '#EF4444',
-            },
-            {
-                item: 'Operating expenses',
-                actual: plData.operatingExpenses.totalOpEx,
-                budget: budgetOpEx,
-                lastMo: plData.operatingExpenses.totalOpEx * 0.92,
-                color: '#F59E0B',
-            },
-            {
-                item: 'Net profit',
-                actual: plData.netProfit.afterTax,
-                budget: budgetNet,
-                lastMo: monthCompare.lastMonthProfit,
-                color: '#00D4AA',
-            },
-        ];
-    }, [plData, monthCompare]);
+    const budgetRows = useMemo<Array<{ item: string; actual: number; budget: number | null; lastMo: number | null; color: string }>>(() => {
+        return [];
+    }, []);
 
-    const budgetAttainment = useMemo(() => {
-        if (!plData || plData.revenue.totalRevenue === 0) return 0;
-        const budgetRevenue = plData.revenue.totalRevenue * 1.086;
-        return Math.min(100, (plData.revenue.totalRevenue / budgetRevenue) * 100);
-    }, [plData]);
+    const budgetAttainment = useMemo<number | null>(() => {
+        return null;
+    }, []);
 
-    const plAprFactor = useMemo(() => {
-        if (!plData || plData.revenue.totalRevenue === 0) return 0.88;
-        return monthCompare.lastMonthRevenue / plData.revenue.totalRevenue;
-    }, [plData, monthCompare]);
-
-    const plCogsAprFactor = useMemo(() => {
-        if (!plData || plData.cogs.totalCOGS === 0) return 0.92;
-        return monthCompare.lastMonthCogs / plData.cogs.totalCOGS;
-    }, [plData, monthCompare]);
-
-    const plOpExAprFactor = useMemo(() => {
-        if (!plData || plData.operatingExpenses.totalOpEx === 0) return 0.92;
-        return (plData.operatingExpenses.totalOpEx * 0.92) / plData.operatingExpenses.totalOpEx;
-    }, [plData]);
+    const priorUnavailableText = monthCompare.hasPrior ? '—' : 'No prior-period data';
 
     const plExpenseLineCount = useMemo(() => {
         if (!plData) return 0;
@@ -743,25 +695,19 @@ export default function ProfitabilityReports() {
 
     const marginTrendData = useMemo(() => {
         const slice = monthlyData.slice(-6);
-        return slice.map((m) => ({
+        return slice.filter((m) => m.profit !== null).map((m) => ({
             month: m.month.split(' ')[0],
-            margin: m.revenue > 0 ? (m.profit / m.revenue) * 100 : 0,
+            margin: m.revenue > 0 && m.profit !== null ? (m.profit / m.revenue) * 100 : 0,
         }));
     }, [monthlyData]);
 
     const marginTrendImprovement = useMemo(() => {
-        if (marginTrendData.length < 2) return '+4.4pp improvement';
+        if (marginTrendData.length < 2) return 'No prior-period data';
         const curr = marginTrendData[marginTrendData.length - 1].margin;
         const prev = marginTrendData[marginTrendData.length - 2].margin;
         const diff = curr - prev;
         return `${diff >= 0 ? '+' : ''}${diff.toFixed(1)}pp ${diff >= 0 ? 'improvement' : 'decline'}`;
     }, [marginTrendData]);
-
-    const plOpExChangePct = useMemo(() => {
-        if (!plData) return '+0.8%';
-        const apr = plData.operatingExpenses.totalOpEx * plOpExAprFactor;
-        return pctChange(plData.operatingExpenses.totalOpEx, apr);
-    }, [plData, plOpExAprFactor]);
 
     const plPeriodLabel = plData?.period.label || 'MTD May 2026';
     const plCurrentCol = plPeriodLabel.includes('May') ? 'MAY 2026' : plPeriodLabel.toUpperCase();
@@ -769,21 +715,16 @@ export default function ProfitabilityReports() {
 
     const handleExportPlCsv = () => {
         if (!plData) return;
-        const aprRev = plData.revenue.totalRevenue * plAprFactor;
         const rows: string[][] = [
             ['Line Item', plCurrentCol, plPriorCol, 'Change'],
-            ['Product sales', String(plData.revenue.productSales), String(plData.revenue.productSales * plAprFactor), pctChange(plData.revenue.productSales, plData.revenue.productSales * plAprFactor)],
-            ['Amazon channel', String(plData.revenue.serviceRevenue), String(plData.revenue.serviceRevenue * plAprFactor), pctChange(plData.revenue.serviceRevenue, plData.revenue.serviceRevenue * plAprFactor)],
-            ['Service revenue', String(plData.revenue.otherRevenue), String(plData.revenue.otherRevenue * plAprFactor), pctChange(plData.revenue.otherRevenue, plData.revenue.otherRevenue * plAprFactor)],
-            ['Total revenue', String(plData.revenue.totalRevenue), String(aprRev), monthCompare.revenuePct],
-            ['Cost of products sold', String(plData.cogs.totalCOGS), String(plData.cogs.totalCOGS * plCogsAprFactor), pctChange(plData.cogs.totalCOGS, plData.cogs.totalCOGS * plCogsAprFactor)],
-            ['Total COGS', String(plData.cogs.totalCOGS), String(plData.cogs.totalCOGS * plCogsAprFactor), pctChange(plData.cogs.totalCOGS, plData.cogs.totalCOGS * plCogsAprFactor)],
-            ['Gross profit', String(plData.grossProfit.amount), String(plData.grossProfit.amount * plAprFactor), pctChange(plData.grossProfit.amount, plData.grossProfit.amount * plAprFactor)],
-            ['Salaries', String(plData.operatingExpenses.salariesWages), String(plData.operatingExpenses.salariesWages * plOpExAprFactor), pctChange(plData.operatingExpenses.salariesWages, plData.operatingExpenses.salariesWages * plOpExAprFactor)],
-            ['Rent', String(plData.operatingExpenses.rentUtilities), String(plData.operatingExpenses.rentUtilities * plOpExAprFactor), pctChange(plData.operatingExpenses.rentUtilities, plData.operatingExpenses.rentUtilities * plOpExAprFactor)],
-            ['Software', String(plData.operatingExpenses.administrative), String(plData.operatingExpenses.administrative * plOpExAprFactor), pctChange(plData.operatingExpenses.administrative, plData.operatingExpenses.administrative * plOpExAprFactor)],
-            ['Total operating expenses', String(plData.operatingExpenses.totalOpEx), String(plData.operatingExpenses.totalOpEx * plOpExAprFactor), plOpExChangePct],
-            ['Net profit', String(plData.netProfit.afterTax), String(plData.netProfit.afterTax * (monthCompare.lastMonthProfit / Math.max(plData.netProfit.afterTax, 1))), monthCompare.profitPct],
+            ['Product sales', String(plData.revenue.productSales), '—', '—'],
+            ['Service revenue', plData.revenue.serviceRevenue === null ? '—' : String(plData.revenue.serviceRevenue), '—', '—'],
+            ['Other revenue', plData.revenue.otherRevenue === null ? '—' : String(plData.revenue.otherRevenue), '—', '—'],
+            ['Total revenue', String(plData.revenue.totalRevenue), monthCompare.lastMonthRevenue === null ? '—' : String(monthCompare.lastMonthRevenue), monthCompare.revenuePct ?? '—'],
+            ['Cost of products sold', isPlCogsPartial ? '—' : String(plData.cogs.totalCOGS), monthCompare.lastMonthCogs === null ? '—' : String(monthCompare.lastMonthCogs), monthCompare.expensePct ?? '—'],
+            ['Gross profit', isPlCogsPartial ? '—' : String(plData.grossProfit.amount), '—', '—'],
+            ['Total operating expenses', String(plData.operatingExpenses.totalOpEx), '—', '—'],
+            ['Net profit', isPlCogsPartial ? '—' : String(plData.netProfit.afterTax), monthCompare.lastMonthProfit === null ? '—' : String(monthCompare.lastMonthProfit), monthCompare.profitPct ?? '—'],
         ];
         const csv = rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n');
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -1204,12 +1145,12 @@ export default function ProfitabilityReports() {
                             {kpiCard({
                                 stripe: 'linear-gradient(90deg,#00D4AA,#5EEAD4)',
                                 label: 'NET PROFIT',
-                                badge: plData ? `${plData.netProfit.margin.toFixed(1)}% margin` : '—',
+                                badge: plData && !isPlCogsPartial ? `${plData.netProfit.margin.toFixed(1)}% margin` : '—',
                                 badgeBg: 'rgba(0,212,170,.12)',
                                 badgeColor: '#00D4AA',
-                                value: plData ? formatCurrency(plData.netProfit.afterTax) : '$0',
+                                value: plData && !isPlCogsPartial ? formatCurrency(plData.netProfit.afterTax) : '—',
                                 valueColor: '#00D4AA',
-                                sub: `↑ ${monthCompare.profitPct} vs Apr`,
+                                sub: monthCompare.profitPct ? `${monthCompare.profitPct} vs prior` : priorUnavailableText,
                             })}
                             {kpiCard({
                                 stripe: 'linear-gradient(90deg,#22C55E,#86EFAC)',
@@ -1217,9 +1158,9 @@ export default function ProfitabilityReports() {
                                 badge: invoiceCount > 0 ? `${invoiceCount} invoices` : 'MTD',
                                 badgeBg: 'rgba(34,197,94,.18)',
                                 badgeColor: '#22C55E',
-                                value: plData ? formatCurrency(plData.revenue.totalRevenue) : '$0',
+                                value: plData ? formatCurrency(plData.revenue.totalRevenue) : '—',
                                 valueColor: 'var(--color-brand-green)',
-                                sub: `↑ ${monthCompare.revenuePct} vs Apr`,
+                                sub: monthCompare.revenuePct ? `${monthCompare.revenuePct} vs prior` : priorUnavailableText,
                             })}
                             {kpiCard({
                                 stripe: 'linear-gradient(90deg,#EF4444,#FCA5A5)',
@@ -1227,9 +1168,9 @@ export default function ProfitabilityReports() {
                                 badge: 'COGS + OpEx',
                                 badgeBg: 'rgba(239,68,68,.18)',
                                 badgeColor: '#EF4444',
-                                value: plData ? formatCurrency(totalExpensesDisplay) : '$0',
+                                value: plData ? formatOptionalCurrency(totalExpensesDisplay) : '—',
                                 valueColor: 'var(--color-brand-red)',
-                                sub: `↑ ${monthCompare.expensePct} vs Apr`,
+                                sub: monthCompare.expensePct ? `${monthCompare.expensePct} vs prior` : priorUnavailableText,
                                 subColor: 'var(--color-brand-amber-tint)',
                             })}
                             {kpiCard({
@@ -1279,7 +1220,7 @@ export default function ProfitabilityReports() {
                                 </div>
                                 <div style={{ height: 220 }}>
                                     <ResponsiveContainer width="100%" height="100%">
-                                        <LineChart data={chartTrendData.length > 0 ? chartTrendData : revenueTrendData.map((d) => ({ month: d.month, revenue: d.value, profit: d.value * 0.27, budget: d.value * 1.08 }))}>
+                                        <LineChart data={chartTrendData}>
                                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,.06)" />
                                             <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: 'var(--color-redwood-text-subtle)' }} />
                                             <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: 'var(--color-redwood-text-subtle)' }} tickFormatter={(v) => `$${Number(v) / 1000}k`} />
@@ -1294,15 +1235,13 @@ export default function ProfitabilityReports() {
                                             />
                                             <Line type="monotone" dataKey="revenue" name="Revenue" stroke="#22C55E" strokeWidth={2} dot={false} />
                                             <Line type="monotone" dataKey="profit" name="Profit" stroke="#00D4AA" strokeWidth={2} dot={false} />
-                                            <Line type="monotone" dataKey="budget" name="Budget" stroke="#A78BFA" strokeWidth={2} strokeDasharray="4 4" dot={false} />
                                         </LineChart>
                                     </ResponsiveContainer>
                                 </div>
                                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
                                     {[
-                                        { label: 'Revenue on track', color: '#22C55E' },
-                                        { label: 'Profit expanding', color: '#00D4AA' },
-                                        { label: 'Budget gap narrowing', color: '#A78BFA' },
+                                        { label: chartTrendData.length > 0 ? 'Revenue from invoices' : 'No revenue trend data', color: '#22C55E' },
+                                        { label: chartTrendData.some((d) => d.profit !== null) ? 'Profit from known costs' : 'Profit unavailable', color: '#00D4AA' },
                                     ].map((chip) => (
                                         <span
                                             key={chip.label}
@@ -1427,10 +1366,10 @@ export default function ProfitabilityReports() {
                                 </thead>
                                 <tbody>
                                     {budgetRows.map((row) => {
-                                        const pct = row.budget > 0 ? Math.min(100, (row.actual / row.budget) * 100) : 0;
-                                        const onTrack = pct >= 95 && pct <= 105;
-                                        const statusLabel = onTrack ? 'On track' : pct > 105 ? 'Above budget' : 'Below target';
-                                        const statusColor = onTrack ? '#22C55E' : pct > 105 ? '#F59E0B' : '#EF4444';
+                                        const pct = row.budget && row.budget > 0 ? Math.min(100, (row.actual / row.budget) * 100) : null;
+                                        const onTrack = pct !== null && pct >= 95 && pct <= 105;
+                                        const statusLabel = pct === null ? 'No budget data' : onTrack ? 'On track' : pct > 105 ? 'Above budget' : 'Below target';
+                                        const statusColor = pct === null ? 'var(--color-redwood-text-muted)' : onTrack ? '#22C55E' : pct > 105 ? '#F59E0B' : '#EF4444';
                                         return (
                                             <tr key={row.item}>
                                                 <td style={{ fontSize: 10, padding: '6px', borderBottom: '1px solid var(--color-redwood-border)', color: 'var(--color-redwood-text-main)' }}>
@@ -1440,22 +1379,29 @@ export default function ProfitabilityReports() {
                                                     {formatCurrency(row.actual)}
                                                 </td>
                                                 <td style={{ fontSize: 10, padding: '6px', textAlign: 'right', borderBottom: '1px solid var(--color-redwood-border)', color: 'var(--color-redwood-text-muted)' }}>
-                                                    {formatCurrency(row.budget)}
+                                                    {formatOptionalCurrency(row.budget)}
                                                 </td>
                                                 <td style={{ fontSize: 10, padding: '6px', textAlign: 'right', borderBottom: '1px solid var(--color-redwood-border)', color: 'var(--color-redwood-text-muted)' }}>
-                                                    {formatCurrency(row.lastMo)}
+                                                    {formatOptionalCurrency(row.lastMo)}
                                                 </td>
                                                 <td style={{ padding: '6px', borderBottom: '1px solid var(--color-redwood-border)', minWidth: 100 }}>
                                                     <div style={{ height: 4, background: 'rgba(255,255,255,.06)', borderRadius: 999, overflow: 'hidden' }}>
-                                                        <div style={{ height: '100%', width: `${pct}%`, background: row.color, borderRadius: 999 }} />
+                                                        <div style={{ height: '100%', width: `${pct ?? 0}%`, background: row.color, borderRadius: 999 }} />
                                                     </div>
                                                     <div style={{ fontSize: 8, textAlign: 'right', color: statusColor, marginTop: 2, fontWeight: 600 }}>
-                                                        {statusLabel} · {pct.toFixed(0)}%
+                                                        {pct === null ? statusLabel : `${statusLabel} · ${pct.toFixed(0)}%`}
                                                     </div>
                                                 </td>
                                             </tr>
                                         );
                                     })}
+                                    {budgetRows.length === 0 && (
+                                        <tr>
+                                            <td colSpan={5} style={{ fontSize: 10, padding: '10px 6px', textAlign: 'center', color: 'var(--color-redwood-text-muted)' }}>
+                                                No budget data
+                                            </td>
+                                        </tr>
+                                    )}
                                 </tbody>
                             </table>
                         </div>
@@ -1490,10 +1436,10 @@ export default function ProfitabilityReports() {
                                 },
                                 {
                                     label: 'Budget Attainment',
-                                    value: `${budgetAttainment.toFixed(0)}%`,
-                                    benchmark: 'Revenue vs plan',
+                                    value: budgetAttainment === null ? '—' : `${budgetAttainment.toFixed(0)}%`,
+                                    benchmark: 'No budget data',
                                     color: '#A78BFA',
-                                    ok: budgetAttainment >= 95,
+                                    ok: false,
                                 },
                             ].map((r) => (
                                 <div key={r.label} style={{ ...panel, borderLeft: `3px solid ${r.color}` }}>
@@ -1815,7 +1761,7 @@ export default function ProfitabilityReports() {
                                                         {text}
                                                     </span>
                                                 );
-                                                const amtCell = (v: number, color?: string, bold?: boolean) => (
+                                                const amtCell = (v: number | null, color?: string, bold?: boolean) => (
                                                     <td
                                                         style={{
                                                             fontSize: 10,
@@ -1827,10 +1773,26 @@ export default function ProfitabilityReports() {
                                                             fontFamily: bold ? "'Syne',sans-serif" : 'inherit',
                                                         }}
                                                     >
-                                                        {formatCurrency(v)}
+                                                        {formatOptionalCurrency(v)}
                                                     </td>
                                                 );
-                                                const chgCell = (current: number, prior: number, invert?: boolean) => {
+                                                const chgCell = (current: number | null, prior: number | null, invert?: boolean) => {
+                                                    if (current === null || prior === null) {
+                                                        return (
+                                                            <td
+                                                                style={{
+                                                                    fontSize: 9,
+                                                                    padding: '5px 10px',
+                                                                    textAlign: 'right',
+                                                                    borderBottom: '1px solid var(--color-redwood-border)',
+                                                                    color: 'var(--color-redwood-text-muted)',
+                                                                    fontWeight: 600,
+                                                                }}
+                                                            >
+                                                                —
+                                                            </td>
+                                                        );
+                                                    }
                                                     const pct = pctChange(current, prior);
                                                     const up = current >= prior;
                                                     const good = invert ? !up : up;
@@ -1871,8 +1833,8 @@ export default function ProfitabilityReports() {
                                                 const lineRow = (
                                                     key: string,
                                                     label: string,
-                                                    may: number,
-                                                    apr: number,
+                                                    may: number | null,
+                                                    apr: number | null,
                                                     opts?: { indent?: boolean; invertChange?: boolean; pillText?: string; pillColor?: string; valueColor?: string },
                                                 ) => (
                                                     <tr key={key} style={{ background: 'transparent' }}>
@@ -1896,8 +1858,8 @@ export default function ProfitabilityReports() {
                                                 const totalRow = (
                                                     key: string,
                                                     label: string,
-                                                    may: number,
-                                                    apr: number,
+                                                    may: number | null,
+                                                    apr: number | null,
                                                     opts: { color: string; pillText?: string; subtext?: string; large?: boolean },
                                                 ) => (
                                                     <tr key={key} style={{ background: `${opts.color}08` }}>
@@ -1934,38 +1896,39 @@ export default function ProfitabilityReports() {
                                                     );
                                                 }
 
-                                                const revApr = plData.revenue.totalRevenue * plAprFactor;
-                                                const cogsApr = plData.cogs.totalCOGS * plCogsAprFactor;
-                                                const gpApr = plData.grossProfit.amount * plAprFactor;
-                                                const opexApr = plData.operatingExpenses.totalOpEx * plOpExAprFactor;
-                                                const netApr = plData.netProfit.afterTax * (monthCompare.lastMonthProfit / Math.max(plData.netProfit.afterTax, 1));
+                                                const revPrior = monthCompare.lastMonthRevenue;
+                                                const cogsCurrent = isPlCogsPartial ? null : plData.cogs.totalCOGS;
+                                                const cogsPrior = monthCompare.lastMonthCogs;
+                                                const gpCurrent = isPlCogsPartial ? null : plData.grossProfit.amount;
+                                                const netCurrent = isPlCogsPartial ? null : plData.netProfit.afterTax;
+                                                const netPrior = monthCompare.lastMonthProfit;
 
                                                 return (
                                                     <>
                                                         {sectionRow('Revenue')}
-                                                        {lineRow('ps', 'Product sales', plData.revenue.productSales, plData.revenue.productSales * plAprFactor, { indent: true })}
-                                                        {lineRow('amz', 'Amazon channel', plData.revenue.serviceRevenue, plData.revenue.serviceRevenue * plAprFactor, { indent: true })}
-                                                        {lineRow('svc', 'Service revenue', plData.revenue.otherRevenue, plData.revenue.otherRevenue * plAprFactor, { indent: true })}
-                                                        {totalRow('rev', 'Total revenue', plData.revenue.totalRevenue, revApr, { color: '#22C55E', pillText: monthCompare.revenuePct })}
+                                                        {lineRow('ps', 'Product sales', plData.revenue.productSales, null, { indent: true })}
+                                                        {lineRow('svc', 'Service revenue', plData.revenue.serviceRevenue, null, { indent: true })}
+                                                        {lineRow('othrev', 'Other revenue', plData.revenue.otherRevenue, null, { indent: true })}
+                                                        {totalRow('rev', 'Total revenue', plData.revenue.totalRevenue, revPrior, { color: '#22C55E', pillText: monthCompare.revenuePct ?? undefined })}
                                                         {sectionRow('COGS')}
-                                                        {lineRow('cogs', 'Cost of products sold', plData.cogs.totalCOGS, cogsApr, { indent: true, invertChange: true, valueColor: '#EF4444' })}
-                                                        {totalRow('tcogs', 'Total COGS', plData.cogs.totalCOGS, cogsApr, { color: '#EF4444' })}
-                                                        {totalRow('gp', 'Gross profit', plData.grossProfit.amount, gpApr, {
+                                                        {lineRow('cogs', 'Cost of products sold', cogsCurrent, cogsPrior, { indent: true, invertChange: true, valueColor: '#EF4444' })}
+                                                        {totalRow('tcogs', 'Total COGS', cogsCurrent, cogsPrior, { color: '#EF4444' })}
+                                                        {totalRow('gp', 'Gross profit', gpCurrent, null, {
                                                             color: '#22C55E',
-                                                            subtext: `${plData.grossProfit.margin.toFixed(1)}% margin`,
+                                                            subtext: isPlCogsPartial ? 'COGS partial: missing product costs' : `${plData.grossProfit.margin.toFixed(1)}% margin`,
                                                         })}
                                                         {sectionRow('Operating expenses')}
-                                                        {lineRow('sal', 'Salaries', plData.operatingExpenses.salariesWages, plData.operatingExpenses.salariesWages * plOpExAprFactor, { indent: true, invertChange: true, valueColor: '#EF4444' })}
-                                                        {lineRow('rent', 'Rent', plData.operatingExpenses.rentUtilities, plData.operatingExpenses.rentUtilities * plOpExAprFactor, { indent: true, invertChange: true, valueColor: '#EF4444' })}
-                                                        {lineRow('sw', 'Software', plData.operatingExpenses.administrative, plData.operatingExpenses.administrative * plOpExAprFactor, { indent: true, invertChange: true, valueColor: '#EF4444' })}
+                                                        {lineRow('sal', 'Salaries', plData.operatingExpenses.salariesWages, null, { indent: true, invertChange: true, valueColor: '#EF4444' })}
+                                                        {lineRow('rent', 'Rent', plData.operatingExpenses.rentUtilities, null, { indent: true, invertChange: true, valueColor: '#EF4444' })}
+                                                        {lineRow('sw', 'Administrative', plData.operatingExpenses.administrative, null, { indent: true, invertChange: true, valueColor: '#EF4444' })}
                                                         {(plData.operatingExpenses.marketing > 0 || plData.operatingExpenses.transportation > 0) &&
-                                                            lineRow('mkt', 'Marketing & logistics', plData.operatingExpenses.marketing + plData.operatingExpenses.transportation, (plData.operatingExpenses.marketing + plData.operatingExpenses.transportation) * plOpExAprFactor, { indent: true, invertChange: true, valueColor: '#EF4444' })}
+                                                            lineRow('mkt', 'Marketing & logistics', plData.operatingExpenses.marketing + plData.operatingExpenses.transportation, null, { indent: true, invertChange: true, valueColor: '#EF4444' })}
                                                         {plData.operatingExpenses.other > 0 &&
-                                                            lineRow('oth', 'Other', plData.operatingExpenses.other, plData.operatingExpenses.other * plOpExAprFactor, { indent: true, invertChange: true, valueColor: '#EF4444' })}
-                                                        {totalRow('opex', 'Total operating expenses', plData.operatingExpenses.totalOpEx, opexApr, { color: '#F59E0B', pillText: plOpExChangePct })}
-                                                        {totalRow('net', 'Net profit', plData.netProfit.afterTax, netApr, {
+                                                            lineRow('oth', 'Other', plData.operatingExpenses.other, null, { indent: true, invertChange: true, valueColor: '#EF4444' })}
+                                                        {totalRow('opex', 'Total operating expenses', plData.operatingExpenses.totalOpEx, null, { color: '#F59E0B' })}
+                                                        {totalRow('net', 'Net profit', netCurrent, netPrior, {
                                                             color: '#00D4AA',
-                                                            pillText: monthCompare.profitPct,
+                                                            pillText: monthCompare.profitPct ?? undefined,
                                                             large: true,
                                                         })}
                                                     </>
@@ -1983,7 +1946,7 @@ export default function ProfitabilityReports() {
                                         background: 'rgba(34,197,94,.06)',
                                     }}
                                 >
-                                    {plData ? `${plData.netProfit.margin.toFixed(1)}% net margin` : '—'} · above 18–22% benchmark
+                                    {plData && !isPlCogsPartial ? `${plData.netProfit.margin.toFixed(1)}% net margin` : '—'}
                                 </div>
                             </div>
 
@@ -2156,11 +2119,11 @@ export default function ProfitabilityReports() {
                                             <>
                                                 Revenue reached{' '}
                                                 <span style={{ color: '#22C55E', fontWeight: 700 }}>{formatCurrency(plData.revenue.totalRevenue)}</span>
-                                                {' '}({monthCompare.revenuePct} vs Apr), with gross margin at{' '}
-                                                <span style={{ color: '#22C55E', fontWeight: 700 }}>{plData.grossProfit.margin.toFixed(1)}%</span>.
+                                                {' '}({monthCompare.revenuePct ?? 'No prior-period data'}), with gross margin at{' '}
+                                                <span style={{ color: '#22C55E', fontWeight: 700 }}>{isPlCogsPartial ? '—' : `${plData.grossProfit.margin.toFixed(1)}%`}</span>.
                                                 Net profit of{' '}
-                                                <span style={{ color: '#00D4AA', fontWeight: 700 }}>{formatCurrency(plData.netProfit.afterTax)}</span>
-                                                {' '}({plData.netProfit.margin.toFixed(1)}% margin, {monthCompare.profitPct} MoM) reflects controlled OpEx at{' '}
+                                                <span style={{ color: '#00D4AA', fontWeight: 700 }}>{isPlCogsPartial ? '—' : formatCurrency(plData.netProfit.afterTax)}</span>
+                                                {' '}({isPlCogsPartial ? '—' : `${plData.netProfit.margin.toFixed(1)}% margin`}, {monthCompare.profitPct ?? 'No prior-period data'} MoM) reflects OpEx at{' '}
                                                 <span style={{ color: '#F59E0B', fontWeight: 700 }}>{formatCurrency(plData.operatingExpenses.totalOpEx)}</span>.
                                             </>
                                         ) : (
@@ -3449,7 +3412,7 @@ export default function ProfitabilityReports() {
                     const rd = ratiosData;
                     const grossMargin = rd?.profitability.grossMargin ?? plData?.grossProfit.margin ?? 0;
                     const netMargin = rd?.profitability.netMargin ?? plData?.netProfit.margin ?? 0;
-                    const revenueGrowth = monthCompare.revenuePct;
+                    const revenueGrowth = monthCompare.revenuePct ?? '—';
                     const roe = rd?.profitability.roe ?? 0;
                     const roa = rd?.profitability.roa ?? 0;
                     const roce = rd?.profitability.roce ?? 0;
@@ -3699,7 +3662,9 @@ export default function ProfitabilityReports() {
                                         'Revenue Growth MoM',
                                         revenueGrowth,
                                         '(Rev MTD − Rev prior) / Rev prior',
-                                        revenueGrowth.startsWith('+')
+                                        revenueGrowth === '—'
+                                            ? statusBadge('No prior data', '#8BA3C7', 'rgba(139,163,199,.12)', 'rgba(139,163,199,.28)')
+                                            : revenueGrowth.startsWith('+')
                                             ? statusBadge('Growing', '#4F8EF7', 'rgba(79,142,247,.12)', 'rgba(79,142,247,.28)')
                                             : statusBadge('Declining', '#F59E0B', 'rgba(245,158,11,.12)', 'rgba(245,158,11,.28)'),
                                         'Month-over-month revenue momentum from invoiced sales.',
