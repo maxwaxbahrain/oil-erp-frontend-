@@ -1,7 +1,8 @@
 import { useState, useEffect, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 // NOTE: no lucide-react — all icons are inline SVG copied verbatim from preview.html
-import { getCustomers, getSalesOrders, getProducts } from '../../services/api';
+import { getCustomers, getSalesOrders, getProducts, getInvoices, getPayments } from '../../services/api';
+import { calculateCollectionRate } from '../../utils/salesMetrics';
 
 // ─── Shared style tokens (mirror public/preview.html tc-sales spec) ──────
 const panelStyle: CSSProperties = {
@@ -38,16 +39,22 @@ export default function SalesDashboard() {
   const [customers, setCustomers] = useState<any[]>([]);
   const [salesOrders, setSalesOrders] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [payments, setPayments] = useState<any[]>([]);
 
   useEffect(() => {
     Promise.all([
       getCustomers(),
       getSalesOrders(),
       getProducts(),
-    ]).then(([custs, orders, prods]) => {
+      getInvoices(),
+      getPayments(),
+    ]).then(([custs, orders, prods, invs, pays]) => {
       setCustomers(custs || []);
       setSalesOrders(orders || []);
       setProducts(prods || []);
+      setInvoices(invs || []);
+      setPayments(pays || []);
     }).catch(console.error);
   }, []);
 
@@ -78,9 +85,9 @@ export default function SalesDashboard() {
   const ordersMTD = mtdOrders.length;
   const ordersTotalValue = mtdOrders.reduce((sum: number, o: any) => sum + (Number(o.grandTotal || o.total) || 0), 0);
 
-  const TARGET = 10000;
   const achieved = ordersTotalValue;
-  const targetPct = Math.round((achieved / TARGET) * 100);
+  const targetPct: number | null = null;
+  const collectionRate = calculateCollectionRate(invoices, payments);
 
   // Top customers by MTD revenue (with last-order metadata for sub-label)
   const custRevMap: Record<string, number> = {};
@@ -262,11 +269,11 @@ export default function SalesDashboard() {
               </svg>
               <span title="Target Achievement">Target Achievement</span>
             </div>
-            <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px', background: 'var(--color-badge-amber-bg)', color: 'var(--color-brand-amber-tint)', border: '1px solid rgba(245,158,11,.2)' }}>{targetPct}%</span>
+            <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px', background: 'var(--color-badge-amber-bg)', color: 'var(--color-brand-amber-tint)', border: '1px solid rgba(245,158,11,.2)' }}>{targetPct === null ? '—' : `${targetPct}%`}</span>
           </div>
-          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '22px', fontWeight: 600, letterSpacing: '-.5px', marginBottom: '3px', lineHeight: '1.1', color: 'var(--color-brand-amber)' }}>{targetPct}%</div>
+          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '22px', fontWeight: 600, letterSpacing: '-.5px', marginBottom: '3px', lineHeight: '1.1', color: 'var(--color-brand-amber)' }}>{targetPct === null ? '—' : `${targetPct}%`}</div>
           <div style={{ fontSize: '10px', color: 'var(--color-brand-red-tint)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-            ${achieved.toLocaleString(undefined, { maximumFractionDigits: 0 })} of ${(TARGET / 1000).toFixed(0)}k target
+            ${achieved.toLocaleString(undefined, { maximumFractionDigits: 0 })} sold · No target set
           </div>
         </div>
       </div>
@@ -341,18 +348,18 @@ export default function SalesDashboard() {
           {/* Progress bars (.prog-row) */}
           <div style={{ marginTop: '12px' }}>
             {[
-              { label: 'Monthly sales target', pct: targetPct, color: 'var(--color-brand-blue)' },
-              { label: 'New customer target', pct: Math.min(Math.round((newThisMonth / 20) * 100), 100), color: 'var(--color-brand-green)' },
-              { label: 'Collection rate', pct: 12, color: 'var(--color-brand-red)' },
+              { label: 'Monthly sales target', pct: targetPct, color: 'var(--color-brand-blue)', empty: 'No target set' },
+              { label: 'Collection rate', pct: collectionRate === null ? null : Math.round(collectionRate), color: 'var(--color-brand-green)', empty: 'No invoice/payment data' },
             ].map((row, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '7px' }}>
                 <div style={{ fontSize: '10px', color: 'var(--color-redwood-text-muted)', width: '160px', flexShrink: 0 }}>{row.label}</div>
                 <div style={{ flex: 1, height: '5px', background: 'rgba(255,255,255,.07)', borderRadius: '3px', overflow: 'hidden' }}>
-                  <div style={{ height: '100%', borderRadius: '3px', width: `${Math.min(row.pct, 100)}%`, background: row.color, transition: 'width .8s ease' }} />
+                  <div style={{ height: '100%', borderRadius: '3px', width: `${row.pct === null ? 0 : Math.min(row.pct, 100)}%`, background: row.color, transition: 'width .8s ease' }} />
                 </div>
                 <div style={{ fontSize: '10px', fontWeight: 500, width: '32px', textAlign: 'right', color: row.color }}>
-                  {row.pct}%
+                  {row.pct === null ? '—' : `${row.pct}%`}
                 </div>
+                {row.pct === null && <div style={{ fontSize: '9px', color: 'var(--color-redwood-text-subtle)', width: '92px' }}>{row.empty}</div>}
               </div>
             ))}
           </div>
@@ -506,7 +513,7 @@ export default function SalesDashboard() {
             </div>
           </div>
 
-          {/* ── Active Campaigns (hardcoded — no campaigns API) ── */}
+          {/* ── Active Campaigns ── */}
           <div style={{ ...panelStyle, maxHeight: '280px', overflowY: 'auto' }}>
             <div style={phStyle}>
               <div style={ptStyle}>
@@ -519,38 +526,9 @@ export default function SalesDashboard() {
               </div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-              {[
-                { label: 'Ramadan bulk discount', badge: 'Live' },
-                { label: 'New customer 10% off', badge: 'Paused' },
-                { label: 'Reactivation — 12 churned', badge: 'Scheduled' },
-              ].map((camp, i) => (
-                <div
-                  key={i}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '6px 10px',
-                    background: 'var(--color-redwood-row-bg)',
-                    borderRadius: '6px',
-                    border: '1px solid var(--color-redwood-border)',
-                    transition: '.12s',
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-redwood-row-hover)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--color-redwood-row-bg)'; }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', color: 'var(--color-redwood-text-muted)', minWidth: 0, overflow: 'hidden' }}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--color-redwood-text-subtle)" strokeWidth="2" strokeLinecap="round">
-                      <path d="M18 8a6 6 0 0 1 0 8" />
-                      <path d="M3 11v2a2 2 0 0 0 2 2h1l4 4V7L6 11H5a2 2 0 0 0-2 2z" />
-                    </svg>
-                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{camp.label}</span>
-                  </div>
-                  <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px', background: 'rgba(79,142,247,.14)', color: 'var(--color-brand-blue-tint)', border: '1px solid rgba(79,142,247,.28)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {camp.badge}
-                  </span>
-                </div>
-              ))}
+              <div style={{ fontSize: '11px', color: 'var(--color-redwood-text-muted)', textAlign: 'center', padding: '12px 0' }}>
+                No campaigns
+              </div>
             </div>
           </div>
         </div>

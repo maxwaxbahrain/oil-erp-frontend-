@@ -1,8 +1,19 @@
-
+import { useEffect, useState } from 'react';
 import { FileText, Package, Users, DollarSign, Truck } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { getInvoices, type Invoice } from '../../services/api';
 
 export default function SalesOverview() {
+    const [invoices, setInvoices] = useState<Invoice[]>([]);
+
+    useEffect(() => {
+        getInvoices().then(setInvoices).catch(() => setInvoices([]));
+    }, []);
+
+    const totalSales = invoices.reduce((sum, invoice) => sum + (Number(invoice.grandTotal) || 0), 0);
+    const totalOrders = invoices.length;
+    const averageOrderValue = totalOrders > 0 ? totalSales / totalOrders : null;
+
     return (
         <div className="space-y-8 animate-in fade-in duration-700">
             <div>
@@ -14,26 +25,26 @@ export default function SalesOverview() {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                 <div className="bg-white p-6 rounded-lg border border-redwood-border shadow-sm">
                     <div className="text-[11px] font-bold text-redwood-text-muted uppercase tracking-wider mb-2">Total Sales</div>
-                    <div className="text-3xl font-black text-redwood-text-main">$124,580</div>
-                    <div className="text-[12px] text-emerald-600 font-semibold mt-2">+18.5% vs last month</div>
+                    <div className="text-3xl font-black text-redwood-text-main">{totalOrders > 0 ? `$${totalSales.toLocaleString()}` : '—'}</div>
+                    <div className="text-[12px] text-redwood-text-muted font-semibold mt-2">{totalOrders > 0 ? 'From invoices' : 'No data'}</div>
                 </div>
 
                 <div className="bg-white p-6 rounded-lg border border-redwood-border shadow-sm">
                     <div className="text-[11px] font-bold text-redwood-text-muted uppercase tracking-wider mb-2">Total Orders</div>
-                    <div className="text-3xl font-black text-redwood-text-main">342</div>
-                    <div className="text-[12px] text-redwood-text-muted font-semibold mt-2">This month</div>
+                    <div className="text-3xl font-black text-redwood-text-main">{totalOrders > 0 ? totalOrders : '—'}</div>
+                    <div className="text-[12px] text-redwood-text-muted font-semibold mt-2">{totalOrders > 0 ? 'Invoices' : 'No data'}</div>
                 </div>
 
                 <div className="bg-white p-6 rounded-lg border border-redwood-border shadow-sm">
                     <div className="text-[11px] font-bold text-redwood-text-muted uppercase tracking-wider mb-2">Avg Order Value</div>
-                    <div className="text-3xl font-black text-redwood-text-main">$364</div>
-                    <div className="text-[12px] text-blue-600 font-semibold mt-2">+5.2% increase</div>
+                    <div className="text-3xl font-black text-redwood-text-main">{averageOrderValue === null ? '—' : `$${averageOrderValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}</div>
+                    <div className="text-[12px] text-redwood-text-muted font-semibold mt-2">{averageOrderValue === null ? 'No data' : 'Total sales / invoices'}</div>
                 </div>
 
                 <div className="bg-white p-6 rounded-lg border border-redwood-border shadow-sm">
                     <div className="text-[11px] font-bold text-redwood-text-muted uppercase tracking-wider mb-2">Gross Profit</div>
-                    <div className="text-3xl font-black text-redwood-text-main">$42,180</div>
-                    <div className="text-[12px] text-emerald-600 font-semibold mt-2">33.8% margin</div>
+                    <div className="text-3xl font-black text-redwood-text-main">—</div>
+                    <div className="text-[12px] text-redwood-text-muted font-semibold mt-2">No cost data</div>
                 </div>
             </div>
 

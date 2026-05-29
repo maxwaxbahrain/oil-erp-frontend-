@@ -1,15 +1,25 @@
+import { useEffect, useState } from 'react';
 import { Users } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-
-const customerSalesData = [
-    { customer: 'ABC Retail Store', sales: 52400, orders: 45 },
-    { customer: 'XYZ Mart', sales: 48200, orders: 38 },
-    { customer: 'MNQ Store', sales: 39800, orders: 32 },
-    { customer: 'Global Foods', sales: 28500, orders: 24 },
-    { customer: 'City Supermarket', sales: 22100, orders: 19 },
-];
+import { getInvoices, type Invoice } from '../../services/api';
 
 export default function SalesByCustomer() {
+    const [invoices, setInvoices] = useState<Invoice[]>([]);
+
+    useEffect(() => {
+        getInvoices().then(setInvoices).catch(() => setInvoices([]));
+    }, []);
+
+    const customerSalesData = Object.values(
+        invoices.reduce<Record<string, { customer: string; sales: number; orders: number }>>((acc, invoice) => {
+            const key = invoice.customerName || invoice.customerId || 'Unknown Customer';
+            if (!acc[key]) acc[key] = { customer: invoice.customerName || 'Unknown Customer', sales: 0, orders: 0 };
+            acc[key].sales += Number(invoice.grandTotal) || 0;
+            acc[key].orders += 1;
+            return acc;
+        }, {}),
+    ).sort((a, b) => b.sales - a.sales);
+
     return (
         <div className="space-y-8 animate-in fade-in duration-700">
             <div className="flex items-center gap-4">
@@ -26,15 +36,19 @@ export default function SalesByCustomer() {
             <div className="bg-white p-6 rounded-lg border border-redwood-border shadow-sm">
                 <h3 className="text-[16px] font-black text-redwood-text-main mb-6">Top Customers by Revenue</h3>
                 <div className="h-80">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={customerSalesData} layout="vertical">
-                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                            <XAxis type="number" tick={{ fontSize: 11, fill: '#637381' }} stroke="#dfe3e8" />
-                            <YAxis dataKey="customer" type="category" tick={{ fontSize: 11, fill: '#637381' }} stroke="#dfe3e8" width={150} />
-                            <Tooltip contentStyle={{ backgroundColor: '#fff', border: '1px solid #dfe3e8', borderRadius: '6px', fontSize: '12px', fontWeight: 600 }} />
-                            <Bar dataKey="sales" fill="#06b6d4" radius={[0, 6, 6, 0]} />
-                        </BarChart>
-                    </ResponsiveContainer>
+                    {customerSalesData.length === 0 ? (
+                        <div className="h-full flex items-center justify-center text-sm font-bold text-redwood-text-muted">No data</div>
+                    ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={customerSalesData} layout="vertical">
+                                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                                <XAxis type="number" tick={{ fontSize: 11, fill: '#637381' }} stroke="#dfe3e8" />
+                                <YAxis dataKey="customer" type="category" tick={{ fontSize: 11, fill: '#637381' }} stroke="#dfe3e8" width={150} />
+                                <Tooltip contentStyle={{ backgroundColor: '#fff', border: '1px solid #dfe3e8', borderRadius: '6px', fontSize: '12px', fontWeight: 600 }} />
+                                <Bar dataKey="sales" fill="#06b6d4" radius={[0, 6, 6, 0]} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    )}
                 </div>
             </div>
 
@@ -56,6 +70,13 @@ export default function SalesByCustomer() {
                                 <td className="px-6 py-4 text-right text-[14px] font-black text-redwood-text-main">${item.sales.toLocaleString()}</td>
                             </tr>
                         ))}
+                        {customerSalesData.length === 0 && (
+                            <tr>
+                                <td colSpan={3} className="px-6 py-8 text-center text-[13px] font-bold text-redwood-text-muted">
+                                    No data
+                                </td>
+                            </tr>
+                        )}
                     </tbody>
                 </table>
             </div>
