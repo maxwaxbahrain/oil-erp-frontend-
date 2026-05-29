@@ -587,8 +587,8 @@ export async function extractExpenseFromReceipt(file: File): Promise<AIExtracted
     };
 }
 
-// LLM-powered custom expense head creator (still simulated — separate concern, not in STEP 2 scope)
-export async function generateExpenseHeadWithAI(_description: string): Promise<{
+// LLM-powered custom expense head creator via backend /ai/chat.
+export async function generateExpenseHeadWithAI(description: string, amount = 0): Promise<{
     name: string;
     parentCategory: string;
     type: string;
@@ -597,21 +597,53 @@ export async function generateExpenseHeadWithAI(_description: string): Promise<{
     accountCode: string;
     similarCategories: string[];
 }> {
-    return new Promise((resolve) => {
-        setTimeout(() => {
-            // Mock LLM response - in real implementation, this would call GPT-4/Claude
-            const mockResponse = {
-                name: 'Email Marketing Tools',
-                parentCategory: 'Software Subscriptions',
-                type: 'Administrative',
-                isRecurring: true,
-                taxTreatment: 'Digital Services',
-                accountCode: 'ACC-' + Math.floor(1000 + Math.random() * 9000),
-                similarCategories: ['Marketing Software', 'Cloud Services', 'SaaS Subscriptions']
-            };
-            resolve(mockResponse);
-        }, 1500);
+    const res = await fetch(API_HOST + '/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            system:
+                'You are an accounting assistant. Suggest an expense account head for the provided expense. ' +
+                'Return ONLY valid JSON with keys: name, parentCategory, type, isRecurring, taxTreatment, accountCode, similarCategories. ' +
+                'Use "—" for any field you cannot infer. Do not invent an account code; use "—" unless it is provided.',
+            messages: [
+                {
+                    role: 'user',
+                    content:
+                        `Expense description: ${description || '(none)'}\n` +
+                        `Amount: ${amount || 0}\n` +
+                        'Suggest one concise expense account name and category.',
+                },
+            ],
+            max_tokens: 500,
+        }),
     });
+
+    if (!res.ok) {
+        throw new Error(`AI expense-head request failed (${res.status})`);
+    }
+
+    const data = await res.json();
+    const raw = String(data.reply || '');
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    if (start < 0 || end <= start) {
+        throw new Error('AI response did not include JSON');
+    }
+
+    const parsed = JSON.parse(raw.slice(start, end + 1));
+    return {
+        name: typeof parsed.name === 'string' && parsed.name.trim() ? parsed.name.trim() : '—',
+        parentCategory: typeof parsed.parentCategory === 'string' && parsed.parentCategory.trim() ? parsed.parentCategory.trim() : '—',
+        type: typeof parsed.type === 'string' && parsed.type.trim() ? parsed.type.trim() : '—',
+        isRecurring: Boolean(parsed.isRecurring),
+        taxTreatment: typeof parsed.taxTreatment === 'string' && parsed.taxTreatment.trim() ? parsed.taxTreatment.trim() : '—',
+        accountCode: typeof parsed.accountCode === 'string' && parsed.accountCode.trim() ? parsed.accountCode.trim() : '—',
+        similarCategories: Array.isArray(parsed.similarCategories)
+            ? parsed.similarCategories
+                .filter((item: unknown): item is string => typeof item === 'string' && item.trim().length > 0)
+                .map((item: string) => item.trim())
+            : [],
+    };
 }
 
 

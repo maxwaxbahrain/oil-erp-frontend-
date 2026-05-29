@@ -475,11 +475,20 @@ export default function ExpenseManagement() {
 
         setGeneratingCategory(true);
         try {
-            const suggestion = await generateExpenseHeadWithAI(categoryDescription);
+            const amount = parseFloat(amountRef.current?.value || '0') || 0;
+            const suggestion = await generateExpenseHeadWithAI(categoryDescription, amount);
             setAiCategorySuggestion(suggestion);
         } catch (error) {
             console.error('Failed to generate category:', error);
-            alert('Failed to generate category');
+            setAiCategorySuggestion({
+                name: '—',
+                parentCategory: '—',
+                type: '—',
+                isRecurring: false,
+                taxTreatment: '—',
+                accountCode: '—',
+                similarCategories: [],
+            });
         } finally {
             setGeneratingCategory(false);
         }
@@ -489,6 +498,10 @@ export default function ExpenseManagement() {
         if (!aiCategorySuggestion) return;
 
         try {
+            if (aiCategorySuggestion.name === '—') {
+                alert('No real AI suggestion is available to create.');
+                return;
+            }
             await saveExpenseCategory({
                 name: aiCategorySuggestion.name,
                 parentCategory: aiCategorySuggestion.parentCategory,

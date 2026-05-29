@@ -561,11 +561,11 @@ export default function InventoryReports() {
                         </div>
                     </div>
 
-                    {/* Universal Material Query Engine */}
+                    {/* Universal Material Filter */}
                     <div style={{ ...panel, padding: '14px 16px', background: C.bg, border: '1px solid rgba(79,142,247,.15)' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                             <Search size={16} style={{ color: C.blue }} />
-                            <div style={{ fontSize: 13, fontWeight: 600, color: C.text, fontFamily: "'Syne',sans-serif" }}>Universal Material Query Engine</div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: C.text, fontFamily: "'Syne',sans-serif" }}>Material Filter</div>
                         </div>
                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
                             <div style={{ flex: 1, minWidth: 220, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 999, background: C.surface, border: '1px solid rgba(255,255,255,.08)' }}>
@@ -574,12 +574,12 @@ export default function InventoryReports() {
                                     type="text"
                                     value={queryText}
                                     onChange={e => setQueryText(e.target.value)}
-                                    placeholder={queryMode === 'nl' ? 'Ask in natural language… e.g. show fast movers with margin above 30%' : "SQL-style filter… e.g. velocity='Fast' AND margin > 30"}
+                                    placeholder={queryMode === 'nl' ? 'Filter products… e.g. fast movers with margin above 30%' : "SQL-style filter text… e.g. velocity='Fast' AND margin > 30"}
                                     style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: 10, color: C.text, fontFamily: queryMode === 'sql' ? 'monospace' : 'inherit' }}
                                 />
                             </div>
                             <div style={{ display: 'flex', gap: 4 }}>
-                                <button type="button" onClick={() => setQueryMode('nl')} style={pillBtn(queryMode === 'nl')}>Natural language</button>
+                                <button type="button" onClick={() => setQueryMode('nl')} style={pillBtn(queryMode === 'nl')}>Text filter</button>
                                 <button type="button" onClick={() => setQueryMode('sql')} style={pillBtn(queryMode === 'sql')}>SQL</button>
                             </div>
                         </div>
@@ -640,12 +640,12 @@ export default function InventoryReports() {
                         </div>
                     </div>
 
-                    {/* AI Insights + Suggested Actions */}
+                    {/* Insights + Suggested Actions */}
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 10 }}>
                         <div style={{ ...panel, padding: '14px 16px', background: 'rgba(239,68,68,.04)', border: '1px solid rgba(239,68,68,.12)' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                                 <Brain size={15} style={{ color: C.red }} />
-                                <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>AI Material Audit Insights</div>
+                                <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>Material Audit Insights</div>
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                                 {AI_INSIGHTS.length === 0 ? (
@@ -664,7 +664,7 @@ export default function InventoryReports() {
                         <div style={{ ...panel, padding: '14px 16px', background: 'rgba(155,111,228,.05)', border: '1px solid rgba(155,111,228,.15)' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                                 <Bot size={15} style={{ color: '#C4B5FD' }} />
-                                <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>AI Suggested Actions</div>
+                                <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>Suggested Actions</div>
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                                 {AI_ACTIONS.length === 0 ? (
@@ -701,7 +701,7 @@ export default function InventoryReports() {
                     </div>
 
                     <div style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.06)', fontSize: 9, color: C.dim, lineHeight: 1.5 }}>
-                        AI-generated insights are for guidance only. Verify figures against source systems before filing or sharing externally. All monetary values are shown in USD ($).
+                        These filters and insights are based on local inventory calculations. Verify figures against source systems before filing or sharing externally. All monetary values are shown in USD ($).
                     </div>
                 </>
             )}
