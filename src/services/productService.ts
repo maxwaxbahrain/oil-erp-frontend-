@@ -219,85 +219,20 @@ function mapApiProductToProduct(raw: Record<string, unknown>): Product {
 const PRODUCTS_KEY = 'zavi_products';
 
 const getInitialProducts = (): Product[] => {
+    // Backend is the single source of truth for the catalog. localStorage is a
+    // write-through cache populated only by `saveProduct` after a successful
+    // API call. We deliberately do NOT auto-seed the cache with mock/demo data
+    // here — doing so used to create "ghost" rows (e.g. Soltol 15W40 with
+    // id:'1') that appeared in the catalog even when the backend was empty,
+    // which then 404'd on subsequent edits.
     const stored = localStorage.getItem(PRODUCTS_KEY);
-    if (stored) return JSON.parse(stored);
-
-    // Fallback to initial mocks if nothing in storage
-    const initialMocks: Product[] = [
-        {
-            id: '1',
-            name: 'Soltol 15W40',
-            sku: 'BET-1540',
-            barcode: '123456789012',
-            category: 'Lubricants',
-            subCategory: 'Motor Oil',
-            brand: 'Soltol',
-            status: 'Active',
-            description: 'Premium quality diesel engine oil designed to provide excellent lubrication.',
-            shortDescription: 'Premium diesel engine oil',
-            uom: 'Liters',
-            quantityPerUnit: 1,
-            velocityStatus: 'Fast',
-            salesVelocity: 450,
-            salesTrend: 15,
-            revenueContribution: 20.8,
-            grossMarginPercent: 32,
-            netProfitPerUnit: 350,
-            avgDailySales: 15,
-            daysStockRemaining: 30,
-            reorderLevel: 150,
-            overstockRisk: 'Low',
-            pricing: {
-                purchasePriceExWorks: 950,
-                freightShipping: 35,
-                importDuty: 25,
-                otherDirectCosts: 10,
-                landedCost: 1020,
-                operatingExpenseAllocation: 130,
-                sellingPrice: 1500,
-                taxRate: 17,
-                taxIncluded: false
-            },
-            priceHistory: [
-                { date: '2023-10-01', cost: 950, selling: 1450 },
-                { date: '2023-11-01', cost: 980, selling: 1450 },
-                { date: '2023-12-01', cost: 1020, selling: 1500 }
-            ],
-            images: [
-                { id: 'img-1', url: 'https://images.unsplash.com/photo-1620921653148-22c60800b73e?q=80&w=800&auto=format&fit=crop', isPrimary: true }
-            ],
-            aiEnabled: true,
-            aiDemandPrediction: 520,
-            aiConfidenceLevel: 87,
-            aiPricingSuggestion: 1545,
-            aiActionRequired: 'REORDER NOW: Stock will finish in 28 days.',
-            locations: [
-                { id: 'LOC-001', name: 'Main Warehouse', type: 'Warehouse', currentStock: 280, reorderPoint: 150, maxStock: 1000, physicalLocation: 'Aisle A-12', avgDailySales: 8 },
-                { id: 'LOC-002', name: 'Van 1 - Downtown', type: 'Van', currentStock: 85, reorderPoint: 40, maxStock: 150, assignedTo: 'Ahmed Khan', avgDailySales: 12 },
-                { id: 'LOC-003', name: 'Main Store', type: 'Store', currentStock: 60, reorderPoint: 30, maxStock: 200, avgDailySales: 3 }
-            ],
-            leadTimeDays: 7,
-            minOrderQty: 200,
-            specifications: [
-                { key: 'Weight', value: '0.9kg' },
-                { key: 'Color', value: 'Amber' }
-            ],
-            primarySupplierName: 'Soltol International Trading LLC',
-            supplierProductCode: 'B-1540-X',
-            supplierReliabilityScore: 4.8,
-
-            tags: ['Premium', 'Diesel', 'Soltol'],
-            seo: {
-                metaTitle: 'Soltol 15W40 Engine Oil | Premium Lubricant',
-                metaDescription: 'Buy Soltol 15W40 engine oil for heavy duty diesel engines. High performance lubrication.',
-                keywords: 'engine oil, diesel oil, bettano, 15w40'
-            },
-            leakageRate: 3.0,
-            returnRate: 0.4
-        }
-    ];
-    localStorage.setItem(PRODUCTS_KEY, JSON.stringify(initialMocks));
-    return initialMocks;
+    if (!stored) return [];
+    try {
+        const parsed = JSON.parse(stored);
+        return Array.isArray(parsed) ? (parsed as Product[]) : [];
+    } catch {
+        return [];
+    }
 };
 
 export const IMPORTED_PRODUCTS_KEY = 'bettano_imported_products';
@@ -322,22 +257,18 @@ export function saveImportedProduct(product: Product): void {
 }
 
 export async function getProducts(): Promise<Product[]> {
-    // Always get localStorage imported products first (persists across deploys)
-    const imported = getImportedProducts();
-
+    // Backend is the single source of truth for the catalog. We no longer
+    // merge in `getImportedProducts()` (localStorage) — that path used to
+    // surface "ghost" products that existed only in the browser and 404'd
+    // when the user tried to edit them. If the backend is unreachable we
+    // return an empty list instead of a stale localStorage snapshot.
     try {
         const response = await fetch(apiUrl('products/'), { cache: 'no-store' });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const payload = await response.json().catch(() => null);
-        const backendProducts = parseProductsJson(payload).map(mapApiProductToProduct);
-
-        // Merge: backend first, then imported products not in backend
-        const backendNames = new Set(backendProducts.map(p => p.name.toLowerCase()));
-        const extraImported = imported.filter(p => !backendNames.has(p.name.toLowerCase()));
-        return [...backendProducts, ...extraImported];
+        return parseProductsJson(payload).map(mapApiProductToProduct);
     } catch {
-        // Backend unavailable - return imported products
-        return imported;
+        return [];
     }
 }
 
@@ -404,16 +335,32 @@ export async function saveProduct(product: Partial<Product>): Promise<Product> {
     // Hit the backend FIRST. If it fails, throw — the form's catch block
     // will surface the real error instead of showing a fake success alert.
     const hasId = product.id != null && String(product.id) !== '';
-    const url = hasId
+    const initialUrl = hasId
         ? apiUrl(`products/${encodeURIComponent(String(product.id))}`)
         : apiUrl('products/');
-    const method = hasId ? 'PUT' : 'POST';
+    const initialMethod: 'PUT' | 'POST' = hasId ? 'PUT' : 'POST';
 
-    const resp = await fetch(url, {
-        method,
+    let resp = await fetch(initialUrl, {
+        method: initialMethod,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(backendPayload),
     });
+    let method: 'PUT' | 'POST' = initialMethod;
+
+    // Self-heal: if the PUT targeted an id that no longer exists on the
+    // backend (a "ghost" cached locally from a previous DB lifetime), promote
+    // the save to a POST so the user's edit becomes a real backend row
+    // instead of failing the entire form. The cache cleanup below strips the
+    // old ghost id so the catalog doesn't end up with a duplicate.
+    if (resp.status === 404 && hasId) {
+        method = 'POST';
+        resp = await fetch(apiUrl('products/'), {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(backendPayload),
+        });
+    }
+
     if (!resp.ok) {
         let detail = '';
         try { detail = await resp.text(); } catch { /* ignore */ }
@@ -479,7 +426,14 @@ export async function saveProduct(product: Partial<Product>): Promise<Product> {
     // non-fatal — the backend already accepted the save, so we never
     // undo a real persistence by throwing on a quota/storage error.
     try {
-        const products = getInitialProducts();
+        const cached = getInitialProducts();
+        // Drop any stale ghost row that lived under the old (pre-save) id so
+        // that a 404→POST upsert (which assigns a new server id) doesn't
+        // leave the old id orphaned in the cache as a duplicate row.
+        const oldId = product.id != null ? String(product.id) : '';
+        const products = oldId && oldId !== serverId
+            ? cached.filter((p) => String(p.id) !== oldId)
+            : cached;
         const existingIndex = products.findIndex((p) => String(p.id) === serverId);
         if (existingIndex !== -1) {
             products[existingIndex] = savedProduct;
