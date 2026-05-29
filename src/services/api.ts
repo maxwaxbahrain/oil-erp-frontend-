@@ -1,3 +1,5 @@
+import { ACCESS_TOKEN_KEY } from '../api/axios';
+
 const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
   .trim()
   .replace(/\/+$/, '');
@@ -382,9 +384,14 @@ async function mockHandler<T>(endpoint: string, options: RequestInit = {}): Prom
 
 async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
+  const token = localStorage.getItem(ACCESS_TOKEN_KEY);
   const config: RequestInit = {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
     ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...options.headers,
+    },
   };
 
   if (USE_MOCK) {
