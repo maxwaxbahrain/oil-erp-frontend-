@@ -134,7 +134,6 @@ import EmailReplyAgent from '../pages/Agents/EmailReplyAgent';
 import InventoryAdjustment from '../pages/Inventory/InventoryAdjustment';
 import DriverApp from '../pages/POD/DriverApp';
 import ManagementDashboard from '../pages/POD/ManagementDashboard';
-import PODTestRunner from '../pages/POD/PODTestRunner';
 import VanOperations from '../pages/Logistics/VanOperations';
 import RouteNavigator from '../pages/Logistics/RouteNavigator';
 import PublicInvoice from '../pages/PublicInvoice';
@@ -312,7 +311,7 @@ export const AppRoutes = () => {
             <Route path="/logistics/pod" element={<DriverApp />} />
             <Route path="/pod/driver" element={<DriverApp />} />
             <Route path="/pod/management" element={<ManagementDashboard />} />
-            <Route path="/pod/test" element={<PODTestRunner />} />
+            <Route path="/pod/test" element={<Navigate to="/pod/management" replace />} />
             <Route path="/logistics/operations" element={<VanOperations />} />
             <Route path="/logistics/routes" element={<RouteNavigator />} />
             <Route path="/routes" element={<Navigate to="/logistics/routes" replace />} />
