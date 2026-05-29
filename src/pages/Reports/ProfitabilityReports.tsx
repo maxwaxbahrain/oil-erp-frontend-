@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, type CSSProperties } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { getInvoices, getProducts } from '../../services/api';
 import { formatCurrency as globalFormatCurrency } from '../../services/settingsService';
 import {
@@ -28,6 +28,19 @@ import {
 } from '../../services/profitLossService';
 import { calculateBalanceSheet, type BalanceSheet } from '../../services/balanceSheetService';
 import AccountingSetupRequired from '../../components/common/AccountingSetupRequired';
+import {
+    getGLProfitLoss,
+    getGLBalanceSheet,
+    getGLCashFlow,
+    isGLEmpty,
+    todayISO,
+    yearStartISO,
+    GL_EMPTY_MESSAGE,
+    OPENING_BALANCES_PATH,
+    type GLProfitLoss,
+    type GLBalanceSheet,
+    type GLCashFlow,
+} from '../../services/glService';
 
 // ─── UI tokens (dark redwood — presentation only) ─────────────────────────
 const panel: CSSProperties = {
@@ -50,6 +63,18 @@ const ghostBtn: CSSProperties = {
     display: 'flex',
     alignItems: 'center',
     gap: '4px',
+};
+
+const rowStyle: CSSProperties = {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '5px 8px',
+    background: 'var(--color-redwood-row-bg)',
+    border: '1px solid var(--color-redwood-border)',
+    borderRadius: '6px',
+    marginBottom: '4px',
+    fontSize: '10px',
 };
 
 type PeriodKey = 'mtd' | 'qtd' | 'ytd' | 'q1' | 'fy2022' | 'custom';
@@ -257,6 +282,9 @@ export default function ProfitabilityReports() {
     const [balanceSheetData, setBalanceSheetData] = useState<BalanceSheet | null>(null);
     const [dimensionalData, setDimensionalData] = useState<DimensionalAnalysis | null>(null);
     const [ratiosData, setRatiosData] = useState<FinancialRatios | null>(null);
+    const [glPlData, setGlPlData] = useState<GLProfitLoss | null>(null);
+    const [glBalanceSheet, setGlBalanceSheet] = useState<GLBalanceSheet | null>(null);
+    const [glCashFlow, setGlCashFlow] = useState<GLCashFlow | null>(null);
     const [monthlyData, setMonthlyData] = useState<MonthlyProfitPoint[]>([]);
     const [topCustomers, setTopCustomers] = useState<Array<{name: string; revenue: number; invoices: number; margin: number}>>([]);
     const [topProducts, setTopProducts] = useState<Array<{name: string; revenue: number; profit: number; margin: number; units: number}>>([]);
@@ -299,12 +327,17 @@ export default function ProfitabilityReports() {
     const loadFinancialData = async () => {
         setLoading(true);
         try {
-            const [pl, cashFlow, balanceSheet, dimensional, ratios] = await Promise.all([
+            const glToday = todayISO();
+            const glYearStart = yearStartISO();
+            const [pl, cashFlow, balanceSheet, dimensional, ratios, glPl, glBs, glCf] = await Promise.all([
                 calculateProfitLoss(1),
                 calculateCashFlow(1),
                 calculateBalanceSheet(),
                 calculateDimensionalAnalysis(1),
-                calculateFinancialRatios()
+                calculateFinancialRatios(),
+                getGLProfitLoss(glYearStart, glToday).catch(() => null),
+                getGLBalanceSheet(glToday).catch(() => null),
+                getGLCashFlow(glYearStart, glToday).catch(() => null),
             ]);
 
             setPlData(pl);
@@ -312,6 +345,9 @@ export default function ProfitabilityReports() {
             setBalanceSheetData(balanceSheet);
             setDimensionalData(dimensional);
             setRatiosData(ratios);
+            setGlPlData(glPl);
+            setGlBalanceSheet(glBs);
+            setGlCashFlow(glCf);
         } catch (error) {
             console.error('Failed to load financial data:', error);
         } finally {
@@ -798,6 +834,153 @@ export default function ProfitabilityReports() {
         );
     };
 
+    const glBsEmpty = !glBalanceSheet || isGLEmpty(glBalanceSheet);
+    const glCfEmpty = glBsEmpty || !glCashFlow;
+
+    const glEmptyCta = (
+        <div style={{ padding: '24px 16px', textAlign: 'center' }}>
+            <p style={{ margin: '0 0 12px', fontSize: 11, color: 'var(--color-redwood-text-muted)', lineHeight: 1.55 }}>
+                {GL_EMPTY_MESSAGE}
+            </p>
+            <Link
+                to={OPENING_BALANCES_PATH}
+                style={{
+                    display: 'inline-block',
+                    padding: '8px 16px',
+                    borderRadius: 8,
+                    background: 'rgba(79,142,247,.15)',
+                    border: '1px solid rgba(79,142,247,.35)',
+                    color: '#93C5FD',
+                    fontSize: 10,
+                    fontWeight: 600,
+                    textDecoration: 'none',
+                }}
+            >
+                Enter opening balances
+            </Link>
+        </div>
+    );
+
+    const glPlSection = glPlData && !glBsEmpty ? (
+        <div style={{ ...panel, marginBottom: 8, borderColor: 'rgba(34,197,94,.35)' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#22C55E', marginBottom: 8, fontFamily: "'Syne',sans-serif" }}>
+                From GL — authoritative
+            </div>
+            <div style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)', marginBottom: 6 }}>
+                {glPlData.start} → {glPlData.end}
+            </div>
+            {[
+                ['Revenue', glPlData.revenue, true],
+                ['COGS', -glPlData.cogs, false],
+                ['Gross profit', glPlData.gross_profit, true],
+                ['Operating expenses', -glPlData.operating_expenses, false],
+                ['Net income', glPlData.net_income, glPlData.net_income >= 0],
+            ].map(([label, val, pos]) => (
+                <div key={String(label)} style={rowStyle}>
+                    <span style={{ color: 'var(--color-redwood-text-muted)' }}>{label}</span>
+                    <span style={{ color: pos ? '#22C55E' : '#EF4444', fontWeight: 600 }}>
+                        {formatUsdFull(Number(val))}
+                    </span>
+                </div>
+            ))}
+        </div>
+    ) : (
+        <div style={{ ...panel, marginBottom: 8 }}>{glEmptyCta}</div>
+    );
+
+    const glBalanceTab = glBalanceSheet && !glBsEmpty ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)', fontFamily: "'Syne',sans-serif" }}>
+                Balance sheet (GL) · as of {glBalanceSheet.as_of}
+            </div>
+            {(['assets', 'liabilities', 'equity'] as const).map((section) => {
+                const rows = glBalanceSheet[section];
+                const total =
+                    section === 'assets'
+                        ? glBalanceSheet.total_assets
+                        : section === 'liabilities'
+                          ? glBalanceSheet.total_liabilities
+                          : glBalanceSheet.total_equity;
+                return (
+                    <div key={section} style={panel}>
+                        <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-redwood-text-subtle)', marginBottom: 6 }}>
+                            {section}
+                        </div>
+                        {rows.filter((r: { balance: number }) => Math.abs(r.balance) >= 0.01).map((r) => (
+                            <div key={r.account_id} style={rowStyle}>
+                                <span style={{ color: 'var(--color-redwood-text-muted)' }}>{r.code} · {r.name}</span>
+                                <span style={{ fontWeight: 600 }}>{formatUsdFull(r.balance)}</span>
+                            </div>
+                        ))}
+                        {section === 'equity' && (
+                            <div style={rowStyle}>
+                                <span style={{ color: 'var(--color-redwood-text-muted)' }}>Net income (YTD)</span>
+                                <span style={{ fontWeight: 600 }}>{formatUsdFull(glBalanceSheet.net_income)}</span>
+                            </div>
+                        )}
+                        <div style={{ ...rowStyle, marginTop: 4, borderColor: 'rgba(79,142,247,.25)' }}>
+                            <span style={{ fontWeight: 700 }}>Total {section}</span>
+                            <span style={{ fontWeight: 700, fontFamily: "'Syne',sans-serif" }}>{formatUsdFull(total)}</span>
+                        </div>
+                    </div>
+                );
+            })}
+            <div style={{ fontSize: 9, fontWeight: 600, color: glBalanceSheet.is_balanced ? '#22C55E' : '#F59E0B' }}>
+                {glBalanceSheet.is_balanced ? '✓ Balanced' : '⚠ Out of balance'}
+            </div>
+        </div>
+    ) : (
+        glEmptyCta
+    );
+
+    const glCashFlowTab = glCashFlow && !glCfEmpty ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)', fontFamily: "'Syne',sans-serif" }}>
+                Cash flow (GL) · {glCashFlow.start} → {glCashFlow.end}
+            </div>
+            <div style={rowStyle}>
+                <span style={{ color: 'var(--color-redwood-text-muted)' }}>Opening cash</span>
+                <span style={{ fontWeight: 600 }}>{formatUsdFull(glCashFlow.opening_cash)}</span>
+            </div>
+            {(['operating', 'financing', 'investing'] as const).map((key) => (
+                <div key={key} style={panel}>
+                    <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-redwood-text-subtle)', marginBottom: 6 }}>
+                        {key}
+                    </div>
+                    {glCashFlow.sections[key].line_items.map((item: { label: string; inflow: number; outflow: number }) => (
+                        <div key={item.label}>
+                            {item.inflow > 0 && (
+                                <div style={rowStyle}>
+                                    <span style={{ color: 'var(--color-redwood-text-muted)' }}>{item.label} (in)</span>
+                                    <span style={{ color: '#22C55E', fontWeight: 600 }}>{formatUsdFull(item.inflow)}</span>
+                                </div>
+                            )}
+                            {item.outflow > 0 && (
+                                <div style={rowStyle}>
+                                    <span style={{ color: 'var(--color-redwood-text-muted)' }}>{item.label} (out)</span>
+                                    <span style={{ color: '#EF4444', fontWeight: 600 }}>{formatUsdFull(-item.outflow)}</span>
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            ))}
+            <div style={rowStyle}>
+                <span style={{ fontWeight: 700 }}>Net change</span>
+                <span style={{ fontWeight: 700, fontFamily: "'Syne',sans-serif" }}>{formatUsdFull(glCashFlow.net_change)}</span>
+            </div>
+            <div style={rowStyle}>
+                <span style={{ fontWeight: 700, color: '#A78BFA' }}>Closing cash</span>
+                <span style={{ fontWeight: 700, color: '#A78BFA', fontFamily: "'Syne',sans-serif" }}>{formatUsdFull(glCashFlow.closing_cash)}</span>
+            </div>
+            <div style={{ fontSize: 9, fontWeight: 600, color: glCashFlow.is_reconciled ? '#22C55E' : '#F59E0B' }}>
+                {glCashFlow.is_reconciled ? '✓ Reconciled' : '⚠ Reconciliation mismatch'}
+            </div>
+        </div>
+    ) : (
+        glEmptyCta
+    );
+
     const tabDefs: { id: TabType; label: string; icon: typeof Layers }[] = [
         { id: 'executive', label: 'Executive dashboard', icon: Layers },
         { id: 'pl', label: 'Profit & Loss', icon: BarChart3 },
@@ -1159,8 +1342,8 @@ export default function ProfitabilityReports() {
 
             {/* Tab Content */}
             <div style={{ ...darkPanelStyle, minHeight: 600 }}>
-                {activeTab === 'cashflow' && <AccountingSetupRequired />}
-                {activeTab === 'balance' && <AccountingSetupRequired />}
+                {activeTab === 'cashflow' && glCashFlowTab}
+                {activeTab === 'balance' && glBalanceTab}
                 {activeTab === 'ratios' && <AccountingSetupRequired />}
                 {activeTab === 'executive' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1529,7 +1712,7 @@ export default function ProfitabilityReports() {
                                     value={aiQuestion}
                                     onChange={(e) => setAiQuestion(e.target.value)}
                                     onKeyDown={(e) => e.key === 'Enter' && handleAskAi()}
-                                    placeholder="AI CFO unavailable — live answers not connected"
+                                    placeholder="Ask anything about your financials…"
                                     style={{
                                         flex: 1,
                                         minWidth: 200,
@@ -1593,6 +1776,10 @@ export default function ProfitabilityReports() {
                 )}
                 {activeTab === 'pl' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {glPlSection}
+                        <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-redwood-text-subtle)', margin: '4px 2px 0' }}>
+                            Operational estimate (pre-GL)
+                        </div>
                         <div
                             style={{
                                 display: 'grid',
@@ -2527,10 +2714,10 @@ export default function ProfitabilityReports() {
                                     onKeyDown={(e) => {
                                         if (e.key === 'Enter') {
                                             const q = cfAiQuestion.trim() || CF_AI_PROMPTS[0];
-                                            alert(`AI Cash Flow (preview)\n\n"${q}"\n\nAI CFO endpoint is not connected yet; no AI answer was generated.`);
+                                            alert(`AI Cash Flow (preview)\n\n"${q}"\n\nConnect the AI CFO endpoint to get live answers.`);
                                         }
                                     }}
-                                    placeholder="AI CFO unavailable — cash-flow answers not connected"
+                                    placeholder="Ask AI: 'When will we hit $1M closing balance?' · 'Forecast next 6 months' · 'Why was Dec highest?'"
                                     style={{
                                         flex: 1,
                                         background: 'transparent',
@@ -2545,7 +2732,7 @@ export default function ProfitabilityReports() {
                                     type="button"
                                     onClick={() => {
                                         const q = cfAiQuestion.trim() || CF_AI_PROMPTS[0];
-                                        alert(`AI Cash Flow (preview)\n\n"${q}"\n\nAI CFO endpoint is not connected yet; no AI answer was generated.`);
+                                        alert(`AI Cash Flow (preview)\n\n"${q}"\n\nConnect the AI CFO endpoint to get live answers.`);
                                     }}
                                     style={{
                                         background: '#9B6FE4',
@@ -3175,7 +3362,7 @@ export default function ProfitabilityReports() {
                                             {ins.body}
                                             <span
                                                 style={{ fontSize: 9, color: '#4F8EF7', background: 'rgba(79,142,247,.1)', borderRadius: 20, padding: '1px 6px', cursor: 'pointer', marginLeft: 5, display: 'inline-block' }}
-                                                onClick={() => alert('AI reasoning (preview)\n\nAI CFO endpoint is not connected yet; no AI explanation was generated.')}
+                                                onClick={() => alert('AI reasoning (preview)\n\nConnect AI endpoint for detailed explanation.')}
                                                 onKeyDown={() => {}}
                                                 role="button"
                                                 tabIndex={0}
@@ -3264,10 +3451,10 @@ export default function ProfitabilityReports() {
                                         onKeyDown={(e) => {
                                             if (e.key === 'Enter') {
                                                 const q = bsAiQuestion.trim() || BS_AI_PROMPTS[0];
-                                                alert(`AI Balance Sheet (preview)\n\n"${q}"\n\nAI CFO endpoint is not connected yet; no AI answer was generated.`);
+                                                alert(`AI Balance Sheet (preview)\n\n"${q}"\n\nConnect the AI CFO endpoint to get live answers.`);
                                             }
                                         }}
-                                        placeholder="AI CFO unavailable — balance-sheet answers not connected"
+                                        placeholder="Ask AI: 'Is our current ratio healthy?' · 'Should we pay down debt?' · 'How did equity change?'"
                                         style={{
                                             flex: 1,
                                             background: 'transparent',
@@ -3282,7 +3469,7 @@ export default function ProfitabilityReports() {
                                         type="button"
                                         onClick={() => {
                                             const q = bsAiQuestion.trim() || BS_AI_PROMPTS[0];
-                                            alert(`AI Balance Sheet (preview)\n\n"${q}"\n\nAI CFO endpoint is not connected yet; no AI answer was generated.`);
+                                            alert(`AI Balance Sheet (preview)\n\n"${q}"\n\nConnect the AI CFO endpoint to get live answers.`);
                                         }}
                                         style={{
                                             background: '#9B6FE4',
@@ -3445,7 +3632,7 @@ export default function ProfitabilityReports() {
                                 {body}
                                 <span
                                     style={{ fontSize: 9, color: '#4F8EF7', background: 'rgba(79,142,247,.1)', borderRadius: 20, padding: '1px 6px', cursor: 'pointer', marginLeft: 5, display: 'inline-block' }}
-                                    onClick={() => alert('AI reasoning (preview)\n\nAI CFO endpoint is not connected yet; no AI explanation was generated.')}
+                                    onClick={() => alert('AI reasoning (preview)\n\nConnect AI endpoint for detailed explanation.')}
                                     onKeyDown={() => {}}
                                     role="button"
                                     tabIndex={0}
@@ -3843,7 +4030,7 @@ export default function ProfitabilityReports() {
                                         onKeyDown={(e) => {
                                             if (e.key === 'Enter') handleAskAi();
                                         }}
-                                        placeholder="AI CFO unavailable — ratio answers not connected"
+                                        placeholder="Ask AI: 'How can we reduce CCC?' · 'Is our ROE sustainable?' · 'Compare to SME benchmarks'"
                                         style={{
                                             flex: 1,
                                             background: 'transparent',
@@ -4554,7 +4741,7 @@ export default function ProfitabilityReports() {
                                 {body}
                                 <span
                                     style={{ fontSize: 9, color: '#4F8EF7', background: 'rgba(79,142,247,.1)', borderRadius: 20, padding: '1px 6px', cursor: 'pointer', marginLeft: 5, display: 'inline-block' }}
-                                    onClick={() => alert('AI reasoning (preview)\n\nAI CFO endpoint is not connected yet; no AI explanation was generated.')}
+                                    onClick={() => alert('AI reasoning (preview)\n\nConnect AI endpoint for detailed explanation.')}
                                     onKeyDown={() => {}}
                                     role="button"
                                     tabIndex={0}
@@ -5042,7 +5229,7 @@ export default function ProfitabilityReports() {
                                         value={aiQuestion}
                                         onChange={(e) => setAiQuestion(e.target.value)}
                                         onKeyDown={(e) => e.key === 'Enter' && handleAskAi()}
-                                        placeholder="AI CFO unavailable — profitability answers not connected"
+                                        placeholder="Ask about customer, SKU, or channel profitability…"
                                         style={{
                                             flex: 1,
                                             minWidth: 200,

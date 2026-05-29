@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, type CSSProperties } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
     Activity,
     AlertTriangle,
@@ -14,6 +14,17 @@ import {
 import { getInvoices, getPayments, getCustomers } from '../../services/api';
 import { getExpenses, type Expense } from '../../services/expenseService';
 import AccountingSetupRequired from '../../components/common/AccountingSetupRequired';
+import {
+    getGLCashFlow,
+    isGLEmpty,
+    getGLBalanceSheet,
+    todayISO,
+    yearStartISO,
+    GL_EMPTY_MESSAGE,
+    OPENING_BALANCES_PATH,
+    type GLCashFlow,
+    type GLBalanceSheet,
+} from '../../services/glService';
 
 // ─── Style tokens (dark redwood — match Banking / FinanceDashboard) ───
 const panel: CSSProperties = {
@@ -229,6 +240,8 @@ const AccountsDashboard = () => {
     const [period, setPeriod] = useState<PeriodKey>('mtd');
     const [aiQuestion, setAiQuestion] = useState('');
     const [cols, setCols] = useState({ kpi: 4, twoCol: true });
+    const [glCashFlow, setGlCashFlow] = useState<GLCashFlow | null>(null);
+    const [glBalanceSheet, setGlBalanceSheet] = useState<GLBalanceSheet | null>(null);
 
     useEffect(() => {
         const update = () =>
@@ -245,18 +258,24 @@ const AccountsDashboard = () => {
         let cancelled = false;
         setLoading(true);
         setLoadError(null);
+        const glToday = todayISO();
+        const glYearStart = yearStartISO();
         Promise.all([
             getInvoices().catch(() => [] as any),
             getPayments().catch(() => [] as any),
             getCustomers().catch(() => [] as any),
             getExpenses().catch(() => [] as Expense[]),
+            getGLBalanceSheet(glToday).catch(() => null),
+            getGLCashFlow(glYearStart, glToday).catch(() => null),
         ])
-            .then(([inv, pays, custs, exps]) => {
+            .then(([inv, pays, custs, exps, glBs, glCf]) => {
                 if (cancelled) return;
                 setInvoices(inv);
                 setPayments(pays);
                 setCustomers(custs);
                 setExpenses(exps);
+                setGlBalanceSheet(glBs);
+                setGlCashFlow(glCf);
             })
             .catch((e: any) => {
                 if (!cancelled) setLoadError(e?.message || 'Could not load accounting data.');
@@ -740,7 +759,58 @@ const AccountsDashboard = () => {
                     <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: 8 }}>
                         Cash Flow
                     </div>
-                    <AccountingSetupRequired />
+                    {glCashFlow && glBalanceSheet && !isGLEmpty(glBalanceSheet) ? (
+                        <>
+                            <div style={rowStyle}>
+                                <span style={{ color: 'var(--color-redwood-text-muted)' }}>Operating receipts (inflows)</span>
+                                <span style={{ color: '#22C55E', fontWeight: 600 }}>
+                                    {formatUsd(glCashFlow.sections.operating.total_inflows)}
+                                </span>
+                            </div>
+                            <div style={rowStyle}>
+                                <span style={{ color: 'var(--color-redwood-text-muted)' }}>Net change</span>
+                                <span style={{ fontWeight: 600 }}>{formatUsd(glCashFlow.net_change)}</span>
+                            </div>
+                            <div
+                                style={{
+                                    ...rowStyle,
+                                    marginTop: 4,
+                                    background: 'rgba(167,139,250,.08)',
+                                    borderColor: 'rgba(167,139,250,.25)',
+                                }}
+                            >
+                                <span style={{ fontWeight: 700, color: '#A78BFA' }}>Closing cash</span>
+                                <span style={{ fontWeight: 700, color: '#A78BFA', fontFamily: "'Syne',sans-serif" }}>
+                                    {formatUsd(glCashFlow.closing_cash)}
+                                </span>
+                            </div>
+                            {glCashFlow.is_reconciled && (
+                                <div style={{ fontSize: 8.5, color: '#22C55E', marginTop: 4, fontWeight: 600 }}>✓ Reconciled</div>
+                            )}
+                        </>
+                    ) : (
+                        <div style={{ padding: '12px 8px', textAlign: 'center' }}>
+                            <p style={{ margin: '0 0 10px', fontSize: 9.5, color: 'var(--color-redwood-text-muted)', lineHeight: 1.5 }}>
+                                {GL_EMPTY_MESSAGE}
+                            </p>
+                            <Link
+                                to={OPENING_BALANCES_PATH}
+                                style={{
+                                    display: 'inline-block',
+                                    padding: '6px 12px',
+                                    borderRadius: 6,
+                                    background: 'rgba(79,142,247,.15)',
+                                    border: '1px solid rgba(79,142,247,.35)',
+                                    color: '#93C5FD',
+                                    fontSize: 9.5,
+                                    fontWeight: 600,
+                                    textDecoration: 'none',
+                                }}
+                            >
+                                Enter opening balances
+                            </Link>
+                        </div>
+                    )}
                 </div>
             </div>
 

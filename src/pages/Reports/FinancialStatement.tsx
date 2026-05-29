@@ -3,6 +3,7 @@
 // Business logic, API calls, services, export handlers, and period filtering preserved.
 
 import { useEffect, useMemo, useState, useCallback, type CSSProperties } from 'react';
+import { Link } from 'react-router-dom';
 import {
     BarChart3,
     Bot,
@@ -36,6 +37,17 @@ import {
     type CashFlowStatement,
 } from '../../services/profitLossService';
 import { calculateBalanceSheet, type BalanceSheet } from '../../services/balanceSheetService';
+import {
+    getGLBalanceSheet,
+    getGLCashFlow,
+    isGLEmpty,
+    todayISO,
+    yearStartISO,
+    GL_EMPTY_MESSAGE,
+    OPENING_BALANCES_PATH,
+    type GLBalanceSheet,
+    type GLCashFlow,
+} from '../../services/glService';
 
 // ─── Style tokens (dark redwood) ───────────────────────────────────────────
 const panel: CSSProperties = {
@@ -254,6 +266,138 @@ function kpiCard(cfg: {
     );
 }
 
+function GLEmptyStateCTA() {
+    return (
+        <div style={{ padding: '16px 12px', textAlign: 'center' }}>
+            <p style={{ margin: '0 0 12px', fontSize: 10, color: 'var(--color-redwood-text-muted)', lineHeight: 1.5 }}>
+                {GL_EMPTY_MESSAGE}
+            </p>
+            <Link
+                to={OPENING_BALANCES_PATH}
+                style={{
+                    display: 'inline-block',
+                    padding: '6px 14px',
+                    borderRadius: 6,
+                    background: 'rgba(79,142,247,.15)',
+                    border: '1px solid rgba(79,142,247,.35)',
+                    color: '#93C5FD',
+                    fontSize: 10,
+                    fontWeight: 600,
+                    textDecoration: 'none',
+                }}
+            >
+                Enter opening balances
+            </Link>
+        </div>
+    );
+}
+
+function GLAccountRows({
+    rows,
+    positive,
+}: {
+    rows: Array<{ code: string; name: string; balance: number }>;
+    positive?: boolean;
+}) {
+    const visible = rows.filter((r) => Math.abs(r.balance) >= 0.01);
+    if (visible.length === 0) {
+        return <LineRow label="(none)" value={0} positive={positive ?? true} indent />;
+    }
+    return (
+        <>
+            {visible.map((r) => (
+                <LineRow
+                    key={`${r.code}-${r.name}`}
+                    label={`${r.code} · ${r.name}`}
+                    value={positive === false ? -Math.abs(r.balance) : r.balance}
+                    positive={positive ?? true}
+                    indent
+                />
+            ))}
+        </>
+    );
+}
+
+function GLBalanceSheetPanel({ bs }: { bs: GLBalanceSheet }) {
+    return (
+        <>
+            <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', marginBottom: 4, fontWeight: 600 }}>
+                ASSETS
+            </div>
+            <GLAccountRows rows={bs.assets} />
+            <LineRow label="Total assets" value={bs.total_assets} positive bold />
+            <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', margin: '6px 0 4px', fontWeight: 600 }}>
+                LIABILITIES
+            </div>
+            <GLAccountRows rows={bs.liabilities} positive={false} />
+            <LineRow label="Total liabilities" value={-bs.total_liabilities} positive={false} bold />
+            <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', margin: '6px 0 4px', fontWeight: 600 }}>
+                EQUITY
+            </div>
+            <GLAccountRows rows={bs.equity} />
+            <LineRow label="Net income (YTD)" value={bs.net_income} positive={bs.net_income >= 0} indent />
+            <LineRow label="Total equity" value={bs.total_equity} positive bold />
+            <div
+                style={{
+                    marginTop: 6,
+                    fontSize: 8.5,
+                    fontWeight: 600,
+                    color: bs.is_balanced ? '#22C55E' : '#F59E0B',
+                }}
+            >
+                {bs.is_balanced ? '✓ Balanced' : '⚠ Out of balance'}
+            </div>
+        </>
+    );
+}
+
+function GLCashFlowPanel({ cf }: { cf: GLCashFlow }) {
+    const section = (title: string, key: 'operating' | 'financing' | 'investing') => {
+        const s = cf.sections[key];
+        return (
+            <div key={key}>
+                <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', margin: '6px 0 4px', fontWeight: 600 }}>
+                    {title.toUpperCase()}
+                </div>
+                {s.line_items.length === 0 ? (
+                    <LineRow label="(no activity)" value={0} positive={false} indent />
+                ) : (
+                    s.line_items.map((item) => (
+                        <div key={item.label}>
+                            {item.inflow > 0 && (
+                                <LineRow label={`${item.label} (in)`} value={item.inflow} positive indent />
+                            )}
+                            {item.outflow > 0 && (
+                                <LineRow label={`${item.label} (out)`} value={-item.outflow} positive={false} indent />
+                            )}
+                        </div>
+                    ))
+                )}
+            </div>
+        );
+    };
+    return (
+        <>
+            <LineRow label="Opening cash" value={cf.opening_cash} positive bold />
+            {section('Operating', 'operating')}
+            {section('Financing', 'financing')}
+            {section('Investing', 'investing')}
+            <LineRow label="Net change" value={cf.net_change} positive={cf.net_change >= 0} bold />
+            <LineRow label="Closing cash" value={cf.closing_cash} positive bold />
+            <div
+                style={{
+                    marginTop: 6,
+                    fontSize: 8.5,
+                    fontWeight: 600,
+                    color: cf.is_reconciled ? '#22C55E' : '#F59E0B',
+                }}
+            >
+                {cf.is_reconciled ? '✓ Reconciled' : '⚠ Reconciliation mismatch'}
+            </div>
+        </>
+    );
+}
+
 function LineRow({
     label,
     value,
@@ -393,6 +537,8 @@ export default function FinancialStatement() {
     const [plData, setPlData] = useState<ProfitLossStatement | null>(null);
     const [, setCashFlowData] = useState<CashFlowStatement | null>(null);
     const [, setBalanceSheetData] = useState<BalanceSheet | null>(null);
+    const [glBalanceSheet, setGlBalanceSheet] = useState<GLBalanceSheet | null>(null);
+    const [glCashFlow, setGlCashFlow] = useState<GLCashFlow | null>(null);
 
     const [aiQuestion, setAiQuestion] = useState('');
     const [cols, setCols] = useState({ kpi: 4, threeCol: true, twoCol: true });
@@ -422,7 +568,9 @@ export default function FinancialStatement() {
         setLoading(true);
         setError(null);
         try {
-            const [invs, pays, exps, grnsRes, suppliers, pl, cashFlow, balanceSheet] = await Promise.all([
+            const glToday = todayISO();
+            const glYearStart = yearStartISO();
+            const [invs, pays, exps, grnsRes, suppliers, pl, cashFlow, balanceSheet, glBs, glCf] = await Promise.all([
                 getInvoices().catch(() => [] as Invoice[]),
                 getPayments().catch(() => [] as Payment[]),
                 getExpenses().catch(() => [] as Expense[]),
@@ -431,6 +579,8 @@ export default function FinancialStatement() {
                 calculateProfitLoss(1).catch(() => null),
                 calculateCashFlow(1).catch(() => null),
                 calculateBalanceSheet().catch(() => null),
+                getGLBalanceSheet(glToday).catch(() => null),
+                getGLCashFlow(glYearStart, glToday).catch(() => null),
             ]);
 
             const supplierPayBatches = await Promise.all(
@@ -450,6 +600,8 @@ export default function FinancialStatement() {
             setPlData(pl);
             setCashFlowData(cashFlow);
             setBalanceSheetData(balanceSheet);
+            setGlBalanceSheet(glBs);
+            setGlCashFlow(glCf);
         } catch (e: unknown) {
             setError(e instanceof Error ? e.message : 'Failed to load financial data.');
         } finally {
@@ -472,6 +624,8 @@ export default function FinancialStatement() {
     );
 
     const marginPct = totals.revenue > 0 ? (totals.netProfit / totals.revenue) * 100 : 0;
+    const glBsEmpty = !glBalanceSheet || isGLEmpty(glBalanceSheet);
+    const glCfEmpty = glBsEmpty || !glCashFlow;
 
     const revenueTrend = useMemo(() => {
         const months = [
@@ -722,17 +876,21 @@ export default function FinancialStatement() {
                 {kpiCard({
                     stripe: 'linear-gradient(90deg,#7C3AED,#A78BFA)',
                     label: 'Net Cash Movement',
-                    value: '—',
+                    value: glCashFlow && !glCfEmpty ? formatUsdFull(glCashFlow.net_change) : '—',
                     valueColor: '#A78BFA',
-                    sub: 'Requires accounting setup',
-                    subColor: '#C4B5FD',
+                    sub: glCashFlow && !glCfEmpty
+                        ? `Closing ${formatUsdFull(glCashFlow.closing_cash)}`
+                        : 'GL empty — enter opening balances',
+                    subColor: glCashFlow && !glCfEmpty ? undefined : '#C4B5FD',
                 })}
                 {kpiCard({
                     stripe: 'linear-gradient(90deg,#22C55E,#86EFAC)',
                     label: 'Balance Sheet',
-                    value: '—',
+                    value: glBalanceSheet && !glBsEmpty ? formatUsdFull(glBalanceSheet.total_assets) : '—',
                     valueColor: 'var(--color-redwood-text-muted)',
-                    sub: 'Requires accounting setup',
+                    sub: glBalanceSheet && !glBsEmpty
+                        ? (glBalanceSheet.is_balanced ? 'Assets = Liab + Equity' : 'Out of balance')
+                        : 'GL empty — enter opening balances',
                 })}
             </div>
 
@@ -797,7 +955,11 @@ export default function FinancialStatement() {
                         iconColor="#4F8EF7"
                         onExport={handleDownloadPDF}
                     />
-                    <AccountingSetupRequired />
+                    {glBalanceSheet && !glBsEmpty ? (
+                        <GLBalanceSheetPanel bs={glBalanceSheet} />
+                    ) : (
+                        <GLEmptyStateCTA />
+                    )}
                 </div>
 
                 {/* Cash Flow */}
@@ -809,7 +971,11 @@ export default function FinancialStatement() {
                         iconColor="#A78BFA"
                         onExport={handleDownloadPDF}
                     />
-                    <AccountingSetupRequired />
+                    {glCashFlow && !glCfEmpty ? (
+                        <GLCashFlowPanel cf={glCashFlow} />
+                    ) : (
+                        <GLEmptyStateCTA />
+                    )}
                 </div>
             </div>
 
