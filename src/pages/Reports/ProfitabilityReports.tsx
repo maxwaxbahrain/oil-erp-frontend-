@@ -27,6 +27,7 @@ import {
     type FinancialRatios
 } from '../../services/profitLossService';
 import { calculateBalanceSheet, type BalanceSheet } from '../../services/balanceSheetService';
+import AccountingSetupRequired from '../../components/common/AccountingSetupRequired';
 
 // ─── UI tokens (dark redwood — presentation only) ─────────────────────────
 const panel: CSSProperties = {
@@ -514,7 +515,35 @@ export default function ProfitabilityReports() {
 
     // Cash flow display-only derivations (UI presentation — maps cashFlowData to 12-mo mockup layout)
     const cfDisplay = useMemo(() => {
-        if (!cashFlowData) return null;
+        if (!cashFlowData) {
+            return {
+                monthlyNetOp: Array(12).fill(0) as number[],
+                forecastNetOp: Array(3).fill(0) as number[],
+                monthlyCustomers: Array(12).fill(0) as number[],
+                monthlySuppliers: Array(12).fill(0) as number[],
+                monthlyPayroll: Array(12).fill(0) as number[],
+                monthlyOpEx: Array(12).fill(0) as number[],
+                monthlyClosing: Array(12).fill(0) as number[],
+                fcCustomers: Array(3).fill(0) as number[],
+                fcSuppliers: Array(3).fill(0) as number[],
+                totalCashIn: 0,
+                totalCashOut: 0,
+                totalNetOp: 0,
+                totalCustomers: 0,
+                totalSuppliers: 0,
+                totalPayroll: 0,
+                totalOpEx: 0,
+                cashConversion: 0,
+                openingPct: 0,
+                growthPct: 0,
+                netChange: 0,
+                openingBalance: 0,
+                closingBalance: 0,
+                netInvesting: 0,
+                netFinancing: 0,
+                equipmentPurchases: 0,
+            };
+        }
         const cf = cashFlowData;
         const mayNetOp = cf.operating.netOperating || 108000;
         const monthlyNetOp = CF_MONTH_FACTORS.map((f) => Math.round(mayNetOp * f));
@@ -646,14 +675,6 @@ export default function ProfitabilityReports() {
     const totalExpensesDisplay = plData && !isPlCogsPartial
         ? plData.cogs.totalCOGS + plData.operatingExpenses.totalOpEx
         : null;
-
-    const budgetRows = useMemo<Array<{ item: string; actual: number; budget: number | null; lastMo: number | null; color: string }>>(() => {
-        return [];
-    }, []);
-
-    const budgetAttainment = useMemo<number | null>(() => {
-        return null;
-    }, []);
 
     const priorUnavailableText = monthCompare.hasPrior ? '—' : 'No prior-period data';
 
@@ -991,7 +1012,7 @@ export default function ProfitabilityReports() {
             )}
 
             {/* Cash flow secondary filter bar (UI-only toggles) */}
-            {activeTab === 'cashflow' && (
+            {false && activeTab === 'cashflow' && (
                 <div
                     style={{
                         display: 'flex',
@@ -1064,7 +1085,7 @@ export default function ProfitabilityReports() {
             )}
 
             {/* Balance sheet secondary filter bar (UI-only toggles) */}
-            {activeTab === 'balance' && (
+            {false && activeTab === 'balance' && (
                 <div
                     style={{
                         display: 'flex',
@@ -1138,6 +1159,9 @@ export default function ProfitabilityReports() {
 
             {/* Tab Content */}
             <div style={{ ...darkPanelStyle, minHeight: 600 }}>
+                {activeTab === 'cashflow' && <AccountingSetupRequired />}
+                {activeTab === 'balance' && <AccountingSetupRequired />}
+                {activeTab === 'ratios' && <AccountingSetupRequired />}
                 {activeTab === 'executive' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         {/* KPI Cards */}
@@ -1343,114 +1367,11 @@ export default function ProfitabilityReports() {
                             <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: 8 }}>
                                 Budget vs Actual
                             </div>
-                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                <thead>
-                                    <tr>
-                                        {['ITEM', 'ACTUAL', 'BUDGET', 'LAST MO', 'STATUS'].map((h) => (
-                                            <th
-                                                key={h}
-                                                style={{
-                                                    fontSize: 8,
-                                                    fontWeight: 600,
-                                                    textTransform: 'uppercase',
-                                                    color: 'var(--color-redwood-text-subtle)',
-                                                    padding: '4px 6px',
-                                                    borderBottom: '1px solid var(--color-redwood-border)',
-                                                    textAlign: h === 'ITEM' ? 'left' : 'right',
-                                                }}
-                                            >
-                                                {h}
-                                            </th>
-                                        ))}
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {budgetRows.map((row) => {
-                                        const pct = row.budget && row.budget > 0 ? Math.min(100, (row.actual / row.budget) * 100) : null;
-                                        const onTrack = pct !== null && pct >= 95 && pct <= 105;
-                                        const statusLabel = pct === null ? 'No budget data' : onTrack ? 'On track' : pct > 105 ? 'Above budget' : 'Below target';
-                                        const statusColor = pct === null ? 'var(--color-redwood-text-muted)' : onTrack ? '#22C55E' : pct > 105 ? '#F59E0B' : '#EF4444';
-                                        return (
-                                            <tr key={row.item}>
-                                                <td style={{ fontSize: 10, padding: '6px', borderBottom: '1px solid var(--color-redwood-border)', color: 'var(--color-redwood-text-main)' }}>
-                                                    {row.item}
-                                                </td>
-                                                <td style={{ fontSize: 10, padding: '6px', textAlign: 'right', borderBottom: '1px solid var(--color-redwood-border)', fontWeight: 600, color: row.color }}>
-                                                    {formatCurrency(row.actual)}
-                                                </td>
-                                                <td style={{ fontSize: 10, padding: '6px', textAlign: 'right', borderBottom: '1px solid var(--color-redwood-border)', color: 'var(--color-redwood-text-muted)' }}>
-                                                    {formatOptionalCurrency(row.budget)}
-                                                </td>
-                                                <td style={{ fontSize: 10, padding: '6px', textAlign: 'right', borderBottom: '1px solid var(--color-redwood-border)', color: 'var(--color-redwood-text-muted)' }}>
-                                                    {formatOptionalCurrency(row.lastMo)}
-                                                </td>
-                                                <td style={{ padding: '6px', borderBottom: '1px solid var(--color-redwood-border)', minWidth: 100 }}>
-                                                    <div style={{ height: 4, background: 'rgba(255,255,255,.06)', borderRadius: 999, overflow: 'hidden' }}>
-                                                        <div style={{ height: '100%', width: `${pct ?? 0}%`, background: row.color, borderRadius: 999 }} />
-                                                    </div>
-                                                    <div style={{ fontSize: 8, textAlign: 'right', color: statusColor, marginTop: 2, fontWeight: 600 }}>
-                                                        {pct === null ? statusLabel : `${statusLabel} · ${pct.toFixed(0)}%`}
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                    {budgetRows.length === 0 && (
-                                        <tr>
-                                            <td colSpan={5} style={{ fontSize: 10, padding: '10px 6px', textAlign: 'center', color: 'var(--color-redwood-text-muted)' }}>
-                                                No budget data
-                                            </td>
-                                        </tr>
-                                    )}
-                                </tbody>
-                            </table>
+                            <AccountingSetupRequired />
                         </div>
 
                         {/* Financial Ratios — 4 cards */}
-                        <div style={{ display: 'grid', gridTemplateColumns: cols.twoCol ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)', gap: 8 }}>
-                            {[
-                                {
-                                    label: 'Gross Margin',
-                                    value: ratiosData ? `${ratiosData.profitability.grossMargin.toFixed(1)}%` : '—',
-                                    benchmark: 'Target 60%',
-                                    color: '#22C55E',
-                                    ok: ratiosData ? ratiosData.profitability.grossMargin >= 60 : false,
-                                },
-                                {
-                                    label: 'Net Margin',
-                                    value: ratiosData ? `${ratiosData.profitability.netMargin.toFixed(1)}%` : plData ? `${plData.netProfit.margin.toFixed(1)}%` : '—',
-                                    benchmark: 'Target 15%',
-                                    color: '#00D4AA',
-                                    ok: ratiosData ? ratiosData.profitability.netMargin >= 15 : false,
-                                },
-                                {
-                                    label: 'Current Ratio',
-                                    value: balanceSheetData
-                                        ? `${(balanceSheetData.assets.currentAssets.totalCurrent / Math.max(balanceSheetData.liabilities.currentLiabilities.totalCurrent, 1)).toFixed(2)}x`
-                                        : '—',
-                                    benchmark: 'Benchmark 1.5x',
-                                    color: '#4F8EF7',
-                                    ok: balanceSheetData
-                                        ? balanceSheetData.assets.currentAssets.totalCurrent / Math.max(balanceSheetData.liabilities.currentLiabilities.totalCurrent, 1) >= 1.5
-                                        : false,
-                                },
-                                {
-                                    label: 'Budget Attainment',
-                                    value: budgetAttainment === null ? '—' : `${budgetAttainment.toFixed(0)}%`,
-                                    benchmark: 'No budget data',
-                                    color: '#A78BFA',
-                                    ok: false,
-                                },
-                            ].map((r) => (
-                                <div key={r.label} style={{ ...panel, borderLeft: `3px solid ${r.color}` }}>
-                                    <div style={{ fontSize: 9, color: 'var(--color-redwood-text-muted)', marginBottom: 4 }}>{r.label}</div>
-                                    <div style={{ fontSize: 16, fontWeight: 700, color: r.color, fontFamily: "'Syne',sans-serif" }}>{r.value}</div>
-                                    <div style={{ fontSize: 8, color: r.ok ? 'var(--color-brand-green-tint)' : 'var(--color-brand-amber-tint)', marginTop: 4 }}>
-                                        {r.benchmark} · {r.ok ? '✓ Healthy' : '⚠ Watch'}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
+                        <AccountingSetupRequired />
 
                         {/* AI Suggested Actions */}
                         <div style={panel}>
@@ -2160,7 +2081,7 @@ export default function ProfitabilityReports() {
                         </p>
                     </div>
                 )}
-                {activeTab === 'cashflow' && (
+                {activeTab === 'cashflow' && cfDisplay && false && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         {/* Cash flow header */}
                         <div
@@ -2648,11 +2569,11 @@ export default function ProfitabilityReports() {
                         </div>
                     </div>
                 )}
-                {activeTab === 'balance' && (() => {
+                {activeTab === 'balance' && balanceSheetData && false && (() => {
                     const bsAprFactor = 0.94;
                     const bsPriorFactor = bsCompare === 'prior' ? 0.82 : bsAprFactor;
                     const bsFmt = (v: number) => formatUsdFull(bsCurrency === 'aed' ? v * 3.67 : v);
-                    const bs = balanceSheetData;
+                    const bs = balanceSheetData!;
                     const totalAssets = bs?.assets.totalAssets || 0;
                     const totalLiab = bs?.liabilities.totalLiabilities || 0;
                     const totalEquity = bs?.equity.totalEquity || 0;
@@ -2682,7 +2603,7 @@ export default function ProfitabilityReports() {
                         }))
                         .filter((s) => s.value > 0);
                     const compTotal = compSegments.reduce((s, seg) => s + seg.value, 0);
-                    const assetsBreakdown = balanceSheetChartData.find((d) => d.name === 'Assets');
+                    const assetsBreakdown = balanceSheetChartData.find((d) => d.name === 'Assets')!;
                     const positionBars = [
                         { label: 'Assets', value: totalAssets, color: '#22C55E' },
                         { label: 'Liabilities', value: totalLiab, color: '#EF4444' },
@@ -3407,8 +3328,8 @@ export default function ProfitabilityReports() {
                         </div>
                     );
                 })()}
-                {activeTab === 'ratios' && (() => {
-                    const bs = balanceSheetData;
+                {activeTab === 'ratios' && balanceSheetData && false && (() => {
+                    const bs = balanceSheetData!;
                     const rd = ratiosData;
                     const grossMargin = rd?.profitability.grossMargin ?? plData?.grossProfit.margin ?? 0;
                     const netMargin = rd?.profitability.netMargin ?? plData?.netProfit.margin ?? 0;
@@ -3440,7 +3361,7 @@ export default function ProfitabilityReports() {
                     const opExpRatio = rd?.efficiency.operatingExpenseRatio ?? 0;
                     const revPerEmp = rd?.efficiency.revenuePerEmployee ?? 0;
                     const ratiosTimestamp = plData?.period.label
-                        ? plData.period.label
+                        ? plData!.period.label
                         : 'MTD May 2026';
                     const grossMarginVal = ratioData.margins[0]?.value ?? `${grossMargin.toFixed(1)}%`;
                     const netMarginVal = ratioData.margins[2]?.value ?? `${netMargin.toFixed(1)}%`;

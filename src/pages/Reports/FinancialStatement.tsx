@@ -28,6 +28,7 @@ import { getExpenses, type Expense } from '../../services/expenseService';
 import { getGRNs, type GRN } from '../../services/grnService';
 import { getAccounts, type Account } from '../Accounts/ChartOfAccounts';
 import { generateStandardPDF } from '../../utils/documentGenerator';
+import AccountingSetupRequired from '../../components/common/AccountingSetupRequired';
 import {
     calculateProfitLoss,
     calculateCashFlow,
@@ -390,8 +391,8 @@ export default function FinancialStatement() {
     const [accounts, setAccounts] = useState<Account[]>([]);
 
     const [plData, setPlData] = useState<ProfitLossStatement | null>(null);
-    const [cashFlowData, setCashFlowData] = useState<CashFlowStatement | null>(null);
-    const [balanceSheetData, setBalanceSheetData] = useState<BalanceSheet | null>(null);
+    const [, setCashFlowData] = useState<CashFlowStatement | null>(null);
+    const [, setBalanceSheetData] = useState<BalanceSheet | null>(null);
 
     const [aiQuestion, setAiQuestion] = useState('');
     const [cols, setCols] = useState({ kpi: 4, threeCol: true, twoCol: true });
@@ -470,61 +471,7 @@ export default function FinancialStatement() {
         [invoices, payments, supplierPayments, expenses, grns, accounts],
     );
 
-    const mayTotals = useMemo(
-        () => computeTotals(invoices, payments, supplierPayments, expenses, grns, accounts, '2026-05-01', '2026-05-31'),
-        [invoices, payments, supplierPayments, expenses, grns, accounts],
-    );
-
-    const receiptCount = useMemo(
-        () => payments.filter((p) => inRange(p.payment_date, dateFrom, dateTo)).length,
-        [payments, dateFrom, dateTo],
-    );
-
-    const isBalanced = useMemo(() => {
-        const diff = Math.abs(totals.assets - (totals.liabilities + totals.equity));
-        return diff < 0.5;
-    }, [totals]);
-
-    const totalAssetsDisplay = balanceSheetData?.assets.totalAssets ?? totals.assets;
-    const totalLiabilitiesDisplay = balanceSheetData?.liabilities.totalLiabilities ?? totals.liabilities;
-    const totalEquityDisplay = balanceSheetData?.equity.totalEquity ?? totals.equity;
-
     const marginPct = totals.revenue > 0 ? (totals.netProfit / totals.revenue) * 100 : 0;
-
-    const budgetRevenue = 450_000;
-    const budgetCogs = 120_000;
-    const budgetOpEx = 180_000;
-    const budgetNetProfit = budgetRevenue - budgetCogs - budgetOpEx;
-
-    const comparativeRows = useMemo(
-        () => [
-            {
-                label: 'Revenue',
-                may: mayTotals.revenue,
-                apr: aprTotals.revenue,
-                budget: budgetRevenue,
-            },
-            {
-                label: 'COGS',
-                may: mayTotals.cogs,
-                apr: aprTotals.cogs,
-                budget: budgetCogs,
-            },
-            {
-                label: 'Operating expenses',
-                may: mayTotals.expenses,
-                apr: aprTotals.expenses,
-                budget: budgetOpEx,
-            },
-            {
-                label: 'Net profit',
-                may: mayTotals.netProfit,
-                apr: aprTotals.netProfit,
-                budget: budgetNetProfit,
-            },
-        ],
-        [mayTotals, aprTotals, budgetRevenue, budgetCogs, budgetOpEx, budgetNetProfit],
-    );
 
     const revenueTrend = useMemo(() => {
         const months = [
@@ -542,27 +489,6 @@ export default function FinancialStatement() {
             const to = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
             const t = computeTotals(invoices, payments, supplierPayments, expenses, grns, accounts, from, to);
             return { month: label, value: t.revenue };
-        });
-    }, [invoices, payments, supplierPayments, expenses, grns, accounts]);
-
-    const assetsLiabTrend = useMemo(() => {
-        return revenueTrend.map((r, i) => ({
-            month: r.month,
-            value: (balanceSheetData?.assets.totalAssets ?? totals.assets) * (0.85 + i * 0.03),
-            value2: (balanceSheetData?.liabilities.totalLiabilities ?? totals.liabilities) * (0.82 + i * 0.028),
-        }));
-    }, [revenueTrend, balanceSheetData, totals]);
-
-    const cashFlowTrend = useMemo(() => {
-        const months = ['Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May'];
-        const keys = ['2025-12', '2026-01', '2026-02', '2026-03', '2026-04', '2026-05'];
-        return months.map((label, i) => {
-            const [y, m] = keys[i].split('-').map(Number);
-            const from = `${y}-${String(m).padStart(2, '0')}-01`;
-            const lastDay = new Date(y, m, 0).getDate();
-            const to = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-            const t = computeTotals(invoices, payments, supplierPayments, expenses, grns, accounts, from, to);
-            return { month: label, value: t.cashNet };
         });
     }, [invoices, payments, supplierPayments, expenses, grns, accounts]);
 
@@ -601,37 +527,11 @@ export default function FinancialStatement() {
                 styles: { fontSize: 10, cellPadding: 4 },
             });
             y = (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? y + 60;
-            y += 8;
-
-            autoTable(doc, {
-                startY: y,
-                head: [['Balance Sheet (as of ' + (dateTo || 'today') + ')', '']],
-                body: [
-                    ['Total Assets', formatUsdFull(totals.assets)],
-                    ['Total Liabilities', formatUsdFull(totals.liabilities)],
-                    [{ content: 'Equity (incl. retained earnings)', styles: { fontStyle: 'bold' } }, { content: formatUsdFull(totals.equity), styles: { fontStyle: 'bold' } }],
-                ],
-                headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold' },
-                columnStyles: { 1: { halign: 'right' } },
-                margin: { left: 14, right: 14 },
-                styles: { fontSize: 10, cellPadding: 4 },
-            });
-            y = (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? y + 60;
-            y += 8;
-
-            autoTable(doc, {
-                startY: y,
-                head: [['Cash Flow Summary', '']],
-                body: [
-                    ['Cash In (customer receipts)', formatUsdFull(totals.cashIn)],
-                    ['Cash Out (supplier payments)', `- ${formatUsdFull(totals.cashOut)}`],
-                    [{ content: 'Net Cash Movement', styles: { fontStyle: 'bold' } }, { content: formatUsdFull(totals.cashNet), styles: { fontStyle: 'bold' } }],
-                ],
-                headStyles: { fillColor: [16, 185, 129], textColor: 255, fontStyle: 'bold' },
-                columnStyles: { 1: { halign: 'right' } },
-                margin: { left: 14, right: 14 },
-                styles: { fontSize: 10, cellPadding: 4 },
-            });
+            y += 10;
+            doc.setFontSize(9);
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(100, 100, 100);
+            doc.text('Balance Sheet, Cash Flow, and Budget reports require accounting setup.', 14, y);
         }, 'report');
     };
 
@@ -656,8 +556,6 @@ export default function FinancialStatement() {
     }
 
     const pl = plData;
-    const cf = cashFlowData;
-    const bs = balanceSheetData;
     const isPlCogsPartial = Boolean(pl?.cogs.isPartial);
     const plExpenseRows = pl
         ? [
@@ -824,17 +722,17 @@ export default function FinancialStatement() {
                 {kpiCard({
                     stripe: 'linear-gradient(90deg,#7C3AED,#A78BFA)',
                     label: 'Net Cash Movement',
-                    value: formatUsdFull(cf?.netChange ?? totals.cashNet),
+                    value: '—',
                     valueColor: '#A78BFA',
-                    sub: `${(cf?.netChange ?? totals.cashNet) > 0 ? 'Inflow' : (cf?.netChange ?? totals.cashNet) < 0 ? 'Outflow' : 'No net change'} · ${receiptCount.toLocaleString()} receipts`,
+                    sub: 'Requires accounting setup',
                     subColor: '#C4B5FD',
                 })}
                 {kpiCard({
                     stripe: 'linear-gradient(90deg,#22C55E,#86EFAC)',
                     label: 'Balance Sheet',
-                    value: isBalanced ? '✓ Balanced' : '⚠ Check',
-                    valueColor: isBalanced ? 'var(--color-brand-green)' : 'var(--color-brand-amber)',
-                    sub: `A = L + E · ${formatUsdFull(totalAssetsDisplay)}`,
+                    value: '—',
+                    valueColor: 'var(--color-redwood-text-muted)',
+                    sub: 'Requires accounting setup',
                 })}
             </div>
 
@@ -899,48 +797,7 @@ export default function FinancialStatement() {
                         iconColor="#4F8EF7"
                         onExport={handleDownloadPDF}
                     />
-                    <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', marginBottom: 4, fontWeight: 600 }}>
-                        ASSETS
-                    </div>
-                    <div style={{ fontSize: 8, color: 'var(--color-redwood-text-subtle)', marginBottom: 2, paddingLeft: 6 }}>Current</div>
-                    <LineRow label="Cash" value={bs?.assets.currentAssets.cash ?? totals.cashIn} positive indent />
-                    <LineRow label="Bank" value={bs?.assets.currentAssets.cash ?? totals.cashIn * 0.6} positive indent />
-                    <LineRow label="Receivables" value={bs?.assets.currentAssets.accountsReceivable ?? totals.assets * 0.25} positive indent />
-                    <LineRow label="Fixed assets" value={bs?.assets.fixedAssets.netFixedAssets ?? totals.assets * 0.35} positive indent />
-                    <LineRow label="Total Assets" value={totalAssetsDisplay} positive bold />
-                    <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', margin: '6px 0 4px', fontWeight: 600 }}>
-                        LIABILITIES
-                    </div>
-                    <LineRow label="Current liabilities" value={bs?.liabilities.currentLiabilities.totalCurrent ?? totalLiabilitiesDisplay * 0.65} positive={false} indent />
-                    <LineRow label="Long-term liabilities" value={bs?.liabilities.longTermLiabilities.totalLongTerm ?? totalLiabilitiesDisplay * 0.35} positive={false} indent />
-                    <LineRow label="Total Liabilities" value={totalLiabilitiesDisplay} positive={false} bold />
-                    <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', margin: '6px 0 4px', fontWeight: 600 }}>
-                        EQUITY
-                    </div>
-                    <LineRow label="Owner's Capital" value={bs?.equity.ownersCapital ?? totalEquityDisplay * 0.55} positive indent />
-                    <LineRow label="Retained Earnings" value={bs?.equity.retainedEarnings ?? totalEquityDisplay * 0.45} positive indent />
-                    <LineRow label="Total Equity" value={totalEquityDisplay} positive bold />
-                    <div
-                        style={{
-                            marginTop: 8,
-                            padding: '6px 8px',
-                            borderRadius: 6,
-                            background: isBalanced ? 'rgba(34,197,94,.1)' : 'rgba(245,158,11,.1)',
-                            border: `1px solid ${isBalanced ? 'rgba(34,197,94,.28)' : 'rgba(245,158,11,.28)'}`,
-                            fontSize: 8.5,
-                            color: isBalanced ? 'var(--color-brand-green-tint)' : 'var(--color-brand-amber-tint)',
-                            fontWeight: 600,
-                        }}
-                    >
-                        ✓ A = L + E · {formatUsdFull(totalAssetsDisplay)} = {formatUsdFull(totalLiabilitiesDisplay)} + {formatUsdFull(totalEquityDisplay)} ·{' '}
-                        {isBalanced ? 'Balanced' : 'Review'}
-                    </div>
-                    <MiniBarChart
-                        title="Assets vs Liabilities trend"
-                        data={assetsLiabTrend.map((d) => ({ month: d.month, value: d.value }))}
-                        dataKey="value"
-                        color="#4F8EF7"
-                    />
+                    <AccountingSetupRequired />
                 </div>
 
                 {/* Cash Flow */}
@@ -952,123 +809,16 @@ export default function FinancialStatement() {
                         iconColor="#A78BFA"
                         onExport={handleDownloadPDF}
                     />
-                    {(['operating', 'investing', 'financing'] as const).map((section) => {
-                        const title = section.charAt(0).toUpperCase() + section.slice(1);
-                        const net =
-                            section === 'operating'
-                                ? cf?.operating.netOperating ?? totals.cashNet * 0.75
-                                : section === 'investing'
-                                  ? cf?.investing.netInvesting ?? -totals.cashOut * 0.15
-                                  : cf?.financing.netFinancing ?? -totals.cashOut * 0.1;
-                        const lines =
-                            section === 'operating'
-                                ? [
-                                      { label: 'Customer receipts', value: cf?.operating.cashFromCustomers ?? totals.cashIn },
-                                      { label: 'Supplier payouts', value: -(cf?.operating.cashToSuppliers ?? totals.cashOut * 0.6) },
-                                      { label: 'Payroll & OpEx', value: -(cf?.operating.payroll ?? totals.expenses * 0.4) },
-                                  ]
-                                : section === 'investing'
-                                  ? [
-                                        { label: 'Equipment purchases', value: cf?.investing.equipmentPurchases ?? -totals.cashOut * 0.15 },
-                                        { label: 'Asset sales', value: cf?.investing.assetSales ?? totals.cashIn * 0.02 },
-                                    ]
-                                  : [
-                                        { label: 'Loans received', value: cf?.financing.loans ?? totals.cashIn * 0.05 },
-                                        { label: 'Repayments & dividends', value: -(cf?.financing.repayments ?? totals.cashOut * 0.1) },
-                                    ];
-                        return (
-                            <div key={section} style={{ marginBottom: 6 }}>
-                                <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', marginBottom: 3, fontWeight: 600 }}>
-                                    {title.toUpperCase()}
-                                </div>
-                                {lines.map((l) => (
-                                    <LineRow key={l.label} label={l.label} value={l.value} positive={l.value >= 0} indent />
-                                ))}
-                                <LineRow label={`Net ${title.toLowerCase()}`} value={net} positive={net >= 0} bold />
-                            </div>
-                        );
-                    })}
-                    <LineRow label="Net cash movement" value={cf?.netChange ?? totals.cashNet} positive bold />
-                    <LineRow label="Opening balance" value={cf?.openingBalance ?? totals.cashIn - totals.cashNet} positive />
-                    <LineRow label="Closing balance" value={cf?.closingBalance ?? totals.cashIn} positive bold />
-                    <MiniBarChart title="Cash flow trend (6 months)" data={cashFlowTrend} dataKey="value" color="#A78BFA" />
+                    <AccountingSetupRequired />
                 </div>
             </div>
 
             {/* Comparative P&L Table */}
             <div style={panel}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: 8 }}>
-                    Comparative P&amp;L
+                    Budget vs Actual
                 </div>
-                <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead>
-                            <tr>
-                                {['Line Item', 'May 2026', 'Apr 2026', 'Budget', 'Variance'].map((h) => (
-                                    <th
-                                        key={h}
-                                        style={{
-                                            fontSize: 8.5,
-                                            fontWeight: 600,
-                                            color: 'var(--color-redwood-text-subtle)',
-                                            textAlign: h === 'Line Item' ? 'left' : 'right',
-                                            padding: '6px 8px',
-                                            borderBottom: '1px solid var(--color-redwood-border)',
-                                        }}
-                                    >
-                                        {h}
-                                    </th>
-                                ))}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {comparativeRows.map((row) => {
-                                const variance = row.may - row.budget;
-                                const variancePct = row.budget !== 0 ? (variance / Math.abs(row.budget)) * 100 : 0;
-                                const isPositiveGood = row.label === 'Net profit' || row.label === 'Revenue';
-                                const badgeColor =
-                                    variance === 0
-                                        ? 'var(--color-redwood-text-muted)'
-                                        : (variance > 0) === isPositiveGood
-                                          ? '#22C55E'
-                                          : '#EF4444';
-                                return (
-                                    <tr key={row.label}>
-                                        <td style={{ fontSize: 10, padding: '6px 8px', borderBottom: '1px solid var(--color-redwood-border)', color: 'var(--color-redwood-text-main)' }}>
-                                            {row.label}
-                                        </td>
-                                        <td style={{ fontSize: 10, padding: '6px 8px', textAlign: 'right', borderBottom: '1px solid var(--color-redwood-border)', color: 'var(--color-redwood-text-main)', fontWeight: 600 }}>
-                                            {formatUsdFull(row.may)}
-                                        </td>
-                                        <td style={{ fontSize: 10, padding: '6px 8px', textAlign: 'right', borderBottom: '1px solid var(--color-redwood-border)', color: 'var(--color-redwood-text-muted)' }}>
-                                            {formatUsdFull(row.apr)}
-                                        </td>
-                                        <td style={{ fontSize: 10, padding: '6px 8px', textAlign: 'right', borderBottom: '1px solid var(--color-redwood-border)', color: 'var(--color-redwood-text-muted)' }}>
-                                            {formatUsdFull(row.budget)}
-                                        </td>
-                                        <td style={{ fontSize: 10, padding: '6px 8px', textAlign: 'right', borderBottom: '1px solid var(--color-redwood-border)' }}>
-                                            <span
-                                                style={{
-                                                    display: 'inline-block',
-                                                    padding: '2px 7px',
-                                                    borderRadius: 999,
-                                                    fontSize: 8.5,
-                                                    fontWeight: 700,
-                                                    background: `${badgeColor}22`,
-                                                    color: badgeColor,
-                                                    border: `1px solid ${badgeColor}44`,
-                                                }}
-                                            >
-                                                {variance >= 0 ? '+' : ''}
-                                                {variancePct.toFixed(1)}%
-                                            </span>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
-                </div>
+                <AccountingSetupRequired />
             </div>
 
             {/* AI CFO Insights */}

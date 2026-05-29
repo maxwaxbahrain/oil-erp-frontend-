@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Construction } from 'lucide-react';
 import ProtectedRoute from '../components/ProtectedRoute';
+import AccountingSetupRequired from '../components/common/AccountingSetupRequired';
 import LoginPage from '../pages/LoginPage';
 import SignupPage from '../pages/SignupPage';
 import LandingPage from '../pages/LandingPage';
@@ -93,8 +94,6 @@ import AIHub from '../pages/AI/AIHub';
 import AIHubDashboard from '../pages/AIHub/AIHubDashboard';
 import AutoPOGeneration from '../pages/AI/AutoPOGeneration';
 import AnomalyDetection from '../pages/AI/AnomalyDetection';
-import CustomerForecast from '../pages/AI/CustomerForecast';
-import RevenueForecast from '../pages/AI/RevenueForecast';
 import AgentHub from '../pages/Agents/AgentHub';
 import UserAccessManagement from '../pages/UserManagement/UserAccessManagement';
 import NewsIntelligence from '../pages/News/NewsIntelligence';
@@ -132,7 +131,6 @@ import { CustomerSegments, CampaignManager, MarketingAnalytics } from '../pages/
 import CustomerServiceAgent from '../pages/Agents/CustomerServiceAgent';
 import BusinessAdvisorAgent from '../pages/Agents/BusinessAdvisorAgent';
 import EmailReplyAgent from '../pages/Agents/EmailReplyAgent';
-import DemandForecasting from '../pages/Reports/DemandForecasting';
 import InventoryAdjustment from '../pages/Inventory/InventoryAdjustment';
 import DriverApp from '../pages/POD/DriverApp';
 import ManagementDashboard from '../pages/POD/ManagementDashboard';
@@ -263,8 +261,8 @@ export const AppRoutes = () => {
             <Route path="/ai" element={<AIHub />} />
             <Route path="/ai/auto-po" element={<AutoPOGeneration />} />
             <Route path="/ai/anomaly" element={<AnomalyDetection />} />
-            <Route path="/ai/customer-forecast" element={<CustomerForecast />} />
-            <Route path="/ai/revenue-forecast" element={<RevenueForecast />} />
+            <Route path="/ai/customer-forecast" element={<AccountingSetupRequired />} />
+            <Route path="/ai/revenue-forecast" element={<AccountingSetupRequired />} />
             <Route path="/agents" element={<AgentHub />} />
             <Route path="/agents/customer-service" element={<CustomerServiceAgent />} />
             <Route path="/agents/business-advisor" element={<BusinessAdvisorAgent />} />
@@ -321,7 +319,7 @@ export const AppRoutes = () => {
 
             {/* Reports */}
             <Route path="/reports/sales" element={<ProfitabilityReports />} />
-            <Route path="/reports/demand-forecast" element={<DemandForecasting />} />
+            <Route path="/reports/demand-forecast" element={<AccountingSetupRequired />} />
             <Route path="/sales/price-lists" element={<CustomerPriceLists />} />
             <Route path="/sales/recurring" element={<RecurringInvoices />} />
             <Route path="/reports/aged-receivable" element={<AgedReceivable />} />

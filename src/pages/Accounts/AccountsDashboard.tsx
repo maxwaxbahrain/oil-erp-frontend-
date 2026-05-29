@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { getInvoices, getPayments, getCustomers } from '../../services/api';
 import { getExpenses, type Expense } from '../../services/expenseService';
+import AccountingSetupRequired from '../../components/common/AccountingSetupRequired';
 
 // ─── Style tokens (dark redwood — match Banking / FinanceDashboard) ───
 const panel: CSSProperties = {
@@ -203,12 +204,6 @@ const AI_INSIGHTS = [
     },
 ];
 
-const FORECAST_MONTHS = [
-    { month: 'Jun 2026', value: 428_500, confidence: 'High', confBg: 'rgba(34,197,94,.18)', confColor: '#22C55E' },
-    { month: 'Jul 2026', value: 445_200, confidence: 'Medium', confBg: 'rgba(245,158,11,.18)', confColor: '#F59E0B' },
-    { month: 'Aug 2026', value: 461_800, confidence: 'Medium', confBg: 'rgba(245,158,11,.18)', confColor: '#F59E0B' },
-];
-
 const BANK_ACCOUNTS = [
     { name: 'MAIN OPERATING ACCOUNT', ref: 'BETTANO-LLC-PRIMARY', status: 'Live' as const, dot: '#22C55E', label: 'Reconciled' },
     { name: 'MEEZAN ISLAMIC BUSINESS', ref: '99-8821-4-OPERATIONS', status: 'In review' as const, dot: '#F59E0B', label: 'In review' },
@@ -350,22 +345,6 @@ const AccountsDashboard = () => {
             grossRevenue: revenue,
             grossProfit: gross,
             netProfit,
-        };
-    }, [metrics]);
-
-    const cashFlow = useMemo(() => {
-        const operatingIn = metrics.cashIn;
-        const operatingOut = metrics.totalExpenses * 0.85;
-        const investing = metrics.totalExpenses * 0.08;
-        const financing = metrics.totalExpenses * 0.07;
-        return {
-            operating: [
-                { label: 'Customer receipts', value: operatingIn, positive: true },
-                { label: 'Supplier & expense payouts', value: -operatingOut, positive: false },
-            ],
-            investing: [{ label: 'Equipment & assets', value: -investing, positive: false }],
-            financing: [{ label: 'Loan & equity movements', value: -financing, positive: false }],
-            net: operatingIn - operatingOut - investing - financing,
         };
     }, [metrics]);
 
@@ -591,12 +570,12 @@ const AccountsDashboard = () => {
                 {kpiCard({
                     stripe: 'linear-gradient(90deg,#FB923C,#FDBA74)',
                     label: 'Budget Utilisation',
-                    badge: `${metrics.budgetUtil.toFixed(0)}%`,
+                    badge: '—',
                     badgeBg: 'rgba(251,146,60,.15)',
                     badgeColor: '#FB923C',
-                    value: `${metrics.budgetUtil.toFixed(0)}%`,
+                    value: '—',
                     valueColor: '#FB923C',
-                    sub: `Of ${formatUsdCompact(metrics.budgetRevenue)} revenue budget`,
+                    sub: 'Requires accounting setup',
                 })}
                 {kpiCard({
                     stripe: 'linear-gradient(90deg,#EF4444,#F472B6)',
@@ -761,96 +740,16 @@ const AccountsDashboard = () => {
                     <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: 8 }}>
                         Cash Flow
                     </div>
-                    {(['operating', 'investing', 'financing'] as const).map((section) => {
-                        const title =
-                            section === 'operating'
-                                ? 'Operating'
-                                : section === 'investing'
-                                  ? 'Investing'
-                                  : 'Financing';
-                        const lines = cashFlow[section];
-                        return (
-                            <div key={section} style={{ marginBottom: 8 }}>
-                                <div style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)', marginBottom: 4, fontWeight: 600 }}>
-                                    {title.toUpperCase()}
-                                </div>
-                                {lines.map((l) => (
-                                    <div key={l.label} style={rowStyle}>
-                                        <span style={{ color: 'var(--color-redwood-text-muted)' }}>{l.label}</span>
-                                        <span
-                                            style={{
-                                                color: l.positive ? 'var(--color-brand-green)' : 'var(--color-brand-red)',
-                                                fontWeight: 600,
-                                            }}
-                                        >
-                                            {l.positive ? '+' : ''}
-                                            {formatUsd(Math.abs(l.value))}
-                                        </span>
-                                    </div>
-                                ))}
-                            </div>
-                        );
-                    })}
-                    <div style={{ ...rowStyle, background: 'rgba(79,142,247,.08)', borderColor: 'rgba(79,142,247,.2)' }}>
-                        <span style={{ fontWeight: 700, color: 'var(--color-brand-blue)' }}>Net cash flow</span>
-                        <span style={{ color: 'var(--color-brand-blue)', fontWeight: 700 }}>{formatUsd(cashFlow.net)}</span>
-                    </div>
+                    <AccountingSetupRequired />
                 </div>
             </div>
 
             {/* 6 — AI Revenue Forecast */}
             <div style={panel}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: 8 }}>
-                    AI Revenue Forecast
+                    Revenue Forecast
                 </div>
-                <div
-                    style={{
-                        display: 'grid',
-                        gridTemplateColumns: cols.twoCol ? 'repeat(3, 1fr)' : '1fr',
-                        gap: 8,
-                    }}
-                >
-                    {FORECAST_MONTHS.map((f) => (
-                        <div
-                            key={f.month}
-                            style={{
-                                padding: '10px 12px',
-                                background: 'var(--color-redwood-row-bg)',
-                                border: '1px solid var(--color-redwood-border)',
-                                borderRadius: 8,
-                                textAlign: 'center',
-                            }}
-                        >
-                            <div style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)', marginBottom: 4 }}>
-                                {f.month}
-                            </div>
-                            <div
-                                style={{
-                                    fontSize: 16,
-                                    fontWeight: 700,
-                                    color: 'var(--color-brand-green)',
-                                    fontFamily: "'Syne',sans-serif",
-                                }}
-                            >
-                                {formatUsd(f.value)}
-                            </div>
-                            <span
-                                style={{
-                                    display: 'inline-block',
-                                    marginTop: 6,
-                                    fontSize: 7,
-                                    fontWeight: 700,
-                                    padding: '2px 8px',
-                                    borderRadius: 999,
-                                    background: f.confBg,
-                                    color: f.confColor,
-                                }}
-                            >
-                                {f.confidence} confidence
-                            </span>
-                        </div>
-                    ))}
-                </div>
+                <AccountingSetupRequired />
             </div>
 
             {/* 7 — Corporate Liquidity */}
@@ -950,130 +849,7 @@ const AccountsDashboard = () => {
                 <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: 8 }}>
                     Budget vs Actual
                 </div>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead>
-                        <tr>
-                            {['Line item', 'Budget', 'Actual', 'Variance', 'Progress'].map((h) => (
-                                <th
-                                    key={h}
-                                    style={{
-                                        fontSize: 8,
-                                        fontWeight: 600,
-                                        textTransform: 'uppercase',
-                                        color: 'var(--color-redwood-text-subtle)',
-                                        padding: '4px 6px',
-                                        borderBottom: '1px solid var(--color-redwood-border)',
-                                        textAlign: h === 'Line item' ? 'left' : 'right',
-                                    }}
-                                >
-                                    {h}
-                                </th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {[
-                            {
-                                label: 'Revenue',
-                                budget: metrics.budgetRevenue,
-                                actual: metrics.revenue,
-                                color: '#22C55E',
-                            },
-                            {
-                                label: 'Expenses',
-                                budget: metrics.budgetExpenses,
-                                actual: metrics.totalExpenses,
-                                color: '#EF4444',
-                            },
-                            {
-                                label: 'Net Profit',
-                                budget: metrics.budgetProfit,
-                                actual: metrics.netProfit,
-                                color: '#00D4AA',
-                            },
-                        ].map((row) => {
-                            const pct = row.budget > 0 ? Math.min(100, (row.actual / row.budget) * 100) : 0;
-                            const variance = row.actual - row.budget;
-                            return (
-                                <tr key={row.label}>
-                                    <td
-                                        style={{
-                                            fontSize: 10,
-                                            padding: '6px',
-                                            borderBottom: '1px solid var(--color-redwood-border)',
-                                            color: 'var(--color-redwood-text-main)',
-                                        }}
-                                    >
-                                        {row.label}
-                                    </td>
-                                    <td
-                                        style={{
-                                            fontSize: 10,
-                                            padding: '6px',
-                                            textAlign: 'right',
-                                            borderBottom: '1px solid var(--color-redwood-border)',
-                                            color: 'var(--color-redwood-text-muted)',
-                                        }}
-                                    >
-                                        {formatUsd(row.budget)}
-                                    </td>
-                                    <td
-                                        style={{
-                                            fontSize: 10,
-                                            padding: '6px',
-                                            textAlign: 'right',
-                                            borderBottom: '1px solid var(--color-redwood-border)',
-                                            fontWeight: 600,
-                                            color: row.color,
-                                        }}
-                                    >
-                                        {formatUsd(row.actual)}
-                                    </td>
-                                    <td
-                                        style={{
-                                            fontSize: 10,
-                                            padding: '6px',
-                                            textAlign: 'right',
-                                            borderBottom: '1px solid var(--color-redwood-border)',
-                                            color: variance >= 0 ? '#22C55E' : '#EF4444',
-                                        }}
-                                    >
-                                        {variance >= 0 ? '+' : ''}
-                                        {formatUsd(variance)}
-                                    </td>
-                                    <td
-                                        style={{
-                                            padding: '6px',
-                                            borderBottom: '1px solid var(--color-redwood-border)',
-                                            minWidth: 90,
-                                        }}
-                                    >
-                                        <div
-                                            style={{
-                                                height: 4,
-                                                background: 'rgba(255,255,255,.06)',
-                                                borderRadius: 999,
-                                                overflow: 'hidden',
-                                            }}
-                                        >
-                                            <div
-                                                style={{
-                                                    height: '100%',
-                                                    width: `${pct}%`,
-                                                    background: row.color,
-                                                    borderRadius: 999,
-                                                }}
-                                            />
-                                        </div>
-                                        <div style={{ fontSize: 8, textAlign: 'right', color: row.color, marginTop: 2 }}>
-                                            {pct.toFixed(0)}%
-                                        </div>
-                                    </td>
-                                </tr>
-                            );
-                        })}
-                    </tbody>
-                </table>
+                <AccountingSetupRequired />
             </div>
 
             {/* 9 — Footer AI bar */}
