@@ -26,8 +26,13 @@ export default function LoginPage() {
     try {
       await login(username.trim(), password);
       navigate('/', { replace: true });
-    } catch {
-      setError('Invalid username or password');
+    } catch (err) {
+      const statusCode = (err as { response?: { status?: number } })?.response?.status;
+      if (statusCode === 429) {
+        setError('Too many login attempts. Please wait a minute and try again.');
+      } else {
+        setError('Invalid username or password');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -39,8 +44,13 @@ export default function LoginPage() {
     try {
       await login('demo', 'demo');
       navigate('/', { replace: true });
-    } catch {
-      setError('Guest login is unavailable right now');
+    } catch (err) {
+      const statusCode = (err as { response?: { status?: number } })?.response?.status;
+      if (statusCode === 429) {
+        setError('Too many login attempts. Please wait a minute and try again.');
+      } else {
+        setError('Guest login is unavailable right now');
+      }
     } finally {
       setSubmitting(false);
     }
