@@ -58,7 +58,7 @@ export default function AIStockControl() {
 
     const pendingCount = adjustments.filter(a => a.type === 'approval_required').length;
     const criticalCount = adjustments.filter(a => a.type === 'investigation_required').length;
-    const autoCount = 23; // Mocked from "Today's Activity" in prompt
+    const autoCount = adjustments.filter(a => a.type === 'auto').length;
 
     const getReasonIcon = (reason: string) => {
         switch (reason) {
@@ -104,10 +104,10 @@ export default function AIStockControl() {
                     <div className="absolute right-0 top-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
                         <CheckCircle2 size={80} />
                     </div>
-                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Auto-Adjusted (24h)</p>
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Catalog Healthy</p>
                     <p className="text-4xl font-black text-emerald-600 tracking-tighter">{autoCount}</p>
                     <p className="text-[10px] font-bold text-emerald-600 mt-2 flex items-center gap-1">
-                        <Zap size={10} fill="currentColor" /> Saved 1.5 hours
+                        <Zap size={10} fill="currentColor" /> From live product stock
                     </p>
                 </div>
 
@@ -118,7 +118,7 @@ export default function AIStockControl() {
                     <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Pending Approval</p>
                     <p className="text-4xl font-black text-amber-500 tracking-tighter">{pendingCount}</p>
                     <p className="text-[10px] font-bold text-amber-600 mt-2">
-                        Avg Confidence: 89%
+                        Confidence: —
                     </p>
                 </div>
 
@@ -138,9 +138,9 @@ export default function AIStockControl() {
                         <Brain size={80} />
                     </div>
                     <p className="text-[10px] font-black text-purple-200 uppercase tracking-widest mb-2">AI Confidence Score</p>
-                    <p className="text-4xl font-black tracking-tighter">94%</p>
+                    <p className="text-4xl font-black tracking-tighter">—</p>
                     <p className="text-[10px] font-bold text-purple-200 mt-2 flex items-center gap-1">
-                        <TrendingUp size={10} /> +2.4% this week
+                        <TrendingUp size={10} /> No backend confidence source
                     </p>
                 </div>
             </div>
@@ -169,7 +169,7 @@ export default function AIStockControl() {
                                 </div>
                                 <div className="flex items-center gap-2 mt-3">
                                     <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full border border-emerald-100">
-                                        <CheckCircle2 size={10} /> AI Conf: {adj.confidence}%
+                                        <CheckCircle2 size={10} /> Confidence: —
                                     </span>
                                     <span className="text-[9px] text-gray-400 ml-auto">
                                         {new Date(adj.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -266,7 +266,7 @@ export default function AIStockControl() {
                                     <div className="flex justify-between items-start">
                                         <div>
                                             <h4 className="text-lg font-black text-red-900 mb-1">{adj.productName}</h4>
-                                            <p className="text-xs font-bold text-red-400 uppercase tracking-widest mb-4">Risk Score: {adj.aiAnalysis?.riskScore || 99}/100</p>
+                                            <p className="text-xs font-bold text-red-400 uppercase tracking-widest mb-4">Risk Score: —</p>
                                             <p className="text-sm font-medium text-red-800 mb-6 max-w-xl">
                                                 {adj.description}
                                             </p>

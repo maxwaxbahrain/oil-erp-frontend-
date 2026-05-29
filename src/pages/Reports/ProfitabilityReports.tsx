@@ -790,11 +790,11 @@ export default function ProfitabilityReports() {
     const handleAskAi = () => {
         const q = aiQuestion.trim();
         if (!q) {
-            alert('AI CFO is not connected yet.');
+            alert('AI CFO is not connected yet. No AI answer was generated.');
             return;
         }
         alert(
-            `AI CFO (preview)\n\n"${q}"\n\nConnect the AI CFO endpoint to get live answers from your management reports.`,
+            `AI CFO unavailable\n\n"${q}"\n\nNo AI answer was generated because the AI CFO endpoint is not connected yet.`,
         );
     };
 
@@ -1529,7 +1529,7 @@ export default function ProfitabilityReports() {
                                     value={aiQuestion}
                                     onChange={(e) => setAiQuestion(e.target.value)}
                                     onKeyDown={(e) => e.key === 'Enter' && handleAskAi()}
-                                    placeholder="Ask anything about your financials…"
+                                    placeholder="AI CFO unavailable — live answers not connected"
                                     style={{
                                         flex: 1,
                                         minWidth: 200,
@@ -2527,10 +2527,10 @@ export default function ProfitabilityReports() {
                                     onKeyDown={(e) => {
                                         if (e.key === 'Enter') {
                                             const q = cfAiQuestion.trim() || CF_AI_PROMPTS[0];
-                                            alert(`AI Cash Flow (preview)\n\n"${q}"\n\nConnect the AI CFO endpoint to get live answers.`);
+                                            alert(`AI Cash Flow (preview)\n\n"${q}"\n\nAI CFO endpoint is not connected yet; no AI answer was generated.`);
                                         }
                                     }}
-                                    placeholder="Ask AI: 'When will we hit $1M closing balance?' · 'Forecast next 6 months' · 'Why was Dec highest?'"
+                                    placeholder="AI CFO unavailable — cash-flow answers not connected"
                                     style={{
                                         flex: 1,
                                         background: 'transparent',
@@ -2545,7 +2545,7 @@ export default function ProfitabilityReports() {
                                     type="button"
                                     onClick={() => {
                                         const q = cfAiQuestion.trim() || CF_AI_PROMPTS[0];
-                                        alert(`AI Cash Flow (preview)\n\n"${q}"\n\nConnect the AI CFO endpoint to get live answers.`);
+                                        alert(`AI Cash Flow (preview)\n\n"${q}"\n\nAI CFO endpoint is not connected yet; no AI answer was generated.`);
                                     }}
                                     style={{
                                         background: '#9B6FE4',
@@ -3132,7 +3132,7 @@ export default function ProfitabilityReports() {
                             >
                                 <div style={{ fontSize: 11, fontWeight: 500, color: '#C4B5FD', marginBottom: 9, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
                                     🤖 AI balance sheet analysis
-                                    <span style={{ fontSize: 9, background: 'rgba(34,197,94,.12)', color: '#22C55E', borderRadius: 20, padding: '1px 6px' }}>grounded · 96% confidence</span>
+                                    <span style={{ fontSize: 9, background: 'rgba(255,255,255,.06)', color: '#8BA3C7', borderRadius: 20, padding: '1px 6px' }}>AI CFO not connected</span>
                                 </div>
                                 {[
                                     {
@@ -3175,7 +3175,7 @@ export default function ProfitabilityReports() {
                                             {ins.body}
                                             <span
                                                 style={{ fontSize: 9, color: '#4F8EF7', background: 'rgba(79,142,247,.1)', borderRadius: 20, padding: '1px 6px', cursor: 'pointer', marginLeft: 5, display: 'inline-block' }}
-                                                onClick={() => alert('AI reasoning (preview)\n\nConnect AI endpoint for detailed explanation.')}
+                                                onClick={() => alert('AI reasoning (preview)\n\nAI CFO endpoint is not connected yet; no AI explanation was generated.')}
                                                 onKeyDown={() => {}}
                                                 role="button"
                                                 tabIndex={0}
@@ -3264,10 +3264,10 @@ export default function ProfitabilityReports() {
                                         onKeyDown={(e) => {
                                             if (e.key === 'Enter') {
                                                 const q = bsAiQuestion.trim() || BS_AI_PROMPTS[0];
-                                                alert(`AI Balance Sheet (preview)\n\n"${q}"\n\nConnect the AI CFO endpoint to get live answers.`);
+                                                alert(`AI Balance Sheet (preview)\n\n"${q}"\n\nAI CFO endpoint is not connected yet; no AI answer was generated.`);
                                             }
                                         }}
-                                        placeholder="Ask AI: 'Is our current ratio healthy?' · 'Should we pay down debt?' · 'How did equity change?'"
+                                        placeholder="AI CFO unavailable — balance-sheet answers not connected"
                                         style={{
                                             flex: 1,
                                             background: 'transparent',
@@ -3282,7 +3282,7 @@ export default function ProfitabilityReports() {
                                         type="button"
                                         onClick={() => {
                                             const q = bsAiQuestion.trim() || BS_AI_PROMPTS[0];
-                                            alert(`AI Balance Sheet (preview)\n\n"${q}"\n\nConnect the AI CFO endpoint to get live answers.`);
+                                            alert(`AI Balance Sheet (preview)\n\n"${q}"\n\nAI CFO endpoint is not connected yet; no AI answer was generated.`);
                                         }}
                                         style={{
                                             background: '#9B6FE4',
@@ -3445,7 +3445,7 @@ export default function ProfitabilityReports() {
                                 {body}
                                 <span
                                     style={{ fontSize: 9, color: '#4F8EF7', background: 'rgba(79,142,247,.1)', borderRadius: 20, padding: '1px 6px', cursor: 'pointer', marginLeft: 5, display: 'inline-block' }}
-                                    onClick={() => alert('AI reasoning (preview)\n\nConnect AI endpoint for detailed explanation.')}
+                                    onClick={() => alert('AI reasoning (preview)\n\nAI CFO endpoint is not connected yet; no AI explanation was generated.')}
                                     onKeyDown={() => {}}
                                     role="button"
                                     tabIndex={0}
@@ -3843,7 +3843,7 @@ export default function ProfitabilityReports() {
                                         onKeyDown={(e) => {
                                             if (e.key === 'Enter') handleAskAi();
                                         }}
-                                        placeholder="Ask AI: 'How can we reduce CCC?' · 'Is our ROE sustainable?' · 'Compare to SME benchmarks'"
+                                        placeholder="AI CFO unavailable — ratio answers not connected"
                                         style={{
                                             flex: 1,
                                             background: 'transparent',
@@ -4554,7 +4554,7 @@ export default function ProfitabilityReports() {
                                 {body}
                                 <span
                                     style={{ fontSize: 9, color: '#4F8EF7', background: 'rgba(79,142,247,.1)', borderRadius: 20, padding: '1px 6px', cursor: 'pointer', marginLeft: 5, display: 'inline-block' }}
-                                    onClick={() => alert('AI reasoning (preview)\n\nConnect AI endpoint for detailed explanation.')}
+                                    onClick={() => alert('AI reasoning (preview)\n\nAI CFO endpoint is not connected yet; no AI explanation was generated.')}
                                     onKeyDown={() => {}}
                                     role="button"
                                     tabIndex={0}
@@ -5042,7 +5042,7 @@ export default function ProfitabilityReports() {
                                         value={aiQuestion}
                                         onChange={(e) => setAiQuestion(e.target.value)}
                                         onKeyDown={(e) => e.key === 'Enter' && handleAskAi()}
-                                        placeholder="Ask about customer, SKU, or channel profitability…"
+                                        placeholder="AI CFO unavailable — profitability answers not connected"
                                         style={{
                                             flex: 1,
                                             minWidth: 200,

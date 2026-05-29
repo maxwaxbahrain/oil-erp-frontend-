@@ -6,8 +6,6 @@ import {
   FileText,
   Package,
   Receipt,
-  AlertCircle,
-  Wallet,
   LayoutDashboard,
   Home,
   Smartphone,
@@ -23,8 +21,6 @@ import {
   Mic,
   AlertTriangle,
   X,
-  Calendar,
-  UserX,
   User,
   Settings,
   Sparkles,
@@ -630,41 +626,6 @@ function App() {
           </div>
         </header>
 
-        {/* Chips bar — RECENT AI prompts.  Click fills CommandBar input
-            via the `soltol:fill-cmd` window event (CommandBar listens).
-            No navigation — the prompt is queued in the search bar and
-            the user reviews / hits Enter to submit. */}
-        <div className="bg-redwood-midnight border-b border-[rgba(255,255,255,0.07)] px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto hide-scrollbar print:hidden">
-          <span className="text-[8.5px] font-semibold text-redwood-text-muted whitespace-nowrap uppercase tracking-[0.05em] flex-shrink-0">RECENT:</span>
-          {[
-            { label: 'Ali Bettano 0W16',    text: 'Ali bought Bettano 0W16 SP 12x1 — 3 cases $56',          icon: FileText,    bg: 'rgba(255,255,255,0.05)', color: 'var(--color-redwood-text-muted)', border: 'rgba(255,255,255,0.10)' },
-            { label: 'Leo Tire paid $239',  text: 'Leo Tire Shop paid $239 today',                          icon: Wallet,      bg: 'rgba(34,197,94,0.12)',   color: '#86EFAC', border: 'rgba(34,197,94,0.30)' },
-            { label: 'Mobil 5W30 stock',    text: 'Check stock and reorder plan for Mobil 5W30',            icon: Package,     bg: 'rgba(245,158,11,0.12)',  color: '#FCD34D', border: 'rgba(245,158,11,0.30)' },
-            { label: 'Qahir demand letter', text: 'Qahir Enterprises 32 days overdue — draft demand letter', icon: AlertCircle, bg: 'rgba(239,68,68,0.12)',   color: '#FCA5A5', border: 'rgba(239,68,68,0.30)' },
-            { label: 'VAT return Q1',       text: 'Generate VAT return report for this quarter',            icon: Receipt,     bg: 'rgba(255,255,255,0.05)', color: 'var(--color-redwood-text-muted)', border: 'rgba(255,255,255,0.10)' },
-            { label: 'Today audit log',     text: 'Show full audit log for today — all user actions',       icon: Shield,      bg: 'rgba(0,212,170,0.10)',   color: '#5EEAD4', border: 'rgba(0,212,170,0.30)' },
-            { label: 'Churn risk',          text: 'Which customers are at risk of churning this month?',    icon: UserX,       bg: 'rgba(245,158,11,0.12)',  color: '#FCD34D', border: 'rgba(245,158,11,0.30)' },
-            { label: 'Payment run Fri',     text: 'AP $18k due in 7 days — schedule payment run',           icon: Calendar,    bg: 'rgba(255,255,255,0.05)', color: 'var(--color-redwood-text-muted)', border: 'rgba(255,255,255,0.10)' },
-          ].map((c, i) => {
-            const Icon = c.icon;
-            return (
-              <button
-                key={i}
-                type="button"
-                onClick={() => {
-                  try { window.dispatchEvent(new CustomEvent('soltol:fill-cmd', { detail: { text: c.text } })); } catch { /* ignore */ }
-                }}
-                title={c.text}
-                className="flex items-center gap-1 px-2 h-[21px] rounded-full text-[9.5px] font-medium whitespace-nowrap transition-all hover:-translate-y-[1px] hover:brightness-110 flex-shrink-0 border"
-                style={{ background: c.bg, color: c.color, borderColor: c.border }}
-              >
-                <Icon size={12} />
-                {c.label}
-              </button>
-            );
-          })}
-        </div>
-
         {/* Alert bar — shows only when there's something to alert about */}
         {showAlertBar && (alertCounts.unpaid > 0 || alertCounts.overdue > 0 || alertCounts.lowStock > 0) && (
           <div className="bg-[rgba(245,158,11,0.07)] border-b border-[rgba(245,158,11,0.14)] px-3 py-1.5 flex items-center gap-2 overflow-hidden text-[10px] text-redwood-text-muted print:hidden">
@@ -706,14 +667,14 @@ function App() {
         {/* Tab row — broad navigation categories with route mapping */}
         <div className="bg-redwood-midnight border-b border-[rgba(255,255,255,0.07)] px-3 flex items-end overflow-x-auto hide-scrollbar print:hidden">
           {[
-            { key: 'overview',  label: 'Overview',       route: '/',                   icon: LayoutDashboard, prefix: ['/'],                                       badge: null,  badgeColor: null },
-            { key: 'finance',   label: 'Finance & Tax',  route: '/finance/dashboard',  icon: Receipt,         prefix: ['/finance', '/tax'],                        badge: '30%', badgeColor: 'red' },
-            { key: 'warehouse', label: 'Warehouse',      route: '/warehouse/dashboard',icon: Package,         prefix: ['/warehouse', '/products', '/inventory'],   badge: '25%', badgeColor: 'red' },
-            { key: 'mobile',    label: 'Field & Mobile', route: '/logistics/pod',      icon: Smartphone,      prefix: ['/logistics', '/pod', '/van-sales'],        badge: '20%', badgeColor: 'amber' },
-            { key: 'security',  label: 'Security',       route: '/access-management',  icon: Shield,          prefix: ['/access-management', '/users'],            badge: '40%', badgeColor: 'amber' },
-            { key: 'sales',     label: 'Sales & CRM',    route: '/sales/dashboard',    icon: TrendingUp,      prefix: ['/sales', '/customers', '/crm'],            badge: null,  badgeColor: null },
-            { key: 'ai',        label: 'AI Hub',         route: '/ai/hub',             icon: Sparkles,        prefix: ['/ai', '/agents'],                          badge: null,  badgeColor: null },
-            { key: 'pulse',     label: 'Pulse',          route: '/pulse',              icon: Megaphone,       prefix: ['/pulse'],                                  badge: null,  badgeColor: null },
+            { key: 'overview',  label: 'Overview',       route: '/',                   icon: LayoutDashboard, prefix: ['/'] },
+            { key: 'finance',   label: 'Finance & Tax',  route: '/finance/dashboard',  icon: Receipt,         prefix: ['/finance', '/tax'] },
+            { key: 'warehouse', label: 'Warehouse',      route: '/warehouse/dashboard',icon: Package,         prefix: ['/warehouse', '/products', '/inventory'] },
+            { key: 'mobile',    label: 'Field & Mobile', route: '/logistics/pod',      icon: Smartphone,      prefix: ['/logistics', '/pod', '/van-sales'] },
+            { key: 'security',  label: 'Security',       route: '/access-management',  icon: Shield,          prefix: ['/access-management', '/users'] },
+            { key: 'sales',     label: 'Sales & CRM',    route: '/sales/dashboard',    icon: TrendingUp,      prefix: ['/sales', '/customers', '/crm'] },
+            { key: 'ai',        label: 'AI Hub',         route: '/ai/hub',             icon: Sparkles,        prefix: ['/ai', '/agents'] },
+            { key: 'pulse',     label: 'Pulse',          route: '/pulse',              icon: Megaphone,       prefix: ['/pulse'] },
           ].map((t) => {
             const Icon = t.icon;
             const isActive = t.key === 'overview'
@@ -732,18 +693,6 @@ function App() {
               >
                 <Icon size={14} />
                 {t.label}
-                {t.badge && (
-                  <span
-                    className="text-[7.5px] font-semibold px-1.5 py-[1px] rounded-full ml-0.5"
-                    style={
-                      t.badgeColor === 'red'
-                        ? { background: 'rgba(239,68,68,0.18)', color: '#FCA5A5' }
-                        : { background: 'rgba(245,158,11,0.18)', color: '#FCD34D' }
-                    }
-                  >
-                    {t.badge}
-                  </span>
-                )}
               </button>
             );
           })}

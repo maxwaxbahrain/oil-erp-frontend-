@@ -99,7 +99,7 @@ function getUnitCost(products: Product[], productId: string, productName: string
 export default function StockAdjustmentManager() {
     const navigate = useNavigate();
     const [adjustments, setAdjustments] = useState<AIStockAdjustment[]>([]);
-    const [insights, setInsights] = useState<AIInsight[]>([]);
+    const [, setInsights] = useState<AIInsight[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
     const [loading, setLoading] = useState(true);
     const [processingId, setProcessingId] = useState<string | null>(null);
@@ -306,12 +306,8 @@ export default function StockAdjustmentManager() {
     const pendingCount = adjustments.filter(a => a.type === 'approval_required').length;
     const criticalCount = adjustments.filter(a => a.type === 'investigation_required').length;
     const zeroStockCount = adjustments.filter(a => a.currentStock <= 0).length;
-    const avgConfidence = adjustments.length > 0
-        ? Math.round(adjustments.reduce((sum, a) => sum + a.confidence, 0) / adjustments.length)
-        : 0;
-
-    const highConfPending = pendingItems.filter(a => a.confidence >= autoApproveThreshold);
-    const lowConfPending = pendingItems.filter(a => a.confidence < autoApproveThreshold);
+    const highConfPending: AIStockAdjustment[] = [];
+    const lowConfPending = pendingItems;
 
     const criticalPending = [
         ...criticalItems,
@@ -323,21 +319,6 @@ export default function StockAdjustmentManager() {
     const otherPending = pendingItems.filter(
         a => !criticalPending.some(c => c.id === a.id) && !highZeroPending.some(h => h.id === a.id),
     );
-
-    const confidenceBuckets = useMemo(() => {
-        const buckets = [
-            { label: '90–100%', min: 90, max: 100, color: C.green },
-            { label: '80–89%', min: 80, max: 89, color: C.blue },
-            { label: '70–79%', min: 70, max: 79, color: C.amber },
-            { label: '<70%', min: 0, max: 69, color: C.red },
-        ];
-        const total = Math.max(adjustments.length, 1);
-        return buckets.map(b => ({
-            ...b,
-            count: adjustments.filter(a => a.confidence >= b.min && a.confidence <= b.max).length,
-            pct: Math.round((adjustments.filter(a => a.confidence >= b.min && a.confidence <= b.max).length / total) * 100),
-        }));
-    }, [adjustments]);
 
     const costImpact = useMemo(() => {
         const restockUnits = pendingItems.reduce((s, a) => s + Math.max(0, a.suggestedAdjustment), 0);
@@ -392,7 +373,7 @@ export default function StockAdjustmentManager() {
                                 </span>
                             )}
                             <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 6px', borderRadius: 20, background: 'rgba(155,111,228,.15)', color: C.purple }}>
-                                AI {adj.confidence}%
+                                Confidence —
                             </span>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, marginBottom: 8 }}>
@@ -482,9 +463,9 @@ export default function StockAdjustmentManager() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
                 {[
                     {
-                        label: 'Auto-Adjusted (24h)',
+                        label: 'Catalog Healthy',
                         value: autoAdjustedCount,
-                        sub: 'Saved 1.5 hours',
+                        sub: 'From live product stock',
                         subColor: C.green,
                         valueColor: C.green,
                         icon: <CheckCircle2 size={14} color={C.green} />,
@@ -492,7 +473,7 @@ export default function StockAdjustmentManager() {
                     {
                         label: 'Pending Approval',
                         value: pendingCount,
-                        sub: `avg confidence ${avgConfidence}%`,
+                        sub: 'confidence —',
                         subColor: C.amber,
                         valueColor: C.amber,
                         icon: <Zap size={14} color={C.amber} />,
@@ -507,8 +488,8 @@ export default function StockAdjustmentManager() {
                     },
                     {
                         label: 'System Confidence',
-                        value: `${avgConfidence}%`,
-                        sub: insights[0]?.metric || 'Live catalog',
+                        value: '—',
+                        sub: 'No backend confidence source',
                         subColor: C.purple,
                         valueColor: C.purple,
                         icon: <Brain size={14} color={C.purple} />,
@@ -535,8 +516,8 @@ export default function StockAdjustmentManager() {
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <SlidersHorizontal size={14} color={C.muted} />
-                        <span style={{ fontSize: 11, fontWeight: 600, color: C.text }}>Auto-approve threshold</span>
-                        <span style={{ fontSize: 10, color: C.muted }}>≥ {autoApproveThreshold}%</span>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: C.text }}>Confidence auto-approval</span>
+                        <span style={{ fontSize: 10, color: C.muted }}>Unavailable</span>
                         <span style={{
                             fontSize: 8,
                             fontWeight: 700,
@@ -555,7 +536,8 @@ export default function StockAdjustmentManager() {
                         max={99}
                         value={autoApproveThreshold}
                         onChange={e => handleThresholdChange(Number(e.target.value))}
-                        style={{ width: 160, accentColor: C.green }}
+                        disabled
+                        style={{ width: 160, accentColor: C.green, opacity: 0.35 }}
                     />
                 </div>
                 <div style={{
@@ -572,32 +554,32 @@ export default function StockAdjustmentManager() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <CheckCircle2 size={16} color={C.green} />
                         <span style={{ fontSize: 11, fontWeight: 600, color: C.green }}>
-                            {highConfPending.length} suggestion{highConfPending.length !== 1 ? 's' : ''} ≥ {autoApproveThreshold}%
+                            No backend confidence score is available for auto-approval.
                         </span>
                     </div>
                     <div style={{ display: 'flex', gap: 6 }}>
                         <button
                             type="button"
                             onClick={handleBulkApprove}
-                            disabled={highConfPending.length === 0 || bulkProcessing}
+                            disabled
                             style={{
                                 ...ghostBtn,
                                 border: 'none',
                                 background: C.green,
                                 color: '#fff',
                                 fontWeight: 600,
-                                opacity: highConfPending.length === 0 ? 0.5 : 1,
+                                opacity: 0.5,
                             }}
                         >
                             {bulkProcessing ? <RefreshCw size={12} /> : <Check size={12} />}
-                            Approve all {highConfPending.length}
+                            Approve all —
                         </button>
                         <button
                             type="button"
                             onClick={() => setFilterType('approval_required')}
                             style={ghostBtn}
                         >
-                            Review {lowConfPending.length} low confidence
+                            Review {lowConfPending.length} pending
                         </button>
                     </div>
                 </div>
@@ -677,22 +659,11 @@ export default function StockAdjustmentManager() {
                         <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: C.muted, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 5 }}>
                             <BarChart3 size={12} /> AI confidence breakdown
                         </div>
-                        <div style={{ display: 'flex', height: 14, borderRadius: 7, overflow: 'hidden', marginBottom: 10 }}>
-                            {confidenceBuckets.filter(b => b.count > 0).map(b => (
-                                <div
-                                    key={b.label}
-                                    title={`${b.label}: ${b.count}`}
-                                    style={{ width: `${b.pct}%`, background: b.color, minWidth: b.count > 0 ? 4 : 0 }}
-                                />
-                            ))}
+                        <div style={{ padding: '10px 12px', borderRadius: 8, background: C.bg3, border: '1px solid rgba(255,255,255,.06)', color: C.muted, fontSize: 10.5 }}>
+                            —
                         </div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                            {confidenceBuckets.map(b => (
-                                <div key={b.label} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 9.5, color: C.muted }}>
-                                    <span style={{ width: 8, height: 8, borderRadius: 2, background: b.color }} />
-                                    {b.label} · {b.count}
-                                </div>
-                            ))}
+                        <div style={{ fontSize: 9.5, color: C.dim, marginTop: 8 }}>
+                            No real confidence telemetry is connected.
                         </div>
                     </div>
 
@@ -719,7 +690,7 @@ export default function StockAdjustmentManager() {
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                                             <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 6px', borderRadius: 20, background: 'rgba(34,197,94,.12)', color: C.green }}>
-                                                {adj.confidence}%
+                                                Confidence —
                                             </span>
                                             <span style={{ fontSize: 9, color: C.dim }}>{fmtTime(adj.timestamp)}</span>
                                         </div>

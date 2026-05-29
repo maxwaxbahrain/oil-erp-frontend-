@@ -932,35 +932,50 @@ export default function Dashboard() {
                             ));
                         })()}
 
-                        {/* Marcus AI alerts — NEW (hardcoded per spec) */}
+                        {/* Marcus AI alerts — real dashboard counts only */}
                         <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 5 }}>
                             <div style={{
                                 fontSize: 11, fontWeight: 700, color: C.t,
                                 marginBottom: 2, display: 'flex', alignItems: 'center', gap: 5,
                             }}>
                                 ✦ Marcus AI alerts
-                                <span style={{
-                                    fontSize: 9, padding: '1px 6px', borderRadius: 8,
-                                    background: 'rgba(239,68,68,.15)', color: '#B91C1C', fontWeight: 700,
-                                }}>
-                                    3 new
-                                </span>
                             </div>
-                            {[
-                                { bg: 'rgba(239,68,68,.07)',  bd: 'rgba(239,68,68,.2)',
-                                  text: `${unpaidInvoiceCount} unpaid invoices totalling $${totalOutstanding.toLocaleString()} — ${overdueCount} are overdue. Immediate collection action needed.` },
-                                { bg: 'rgba(245,158,11,.07)', bd: 'rgba(245,158,11,.2)',
-                                  text: 'OW16 SP stock at 12 units — reorder point is 20. Place purchase order now to avoid stockout.' },
-                                { bg: 'rgba(74,143,245,.07)', bd: 'rgba(74,143,245,.2)',
-                                  text: `${vansData.length} van${vansData.length === 1 ? '' : 's'} active today. Cash collected: $${cashCollectedToday.toLocaleString()}. Some receipts may still be pending.` },
-                            ].map((a, i) => (
-                                <div key={i} style={{
-                                    background: a.bg, border: `1px solid ${a.bd}`, borderRadius: 8,
-                                    padding: '7px 10px', fontSize: 10, color: C.t1, lineHeight: 1.5,
-                                }}>
-                                    {a.text}
-                                </div>
-                            ))}
+                            {(() => {
+                                const alerts = [
+                                    ...(unpaidInvoiceCount > 0 || overdueCount > 0
+                                        ? [{
+                                            bg: 'rgba(239,68,68,.07)',
+                                            bd: 'rgba(239,68,68,.2)',
+                                            text: `${unpaidInvoiceCount} unpaid invoice${unpaidInvoiceCount === 1 ? '' : 's'} totalling $${totalOutstanding.toLocaleString()} — ${overdueCount} overdue.`,
+                                        }]
+                                        : []),
+                                    ...(vansData.length > 0 || cashCollectedToday > 0
+                                        ? [{
+                                            bg: 'rgba(74,143,245,.07)',
+                                            bd: 'rgba(74,143,245,.2)',
+                                            text: `${vansData.length} van${vansData.length === 1 ? '' : 's'} active today. Cash collected: $${cashCollectedToday.toLocaleString()}.`,
+                                        }]
+                                        : []),
+                                ];
+                                if (alerts.length === 0) {
+                                    return (
+                                        <div style={{
+                                            background: 'rgba(255,255,255,.04)', border: `1px solid ${C.bd2}`, borderRadius: 8,
+                                            padding: '7px 10px', fontSize: 10, color: C.t1, lineHeight: 1.5,
+                                        }}>
+                                            —
+                                        </div>
+                                    );
+                                }
+                                return alerts.map((a, i) => (
+                                    <div key={i} style={{
+                                        background: a.bg, border: `1px solid ${a.bd}`, borderRadius: 8,
+                                        padding: '7px 10px', fontSize: 10, color: C.t1, lineHeight: 1.5,
+                                    }}>
+                                        {a.text}
+                                    </div>
+                                ));
+                            })()}
                         </div>
                     </div>
                 </div>

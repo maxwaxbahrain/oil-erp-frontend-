@@ -10,13 +10,13 @@ export interface AIStockAdjustment {
     suggestedAdjustment: number;
     reason: AdjustmentReason;
     description: string;
-    confidence: number; // 0-100
+    confidence?: number;
     type: AdjustmentType;
     timestamp: string;
     status: 'pending' | 'approved' | 'rejected' | 'auto_applied';
     aiAnalysis?: {
         detectedPattern?: string;
-        riskScore: number;
+        riskScore?: number;
         forecastDays?: number;
         shrinkageRate?: number;
     };
@@ -40,7 +40,7 @@ function defaultApiPrefix(): string {
     return 'http://localhost:8000/api';
 }
 
-// Mock AI Engine Simulation with Product Catalog Integration
+// Stock-control suggestions derived from live product catalog values.
 class AIStockService {
     private lastAdjustments: Record<string, AIStockAdjustment> = {};
 
@@ -95,11 +95,10 @@ class AIStockService {
                     suggestedAdjustment: reorderQty,
                     reason: 'demand_reorder',
                     description: `Low stock detected: current ${currentStock}, minimum ${minStock}. Replenishment approval required.`,
-                    confidence: 92,
                     type: 'approval_required',
                     timestamp: new Date().toISOString(),
                     status: 'pending',
-                    aiAnalysis: { forecastDays: 7, riskScore: currentStock <= 0 ? 80 : 35 }
+                    aiAnalysis: {}
                 });
             }
 
@@ -113,11 +112,10 @@ class AIStockService {
                     suggestedAdjustment: Math.max(1, minStock || 10),
                     reason: 'sales_reconciliation',
                     description: `Critical stock state: ${currentStock}. Immediate validation and restock investigation required.`,
-                    confidence: 70,
                     type: 'investigation_required',
                     timestamp: new Date().toISOString(),
                     status: 'pending',
-                    aiAnalysis: { detectedPattern: 'Zero Stock', riskScore: 92 }
+                    aiAnalysis: { detectedPattern: 'Zero Stock' }
                 });
             }
 
@@ -131,11 +129,10 @@ class AIStockService {
                     suggestedAdjustment: 0,
                     reason: 'sales_reconciliation',
                     description: `Inventory status healthy. Monitoring based on live catalog stock ${currentStock}.`,
-                    confidence: 96,
                     type: 'auto',
                     timestamp: new Date().toISOString(),
                     status: 'auto_applied',
-                    aiAnalysis: { riskScore: 8 }
+                    aiAnalysis: {}
                 });
             }
         });
@@ -143,10 +140,7 @@ class AIStockService {
         return adjustments;
     }
 
-    // Simulate finding anomalies
     async scanForAnomalies(): Promise<AIStockAdjustment[]> {
-        // Simulate API delay
-        await new Promise(resolve => setTimeout(resolve, 500));
         const data = await this.generateAIAdjustments();
         this.lastAdjustments = data.reduce((acc, item) => {
             acc[item.id] = item;
@@ -199,7 +193,6 @@ class AIStockService {
     }
 
     async rejectAdjustment(_id: string): Promise<boolean> {
-        await new Promise(r => setTimeout(r, 300));
         return true;
     }
 }
