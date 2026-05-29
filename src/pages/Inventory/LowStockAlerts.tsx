@@ -98,7 +98,7 @@ function getUnitCost(p: Product): number {
 }
 
 function isHazmat(p: Product): boolean {
-    return /5USQ|hazmat/i.test(p.name) || p.tags.some((t) => /hazmat/i.test(t));
+    return /5USQ|hazmat/i.test(p.name) || p.tags?.some((t) => /hazmat/i.test(t));
 }
 
 function fmtCompactUsd(n: number): string {

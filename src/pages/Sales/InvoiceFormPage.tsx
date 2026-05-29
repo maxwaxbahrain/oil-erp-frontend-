@@ -512,7 +512,7 @@ export default function InvoiceFormPage() {
     // Minimal sanity check: at least a customer OR a line item.
     const handleSaveDraft = async () => {
         const hasCustomer = !!formData.customerId || !!formData.customerName?.trim();
-        const hasLineItem = formData.lineItems.some(i => i.product && i.quantity > 0);
+        const hasLineItem = formData.lineItems?.some(i => i.product && i.quantity > 0);
         if (!hasCustomer && !hasLineItem) {
             alert('Add a customer or at least one line item before saving as draft.');
             return;
@@ -574,7 +574,7 @@ export default function InvoiceFormPage() {
             return;
         }
 
-        if (formData.lineItems.some(item => !item.product || item.quantity <= 0 || item.rate <= 0)) {
+        if (formData.lineItems?.some(item => !item.product || item.quantity <= 0 || item.rate <= 0)) {
             alert('Please fill in all line items with valid quantities and rates');
             return;
         }

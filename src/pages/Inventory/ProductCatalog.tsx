@@ -55,7 +55,7 @@ function hasBuyBox(p: Product, totalStock: number): boolean {
 }
 
 function isHazmat(p: Product): boolean {
-    return /5USQ|hazmat/i.test(p.name) || p.tags.some((t) => /hazmat/i.test(t));
+    return /5USQ|hazmat/i.test(p.name) || p.tags?.some((t) => /hazmat/i.test(t));
 }
 
 function isSuppressed(p: Product, totalStock: number): boolean {
