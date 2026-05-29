@@ -3,12 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import {
     getProducts,
     deleteProduct,
-    saveImportedProduct,
     saveProduct,
     type Product,
     type ProductImage,
 } from '../../services/productService';
 import { formatCurrency } from '../../services/settingsService';
+import { compressImage } from '../../utils/imageCompression';
 
 const C = {
     bg: '#060f1c',
@@ -155,27 +155,23 @@ export default function ProductCatalog() {
     const persistProductImages = useCallback(async (product: Product, newImages: ProductImage[]) => {
         const updated = { ...product, images: newImages };
         try {
-            saveImportedProduct(updated);
             await saveProduct(updated);
         } catch { /* ignore */ }
         setProducts((prev) => prev.map((p) => (p.id === product.id ? updated : p)));
     }, []);
 
-    const processFilesForProduct = useCallback((product: Product, files: FileList) => {
-        Array.from(files).slice(0, 8 - (product.images?.length || 0)).forEach((file, index) => {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const url = e.target?.result as string;
-                const newImg: ProductImage = {
-                    id: `img-${Date.now()}-${index}`,
-                    url,
-                    isPrimary: !product.images?.length,
-                };
-                const merged = [...(product.images || []), newImg];
-                persistProductImages(product, merged);
-            };
-            reader.readAsDataURL(file);
-        });
+    const processFilesForProduct = useCallback(async (product: Product, files: FileList) => {
+        const selected = Array.from(files).slice(0, 8 - (product.images?.length || 0));
+        const newImages = await Promise.all(
+            selected.map(async (file, index) => ({
+                id: `img-${Date.now()}-${index}`,
+                url: await compressImage(file, { maxWidth: 800, maxHeight: 800, quality: 0.7, outputFormat: 'jpeg' }),
+                isPrimary: !product.images?.length && index === 0,
+            }))
+        );
+        if (newImages.length) {
+            persistProductImages(product, [...(product.images || []), ...newImages]);
+        }
     }, [persistProductImages]);
 
     const matchFileToProduct = useCallback((filename: string): Product | undefined => {

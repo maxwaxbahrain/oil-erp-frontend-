@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Plus, X, Star, Upload } from 'lucide-react';
+import { compressImage } from '../../utils/imageCompression';
 
 export interface ProductImage {
     id: string;
@@ -21,26 +22,17 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({ images, onChange }) =>
         }
     };
 
-    const processFiles = (files: FileList) => {
-        const newImages: ProductImage[] = [];
-        Array.from(files).forEach((file, index) => {
-            if (images.length + newImages.length >= 10) return;
-
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const url = e.target?.result as string;
-                const newImg = {
-                    id: `img-${Date.now()}-${index}`,
-                    url,
-                    isPrimary: images.length === 0 && newImages.length === 0
-                };
-                newImages.push(newImg);
-                if (newImages.length === Math.min(files.length, 10 - images.length)) {
-                    onChange([...images, ...newImages]);
-                }
-            };
-            reader.readAsDataURL(file);
-        });
+    const processFiles = async (files: FileList) => {
+        const slots = Math.max(0, 10 - images.length);
+        const selected = Array.from(files).slice(0, slots);
+        const newImages = await Promise.all(
+            selected.map(async (file, index) => ({
+                id: `img-${Date.now()}-${index}`,
+                url: await compressImage(file, { maxWidth: 800, maxHeight: 800, quality: 0.7, outputFormat: 'jpeg' }),
+                isPrimary: images.length === 0 && index === 0
+            }))
+        );
+        if (newImages.length) onChange([...images, ...newImages]);
     };
 
     const removeImage = (id: string) => {

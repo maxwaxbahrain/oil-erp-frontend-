@@ -85,6 +85,7 @@ export interface Product {
     priceHistory: { date: string; cost: number; selling: number }[];
 
     // Images
+    image?: string;
     images: ProductImage[];
 
     // AI Settings & Insights
@@ -154,6 +155,7 @@ function mapApiProductToProduct(raw: Record<string, unknown>): Product {
     const cost = num(raw.cost, price);
     const unit = raw.unit != null ? String(raw.unit) : '';
     const barcode = raw.barcode != null ? String(raw.barcode) : undefined;
+    const image = raw.image != null ? String(raw.image) : undefined;
     const isActive = raw.is_active !== false;
 
     return {
@@ -198,7 +200,8 @@ function mapApiProductToProduct(raw: Record<string, unknown>): Product {
             taxIncluded: false,
         },
         priceHistory: [],
-        images: [],
+        image,
+        images: image ? [{ id: 'backend-primary', url: image, isPrimary: true }] : [],
         aiEnabled: false,
         aiDemandPrediction: 0,
         aiConfidenceLevel: 0,
@@ -329,6 +332,7 @@ export async function saveProduct(product: Partial<Product>): Promise<Product> {
         ),
         unit: product.uom ?? 'pcs',
         barcode: product.barcode ?? null,
+        image: product.images?.find((img) => img.isPrimary)?.url ?? product.images?.[0]?.url ?? product.image ?? null,
         is_active: product.status === 'Active',
     };
 
@@ -378,6 +382,7 @@ export async function saveProduct(product: Partial<Product>): Promise<Product> {
         min_stock?: number;
         unit?: string;
         is_active?: boolean;
+        image?: string | null;
     };
     const serverRow = (await resp.json()) as BackendRow;
     const serverId = String(serverRow.id);
@@ -404,6 +409,7 @@ export async function saveProduct(product: Partial<Product>): Promise<Product> {
         priceHistory: product.priceHistory ?? [],
         leakageRate: product.leakageRate ?? 0,
         returnRate: product.returnRate ?? 0,
+        image: serverRow.image ?? backendPayload.image ?? undefined,
         images: product.images ?? [],
         specifications: product.specifications ?? [],
         tags: product.tags ?? [],

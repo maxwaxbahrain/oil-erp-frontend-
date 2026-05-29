@@ -190,4 +190,24 @@ describe('productService', () => {
     expect(body.cost).toBe(10);
     expect(body.price).toBe(30);
   });
+
+  it('includes the primary product image in the backend payload when set', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(mockResp(true, 200, { id: 101, stock: 1, is_active: true }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await saveProduct({
+      ...productFixture({
+        locations: [{ id: 'L1', name: 'Warehouse', type: 'Warehouse', currentStock: 1 }],
+      }),
+      images: [
+        { id: 'secondary', url: 'data:image/jpeg;base64,secondary', isPrimary: false },
+        { id: 'primary', url: 'data:image/jpeg;base64,primary', isPrimary: true },
+      ],
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.image).toBe('data:image/jpeg;base64,primary');
+  });
 });
