@@ -1,13 +1,16 @@
 import { getPurchaseOrders, updatePurchaseOrder, type PurchaseOrder } from './purchasesService';
+import { getOilErpApiBase } from '../config/apiBase';
 
 // FIX W3-1 — Path B (this module) now writes stock to the SAME backend
 // endpoint that Path A uses (PurchasesDashboard's Confirm GRN button).
 // Previously Path B mutated product.locations in localStorage only, which
 // meant Inventory Dashboard never saw the stock and the two paths produced
 // divergent state. This constant mirrors the one in purchasesService.ts.
-const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
-    .trim()
-    .replace(/\/+$/, '');
+function apiUrl(path: string): string {
+    const base = getOilErpApiBase().replace(/\/$/, '');
+    const p = path.replace(/^\//, '');
+    return `${base}/${p}`;
+}
 
 export interface GRNItem {
     productId: string;
@@ -221,7 +224,7 @@ export const postGRN = async (grnId: string): Promise<PostGRNResult> => {
         }
         attempted++;
         try {
-            const res = await fetch(`${API_HOST}/products/${item.productId}/add-stock`, {
+            const res = await fetch(apiUrl(`products/${item.productId}/add-stock`), {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

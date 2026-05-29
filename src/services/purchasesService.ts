@@ -1,3 +1,5 @@
+import { getOilErpApiBase } from '../config/apiBase';
+
 export interface PurchaseOrderItem {
     productId: string;
     productName: string;
@@ -109,6 +111,12 @@ const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
     .replace(/\/+$/, '');
 const SUPPLIERS_API = `${API_HOST}/api/suppliers`;
 const MIGRATION_FLAG = 'suppliers_migrated_to_api';
+
+function apiUrl(path: string): string {
+    const base = getOilErpApiBase().replace(/\/$/, '');
+    const p = path.replace(/^\//, '');
+    return `${base}/${p}`;
+}
 
 // Backend → frontend translation (snake_case + integer id → camelCase + string id).
 const fromApi = (r: any): Supplier => ({
@@ -488,7 +496,7 @@ export const confirmGRN = async (id: string): Promise<GRNResult> => {
         }
         attempted++;
         try {
-            const res = await fetch(`${API_HOST}/products/${item.productId}/add-stock`, {
+            const res = await fetch(apiUrl(`products/${item.productId}/add-stock`), {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
