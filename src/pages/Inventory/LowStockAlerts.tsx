@@ -61,8 +61,8 @@ interface LowStockRow {
     suggestedOrder: number;
     daysLeft: number | null;
     velocity: number;
-    restockCost: number;
-    unitCost: number;
+    restockCost: number | null;
+    unitCost: number | null;
     status: 'Critical' | 'Out of Stock' | 'Low Stock';
     isHazmat: boolean;
     product: Product;
@@ -90,11 +90,10 @@ function getDaysLeft(p: Product, totalStock: number): number | null {
     return null;
 }
 
-function getUnitCost(p: Product): number {
+function getUnitCost(p: Product): number | null {
     const cost = p.pricing?.landedCost ?? p.priceHistory?.[0]?.cost;
     if (cost && cost > 0) return cost;
-    const sell = p.pricing?.sellingPrice ?? p.priceHistory?.[0]?.selling ?? 0;
-    return sell > 0 ? sell * 0.55 : 12;
+    return null;
 }
 
 function isHazmat(p: Product): boolean {
@@ -116,26 +115,25 @@ function buildLowStockRows(products: Product[]): LowStockRow[] {
 
     products.forEach((product) => {
         const currentStock = getTotalStock(product);
-        const minRequired = product.reorderLevel || 10;
-        const isAlert = currentStock === 0 || currentStock <= minRequired;
+        const minRequired = product.reorderLevel;
+        const hasReorderPoint = minRequired > 0;
+        const isAlert = currentStock === 0 || (hasReorderPoint && currentStock <= minRequired);
         if (!isAlert) return;
 
         const daysLeft = getDaysLeft(product, currentStock);
         const velocity = getDailyVelocity(product);
         const suggestedOrder = Math.max(
-            minRequired - currentStock + minRequired,
-            product.minOrderQty || minRequired,
+            hasReorderPoint ? minRequired - currentStock + minRequired : 0,
+            product.minOrderQty || 0,
             1,
         );
         const unitCost = getUnitCost(product);
-        const restockCost = suggestedOrder * unitCost;
+        const restockCost = unitCost === null ? null : suggestedOrder * unitCost;
 
         let status: LowStockRow['status'];
         if (currentStock === 0) {
             status = 'Out of Stock';
         } else if (daysLeft != null && daysLeft < 7) {
-            status = 'Critical';
-        } else if (currentStock < minRequired * 0.3) {
             status = 'Critical';
         } else {
             status = 'Low Stock';
@@ -208,7 +206,7 @@ export default function LowStockAlerts() {
     const counts = useMemo(() => {
         const critical = rows.filter((r) => r.status === 'Critical').length;
         const outOfStock = rows.filter((r) => r.currentStock === 0).length;
-        const totalRestockCost = rows.reduce((s, r) => s + r.restockCost, 0);
+        const totalRestockCost = rows.reduce((s, r) => s + (r.restockCost ?? 0), 0);
         const criticalLabels = rows
             .filter((r) => r.status === 'Critical')
             .slice(0, 2)
@@ -237,7 +235,7 @@ export default function LowStockAlerts() {
         }
         list.sort((a, b) => {
             if (sortKey === 'name') return a.name.localeCompare(b.name);
-            if (sortKey === 'cost') return b.restockCost - a.restockCost;
+            if (sortKey === 'cost') return (b.restockCost ?? 0) - (a.restockCost ?? 0);
             return urgencyScore(a) - urgencyScore(b);
         });
         return list;
@@ -289,9 +287,9 @@ export default function LowStockAlerts() {
     }, [displayGroups, viewAll]);
 
     const selectedItems = rows.filter((r) => selected.has(r.id));
-    const selectedCost = selectedItems.reduce((s, r) => s + r.restockCost, 0);
+    const selectedCost = selectedItems.reduce((s, r) => s + (r.restockCost ?? 0), 0);
     const outOfStockBulkTargets = rows.filter((r) => r.currentStock === 0);
-    const outOfStockBulkCost = outOfStockBulkTargets.reduce((s, r) => s + r.restockCost, 0);
+    const outOfStockBulkCost = outOfStockBulkTargets.reduce((s, r) => s + (r.restockCost ?? 0), 0);
 
     const toggleRow = (id: string) => {
         setSelected((prev) => {
@@ -335,7 +333,7 @@ export default function LowStockAlerts() {
                 alert('Add a supplier before creating a purchase order.');
                 return;
             }
-            const grandTotal = targets.reduce((s, r) => s + r.restockCost, 0);
+            const grandTotal = targets.reduce((s, r) => s + (r.restockCost ?? 0), 0);
             const poNumber = `LSA-${Date.now().toString().slice(-6)}`;
             await createPurchaseOrder({
                 poNumber,
@@ -349,10 +347,10 @@ export default function LowStockAlerts() {
                     productName: r.name,
                     uom: r.product.uom || 'units',
                     quantity: r.suggestedOrder,
-                    unitPrice: r.unitCost,
+                    unitPrice: r.unitCost ?? 0,
                     taxRate: 0,
                     discount: 0,
-                    total: r.restockCost,
+                    total: r.restockCost ?? 0,
                 })),
                 subtotal: grandTotal,
                 taxTotal: 0,
@@ -398,7 +396,7 @@ export default function LowStockAlerts() {
             .forEach((r) => {
                 insights.push({
                     color: C.red,
-                    text: `${shortProductLabel(r.name, r.sku)}: ${r.currentStock} units = ${r.daysLeft ?? '?'} days stock at ${r.velocity.toFixed(1)} units/day velocity. Reorder now — lead time ${r.product.leadTimeDays || 3}-${(r.product.leadTimeDays || 3) + 2} days.`,
+                    text: `${shortProductLabel(r.name, r.sku)}: ${r.currentStock} units${r.daysLeft == null ? '' : ` = ${r.daysLeft} days stock`} at ${r.velocity.toFixed(1)} units/day velocity. ${r.product.leadTimeDays > 0 ? `Lead time ${r.product.leadTimeDays} days.` : 'No lead time data.'}`,
                 });
             });
         rows
@@ -407,7 +405,7 @@ export default function LowStockAlerts() {
             .forEach((r) => {
                 insights.push({
                     color: C.red,
-                    text: `${r.name} is out of stock — suggested order ${r.suggestedOrder} units (${fmtCompactUsd(r.restockCost)} restock cost).`,
+                    text: `${r.name} is out of stock — suggested order ${r.suggestedOrder} units${r.restockCost == null ? ' (no cost data).' : ` (${fmtCompactUsd(r.restockCost)} restock cost).`}`,
                 });
             });
         if (counts.outOfStock > 0) {
@@ -415,14 +413,6 @@ export default function LowStockAlerts() {
                 color: C.amber,
                 text: `${counts.outOfStock} SKU(s) at zero stock — bulk PO covers ${fmtCompactUsd(outOfStockBulkCost)} to restore inventory.`,
             });
-        }
-        while (insights.length < 3) {
-            const fallbacks = [
-                { color: C.red, text: '0W16: 13 units = 4 days stock at 3.2 units/day velocity. Reorder now — lead time 3-5 days.' },
-                { color: C.amber, text: '38 standard alerts can wait until critical items are restocked.' },
-                { color: C.blue, text: 'Review velocity trends before adjusting minimum stock levels.' },
-            ];
-            insights.push(fallbacks[insights.length]);
         }
         return insights.slice(0, 3);
     }, [rows, counts.outOfStock, outOfStockBulkCost]);
@@ -496,7 +486,7 @@ export default function LowStockAlerts() {
                     {row.velocity > 0 ? `${row.velocity.toFixed(1)}/d` : '—'}
                 </td>
                 <td style={{ padding: '10px 12px', textAlign: 'right', fontSize: 11, fontWeight: 600, color: C.text }}>
-                    {formatCurrency(row.restockCost)}
+                    {row.restockCost == null ? '—' : formatCurrency(row.restockCost)}
                 </td>
                 <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                     <span
@@ -926,15 +916,17 @@ export default function LowStockAlerts() {
                     <div style={{ fontSize: 11, fontWeight: 600, color: '#C4B5FD' }}>🤖 AI stock alert analysis</div>
                     <div style={{ display: 'flex', gap: 5 }}>
                         <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'rgba(239,68,68,.15)', color: C.red }}>
-                            {Math.min(urgentCount, rows.filter((r) => r.status === 'Critical').length || 2)} urgent
+                            {urgentCount} urgent
                         </span>
                         <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'rgba(255,255,255,.06)', color: C.muted }}>
-                            {standardCount || Math.max(0, counts.all - 2)} standard
+                            {standardCount} standard
                         </span>
                     </div>
                 </div>
 
-                {aiInsights.map((ins, i) => (
+                {aiInsights.length === 0 ? (
+                    <div style={{ fontSize: 10, color: C.muted }}>No insights</div>
+                ) : aiInsights.map((ins, i) => (
                     <div
                         key={i}
                         style={{
@@ -959,7 +951,7 @@ export default function LowStockAlerts() {
                             <div style={{ fontSize: 10.5, fontWeight: 600, color: C.text }}>
                                 {poApproved ? '✓ Bulk PO created' : `Bulk PO — ${outOfStockBulkTargets.length} out-of-stock SKUs`}
                             </div>
-                            <div style={{ fontSize: 9, color: C.muted }}>{fmtCompactUsd(outOfStockBulkCost)} · primary supplier</div>
+                            <div style={{ fontSize: 9, color: C.muted }}>{fmtCompactUsd(outOfStockBulkCost)}</div>
                         </div>
                         {!poApproved && (
                             <>

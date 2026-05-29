@@ -89,25 +89,30 @@ export default function InventoryDashboard() {
         },
         {
             header: 'Stock Level',
-            accessor: (p: Product) => (
-                <div className="space-y-1.5">
-                    <div className="flex justify-between items-end">
-                        <span className={`text-[11px] font-black ${p.current_stock < (p.minimum_stock || 0) ? 'text-redwood-brand' : 'text-redwood-text-main'}`}>
-                            {p.current_stock} <span className="text-[9px] text-redwood-text-muted font-bold opacity-60">UNITS</span>
-                        </span>
-                        <span className="text-[9px] font-black text-redwood-text-muted">
-                            Reorder: {p.minimum_stock}
-                        </span>
+            accessor: (p: Product) => {
+                const reorderPoint = Number(p.minimum_stock) || 0;
+                const hasReorderPoint = reorderPoint > 0;
+                const isLow = hasReorderPoint && p.current_stock <= reorderPoint;
+                return (
+                    <div className="space-y-1.5">
+                        <div className="flex justify-between items-end">
+                            <span className={`text-[11px] font-black ${isLow ? 'text-redwood-brand' : 'text-redwood-text-main'}`}>
+                                {p.current_stock} <span className="text-[9px] text-redwood-text-muted font-bold opacity-60">UNITS</span>
+                            </span>
+                            <span className="text-[9px] font-black text-redwood-text-muted">
+                                {hasReorderPoint ? `Reorder: ${reorderPoint}` : 'No reorder point'}
+                            </span>
+                        </div>
+                        <div className="w-48 h-1.5 bg-redwood-bg-light rounded-full overflow-hidden shadow-inner">
+                            <div
+                                className={`h-full transition-all duration-1000 shadow-sm ${isLow ? 'bg-redwood-brand' : 'bg-redwood-primary'
+                                    }`}
+                                style={{ width: hasReorderPoint ? `${Math.min((p.current_stock / (reorderPoint * 2)) * 100, 100)}%` : '0%' }}
+                            ></div>
+                        </div>
                     </div>
-                    <div className="w-48 h-1.5 bg-redwood-bg-light rounded-full overflow-hidden shadow-inner">
-                        <div
-                            className={`h-full transition-all duration-1000 shadow-sm ${p.current_stock < (p.minimum_stock || 0) ? 'bg-redwood-brand' : 'bg-redwood-primary'
-                                }`}
-                            style={{ width: `${Math.min((p.current_stock / ((p.minimum_stock || 1) * 2)) * 100, 100)}%` }}
-                        ></div>
-                    </div>
-                </div>
-            )
+                );
+            }
         },
         {
             header: 'Unit Price',
@@ -185,10 +190,9 @@ export default function InventoryDashboard() {
                             <FormInput
                                 label="Reorder Level"
                                 type="number"
-                                required
                                 value={formData.reorder_level}
                                 onChange={(e) => setFormData({ ...formData, reorder_level: e.target.value })}
-                                placeholder="10"
+                                placeholder="Optional"
                             />
                         </div>
 

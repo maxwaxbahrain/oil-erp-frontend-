@@ -102,23 +102,21 @@ const PAGE_TABS: { id: PageTab; label: string }[] = [
 
 const QUERY_CHIPS = ['Fast movers', 'Dead stock', 'High margin', 'Low turnover', 'Overstock risk', 'Reorder needed'];
 
-const AI_INSIGHTS = [
-    { color: C.red, title: 'Dead stock capital alert', body: 'Slow-moving SKUs are locking significant working capital — review dead stock audit for liquidation candidates.' },
-    { color: C.amber, title: 'Variance detected in field counts', body: 'Loss & leakage report shows stock record variance above threshold on high-velocity lines.' },
-    { color: C.purple, title: 'Reorder timing opportunity', body: 'Demand forecasting suggests fast movers may stock out within 14 days without replenishment.' },
-];
-
-const AI_ACTIONS = [
-    { color: C.red, title: 'Run dead stock audit', detail: 'Identify non-moving SKUs and quantify locked capital.', report: 'deadstock' as ReportType },
-    { color: C.amber, title: 'Review loss & leakage', detail: 'Compare expected vs actual stock on top variance SKUs.', report: 'loss' as ReportType },
-    { color: C.blue, title: 'Generate demand forecast', detail: '30/60/90-day AI forecast for reorder planning.', report: 'forecast' as ReportType },
-    { color: C.purple, title: 'Export valuation snapshot', detail: 'Full inventory valuation using active cost method.', report: 'valuation' as ReportType },
-];
+const AI_INSIGHTS: Array<{ color: string; title: string; body: string }> = [];
+const AI_ACTIONS: Array<{ color: string; title: string; detail: string; report: ReportType }> = [];
 
 function fmtCompactUsd(value: number): string {
     if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
     if (value >= 1000) return `$${Math.round(value / 1000)}K`;
     return `$${value.toFixed(0)}`;
+}
+
+function fmtOptionalPct(value: number | null | undefined, decimals = 1): string {
+    return value == null ? '—' : `${value.toFixed(decimals)}%`;
+}
+
+function fmtOptionalNumber(value: number | null | undefined, suffix = ''): string {
+    return value == null ? '—' : `${value}${suffix}`;
 }
 
 function getTotalStock(p: Product): number {
@@ -313,7 +311,7 @@ export default function InventoryReports() {
         else if (activeChip === 'High margin') rows = rows.filter(p => (p.grossMarginPercent ?? 0) >= 30);
         else if (activeChip === 'Low turnover') rows = rows.filter(p => p.velocityStatus === 'Slow' || p.velocityStatus === 'Dead');
         else if (activeChip === 'Overstock risk') rows = rows.filter(p => p.overstockRisk === 'High' || p.overstockRisk === 'Medium');
-        else if (activeChip === 'Reorder needed') rows = rows.filter(p => getTotalStock(p) <= (p.reorderLevel || 10));
+        else if (activeChip === 'Reorder needed') rows = rows.filter(p => p.reorderLevel > 0 && getTotalStock(p) <= p.reorderLevel);
         return rows.slice(0, 12);
     }, [queryProducts, queryText, activeChip]);
 
@@ -321,12 +319,12 @@ export default function InventoryReports() {
         { id: 'valuation' as ReportType, title: 'Inventory valuation', description: 'Financial audit using weighted average cost method.', icon: DollarSign, iconColor: C.green, iconBg: 'rgba(34,197,94,.12)' },
         { id: 'fifo' as ReportType, title: 'FIFO valuation', description: 'First In First Out — oldest purchase costs used first.', icon: Layers, iconColor: C.blue, iconBg: 'rgba(79,142,247,.12)' },
         { id: 'lifo' as ReportType, title: 'LIFO valuation', description: 'Last In First Out — newest purchase costs used first.', icon: Layers, iconColor: C.purple, iconBg: 'rgba(155,111,228,.12)' },
-        { id: 'movement' as ReportType, title: 'Stock movement', description: 'Real-time velocity and node transfer analysis.', icon: Activity, iconColor: C.blue, iconBg: 'rgba(79,142,247,.12)' },
+        { id: 'movement' as ReportType, title: 'Stock movement', description: 'Current stock with received and sold quantities where available.', icon: Activity, iconColor: C.blue, iconBg: 'rgba(79,142,247,.12)' },
         { id: 'deadstock' as ReportType, title: 'Dead stock audit', description: 'Identifying capital locked in non-moving SKUs.', icon: Package, iconColor: C.red, iconBg: 'rgba(239,68,68,.12)' },
         { id: 'supplier' as ReportType, title: 'Supplier accuracy', description: 'Lead time and quality performance audit.', icon: TrendingUp, iconColor: C.amber, iconBg: 'rgba(245,158,11,.12)' },
         { id: 'loss' as ReportType, title: 'Loss & leakage', description: 'Tracking field sales discrepancies and damages.', icon: BarChart3, iconColor: C.red, iconBg: 'rgba(239,68,68,.12)' },
         { id: 'avgcost' as ReportType, title: 'Average cost detail', description: 'Weighted average cost valuation per product.', icon: DollarSign, iconColor: C.amber, iconBg: 'rgba(245,158,11,.12)' },
-        { id: 'forecast' as ReportType, title: 'Demand forecasting', description: '30/60/90 day demand predicted by AI.', icon: PieChart, iconColor: C.purple, iconBg: 'rgba(155,111,228,.12)' },
+        { id: 'forecast' as ReportType, title: 'Demand forecasting', description: 'No forecast source connected; projected demand is blank.', icon: PieChart, iconColor: C.purple, iconBg: 'rgba(155,111,228,.12)' },
     ];
 
     const pillBtn = (active: boolean, activeStyle?: { border: string; bg: string; color: string }) => ({
@@ -368,7 +366,7 @@ export default function InventoryReports() {
                                 Enterprise material audit & reporting
                             </div>
                             <div style={{ fontSize: 11, color: C.muted, marginTop: 3, lineHeight: 1.45 }}>
-                                9 AI-powered audit reports · inventory valuation · movement · dead stock · supplier accuracy · forecasting · USD ($)
+                                Inventory valuation · movement · dead stock · supplier accuracy · forecasting · USD ($)
                             </div>
                         </div>
                     </div>
@@ -446,24 +444,24 @@ export default function InventoryReports() {
                     {
                         label: 'Total Asset Valuation',
                         value: loading ? '…' : fmtCompactUsd(metrics?.totalAssetValuation || 0),
-                        sub: `+${(metrics?.growthRate ?? 5.9).toFixed(1)}%`,
-                        subColor: C.green,
+                        sub: metrics?.growthRate == null ? '—' : `+${metrics.growthRate.toFixed(1)}%`,
+                        subColor: C.muted,
                         valueColor: C.green,
                         stripe: C.green,
                     },
                     {
                         label: 'Avg Inventory Turnover',
-                        value: loading ? '…' : `${(metrics?.avgTurnover || 0).toFixed(2)}x`,
-                        sub: 'Global weighted average',
+                        value: loading ? '…' : (metrics?.avgTurnover == null ? '—' : `${metrics.avgTurnover.toFixed(2)}x`),
+                        sub: 'No movement history',
                         subColor: C.muted,
                         valueColor: C.text,
                         stripe: C.blue,
                     },
                     {
                         label: 'Stock Record Accuracy',
-                        value: loading ? '…' : `${(metrics?.stockAccuracy || 0).toFixed(1)}%`,
-                        sub: 'Post-audit resilience',
-                        subColor: C.green,
+                        value: loading ? '…' : fmtOptionalPct(metrics?.stockAccuracy),
+                        sub: 'Needs cycle counts',
+                        subColor: C.muted,
                         valueColor: C.text,
                         stripe: C.green,
                     },
@@ -511,12 +509,11 @@ export default function InventoryReports() {
                         </div>
                     </div>
 
-                    {/* AI-Powered Audit Reports */}
+                    {/* Inventory Audit Reports */}
                     <div style={{ ...panel, padding: '12px 14px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                             <Sparkles size={15} style={{ color: '#C4B5FD' }} />
-                            <div style={{ fontSize: 12, fontWeight: 600, color: C.text, fontFamily: "'Syne',sans-serif" }}>AI-Powered Audit Reports</div>
-                            <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(155,111,228,.15)', color: '#C4B5FD', border: '1px solid rgba(155,111,228,.25)' }}>9 reports</span>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: C.text, fontFamily: "'Syne',sans-serif" }}>Inventory Audit Reports</div>
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 10 }}>
                             {reports.map(report => (
@@ -537,14 +534,13 @@ export default function InventoryReports() {
                                         <div style={{ width: 36, height: 36, borderRadius: 8, background: report.iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                             <report.icon size={17} style={{ color: report.iconColor }} />
                                         </div>
-                                        <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: 'rgba(155,111,228,.18)', color: '#C4B5FD', border: '1px solid rgba(155,111,228,.3)' }}>AI</span>
                                     </div>
                                     <div style={{ flex: 1 }}>
                                         <div style={{ fontSize: 11, fontWeight: 600, color: C.text, marginBottom: 4 }}>{report.title}</div>
                                         <div style={{ fontSize: 9, color: C.muted, lineHeight: 1.45 }}>{report.description}</div>
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,.06)', paddingTop: 10 }}>
-                                        <span style={{ fontSize: 8, fontWeight: 600, color: C.dim, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Last run: 2h ago</span>
+                                        <span style={{ fontSize: 8, fontWeight: 600, color: C.dim, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Run on demand</span>
                                         <button
                                             type="button"
                                             onClick={() => void runReport(report.id)}
@@ -630,11 +626,11 @@ export default function InventoryReports() {
                                                         {p.velocityStatus}
                                                     </span>
                                                 </td>
-                                                <td style={{ padding: '8px 12px', fontSize: 11, fontFamily: 'monospace', color: (p.grossMarginPercent ?? 0) >= 30 ? C.green : C.muted }}>
-                                                    {(p.grossMarginPercent ?? 0).toFixed(1)}%
+                                                <td style={{ padding: '8px 12px', fontSize: 11, fontFamily: 'monospace', color: p.grossMarginPercent > 0 ? C.green : C.muted }}>
+                                                    {p.grossMarginPercent > 0 ? `${p.grossMarginPercent.toFixed(1)}%` : '—'}
                                                 </td>
-                                                <td style={{ padding: '8px 12px', fontSize: 11, fontFamily: 'monospace', color: (p.daysStockRemaining ?? 0) <= 14 ? C.amber : C.text }}>
-                                                    {Math.round(p.daysStockRemaining ?? 0)}
+                                                <td style={{ padding: '8px 12px', fontSize: 11, fontFamily: 'monospace', color: p.daysStockRemaining > 0 ? C.text : C.muted }}>
+                                                    {p.daysStockRemaining > 0 ? Math.round(p.daysStockRemaining) : '—'}
                                                 </td>
                                             </tr>
                                         ))
@@ -652,7 +648,9 @@ export default function InventoryReports() {
                                 <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>AI Material Audit Insights</div>
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                                {AI_INSIGHTS.map((insight, i) => (
+                                {AI_INSIGHTS.length === 0 ? (
+                                    <div style={{ fontSize: 10, color: C.muted }}>No insights</div>
+                                ) : AI_INSIGHTS.map((insight, i) => (
                                     <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                                         <span style={{ width: 7, height: 7, borderRadius: '50%', background: insight.color, marginTop: 4, flexShrink: 0 }} />
                                         <div>
@@ -669,7 +667,9 @@ export default function InventoryReports() {
                                 <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>AI Suggested Actions</div>
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                                {AI_ACTIONS.map((action, i) => (
+                                {AI_ACTIONS.length === 0 ? (
+                                    <div style={{ fontSize: 10, color: C.muted }}>No actions</div>
+                                ) : AI_ACTIONS.map((action, i) => (
                                     <div key={i} style={{ ...panel, padding: '10px 12px', background: 'rgba(11,17,32,.5)' }}>
                                         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
                                             <span style={{ width: 6, height: 6, borderRadius: '50%', background: action.color, marginTop: 5, flexShrink: 0 }} />
@@ -817,6 +817,11 @@ function ValuationReport({ data }: { data: InventoryValuation }) {
                 {card('Total Units', data.totalUnits.toLocaleString(), C.blue)}
                 {card('Avg Unit Cost', formatCurrency(data.averageUnitCost), C.purple)}
             </div>
+            {data.isPartial && (
+                <div style={{ ...panel, padding: 12, color: C.amber, fontSize: 11 }}>
+                    Partial valuation: {data.excludedUnits?.toLocaleString() ?? 'some'} units excluded because no real product cost is set.
+                </div>
+            )}
             <ReportTable title="Valuation by Category" headers={['Category', 'Value', 'Units', '% of Total']} rows={data.byCategory.map(cat => [cat.category, formatCurrency(cat.value), cat.units.toLocaleString(), `${cat.percentage.toFixed(1)}%`])} />
             <ReportTable title="Valuation by Location" headers={['Location', 'Value', 'Units']} rows={data.byLocation.map(loc => [loc.location, formatCurrency(loc.value), loc.units.toLocaleString()])} />
         </div>
@@ -852,32 +857,33 @@ function ReportTable({ title, headers, rows }: { title: string; headers: string[
 }
 
 function MovementReport({ data }: { data: StockMovement[] }) {
-    const totals = data.reduce((acc, r) => ({
+    const totals = data.reduce((acc: { openingStock: number; closingStock: number; purchases: number; sales: number; openingValue: number; closingValue: number; partial: boolean }, r) => ({
         openingStock: acc.openingStock + (r.openingStock || 0),
         closingStock: acc.closingStock + (r.closingStock || 0),
         purchases: acc.purchases + (r.purchases || 0),
         sales: acc.sales + (r.sales || 0),
-        openingValue: acc.openingValue + (r.openingValue || 0),
-        closingValue: acc.closingValue + (r.closingValue || 0),
-    }), { openingStock: 0, closingStock: 0, purchases: 0, sales: 0, openingValue: 0, closingValue: 0 });
+        openingValue: r.openingValue == null ? acc.openingValue : acc.openingValue + r.openingValue,
+        closingValue: r.closingValue == null ? acc.closingValue : acc.closingValue + r.closingValue,
+        partial: acc.partial || r.openingValue == null || r.closingValue == null,
+    }), { openingStock: 0, closingStock: 0, purchases: 0, sales: 0, openingValue: 0, closingValue: 0, partial: false });
     const valueDelta = totals.closingValue - totals.openingValue;
-    const deltaPct = totals.openingValue > 0 ? (valueDelta / totals.openingValue) * 100 : 0;
+    const deltaPct = totals.openingValue > 0 && !totals.partial ? (valueDelta / totals.openingValue) * 100 : null;
 
     return (
         <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div style={{ ...panel, padding: 16, borderColor: 'rgba(79,142,247,.25)' }}>
                     <p style={{ fontSize: 10, fontWeight: 700, color: C.blue, textTransform: 'uppercase', marginBottom: 4 }}>Opening Value</p>
-                    <p style={{ fontSize: 22, fontWeight: 700, color: C.text, fontFamily: 'monospace' }}>{globalFormatCurrency(totals.openingValue)}</p>
+                    <p style={{ fontSize: 22, fontWeight: 700, color: C.text, fontFamily: 'monospace' }}>{totals.partial ? '—' : globalFormatCurrency(totals.openingValue)}</p>
                 </div>
                 <div style={{ ...panel, padding: 16, borderColor: 'rgba(34,197,94,.25)' }}>
                     <p style={{ fontSize: 10, fontWeight: 700, color: C.green, textTransform: 'uppercase', marginBottom: 4 }}>Closing Value</p>
-                    <p style={{ fontSize: 22, fontWeight: 700, color: C.text, fontFamily: 'monospace' }}>{globalFormatCurrency(totals.closingValue)}</p>
+                    <p style={{ fontSize: 22, fontWeight: 700, color: C.text, fontFamily: 'monospace' }}>{totals.partial ? '—' : globalFormatCurrency(totals.closingValue)}</p>
                 </div>
                 <div style={{ ...panel, padding: 16, borderColor: valueDelta >= 0 ? 'rgba(245,158,11,.25)' : 'rgba(239,68,68,.25)' }}>
                     <p style={{ fontSize: 10, fontWeight: 700, color: valueDelta >= 0 ? C.amber : C.red, textTransform: 'uppercase', marginBottom: 4 }}>Net Movement</p>
                     <p style={{ fontSize: 22, fontWeight: 700, color: C.text, fontFamily: 'monospace' }}>
-                        {valueDelta >= 0 ? '+' : ''}{globalFormatCurrency(valueDelta)} ({deltaPct >= 0 ? '+' : ''}{deltaPct.toFixed(1)}%)
+                        {totals.partial || deltaPct === null ? '—' : `${valueDelta >= 0 ? '+' : ''}${globalFormatCurrency(valueDelta)} (${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(1)}%)`}
                     </p>
                 </div>
             </div>
@@ -904,7 +910,7 @@ function MovementReport({ data }: { data: StockMovement[] }) {
                                 <td style={{ padding: '8px 12px', textAlign: 'center' }}>
                                     <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: 'rgba(79,142,247,.12)', color: C.blue }}>{item.velocity}</span>
                                 </td>
-                                <td style={{ padding: '8px 12px', textAlign: 'right', color: C.text }}>{item.turnoverRate.toFixed(1)}x</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', color: C.text }}>{item.turnoverRate == null ? '—' : `${item.turnoverRate.toFixed(1)}x`}</td>
                             </tr>
                         ))}
                     </tbody>
@@ -971,7 +977,7 @@ function ForecastReport({ data }: { data: ForecastingData[] }) {
         <ReportTable
             title="Demand Forecast"
             headers={['Product', 'SKU', 'Current Stock', 'Avg Daily Sales', '30-Day', '60-Day', '90-Day', 'Reorder', 'Confidence']}
-            rows={data.map(item => [item.productName, item.sku, String(item.currentStock), item.avgDailySales.toFixed(1), String(item.forecast30Days), String(item.forecast60Days), String(item.forecast90Days), String(item.recommendedReorder), `${item.confidenceLevel}%`])}
+            rows={data.map(item => [item.productName, item.sku, String(item.currentStock), item.avgDailySales > 0 ? item.avgDailySales.toFixed(1) : '—', fmtOptionalNumber(item.forecast30Days), fmtOptionalNumber(item.forecast60Days), fmtOptionalNumber(item.forecast90Days), fmtOptionalNumber(item.recommendedReorder), item.confidenceLevel == null ? '—' : `${item.confidenceLevel}%`])}
         />
     );
 }

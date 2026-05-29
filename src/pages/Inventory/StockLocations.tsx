@@ -25,12 +25,7 @@ interface StockLocation {
     itemCount: number;
 }
 
-const MOCK_LOCATIONS: StockLocation[] = [
-    { id: 'LOC-001', name: 'Main Distribution Center', type: 'Warehouse', utilization: 85, occupancy: '850/1000m³', status: 'Healthy', lastAudit: 'Jan 15, 2024', itemCount: 1250 },
-    { id: 'LOC-002', name: 'Van 01 (Downtown)', type: 'Van', utilization: 92, occupancy: '46/50 Units', status: 'Overcapacity', lastAudit: 'Jan 22, 2024', assignedPersonnel: 'John Doe', itemCount: 46 },
-    { id: 'LOC-003', name: 'Van 02 (Industrial Area)', type: 'Van', utilization: 45, occupancy: '22/50 Units', status: 'Underutilized', lastAudit: 'Jan 20, 2024', assignedPersonnel: 'Jane Smith', itemCount: 22 },
-    { id: 'LOC-004', name: 'Al-Quoz Service Point', type: 'Store', utilization: 65, occupancy: '65/100m³', status: 'Healthy', lastAudit: 'Jan 10, 2024', itemCount: 85 },
-];
+const LOCATIONS: StockLocation[] = [];
 
 export default function StockLocations() {
 
@@ -55,10 +50,10 @@ export default function StockLocations() {
             {/* Global Utilization Metrics */}
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
                 {[
-                    { label: 'Network Health', value: '78%', sub: 'Avg Utilization', icon: Activity, color: 'text-emerald-500' },
-                    { label: 'Total Nodes', value: '24', sub: 'Active Locations', icon: MapPin, color: 'text-blue-500' },
-                    { label: 'Critical Capacity', value: '03', sub: 'Nodes > 90%', icon: AlertTriangle, color: 'text-red-500' },
-                    { label: 'Audits Due', value: '05', sub: 'Pending for Q1', icon: History, color: 'text-amber-500' },
+                    { label: 'Network Health', value: '—', sub: 'No utilization source', icon: Activity, color: 'text-emerald-500' },
+                    { label: 'Total Nodes', value: LOCATIONS.length ? String(LOCATIONS.length) : '—', sub: LOCATIONS.length ? 'Active Locations' : 'No location data', icon: MapPin, color: 'text-blue-500' },
+                    { label: 'Critical Capacity', value: '—', sub: 'No capacity source', icon: AlertTriangle, color: 'text-red-500' },
+                    { label: 'Audits Due', value: '—', sub: 'No audit source', icon: History, color: 'text-amber-500' },
                 ].map((stat, i) => (
                     <div key={i} className="bg-white p-8 rounded-2xl border border-gray-100 shadow-sm relative overflow-hidden group">
                         <div className="relative z-10">
@@ -73,7 +68,11 @@ export default function StockLocations() {
 
             {/* Locations Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {MOCK_LOCATIONS.map((loc) => (
+                {LOCATIONS.length === 0 ? (
+                    <div className="bg-white p-10 rounded-3xl border border-gray-100 shadow-sm text-sm font-bold text-gray-400 uppercase tracking-widest">
+                        No location data
+                    </div>
+                ) : LOCATIONS.map((loc) => (
                     <div key={loc.id} className="bg-white p-10 rounded-3xl border border-gray-100 shadow-sm hover:shadow-2xl hover:border-redwood-brand/20 transition-all group overflow-hidden relative">
                         <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 translate-x-8 -translate-y-8 group-hover:translate-x-0 group-hover:translate-y-0 transition-all duration-700">
                             {loc.type === 'Warehouse' ? <Truck size={200} /> : loc.type === 'Van' ? <Smartphone size={200} /> : <Store size={200} />}
@@ -142,7 +141,7 @@ export default function StockLocations() {
                 ))}
             </div>
 
-            {/* Strategic Optimization AI Tool */}
+            {/* Strategic Optimization */}
             <div className="bg-gradient-to-br from-gray-950 to-gray-900 p-12 rounded-3xl shadow-2xl relative overflow-hidden group">
                 <div className="absolute top-0 right-0 p-8 transform translate-x-12 -translate-y-12 opacity-5">
                     <History size={280} className="text-redwood-brand" />
@@ -153,23 +152,19 @@ export default function StockLocations() {
                             <CheckCircle2 className="text-redwood-brand" size={28} />
                         </div>
                         <div>
-                            <h3 className="text-2xl font-black text-white uppercase tracking-tighter">AI Node Rebalancer</h3>
-                            <p className="text-[10px] font-black text-redwood-brand uppercase tracking-widest">Optimizing Geo-Spatial Stock Density</p>
+                            <h3 className="text-2xl font-black text-white uppercase tracking-tighter">Node Rebalancer</h3>
+                            <p className="text-[10px] font-black text-redwood-brand uppercase tracking-widest">No location movement source connected</p>
                         </div>
                     </div>
 
                     <div className="p-8 bg-white/5 border border-white/10 rounded-2xl backdrop-blur-md mb-8">
                         <p className="text-lg font-black text-white uppercase tracking-tight mb-4 flex items-center gap-3">
                             <Smartphone className="text-blue-400" size={24} />
-                            Urgent Rebalance Suggested (VAN 01 & 02)
+                            No rebalancing recommendation
                         </p>
                         <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest leading-relaxed mb-8">
-                            Van 01 is at 92% capacity and losing sales opportunities for key oils. Van 02 is at 45% and has surplus. Suggest moving <span className="text-white">15 units of Soltol 15W40</span> to Van 01 to capture $22k pending demand.
+                            No stock-location capacity, movement, or demand data source is connected for this report yet.
                         </p>
-                        <div className="flex gap-4">
-                            <button className="px-8 py-3 bg-redwood-brand text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:brightness-110 shadow-lg shadow-redwood-brand/20 transition-all">Authorize Transfer</button>
-                            <button className="px-8 py-3 bg-white/5 text-gray-400 border border-white/10 text-[10px] font-black uppercase tracking-widest rounded-xl hover:text-white transition-all">Details</button>
-                        </div>
                     </div>
                 </div>
             </div>

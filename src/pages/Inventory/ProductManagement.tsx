@@ -31,15 +31,15 @@ export default function ProductManagement() {
     const categoriesRef = useRef<CategoriesHandle>(null);
     const [activeTab, setActiveTab] = useState<TabType>('Products');
     const [lowStockCount, setLowStockCount] = useState(0);
-    const amazonIssueCount = 3;
+    const amazonIssueCount = 0;
     const isCategoriesTab = activeTab === 'Categories';
 
     useEffect(() => {
         getProducts().then((products) => {
             const count = products.filter((p) => {
                 const stock = getTotalStock(p);
-                const reorder = p.reorderLevel || 10;
-                return stock === 0 || (stock > 0 && stock <= reorder);
+                const reorder = p.reorderLevel;
+                return stock === 0 || (reorder > 0 && stock > 0 && stock <= reorder);
             }).length;
             setLowStockCount(count);
         }).catch(() => setLowStockCount(0));

@@ -237,14 +237,13 @@ export default function ProductCatalog() {
 
     const totalProducts = products.length;
     const categoryCount = new Set(products.map((p) => p.category)).size;
-    const inStock = products.filter((p) => getTotalStock(p) > (p.reorderLevel || 10)).length;
+    const inStock = products.filter((p) => getTotalStock(p) > 0 && (p.reorderLevel <= 0 || getTotalStock(p) > p.reorderLevel)).length;
     const criticalLow = products.filter((p) => {
         const stock = getTotalStock(p);
         const days = getDaysLeft(p, stock);
         return stock > 0 && days != null && days <= 5;
     });
     const outOfStock = products.filter((p) => getTotalStock(p) === 0).length;
-    const amazonIssues = 3;
 
     const criticalLabels = criticalLow
         .slice(0, 2)
@@ -264,26 +263,21 @@ export default function ProductCatalog() {
             return deriveAsin(p) && !hasBuyBox(p, stock) && stock > 0;
         }),
     ].filter(Boolean) as Product[];
-
-    const defaultAlerts = [
-        { title: '🚫 Suppressed listing', color: C.red, border: 'rgba(239,68,68,.2)', desc: 'Bettano 10W30 SL — upload safety data sheet to reinstate' },
-        { title: '⚠ Hazmat review pending', color: C.amber, border: 'rgba(245,158,11,.2)', desc: 'Bettano 0W20 5USQ — FBA blocked pending hazmat approval' },
-        { title: '📦 Buy Box lost', color: C.orange, border: 'rgba(255,153,0,.2)', desc: 'Bettano 0W16 SP — reprice to recapture Buy Box' },
-    ];
+    const amazonIssues = amazonAlerts.length;
 
     const aiInsights = [
         ...criticalLow.slice(0, 1).map((p) => {
             const stock = getTotalStock(p);
             const days = getDaysLeft(p, stock) ?? 0;
-            const daily = p.avgDailySales || 3.2;
+            const daily = p.avgDailySales;
             return {
                 color: C.red,
-                html: <><strong style={{ color: C.red }}>{p.name.match(/\dW\d+/)?.[0] || p.name.slice(0, 20)}: {stock} units = {days} days stock</strong> at {daily.toFixed(1)} units/day velocity. Reorder now — lead time 3-5 days.</>,
+                html: <><strong style={{ color: C.red }}>{p.name.match(/\dW\d+/)?.[0] || p.name.slice(0, 20)}: {stock} units = {days} days stock</strong>{daily > 0 ? <> at {daily.toFixed(1)} units/day velocity.</> : <>. No velocity data.</>} Reorder point is set.</>,
             };
         }),
         ...products.filter((p) => deriveAsin(p) && !hasBuyBox(p, getTotalStock(p)) && getTotalStock(p) > 0).slice(0, 1).map((p) => ({
             color: C.orange,
-            html: <><strong style={{ color: C.orange }}>Buy Box lost on {p.name.match(/\dW\d+/)?.[0] || p.name.slice(0, 15)}.</strong> Reprice Amazon listing. Buy Box = 90% of Amazon sales.</>,
+            html: <><strong style={{ color: C.orange }}>Buy Box not active on {p.name.match(/\dW\d+/)?.[0] || p.name.slice(0, 15)}.</strong> Check the Amazon listing.</>,
         })),
         ...products.filter((p) => isSuppressed(p, getTotalStock(p))).slice(0, 1).map((p) => ({
             color: C.red,
@@ -291,31 +285,15 @@ export default function ProductCatalog() {
         })),
     ];
 
-    if (aiInsights.length < 3) {
-        const fallbacks = [
-            { color: C.red, html: <><strong style={{ color: C.red }}>0W16: 13 units = 4 days stock</strong> at 3.2 units/day velocity. Reorder now — lead time 3-5 days.</> },
-            { color: C.orange, html: <><strong style={{ color: C.orange }}>Buy Box lost on 0W16.</strong> Reprice Amazon listing. Buy Box = 90% of Amazon sales.</> },
-            { color: C.red, html: <><strong style={{ color: C.red }}>10W30 listing suppressed.</strong> Upload Safety Data Sheet to Amazon Seller Central to reinstate ASIN B08XYZ123.</> },
-        ];
-        while (aiInsights.length < 3) aiInsights.push(fallbacks[aiInsights.length]);
-    }
-
-    const suggestedActions = [
-        {
-            id: 'reprice',
-            icon: '📦',
-            iconBg: 'rgba(255,153,0,.12)',
-            title: 'Reprice 0W16 on Amazon to win Buy Box',
-            detail: 'Update via Amazon API · recapture Buy Box · +90% of Amazon 0W16 sales',
-        },
+    const suggestedActions = criticalLow.length > 0 ? [
         {
             id: 'po',
             icon: '🛒',
             iconBg: 'rgba(239,68,68,.12)',
-            title: `Create purchase order — ${criticalLow.slice(0, 2).map((p) => p.name.match(/\dW\d+/)?.[0] || p.sku.slice(0, 4)).join(' + ') || '0W16 + 0W20'}`,
-            detail: 'Both at less than 5 days stock. Order from primary supplier.',
+            title: `Create purchase order — ${criticalLow.slice(0, 2).map((p) => p.name.match(/\dW\d+/)?.[0] || p.sku.slice(0, 4)).join(' + ')}`,
+            detail: 'These products are below their configured reorder point.',
         },
-    ];
+    ] : [];
 
     if (loading) {
         return (
@@ -371,7 +349,7 @@ export default function ProductCatalog() {
                     { label: 'In stock', value: inStock, sub: totalProducts ? `${Math.round((inStock / totalProducts) * 100)}% of catalogue` : '0% of catalogue', color: C.green, stripe: C.green },
                     { label: 'Critical low stock', value: criticalLow.length, sub: criticalLabels || 'monitor closely', color: C.amber, stripe: C.amber },
                     { label: 'Out of stock', value: outOfStock, sub: 'reorder urgently', color: C.red, stripe: C.red },
-                    { label: 'Amazon issues', value: amazonIssues, sub: '1 suppressed · 1 hazmat', color: C.orange, stripe: C.orange, highlight: true },
+                    { label: 'Amazon issues', value: amazonIssues, sub: amazonIssues ? 'from product listings' : 'No issues', color: C.orange, stripe: C.orange, highlight: amazonIssues > 0 },
                 ].map((kpi) => (
                     <div
                         key={kpi.label}
@@ -396,8 +374,9 @@ export default function ProductCatalog() {
             <div style={{ background: 'rgba(255,153,0,.06)', border: '0.5px solid rgba(255,153,0,.2)', borderRadius: 11, padding: '12px 14px', marginBottom: 12 }}>
                 <div style={{ fontSize: 11, fontWeight: 500, color: C.orange, marginBottom: 7 }}>📦 Amazon listing alerts — {amazonIssues} need action</div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {(amazonAlerts.length >= 3
-                        ? amazonAlerts.map((p) => {
+                    {amazonAlerts.length === 0 ? (
+                        <div style={{ color: C.muted, fontSize: 10 }}>No Amazon listing alerts.</div>
+                    ) : amazonAlerts.map((p) => {
                             const stock = getTotalStock(p);
                             const asin = deriveAsin(p);
                             let title = '📦 Buy Box lost';
@@ -417,8 +396,7 @@ export default function ProductCatalog() {
                             }
                             return { key: p.id, title, color, border, desc: `${desc}${asin ? ` (${asin})` : ''}` };
                         })
-                        : defaultAlerts.map((a, i) => ({ key: String(i), title: a.title, color: a.color, border: a.border, desc: a.desc }))
-                    ).slice(0, 3).map((alert) => (
+                    .slice(0, 3).map((alert) => (
                         <div key={alert.key} style={{ background: C.bg2, border: `0.5px solid ${alert.border}`, borderRadius: 8, padding: '8px 12px', fontSize: 10, flex: 1, minWidth: 150 }}>
                             <div style={{ color: alert.color, fontWeight: 500, marginBottom: 2 }}>{alert.title}</div>
                             <div style={{ color: C.muted }}>{alert.desc}</div>
@@ -443,10 +421,10 @@ export default function ProductCatalog() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 14 }}>
                     {filteredProducts.map((product) => {
                         const totalStock = getTotalStock(product);
-                        const reorderLevel = product.reorderLevel || 10;
+                        const reorderLevel = product.reorderLevel;
                         const daysLeft = getDaysLeft(product, totalStock);
                         const isOut = totalStock === 0;
-                        const isLow = !isOut && totalStock <= reorderLevel;
+                        const isLow = !isOut && reorderLevel > 0 && totalStock <= reorderLevel;
                         const hasImage = product.images && product.images.length > 0;
                         const primaryUrl = product.images?.find((img) => img.isPrimary)?.url || product.images?.[0]?.url;
                         const asin = deriveAsin(product);
@@ -657,7 +635,9 @@ export default function ProductCatalog() {
             {/* AI inventory + Amazon analysis panel */}
             <div style={{ background: 'linear-gradient(135deg,rgba(124,58,237,.08),rgba(79,142,247,.05))', border: '0.5px solid rgba(155,111,228,.2)', borderRadius: 12, padding: 13, marginBottom: 10 }}>
                 <div style={{ fontSize: 11, fontWeight: 500, color: '#C4B5FD', marginBottom: 8 }}>🤖 AI inventory + Amazon analysis</div>
-                {aiInsights.slice(0, 4).map((ins, i) => (
+                {aiInsights.length === 0 ? (
+                    <div style={{ fontSize: 10, color: C.muted }}>No insights</div>
+                ) : aiInsights.slice(0, 4).map((ins, i) => (
                     <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '5px 0', borderBottom: i < 3 ? '0.5px solid rgba(255,255,255,.04)' : 'none' }}>
                         <div style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, marginTop: 3, background: ins.color }} />
                         <div style={{ flex: 1, fontSize: 10, color: C.muted, lineHeight: 1.5 }}>{ins.html}</div>
@@ -665,7 +645,9 @@ export default function ProductCatalog() {
                 ))}
 
                 <div style={{ marginTop: 10, fontSize: 10, fontWeight: 500, color: '#C4B5FD', marginBottom: 7 }}>🤖 AI suggested actions</div>
-                {suggestedActions.map((action) => {
+                {suggestedActions.length === 0 ? (
+                    <div style={{ fontSize: 10, color: C.muted }}>No actions</div>
+                ) : suggestedActions.map((action) => {
                     const approved = approvedActions.has(action.id);
                     const declined = declinedActions.has(action.id);
                     if (declined) return null;
@@ -699,7 +681,7 @@ export default function ProductCatalog() {
                         </div>
                     );
                 })}
-                <div style={{ marginTop: 8, fontSize: 9, color: C.dim, textAlign: 'right' }}>🔒 Amazon sync via read-only API · data stays in your account</div>
+                <div style={{ marginTop: 8, fontSize: 9, color: C.dim, textAlign: 'right' }}>Amazon listing indicators use product data currently loaded in this catalog.</div>
             </div>
 
             {/* Hidden: preserve delete-all handler for programmatic access */}

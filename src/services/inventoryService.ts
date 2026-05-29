@@ -6,6 +6,8 @@ export interface InventoryValuation {
     totalAssetValue: number;
     totalUnits: number;
     averageUnitCost: number;
+    isPartial?: boolean;
+    excludedUnits?: number;
     byCategory: {
         category: string;
         value: number;
@@ -30,13 +32,10 @@ export interface StockMovement {
     adjustments: number;
     closingStock: number;
     velocity: 'Fast' | 'Medium' | 'Slow' | 'Dead';
-    turnoverRate: number;
-    // ITEM 9 — Value-based view: opening/closing **value** alongside the
-    // unit counts. Uses landedCost (falls back to sellingPrice when there's
-    // no cost) so the Inventory Summary report can show capital tied up.
-    unitCost: number;
-    openingValue: number;
-    closingValue: number;
+    turnoverRate: number | null;
+    unitCost: number | null;
+    openingValue: number | null;
+    closingValue: number | null;
 }
 
 export interface DeadStock {
@@ -82,19 +81,37 @@ export interface ForecastingData {
     sku: string;
     currentStock: number;
     avgDailySales: number;
-    forecast30Days: number;
-    forecast60Days: number;
-    forecast90Days: number;
-    recommendedReorder: number;
-    confidenceLevel: number;
+    forecast30Days: number | null;
+    forecast60Days: number | null;
+    forecast90Days: number | null;
+    recommendedReorder: number | null;
+    confidenceLevel: number | null;
 }
 
 export interface InventoryMetrics {
     totalAssetValuation: number;
-    avgTurnover: number;
-    stockAccuracy: number;
+    avgTurnover: number | null;
+    stockAccuracy: number | null;
     lockedCapital: number;
-    growthRate: number;
+    growthRate: number | null;
+    valuationPartial?: boolean;
+}
+
+export function getKnownInventoryUnitCost(product: unknown): number | null {
+    if (!product || typeof product !== 'object') return null;
+    const p = product as {
+        cost?: unknown;
+        pricing?: {
+            landedCost?: unknown;
+            purchasePriceExWorks?: unknown;
+        };
+    };
+    const candidates = [p.pricing?.landedCost, p.pricing?.purchasePriceExWorks, p.cost];
+    for (const candidate of candidates) {
+        const cost = Number(candidate);
+        if (Number.isFinite(cost) && cost > 0) return cost;
+    }
+    return null;
 }
 
 // Calculate total inventory valuation
@@ -103,6 +120,7 @@ export async function calculateInventoryValuation(): Promise<InventoryValuation>
 
     let totalAssetValue = 0;
     let totalUnits = 0;
+    let excludedUnits = 0;
     const categoryMap = new Map<string, { value: number; units: number }>();
     const locationMap = new Map<string, { value: number; units: number }>();
 
@@ -112,10 +130,12 @@ export async function calculateInventoryValuation(): Promise<InventoryValuation>
             ? product.locations.reduce((sum, loc) => sum + (loc.currentStock ?? 0), 0)
             : 0;
 
-        // Get unit cost - try landedCost first, then sellingPrice, then 0
-        const unitCost = product.pricing?.landedCost
-            || product.pricing?.sellingPrice
-            || 0;
+        const unitCost = getKnownInventoryUnitCost(product);
+
+        if (unitCost === null) {
+            excludedUnits += totalStock;
+            return;
+        }
 
         const productValue = totalStock * unitCost;
 
@@ -158,6 +178,8 @@ export async function calculateInventoryValuation(): Promise<InventoryValuation>
         totalAssetValue,
         totalUnits,
         averageUnitCost: totalUnits > 0 ? totalAssetValue / totalUnits : 0,
+        isPartial: excludedUnits > 0,
+        excludedUnits,
         byCategory,
         byLocation
     };
@@ -190,17 +212,11 @@ export async function calculateStockMovement(): Promise<StockMovement[]> {
                 return sum + (item?.quantity || 0);
             }, 0);
 
-        // Calculate turnover rate
-        const turnoverRate = totalStock > 0 ? (sales / totalStock) * 12 : 0; // Annualized
-
-        // ITEM 9 — Compute opening/closing **values** using landed cost.
-        // Fall back to selling price only when no cost is recorded so we
-        // never report zero capital for stock that obviously has value.
         const openingStock = totalStock + sales - purchases;
         const closingStock = totalStock;
-        const unitCost = Number(product.pricing?.landedCost ?? product.pricing?.purchasePriceExWorks ?? product.pricing?.sellingPrice ?? 0) || 0;
-        const openingValue = Math.round(openingStock * unitCost * 100) / 100;
-        const closingValue = Math.round(closingStock * unitCost * 100) / 100;
+        const unitCost = getKnownInventoryUnitCost(product);
+        const openingValue = unitCost === null ? null : Math.round(openingStock * unitCost * 100) / 100;
+        const closingValue = unitCost === null ? null : Math.round(closingStock * unitCost * 100) / 100;
 
         return {
             productId: product.id,
@@ -213,7 +229,7 @@ export async function calculateStockMovement(): Promise<StockMovement[]> {
             adjustments: 0, // Can be enhanced with adjustment tracking
             closingStock,
             velocity: product.velocityStatus || 'Medium',
-            turnoverRate,
+            turnoverRate: null,
             unitCost,
             openingValue,
             closingValue,
@@ -246,8 +262,8 @@ export async function identifyDeadStock(): Promise<DeadStock[]> {
                 ? Math.floor((currentDate.getTime() - new Date(lastSaleDate).getTime()) / (1000 * 60 * 60 * 24))
                 : -1; // -1 indicates no sales history
 
-            const unitCost = product.pricing?.landedCost || product.pricing?.sellingPrice || 0;
-            const lockedCapital = totalStock * unitCost;
+            const unitCost = getKnownInventoryUnitCost(product);
+            const lockedCapital = unitCost === null ? 0 : totalStock * unitCost;
 
             let recommendedAction = '';
             if (daysSinceLastSale > 180) {
@@ -379,8 +395,8 @@ export async function calculateLossLeakage(): Promise<LossLeakage[]> {
         const expectedStock = totalPurchases - totalSales;
         const variance = expectedStock - totalStock;
         const variancePercentage = expectedStock > 0 ? (variance / expectedStock) * 100 : 0;
-        const unitCost = product.pricing?.landedCost || product.pricing?.sellingPrice || 0;
-        const estimatedLoss = variance * unitCost;
+        const unitCost = getKnownInventoryUnitCost(product);
+        const estimatedLoss = unitCost === null ? 0 : variance * unitCost;
 
         return {
             productId: product.id,
@@ -408,64 +424,36 @@ export async function generateForecastingData(): Promise<ForecastingData[]> {
             : 0;
         const avgDailySales = product.avgDailySales || 0;
 
-        // Simple forecasting based on average daily sales with growth factor
-        const salesTrend = product.salesTrend || 0;
-        const growthFactor = 1 + (salesTrend / 100);
-        const forecast30Days = Math.round(avgDailySales * 30 * growthFactor);
-        const forecast60Days = Math.round(avgDailySales * 60 * growthFactor);
-        const forecast90Days = Math.round(avgDailySales * 90 * growthFactor);
-
-        // Calculate recommended reorder point
-        const leadTimeDays = product.leadTimeDays || 7;
-        const leadTimeDemand = avgDailySales * leadTimeDays;
-        const safetyStock = avgDailySales * 7; // 7 days safety stock
-        const recommendedReorder = Math.round(leadTimeDemand + safetyStock);
-
         return {
             productId: product.id,
             productName: product.name,
             sku: product.sku,
             currentStock: totalStock,
             avgDailySales,
-            forecast30Days,
-            forecast60Days,
-            forecast90Days,
-            recommendedReorder,
-            confidenceLevel: product.aiConfidenceLevel || 75
+            forecast30Days: null,
+            forecast60Days: null,
+            forecast90Days: null,
+            recommendedReorder: null,
+            confidenceLevel: null
         };
-    }).sort((a, b) => b.forecast30Days - a.forecast30Days);
+    });
 }
 
 // Get overall inventory metrics
 export async function getInventoryMetrics(): Promise<InventoryMetrics> {
     const valuation = await calculateInventoryValuation();
-    const movements = await calculateStockMovement();
     const deadStock = await identifyDeadStock();
-
-    // Calculate average turnover
-    const avgTurnover = movements.length > 0
-        ? movements.reduce((sum, m) => sum + m.turnoverRate, 0) / movements.length
-        : 0;
-
-    // Calculate stock accuracy (based on variance)
-    const lossLeakage = await calculateLossLeakage();
-    const totalVariance = lossLeakage.reduce((sum, l) => sum + Math.abs(l.variancePercentage), 0);
-    const stockAccuracy = lossLeakage.length > 0
-        ? 100 - (totalVariance / lossLeakage.length)
-        : 99.5;
 
     // Calculate locked capital in dead stock
     const lockedCapital = deadStock.reduce((sum, d) => sum + d.lockedCapital, 0);
 
-    // Calculate growth rate (mock for now, can be enhanced with historical data)
-    const growthRate = 1.2;
-
     return {
         totalAssetValuation: valuation.totalAssetValue,
-        avgTurnover,
-        stockAccuracy: Math.max(0, Math.min(100, stockAccuracy)),
+        avgTurnover: null,
+        stockAccuracy: null,
         lockedCapital,
-        growthRate
+        growthRate: null,
+        valuationPartial: valuation.isPartial
     };
 }
 
@@ -544,7 +532,7 @@ async function buildLayersForProduct(productName: string, pos: any[]): Promise<C
             if (!matchesProduct(name, productName)) continue;
             const qty = Number((item as any).quantity) || 0;
             const cost = Number((item as any).unitPrice || (item as any).rate) || 0;
-            if (qty > 0) layers.push({ qty, cost, date: po.date || '' });
+            if (qty > 0 && cost > 0) layers.push({ qty, cost, date: po.date || '' });
         }
     }
     return layers;
@@ -646,7 +634,10 @@ export async function calculateAvgCostValuation(): Promise<CostMethodValuation> 
     let totalValue = 0, totalUnits = 0;
     const items = products.map(product => {
         const stock = product.locations?.reduce((s, l) => s + (l.currentStock || 0), 0) || 0;
-        const cost = product.pricing?.purchasePriceExWorks || product.pricing?.landedCost || product.pricing?.sellingPrice || 0;
+        const cost = getKnownInventoryUnitCost(product);
+        if (cost === null) {
+            return { name: product.name || '', sku: product.sku || '', units: stock, unitCost: 0, totalValue: 0 };
+        }
         const value = stock * cost;
         totalValue += value;
         totalUnits += stock;

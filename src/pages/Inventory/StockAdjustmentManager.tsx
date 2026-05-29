@@ -88,13 +88,12 @@ function getProductSku(products: Product[], productId: string, productName: stri
     return p?.sku || productId;
 }
 
-function getUnitCost(products: Product[], productId: string, productName: string): number {
+function getUnitCost(products: Product[], productId: string, productName: string): number | null {
     const p = products.find(x => x.id === productId || x.name === productName);
-    if (!p) return 12;
+    if (!p) return null;
     const cost = p.pricing?.landedCost ?? p.priceHistory?.[0]?.cost;
     if (cost && cost > 0) return cost;
-    const sell = p.pricing?.sellingPrice ?? p.priceHistory?.[0]?.selling ?? 0;
-    return sell > 0 ? sell * 0.55 : 12;
+    return null;
 }
 
 export default function StockAdjustmentManager() {
@@ -343,11 +342,14 @@ export default function StockAdjustmentManager() {
     const costImpact = useMemo(() => {
         const restockUnits = pendingItems.reduce((s, a) => s + Math.max(0, a.suggestedAdjustment), 0);
         const restockCost = pendingItems.reduce(
-            (s, a) => s + Math.max(0, a.suggestedAdjustment) * getUnitCost(products, a.productId, a.productName),
+            (s, a) => {
+                const unitCost = getUnitCost(products, a.productId, a.productName);
+                return unitCost === null ? s : s + Math.max(0, a.suggestedAdjustment) * unitCost;
+            },
             0,
         );
-        const revenueUnlock = Math.round(restockCost * 2.7);
-        const roi = restockCost > 0 ? (revenueUnlock / restockCost).toFixed(1) : '2.7';
+        const revenueUnlock = null;
+        const roi = null;
         return { restockUnits, restockCost, revenueUnlock, roi };
     }, [pendingItems, products]);
 
@@ -740,7 +742,7 @@ export default function StockAdjustmentManager() {
                             </div>
                             <div style={{ padding: '10px 12px', borderRadius: 8, background: 'rgba(34,197,94,.08)', border: '1px solid rgba(34,197,94,.18)' }}>
                                 <div style={{ fontSize: 9, color: C.green, textTransform: 'uppercase', fontWeight: 700, marginBottom: 4 }}>Revenue unlock</div>
-                                <div style={{ fontSize: 18, fontWeight: 700, color: C.green }}>{fmtUsd(costImpact.revenueUnlock)}</div>
+                                <div style={{ fontSize: 18, fontWeight: 700, color: C.green }}>—</div>
                                 <span style={{
                                     display: 'inline-block',
                                     marginTop: 4,
@@ -751,7 +753,7 @@ export default function StockAdjustmentManager() {
                                     background: 'rgba(155,111,228,.15)',
                                     color: C.purple,
                                 }}>
-                                    {costImpact.roi}x ROI
+                                    No sales forecast
                                 </span>
                             </div>
                         </div>
