@@ -24,10 +24,11 @@ import {
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { getPayments, getInvoices, getCustomers, voidPayment, type Payment, type Invoice } from '../../services/api';
+import { getPayments, getInvoices, voidPayment, type Payment, type Invoice } from '../../services/api';
 import { getSuppliers } from '../../services/purchasesService';
 import { getCompanyProfile } from '../../services/settingsService';
-import { getExpenses, type Expense } from '../../services/expenseService';
+import { getExpensesSnapshot, type Expense } from '../../services/expenseService';
+import { calculateReceivables } from '../../utils/arMetrics';
 
 const panelStyle: CSSProperties = {
     background: 'var(--color-redwood-bg-surface)',
@@ -229,11 +230,7 @@ interface SupplierPaymentRow {
 
 export default function Banking() {
     const [payments, setPayments] = useState<Payment[]>([]);
-    // We still fetch invoices on mount in case downstream features (export
-    // statement, reconciliation) need them, but they're no longer the source
-    // of Outstanding AR — that comes from customer balances now.
-    const [, setInvoices] = useState<Invoice[]>([]);
-    const [customers, setCustomers] = useState<any[]>([]);
+    const [invoices, setInvoices] = useState<Invoice[]>([]);
     // Supplier payments (cash going OUT). Fetched per-supplier and aggregated.
     const [supplierPayments, setSupplierPayments] = useState<{ row: SupplierPaymentRow; supplierName: string }[]>([]);
     const [loading, setLoading] = useState(true);
@@ -257,6 +254,7 @@ export default function Banking() {
     const [pdcForm, setPdcForm] = useState({ date: '', chequeNo: '', bankName: '', payee: '', amount: '', type: 'Received' as PDCheque['type'], description: '' });
     const [dateTo, setDateTo] = useState('');
     const [expenses, setExpenses] = useState<Expense[]>([]);
+    const [expenseDataUnavailable, setExpenseDataUnavailable] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
     // FIX W6-1 — track which payment row is being voided (disables button).
     const [voidingId, setVoidingId] = useState<string | null>(null);
@@ -299,17 +297,16 @@ export default function Banking() {
         if (isRefresh) setRefreshing(true);
         else setLoading(true);
         try {
-            const [p, i, c, suppliers, exp] = await Promise.all([
+            const [p, i, suppliers, exp] = await Promise.all([
                 getPayments().catch(() => []),
                 getInvoices().catch(() => []),
-                getCustomers().catch(() => []),
                 getSuppliers().catch(() => []),
-                getExpenses().catch(() => []),
+                getExpensesSnapshot().catch(() => ({ expenses: [], stale: true })),
             ]);
             setPayments(p);
             setInvoices(i);
-            setCustomers(c as any[]);
-            setExpenses(exp);
+            setExpenseDataUnavailable(exp.stale);
+            setExpenses(exp.stale ? [] : exp.expenses);
             const supPayLists = await Promise.all(
                 suppliers.map(async s => {
                     try {
@@ -473,17 +470,7 @@ export default function Banking() {
     const bankDebits = allTransactions.filter(t => t.channel === 'Bank' && t.type === 'Debit').reduce((s, t) => s + t.amount, 0);
     const bankBalance = bankCredits - bankDebits;
 
-    // Outstanding AR — sourced from CUSTOMER BALANCES, not raw invoice
-    // grand totals. The imported invoices all have status='unpaid' and
-    // paid_amount=0 (the migration never reconciled them with the 802
-    // customer payments), so summing invoice.balance gave 9× the real
-    // figure ($406k vs the actual $45k). Customer balances ARE the
-    // reconciled ledger total, and this matches the Aged Receivable
-    // report + the COA Accounts Receivable tile.
-    const outstandingAR = (customers || []).reduce(
-        (s: number, c: any) => s + Math.max(0, Number(c?.balance) || 0),
-        0,
-    );
+    const outstandingAR = calculateReceivables(invoices, payments).total;
 
     const filtered = ledgerWithBalance.filter(t => {
         if (dateFrom && t.date < dateFrom) return false;
@@ -507,13 +494,12 @@ export default function Banking() {
         const debits = allTransactions.filter(t => t.type === 'Debit');
         return credits.slice(0, 4).map((cr, idx) => {
             const match = debits.find(d => Math.abs(d.amount - cr.amount) < 0.01) || debits[idx];
-            const pct = match ? Math.min(98, 72 + Math.round((cr.amount % 17) * 1.5)) : 45;
             return {
                 id: cr.id,
                 book: cr.description,
                 bank: match?.description || 'Bank feed line',
                 amount: cr.amount,
-                pct,
+                pct: null as number | null,
             };
         });
     }, [allTransactions]);
@@ -572,11 +558,10 @@ export default function Banking() {
             const d = new Date(e.date.includes('T') ? e.date : `${e.date}T12:00:00`);
             return d >= monthStart;
         });
-        if (monthExp.length === 0) return 88;
+        if (expenseDataUnavailable || monthExp.length === 0) return null;
         const approved = monthExp.filter(e => e.status === 'Approved' || e.status === 'Paid').length;
-        const flagged = monthExp.filter(e => e.is_duplicate_flag || (e.policy_flags?.length || 0) > 0).length;
-        return Math.max(42, Math.min(98, Math.round((approved / monthExp.length) * 100 - flagged * 8)));
-    }, [expenses, monthStart]);
+        return Math.round((approved / monthExp.length) * 100);
+    }, [expenses, monthStart, expenseDataUnavailable]);
 
     const handleAiAnalysis = () => {
         alert(
@@ -615,13 +600,13 @@ export default function Banking() {
             answer = reconciliationMatches.length === 0
                 ? 'No suggested matches pending review.'
                 : `${reconciliationMatches.length} suggested matches:\n` +
-                  reconciliationMatches.slice(0, 4).map(m => `• ${formatUsd(m.amount)} — ${m.pct}% match (${m.book})`).join('\n');
+                  reconciliationMatches.slice(0, 4).map(m => `• ${formatUsd(m.amount)} — ${m.book}`).join('\n');
         } else {
             answer =
                 `Based on your ledger:\n` +
                 `• ${filtered.length} visible transactions · Closing balance ${formatUsd(filtered[0]?.balance ?? netBalance)}\n` +
                 `• ${reconciliationMatches.length} AI matches · ${anomalies.length} anomalies\n` +
-                `• Expense health ${expenseHealthScore}% this month\n\n` +
+                `• Expense health ${expenseHealthScore == null ? '—' : `${expenseHealthScore}%`} this month\n\n` +
                 `Try asking about variance, cash position, duplicates, or reconciliation matches.`;
         }
         setAiResponse(answer);
@@ -1074,10 +1059,10 @@ export default function Banking() {
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                         <div style={{ ...panelStyle, background: 'rgba(124,58,237,.08)', borderColor: 'rgba(124,58,237,.28)' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}><span style={{ fontSize: 12, fontWeight: 600, color: '#C4B5FD', display: 'flex', alignItems: 'center', gap: 6 }}><Bot size={16} /> AI Reconciliation</span><button type="button" onClick={() => alert('All suggested matches approved (UI preview).')} style={{ ...primaryBtn, fontSize: 9, padding: '4px 10px', background: 'linear-gradient(90deg,#7C3AED,#4F8EF7)' }}>Approve all</button></div>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}><span style={{ fontSize: 12, fontWeight: 600, color: '#C4B5FD', display: 'flex', alignItems: 'center', gap: 6 }}><Bot size={16} /> Reconciliation</span></div>
                             {reconciliationMatches.length === 0 ? <p style={{ fontSize: 11, color: 'var(--color-redwood-text-muted)' }}>No matches to review</p> : reconciliationMatches.map(m => (
                                 <div key={m.id} style={{ padding: 10, borderRadius: 8, background: 'var(--color-redwood-row-bg)', border: '1px solid var(--color-redwood-border)', marginBottom: 8 }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}><span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>{formatUsd(m.amount)}</span><span style={{ fontSize: 10, fontWeight: 700, color: m.pct >= 85 ? 'var(--color-brand-green-tint)' : 'var(--color-brand-amber-tint)' }}>{m.pct}% match</span></div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}><span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>{formatUsd(m.amount)}</span><span style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-redwood-text-muted)' }}>Match score —</span></div>
                                     <div style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>Book: {m.book}</div>
                                     <div style={{ fontSize: 10, color: 'var(--color-redwood-text-subtle)' }}>Bank: {m.bank}</div>
                                 </div>
@@ -1093,12 +1078,12 @@ export default function Banking() {
                             ))}
                         </div>
                         <div style={panelStyle}>
-                            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10, color: 'var(--color-redwood-text-main)' }}>AI Expense Monitor</div>
+                            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10, color: 'var(--color-redwood-text-main)' }}>Expense Monitor</div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 12 }}>
-                                <div style={{ width: 56, height: 56, borderRadius: '50%', background: `conic-gradient(var(--color-brand-green) ${expenseHealthScore * 3.6}deg, var(--color-redwood-row-bg) 0)`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                    <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'var(--color-redwood-bg-surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: expenseHealthScore >= 75 ? 'var(--color-brand-green-tint)' : 'var(--color-brand-amber-tint)' }}>{expenseHealthScore}%</div>
+                                <div style={{ width: 56, height: 56, borderRadius: '50%', background: `conic-gradient(var(--color-brand-green) ${(expenseHealthScore ?? 0) * 3.6}deg, var(--color-redwood-row-bg) 0)`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'var(--color-redwood-bg-surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: expenseHealthScore == null ? 'var(--color-redwood-text-muted)' : expenseHealthScore >= 75 ? 'var(--color-brand-green-tint)' : 'var(--color-brand-amber-tint)' }}>{expenseHealthScore == null ? '—' : `${expenseHealthScore}%`}</div>
                                 </div>
-                                <div><div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>Expense health</div><div style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>This month · USD</div></div>
+                                <div><div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>Approval rate</div><div style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>{expenseDataUnavailable ? 'Data unavailable' : 'This month · USD'}</div></div>
                             </div>
                             {expenseByCategory.length === 0 ? <p style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>No expenses this month</p> : expenseByCategory.map(([cat, amt]) => {
                                 const max = expenseByCategory[0]?.[1] || 1;

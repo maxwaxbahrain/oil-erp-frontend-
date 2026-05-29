@@ -1,6 +1,7 @@
 import { useState, useEffect, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getInvoices, getPayments, type Invoice } from '../../services/api';
+import { getInvoices, getPayments, type Invoice, type Payment } from '../../services/api';
+import { calculateReceivables } from '../../utils/arMetrics';
 
 // ─── Shared style tokens ────────────────────────────────────────
 const panel: CSSProperties = {
@@ -99,15 +100,9 @@ const fmt = (n: number) =>
 
 const daysOverdue = (dueDate: string) => {
   const due = new Date(dueDate).getTime();
-  if (isNaN(due)) return 0;
+  if (isNaN(due)) return null;
   return Math.floor((Date.now() - due) / 86400000);
 };
-
-const isUnpaid = (i: Invoice) =>
-  i.status === 'Unpaid' || i.status === 'Overdue' || i.status === 'Partial';
-
-const outstandingAmount = (i: Invoice) =>
-  Number(i.remaining_balance ?? i.grandTotal) || 0;
 
 // Extract trailing numeric portion of invoice number for gap detection.
 const seqOf = (invoiceNumber: string): number | null => {
@@ -118,7 +113,7 @@ const seqOf = (invoiceNumber: string): number | null => {
 export default function FinanceDashboard() {
   const navigate = useNavigate();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [payments, setPayments] = useState<{ amount: number }[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
 
   // Responsive column count — same ResizeObserver pattern as
   // WarehouseDashboard. Re-evaluates on resize.
@@ -146,12 +141,9 @@ export default function FinanceDashboard() {
   // to 0. Sub-text still reads "Bank minus payables" per spec.)
   const cashPosition = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
-  // AR Outstanding = sum of unpaid/overdue/partial invoice balances.
-  const unpaidInvoices = invoices.filter(isUnpaid);
-  const arOutstanding = unpaidInvoices.reduce((s, i) => s + outstandingAmount(i), 0);
-  const arOver30 = unpaidInvoices
-    .filter((i) => daysOverdue(i.dueDate) > 30)
-    .reduce((s, i) => s + outstandingAmount(i), 0);
+  const receivables = calculateReceivables(invoices, payments, now);
+  const arOutstanding = receivables.total;
+  const arOver30 = receivables.days60 + receivables.days90;
 
   // VAT collected MTD + matching net income MTD.
   const mtdInvoices = invoices.filter((i) => {
@@ -162,28 +154,25 @@ export default function FinanceDashboard() {
   const netIncomeMTD = mtdInvoices.reduce((s, i) => s + (Number(i.subtotal) || 0), 0);
 
   // AR Aging buckets.
+  const bucketCounts = receivables.invoices.reduce((acc, row) => {
+    acc[row.bucket] += 1;
+    return acc;
+  }, { current: 0, days30: 0, days60: 0, days90: 0 });
   const buckets = {
-    current:  { total: 0, count: 0, label: 'Current (0–30 days)',         color: '#22C55E' },
-    late:     { total: 0, count: 0, label: 'Late (31–60 days)',           color: '#F59E0B' },
-    overdue:  { total: 0, count: 0, label: 'Overdue (61–90 days)',        color: '#EF4444' },
-    writeoff: { total: 0, count: 0, label: 'Write-off risk (90+ days)',   color: '#EF4444' },
+    current:  { total: receivables.current, count: bucketCounts.current, label: 'Current', color: '#22C55E' },
+    late:     { total: receivables.days30, count: bucketCounts.days30, label: '1–30 days', color: '#F59E0B' },
+    overdue:  { total: receivables.days60, count: bucketCounts.days60, label: '31–60 days', color: '#EF4444' },
+    writeoff: { total: receivables.days90, count: bucketCounts.days90, label: '61+ days', color: '#EF4444' },
   };
-  unpaidInvoices.forEach((i) => {
-    const d = daysOverdue(i.dueDate);
-    const amt = outstandingAmount(i);
-    if (d <= 30) { buckets.current.total += amt; buckets.current.count++; }
-    else if (d <= 60) { buckets.late.total += amt; buckets.late.count++; }
-    else if (d <= 90) { buckets.overdue.total += amt; buckets.overdue.count++; }
-    else { buckets.writeoff.total += amt; buckets.writeoff.count++; }
-  });
   const bucketRows = [buckets.current, buckets.late, buckets.overdue, buckets.writeoff];
   const arTotal = bucketRows.reduce((s, b) => s + b.total, 0);
   const maxBucket = Math.max(1, ...bucketRows.map((b) => b.total));
 
   // Collection Health row 1 — single worst overdue invoice (real data).
-  const worstInvoice = unpaidInvoices
-    .filter((i) => daysOverdue(i.dueDate) > 30)
-    .sort((a, b) => outstandingAmount(b) - outstandingAmount(a))[0];
+  const worstReceivable = [...receivables.invoices]
+    .filter((row) => row.bucket === 'days60' || row.bucket === 'days90')
+    .sort((a, b) => b.balance - a.balance)[0];
+  const worstInvoice = worstReceivable?.invoice as Invoice | undefined;
   // Cast to any so the fallback chain can probe alternate field
   // shapes (`customer.name`, `companyName`, `clientName`, `billTo.name`)
   // that some payloads use even though Invoice type only declares
@@ -197,14 +186,32 @@ export default function FinanceDashboard() {
     _wi?.clientName ||
     _wi?.billTo?.name ||
     'Overdue account';
-  const worstAmount = worstInvoice ? outstandingAmount(worstInvoice) : 0;
-  const worstDays = worstInvoice ? daysOverdue(worstInvoice.dueDate) : 0;
+  const worstAmount = worstReceivable?.balance ?? 0;
+  const worstDays = worstInvoice ? daysOverdue(worstInvoice.dueDate) : null;
 
-  // Collection Health row 3 — total collected MTD (payments only).
-  const mtdCollected = mtdInvoices.reduce(
-    (s, i) => s + (Number(i.amount_paid) || 0),
-    0
-  );
+  const mtdCollected = payments
+    .filter(p => {
+      const d = new Date(p.payment_date);
+      return !Number.isNaN(d.getTime()) && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    })
+    .reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const totalInvoiced = invoices.reduce((s, i) => s + (Number(i.grandTotal) || 0), 0);
+  const totalCollected = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const collectionRate = totalInvoiced > 0 ? Math.min(100, (totalCollected / totalInvoiced) * 100) : null;
+  const linkedPaymentDays = payments
+    .map(p => {
+      if (!p.invoice_id) return null;
+      const inv = invoices.find(i => String(i.id) === String(p.invoice_id));
+      if (!inv) return null;
+      const invoiceDate = new Date(inv.invoiceDate).getTime();
+      const paymentDate = new Date(p.payment_date).getTime();
+      if (!Number.isFinite(invoiceDate) || !Number.isFinite(paymentDate)) return null;
+      return Math.max(0, Math.round((paymentDate - invoiceDate) / 86400000));
+    })
+    .filter((n): n is number => n !== null);
+  const avgDaysToPay = linkedPaymentDays.length
+    ? Math.round(linkedPaymentDays.reduce((s, n) => s + n, 0) / linkedPaymentDays.length)
+    : null;
 
   // Sequential invoice-number gap detection.
   const seqList = invoices
@@ -406,13 +413,13 @@ export default function FinanceDashboard() {
             textAlign: 'center', padding: '8px 0 3px',
             fontFamily: "'Syne',sans-serif",
           }}>
-            99.2%
+            {collectionRate == null ? '—' : `${collectionRate.toFixed(1)}%`}
           </div>
           <div style={{
             fontSize: '9px', color: 'var(--color-redwood-text-muted)',
             textAlign: 'center', marginBottom: '8px',
           }}>
-            Current within terms
+            {collectionRate == null ? 'No collection data' : 'Collected vs invoiced'}
           </div>
 
           <div style={rowStyle}>
@@ -420,12 +427,12 @@ export default function FinanceDashboard() {
               ⚠ {worstInvoice ? worstName : 'No overdue accounts'}
             </span>
             <span style={{ color: 'var(--color-brand-red)', fontWeight: 600 }}>
-              {worstInvoice ? `$${worstAmount.toLocaleString()} · ${worstDays}d` : '—'}
+              {worstInvoice ? `$${worstAmount.toLocaleString()} · ${worstDays ?? '—'}d` : '—'}
             </span>
           </div>
           <div style={rowStyle}>
             <span style={{ color: 'var(--color-redwood-text-muted)' }}>Avg days to pay</span>
-            <span style={{ color: 'var(--color-redwood-text-main)', fontWeight: 600 }}>12 days</span>
+            <span style={{ color: 'var(--color-redwood-text-main)', fontWeight: 600 }}>{avgDaysToPay == null ? '—' : `${avgDaysToPay} days`}</span>
           </div>
           <div style={rowStyle}>
             <span style={{ color: 'var(--color-redwood-text-muted)' }}>This month collected</span>
@@ -513,7 +520,8 @@ export default function FinanceDashboard() {
               <tbody>
                 {invoices.slice(0, 8).map((inv) => {
                   const gap = hasGap(inv.invoiceNumber);
-                  const isOverdue = inv.status === 'Overdue' || daysOverdue(inv.dueDate) > 0;
+                  const overdueDays = daysOverdue(inv.dueDate);
+                  const isOverdue = inv.status === 'Overdue' || (overdueDays != null && overdueDays > 0);
                   const statusBadge = inv.status === 'Paid'
                     ? { label: 'Paid',    bg: 'rgba(34,197,94,.18)',  color: '#22C55E' }
                     : isOverdue

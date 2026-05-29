@@ -3,9 +3,9 @@ import { useState, useEffect } from 'react';
 import { Clock, Download, AlertTriangle, CheckCircle , ArrowLeft, Printer } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { getInvoices, type Invoice } from '../../services/api';
-import { getCustomers } from '../../services/customerService';
+import { getInvoices, getPayments, type Invoice } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
+import { calculateReceivables } from '../../utils/arMetrics';
 
 interface AgedCustomer {
     customerId: string;
@@ -16,6 +16,7 @@ interface AgedCustomer {
     days90: number;       // 90+ days
     total: number;
     invoices: Invoice[];
+    invoiceBalances: Record<string, number>;
 }
 
 export default function AgedReceivable() {
@@ -27,68 +28,34 @@ export default function AgedReceivable() {
     const [asOf] = useState(new Date().toISOString().split('T')[0]);
 
     useEffect(() => {
-        // The report's source of truth is the customer's outstanding balance —
-        // the same number shown in the Customers list. Invoices give the
-        // per-bucket aging detail where they exist; for legacy / BETTANO-imported
-        // customers without invoice records, the unallocated balance lands in
-        // the '90+ days' bucket (the data predates today).
-        Promise.all([getInvoices(), getCustomers().catch(() => [])]).then(([invoices, customers]) => {
-            const today = new Date();
+        Promise.all([getInvoices(), getPayments()]).then(([invoices, payments]) => {
+            const receivables = calculateReceivables(invoices, payments, new Date(`${asOf}T12:00:00`));
+            const byCustomer = new Map<string, AgedCustomer>();
 
-            // Bucket unpaid invoices by customer id for quick lookup.
-            const invoicesByCustomer: Record<string, Invoice[]> = {};
-            invoices.forEach(inv => {
-                if (!['Unpaid', 'Partial', 'Overdue'].includes(inv.status || '')) return;
-                const cid = inv.customerId ? String(inv.customerId) : '';
-                if (!cid) return;
-                const bal = (inv.grandTotal || inv.subtotal || 0) - (inv.amount_paid || 0);
-                if (bal <= 0) return;
-                (invoicesByCustomer[cid] = invoicesByCustomer[cid] || []).push(inv);
-            });
-
-            const aged: AgedCustomer[] = [];
-            (customers || []).forEach((c: any) => {
-                const cid = String(c?.id ?? '');
-                if (!cid) return;
-                const balance = Number(c?.balance) || 0;
-                if (balance <= 0) return; // customer is paid up
-                const name = String(c?.name ?? '').trim() || 'Unknown';
-                const custInvoices = invoicesByCustomer[cid] || [];
-
-                const item: AgedCustomer = {
+            receivables.invoices.forEach(row => {
+                const inv = row.invoice as Invoice;
+                const cid = String(inv.customerId || 'unknown');
+                const existing = byCustomer.get(cid) || {
                     customerId: cid,
-                    customerName: name,
+                    customerName: inv.customerName || 'Unknown',
                     current: 0,
                     days30: 0,
                     days60: 0,
                     days90: 0,
-                    total: balance,
-                    invoices: custInvoices,
+                    total: 0,
+                    invoices: [],
+                    invoiceBalances: {},
                 };
-
-                let bucketed = 0;
-                custInvoices.forEach(inv => {
-                    const due = inv.dueDate ? new Date(inv.dueDate) : new Date(inv.invoiceDate || inv.createdAt || today);
-                    const daysOverdue = Math.floor((today.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
-                    const invBal = (inv.grandTotal || inv.subtotal || 0) - (inv.amount_paid || 0);
-                    if (invBal <= 0) return;
-                    if (daysOverdue <= 0) item.current += invBal;
-                    else if (daysOverdue <= 30) item.days30 += invBal;
-                    else if (daysOverdue <= 60) item.days60 += invBal;
-                    else item.days90 += invBal;
-                    bucketed += invBal;
-                });
-
-                // Any balance not covered by tracked invoices is legacy debt.
-                const remainder = balance - bucketed;
-                if (remainder > 0.01) item.days90 += remainder;
-
-                aged.push(item);
+                existing[row.bucket] += row.balance;
+                existing.total += row.balance;
+                existing.invoices.push(inv);
+                existing.invoiceBalances[inv.id] = row.balance;
+                byCustomer.set(cid, existing);
             });
 
-            setData(aged.sort((a, b) => b.total - a.total));
+            setData([...byCustomer.values()].sort((a, b) => b.total - a.total));
             setLoading(false);
-        });
+        }).catch(() => setLoading(false));
     }, []);
 
     const filtered = data.filter(c => c.customerName.toLowerCase().includes(search.toLowerCase()));
@@ -256,7 +223,7 @@ export default function AgedReceivable() {
                                                                     <span className="text-gray-500">{inv.invoiceDate}</span>
                                                                     <span className="text-gray-500">Due: {inv.dueDate || 'N/A'}</span>
                                                                     <span className={`font-black ${inv.status === 'Overdue' ? 'text-red-600' : 'text-orange-600'}`}>{inv.status}</span>
-                                                                    <span className="font-black font-mono text-gray-900">{formatCurrency((inv.grandTotal || 0) - (inv.amount_paid || 0))}</span>
+                                                                    <span className="font-black font-mono text-gray-900">{formatCurrency(c.invoiceBalances[inv.id] ?? 0)}</span>
                                                                 </div>
                                                             ))}
                                                         </div>

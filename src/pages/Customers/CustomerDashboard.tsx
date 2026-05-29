@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Users, Plus, FileText, Receipt, AlertCircle, Filter, ArrowLeft, Download } from 'lucide-react';
-import { type Customer } from '../../services/customerService';
+import { type Customer, getCustomers } from '../../services/customerService';
+import { getInvoices, getPayments } from '../../services/api';
+import { calculateReceivables } from '../../utils/arMetrics';
 import CustomerListPage from './CustomerList';  // ← FIXED: Changed from CustomerList to CustomerListPage
 import CustomerForm from './CustomerForm';
 import CustomerLedger from './CustomerLedger';
@@ -12,6 +14,27 @@ type ViewMode = 'list' | 'form' | 'ledger' | 'receipt' | 'overdue';
 export default function CustomerDashboard() {
   const [view, setView] = useState<ViewMode>('list');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [metrics, setMetrics] = useState({
+    receivables: null as number | null,
+    overLimit: null as number | null,
+    collected: null as number | null,
+    customers: null as number | null,
+  });
+
+  useEffect(() => {
+    Promise.all([getInvoices(), getPayments(), getCustomers()])
+      .then(([invoices, payments, customers]) => {
+        const receivables = calculateReceivables(invoices, payments).total;
+        const overLimit = customers.filter((c: any) => {
+          const balance = Number(c?.balance) || 0;
+          const limit = Number(c?.credit_limit ?? c?.creditLimit) || 0;
+          return limit > 0 && balance > limit;
+        }).length;
+        const collected = payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+        setMetrics({ receivables, overLimit, collected, customers: customers.length });
+      })
+      .catch(() => setMetrics({ receivables: null, overLimit: null, collected: null, customers: null }));
+  }, []);
 
   const handleEdit = (customer: Customer) => {
     setSelectedCustomer(customer);
@@ -41,7 +64,7 @@ export default function CustomerDashboard() {
           <h1 className="text-3xl font-black text-redwood-text-main tracking-tighter uppercase">Customer Relationship Hub</h1>
           <div className="flex items-center gap-2 mt-1">
             <span className="text-[10px] font-black text-redwood-brand uppercase tracking-[0.2em] px-2 py-0.5 bg-redwood-brand/10 rounded-sm">Master Data Registry</span>
-            <span className="text-[10px] font-black text-redwood-text-muted uppercase tracking-[0.2em]">Global Entities: 1,420 Active</span>
+            <span className="text-[10px] font-black text-redwood-text-muted uppercase tracking-[0.2em]">Global Entities: {metrics.customers == null ? '—' : metrics.customers} Active</span>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -79,7 +102,7 @@ export default function CustomerDashboard() {
               <div className="text-[11px] font-black text-redwood-text-muted uppercase tracking-[0.2em]">Total Receivables</div>
               <Download size={16} className="text-redwood-brand" />
             </div>
-            <div className="text-2xl font-black text-redwood-text-main tracking-tight">8.42M</div>
+            <div className="text-2xl font-black text-redwood-text-main tracking-tight">{metrics.receivables == null ? '—' : metrics.receivables.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
             <div className="mt-4 flex items-center gap-2 text-[10px] font-black text-redwood-brand bg-redwood-brand/5 w-fit px-2 py-0.5 rounded-sm uppercase tracking-widest">Global Float</div>
           </div>
           <div className="bg-white p-6 border border-redwood-border rounded-sm shadow-sm">
@@ -87,7 +110,7 @@ export default function CustomerDashboard() {
               <div className="text-[11px] font-black text-redwood-text-muted uppercase tracking-[0.2em]">Outstanding Risk</div>
               <AlertCircle size={16} className="text-redwood-brand" />
             </div>
-            <div className="text-2xl font-black text-redwood-text-main tracking-tight">12 Accounts</div>
+            <div className="text-2xl font-black text-redwood-text-main tracking-tight">{metrics.overLimit == null ? '—' : `${metrics.overLimit} Accounts`}</div>
             <div className="mt-4 flex items-center gap-2 text-[10px] font-black text-redwood-brand bg-redwood-brand/5 w-fit px-2 py-0.5 rounded-sm uppercase tracking-widest">Over Credit Limit</div>
           </div>
           <div className="bg-white p-6 border border-redwood-border rounded-sm shadow-sm">
@@ -95,7 +118,7 @@ export default function CustomerDashboard() {
               <div className="text-[11px] font-black text-redwood-text-muted uppercase tracking-[0.2em]">Liquidity Velocity</div>
               <Receipt size={16} className="text-redwood-primary" />
             </div>
-            <div className="text-2xl font-black text-redwood-text-main tracking-tight">1.2M</div>
+            <div className="text-2xl font-black text-redwood-text-main tracking-tight">{metrics.collected == null ? '—' : metrics.collected.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
             <div className="mt-4 flex items-center gap-2 text-[10px] font-black text-emerald-600 bg-emerald-50 w-fit px-2 py-0.5 rounded-sm uppercase tracking-widest">Recovered (Period)</div>
           </div>
           <div className="bg-redwood-midnight p-6 border border-white/5 rounded-sm shadow-2xl group">
@@ -103,11 +126,9 @@ export default function CustomerDashboard() {
               <div className="text-redwood-secondary text-[10px] font-black uppercase tracking-[0.2em]">Active Portfolios</div>
               <Users size={16} className="text-redwood-brand" />
             </div>
-            <div className="text-2xl font-black text-white tracking-tight">1,124 Cases</div>
+            <div className="text-2xl font-black text-white tracking-tight">{metrics.customers == null ? '—' : `${metrics.customers} Cases`}</div>
             <div className="mt-4 flex gap-1 h-3 items-end">
-              {[30, 60, 40, 80, 50, 70, 45].map((h, i) => (
-                <div key={i} className="flex-1 bg-redwood-brand/40 group-hover:bg-redwood-brand rounded-t-sm transition-colors" style={{ height: `${h}%` }}></div>
-              ))}
+              <div className="text-[10px] font-black text-redwood-secondary uppercase tracking-widest">No trend data</div>
             </div>
           </div>
         </div>

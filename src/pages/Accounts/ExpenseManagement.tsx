@@ -9,7 +9,7 @@ import {
 import { getSalesOrders } from '../../services/salesService';
 import clsx from 'clsx';
 import {
-    getExpenses,
+    getExpensesSnapshot,
     getExpenseCategories,
     saveExpense,
     saveExpenseCategory,
@@ -131,6 +131,7 @@ export default function ExpenseManagement() {
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [categories, setCategories] = useState<ExpenseCategory[]>([]);
     const [loading, setLoading] = useState(true);
+    const [dataUnavailable, setDataUnavailable] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
     const [monthRevenue, setMonthRevenue] = useState(0);
     const [saving, setSaving] = useState(false);
@@ -252,11 +253,12 @@ export default function ExpenseManagement() {
     const loadData = async (opts?: { silent?: boolean }) => {
         if (!opts?.silent) setLoading(true);
         try {
-            const [expensesData, categoriesData] = await Promise.all([
-                getExpenses(),
+            const [expensesSnapshot, categoriesData] = await Promise.all([
+                getExpensesSnapshot(),
                 getExpenseCategories()
             ]);
-            setExpenses(expensesData);
+            setDataUnavailable(expensesSnapshot.stale);
+            setExpenses(expensesSnapshot.stale ? [] : expensesSnapshot.expenses);
             setCategories(categoriesData);
             try {
                 const list = await loadCustomerList();
@@ -279,6 +281,8 @@ export default function ExpenseManagement() {
             }
         } catch (error) {
             console.error('Failed to load data:', error);
+            setDataUnavailable(true);
+            setExpenses([]);
         } finally {
             if (!opts?.silent) setLoading(false);
         }
@@ -579,8 +583,7 @@ export default function ExpenseManagement() {
 
     const pendingApprovalCount = expenses.filter(e => e.status === 'Pending Approval').length;
     const aiProcessedCount = expenses.filter(e => e.aiExtracted).length;
-    const revenueForRatio = monthRevenue > 0 ? monthRevenue : Math.max(thisMonthTotal, 1);
-    const expenseRatioPct = Math.round((thisMonthTotal / revenueForRatio) * 100);
+    const expenseRatioPct = monthRevenue > 0 ? Math.round((thisMonthTotal / monthRevenue) * 100) : null;
 
     const filteredExpenses = expenses.filter(expense => {
         if (expDateFrom && (expense.date || '') < expDateFrom) return false;
@@ -785,8 +788,8 @@ export default function ExpenseManagement() {
                         },
                         {
                             label: 'Expense Ratio',
-                            value: `${expenseRatioPct}%`,
-                            sub: `$${formatMoney(thisMonthTotal)} of $${formatMoney(revenueForRatio)} revenue`,
+                            value: expenseRatioPct == null ? '—' : `${expenseRatioPct}%`,
+                            sub: monthRevenue > 0 ? `$${formatMoney(thisMonthTotal)} of $${formatMoney(monthRevenue)} revenue` : 'No revenue data',
                             stripe: 'linear-gradient(90deg,#EF4444,#FCA5A5)',
                             valueColor: 'var(--color-brand-red)',
                             subColor: 'var(--color-brand-red-tint)',
@@ -834,6 +837,12 @@ export default function ExpenseManagement() {
                         </div>
                     ))}
                 </div>
+
+                {dataUnavailable && (
+                    <div style={{ ...panelStyle, background: 'rgba(245,158,11,.08)', borderColor: 'rgba(245,158,11,.25)', color: 'var(--color-brand-amber-tint)', fontSize: 12 }}>
+                        Expense data unavailable. Cached data is not shown as live.
+                    </div>
+                )}
 
                 {/* Primary action buttons */}
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: '12px' }}>

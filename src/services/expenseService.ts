@@ -121,6 +121,7 @@ const EXPENSES_API = `${EXPENSES_API_HOST}/api/expenses`;
 
 let _expensesCache: Expense[] = [];
 let _expensesCacheLoaded = false;
+let _expensesCacheStale = false;
 
 /** Backend → UI field mapping (snake_case → camelCase). */
 function _expenseFromApi(raw: any): Expense {
@@ -279,24 +280,35 @@ const getInitialExpenses = (): Expense[] => _expensesCache;
 
 // Expense CRUD operations — now backend-backed.
 export async function getExpenses(): Promise<Expense[]> {
+    const snapshot = await getExpensesSnapshot();
+    if (snapshot.stale) {
+        throw snapshot.error || new Error('Expense data unavailable.');
+    }
+    return snapshot.expenses;
+}
+
+export async function getExpensesSnapshot(): Promise<{ expenses: Expense[]; stale: boolean; error?: Error }> {
     try {
         const r = await fetch(`${EXPENSES_API}/`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const rows = await r.json();
         _expensesCache = (Array.isArray(rows) ? rows : []).map(_expenseFromApi);
         _expensesCacheLoaded = true;
-        return _expensesCache;
+        _expensesCacheStale = false;
+        return { expenses: _expensesCache, stale: false };
     } catch (err) {
-        // If we have a previously-loaded cache, fall back to it rather
-        // than throwing — keeps the UI responsive during transient
-        // network errors. If we've never loaded, propagate so the page
-        // can show its error state.
+        const error = err instanceof Error ? err : new Error(String(err));
         if (_expensesCacheLoaded) {
-            console.warn('[expenses] getExpenses fetch failed, returning cached snapshot:', err);
-            return _expensesCache;
+            console.warn('[expenses] getExpenses fetch failed, cached snapshot is stale:', err);
+            _expensesCacheStale = true;
+            return { expenses: _expensesCache, stale: true, error };
         }
-        throw err;
+        throw error;
     }
+}
+
+export function isExpenseCacheStale(): boolean {
+    return _expensesCacheStale;
 }
 
 export async function getExpenseCategories(): Promise<ExpenseCategory[]> {

@@ -16,7 +16,7 @@ import {
     XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
 import {
-    getExpenses,
+    getExpensesSnapshot,
     queryExpensesNaturalLanguage,
     type Expense,
     type NlQueryResult,
@@ -35,6 +35,7 @@ export default function ExpenseReports() {
     const navigate = useNavigate();
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [loading, setLoading] = useState(true);
+    const [dataUnavailable, setDataUnavailable] = useState(false);
 
     const [question, setQuestion] = useState('');
     const [askLoading, setAskLoading] = useState(false);
@@ -43,14 +44,24 @@ export default function ExpenseReports() {
 
     useEffect(() => {
         void (async () => {
-            try { setExpenses(await getExpenses()); }
-            finally { setLoading(false); }
+            try {
+                const snapshot = await getExpensesSnapshot();
+                setDataUnavailable(snapshot.stale);
+                setExpenses(snapshot.stale ? [] : snapshot.expenses);
+            } catch {
+                setDataUnavailable(true);
+                setExpenses([]);
+            } finally { setLoading(false); }
         })();
     }, []);
 
     const ask = async (q: string) => {
         const text = q.trim();
         if (!text) return;
+        if (dataUnavailable) {
+            setAskError('Expense data unavailable. Cached data is not shown as live.');
+            return;
+        }
         setAskLoading(true);
         setAskError(null);
         setResult(null);
@@ -256,6 +267,12 @@ export default function ExpenseReports() {
             )}
 
             {/* Standard reports */}
+            {dataUnavailable && (
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3 shadow-sm">
+                    <AlertTriangle size={18} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                    <p className="text-sm text-amber-800">Expense data unavailable. Cached data is not shown as live.</p>
+                </div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Expenses by Category */}
                 <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
