@@ -66,10 +66,10 @@ export interface DocumentSignature {
 }
 
 const DEFAULT_SETTINGS: SystemSettings = {
-    defaultCurrencyCode: 'PKR',
-    defaultCurrencySymbol: 'PKR',
+    defaultCurrencyCode: 'USD',
+    defaultCurrencySymbol: '$',
     currencyFormat: 'comma_dot',
-    currencyPosition: 'after',
+    currencyPosition: 'before',
     // ITEM 2 — Sensible default. Weighted-average is simplest and matches
     // the existing "Inventory Valuation (Avg)" report that's the page's
     // primary valuation report today.

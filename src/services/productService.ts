@@ -187,7 +187,7 @@ function mapApiProductToProduct(raw: Record<string, unknown>): Product {
         reorderLevel: minStock,
         overstockRisk: 'Low',
         pricing: {
-            purchasePriceExWorks: 0,
+            purchasePriceExWorks: cost,
             freightShipping: 0,
             importDuty: 0,
             otherDirectCosts: 0,
@@ -322,7 +322,7 @@ export async function saveProduct(product: Partial<Product>): Promise<Product> {
         category: product.category ?? '',
         description: product.description ?? product.shortDescription ?? '',
         price: Number(product.pricing?.sellingPrice ?? 0),
-        cost: Number(product.pricing?.landedCost ?? 0),
+        cost: Number(product.pricing?.purchasePriceExWorks ?? 0),
         stock: Number((product.locations ?? []).reduce((sum, loc) => sum + (Number(loc?.currentStock) || 0), 0)),
         min_stock: Number(
             product.locations?.[0]?.reorderPoint ?? product.reorderLevel ?? 0,

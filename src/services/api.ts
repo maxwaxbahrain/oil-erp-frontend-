@@ -530,9 +530,22 @@ function normalizeApiProductRow(raw: Record<string, unknown>): Product {
 
 // Product APIs
 export async function getProducts(): Promise<Product[]> {
-  const raw = await apiRequest<any[]>('/products/');
-  const list = Array.isArray(raw) ? raw : [];
-  return list.map((row) => normalizeApiProductRow(row as Record<string, unknown>));
+  const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/products/`, {
+      cache: 'no-store',
+      headers,
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const raw = await response.json().catch(() => []);
+    const list = Array.isArray(raw) ? raw : [];
+    return list.map((row) => normalizeApiProductRow(row as Record<string, unknown>));
+  } catch {
+    return [];
+  }
 }
 
 export async function getProduct(id: string): Promise<Product> {

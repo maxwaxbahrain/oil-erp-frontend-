@@ -159,4 +159,35 @@ describe('productService', () => {
     const products = await getProducts();
     expect(products).toEqual([]);
   });
+
+  it('round-trips backend cost through the ProductForm cost-bound pricing field', async () => {
+    const backendRow = {
+      id: 100,
+      name: 'Cost Round Trip Product',
+      sku: 'COST-RT',
+      category: 'Lubricants',
+      description: 'Cost should reopen in the Cost input',
+      stock: 5,
+      min_stock: 1,
+      price: 30,
+      cost: 10,
+      unit: 'pcs',
+      is_active: true,
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(mockResp(true, 200, [backendRow]))
+      .mockResolvedValueOnce(mockResp(true, 200, { id: 100, stock: 5, is_active: true }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const [loadedProduct] = await getProducts();
+    expect(loadedProduct.pricing.purchasePriceExWorks).toBe(10);
+    expect(loadedProduct.pricing.sellingPrice).toBe(30);
+
+    await saveProduct(loadedProduct);
+
+    const body = JSON.parse(fetchMock.mock.calls[1][1].body as string);
+    expect(body.cost).toBe(10);
+    expect(body.price).toBe(30);
+  });
 });
