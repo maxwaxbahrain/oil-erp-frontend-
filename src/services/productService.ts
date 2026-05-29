@@ -380,76 +380,140 @@ export async function getProductById(id: string): Promise<Product | undefined> {
 }
 
 export async function saveProduct(product: Partial<Product>): Promise<Product> {
-    return new Promise((resolve) => {
+    // Translate the nested frontend form shape to the flat backend Product schema.
+    // Backend `ProductUpdate` / `ProductCreate` accepts only these flat keys
+    // (see app/schemas/product.py on bettano-erp-backend). Every other rich
+    // field on the frontend `Product` type — locations, pricing, specifications,
+    // images, tags, seo, … — is UI-only and stays in the localStorage cache.
+    const backendPayload = {
+        name: product.name ?? '',
+        sku: product.sku ?? '',
+        category: product.category ?? '',
+        description: product.description ?? product.shortDescription ?? '',
+        price: Number(product.pricing?.sellingPrice ?? 0),
+        cost: Number(product.pricing?.landedCost ?? 0),
+        stock: Number(product.locations?.[0]?.currentStock ?? 0),
+        min_stock: Number(
+            product.locations?.[0]?.reorderPoint ?? product.reorderLevel ?? 0,
+        ),
+        unit: product.uom ?? 'pcs',
+        barcode: product.barcode ?? null,
+        is_active: product.status === 'Active',
+    };
+
+    // Hit the backend FIRST. If it fails, throw — the form's catch block
+    // will surface the real error instead of showing a fake success alert.
+    const hasId = product.id != null && String(product.id) !== '';
+    const url = hasId
+        ? apiUrl(`products/${encodeURIComponent(String(product.id))}`)
+        : apiUrl('products/');
+    const method = hasId ? 'PUT' : 'POST';
+
+    const resp = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(backendPayload),
+    });
+    if (!resp.ok) {
+        let detail = '';
+        try { detail = await resp.text(); } catch { /* ignore */ }
+        throw new Error(
+            `Backend ${resp.status} on ${method} /products` +
+                (detail ? `: ${detail.slice(0, 200)}` : ''),
+        );
+    }
+
+    type BackendRow = {
+        id: number | string;
+        stock?: number;
+        price?: number;
+        cost?: number;
+        min_stock?: number;
+        unit?: string;
+        is_active?: boolean;
+    };
+    const serverRow = (await resp.json()) as BackendRow;
+    const serverId = String(serverRow.id);
+
+    // Build the rich local product to cache. Authoritative scalar fields come
+    // from the server response; nested UI-only fields are preserved from input.
+    const savedProduct: Product = {
+        ...product,
+        id: serverId,
+        status: serverRow.is_active === false ? 'Inactive' : (product.status ?? 'Active'),
+        velocityStatus: product.velocityStatus ?? 'Medium',
+        salesVelocity: product.salesVelocity ?? 0,
+        salesTrend: product.salesTrend ?? 0,
+        revenueContribution: product.revenueContribution ?? 0,
+        grossMarginPercent: product.grossMarginPercent ?? 0,
+        netProfitPerUnit: product.netProfitPerUnit ?? 0,
+        avgDailySales: product.avgDailySales ?? 0,
+        daysStockRemaining: product.daysStockRemaining ?? 0,
+        reorderLevel: product.reorderLevel ?? 0,
+        overstockRisk: product.overstockRisk ?? 'Low',
+        aiEnabled: product.aiEnabled ?? true,
+        aiDemandPrediction: product.aiDemandPrediction ?? 0,
+        aiConfidenceLevel: product.aiConfidenceLevel ?? 100,
+        priceHistory: product.priceHistory ?? [],
+        leakageRate: product.leakageRate ?? 0,
+        returnRate: product.returnRate ?? 0,
+        images: product.images ?? [],
+        specifications: product.specifications ?? [],
+        tags: product.tags ?? [],
+        seo: product.seo ?? { metaTitle: '', metaDescription: '', keywords: '' },
+        leadTimeDays: product.leadTimeDays ?? 0,
+        minOrderQty: product.minOrderQty ?? 0,
+        locations: product.locations ?? [
+            {
+                id: 'LOC-001',
+                name: 'Main Warehouse',
+                type: 'Warehouse',
+                currentStock: serverRow.stock ?? 0,
+                reorderPoint: 0,
+                maxStock: 1000,
+            },
+        ],
+    } as Product;
+
+    // Update local cache AFTER the API succeeds. Cache failures are
+    // non-fatal — the backend already accepted the save, so we never
+    // undo a real persistence by throwing on a quota/storage error.
+    try {
         const products = getInitialProducts();
-        let savedProduct: Product;
-
-        if (product.id) {
-            // Update existing
-            const index = products.findIndex(p => p.id === product.id);
-            if (index !== -1) {
-                products[index] = { ...products[index], ...product } as Product;
-                savedProduct = products[index];
-            } else {
-                savedProduct = { ...product, id: product.id } as Product;
-                products.push(savedProduct);
-            }
+        const existingIndex = products.findIndex((p) => String(p.id) === serverId);
+        if (existingIndex !== -1) {
+            products[existingIndex] = savedProduct;
         } else {
-            // Create new
-            savedProduct = {
-                ...product,
-                id: `P-${Date.now()}`,
-                status: product.status || 'Active',
-                velocityStatus: 'Medium',
-                salesVelocity: 0,
-                salesTrend: 0,
-                revenueContribution: 0,
-                grossMarginPercent: 0,
-                netProfitPerUnit: 0,
-                avgDailySales: 0,
-                daysStockRemaining: 0,
-                reorderLevel: product.reorderLevel || 0,
-                overstockRisk: 'Low',
-                aiEnabled: true,
-                aiDemandPrediction: 0,
-                aiConfidenceLevel: 100,
-                priceHistory: [],
-                leakageRate: 0,
-                returnRate: 0,
-                images: product.images || [],
-                specifications: product.specifications || [],
-                tags: product.tags || [],
-                seo: product.seo || { metaTitle: '', metaDescription: '', keywords: '' },
-
-                leadTimeDays: product.leadTimeDays || 0,
-                minOrderQty: product.minOrderQty || 0,
-                locations: product.locations || [
-                    { id: 'LOC-001', name: 'Main Warehouse', type: 'Warehouse', currentStock: 0, reorderPoint: 0, maxStock: 1000 }
-                ]
-            } as Product;
             products.push(savedProduct);
         }
-
         try {
             localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
         } catch (e: any) {
-            if (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014 || e.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
-                console.warn('Storage Quota Exceeded! Attempting to save space by removing images...');
-                // Emergency Cleanup: Remove images to save space
-                const slimProducts = products.map(p => ({
+            if (
+                e?.name === 'QuotaExceededError' ||
+                e?.code === 22 ||
+                e?.code === 1014 ||
+                e?.name === 'NS_ERROR_DOM_QUOTA_REACHED'
+            ) {
+                console.warn('Storage Quota Exceeded! Slimming images before retrying cache write…');
+                const slimProducts = products.map((p) => ({
                     ...p,
-                    images: (p.images || []).filter(img => !img.url.startsWith('data:image')), // Remove Base64
+                    images: (p.images || []).filter((img) => !img.url.startsWith('data:image')),
                 }));
                 try {
                     localStorage.setItem(PRODUCTS_KEY, JSON.stringify(slimProducts));
                 } catch (retryError) {
-                    console.error('Critical Storage Failure', retryError);
-                    alert('System Storage Full: Your browser storage is full. Please delete some products or clear mock data.');
+                    console.error('Local cache write failed (non-fatal — backend already saved):', retryError);
                 }
+            } else {
+                console.warn('Local cache write failed (non-fatal — backend already saved):', e);
             }
         }
-        setTimeout(() => resolve(savedProduct), 100);
-    });
+    } catch (cacheErr) {
+        console.warn('Local cache update failed (non-fatal):', cacheErr);
+    }
+
+    return savedProduct;
 }
 
 export async function deleteProduct(id: string): Promise<void> {
