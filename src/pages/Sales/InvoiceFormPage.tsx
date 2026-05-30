@@ -895,17 +895,59 @@ export default function InvoiceFormPage() {
                             displayKey="name"
                         />
                         {showNewSalesman && (
-                            <div className="mt-2 p-3 bg-orange-50 border border-orange-200 rounded-xl space-y-2">
+                            <div
+                                className="mt-2 p-3 rounded-xl space-y-2"
+                                style={{
+                                    background: 'var(--color-background-secondary)',
+                                    border: '0.5px solid var(--color-border-tertiary)',
+                                }}
+                            >
                                 <div className="flex items-center justify-between">
-                                    <p className="text-xs font-black text-orange-700 uppercase">New Salesman</p>
-                                    <button onClick={() => setShowNewSalesman(false)} className="text-gray-400 hover:text-gray-600"><X size={14}/></button>
+                                    <p
+                                        className="text-xs font-black uppercase"
+                                        style={{ color: 'var(--color-text-primary)' }}
+                                    >
+                                        New Salesman
+                                    </p>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowNewSalesman(false)}
+                                        className="hover:opacity-80 transition-opacity"
+                                        style={{ color: 'var(--color-text-secondary)' }}
+                                    >
+                                        <X size={14} />
+                                    </button>
                                 </div>
-                                <input type="text" placeholder="Salesman Name *" value={newSalesmanName} onChange={e => setNewSalesmanName(e.target.value)}
-                                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400" />
-                                <input type="text" placeholder="Phone (optional)" value={newSalesmanPhone} onChange={e => setNewSalesmanPhone(e.target.value)}
-                                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400" />
-                                <button onClick={createNewSalesman} disabled={!newSalesmanName.trim()}
-                                    className="w-full py-2 bg-orange-500 text-white text-xs font-black rounded-lg hover:bg-orange-600 disabled:opacity-40 transition-all">
+                                <input
+                                    type="text"
+                                    placeholder="Salesman Name *"
+                                    value={newSalesmanName}
+                                    onChange={e => setNewSalesmanName(e.target.value)}
+                                    className="w-full rounded-lg px-3 py-2 text-sm focus:outline-none placeholder:text-[#8BA3C7]"
+                                    style={{
+                                        border: '0.5px solid var(--color-border-tertiary)',
+                                        background: 'var(--color-background-primary)',
+                                        color: 'var(--color-text-primary)',
+                                    }}
+                                />
+                                <input
+                                    type="text"
+                                    placeholder="Phone (optional)"
+                                    value={newSalesmanPhone}
+                                    onChange={e => setNewSalesmanPhone(e.target.value)}
+                                    className="w-full rounded-lg px-3 py-2 text-sm focus:outline-none placeholder:text-[#8BA3C7]"
+                                    style={{
+                                        border: '0.5px solid var(--color-border-tertiary)',
+                                        background: 'var(--color-background-primary)',
+                                        color: 'var(--color-text-primary)',
+                                    }}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={createNewSalesman}
+                                    disabled={!newSalesmanName.trim()}
+                                    className="w-full py-2 bg-orange-500 text-white text-xs font-black rounded-lg hover:bg-orange-600 disabled:opacity-40 transition-all"
+                                >
                                     Create &amp; Select Salesman
                                 </button>
                             </div>
@@ -1008,19 +1050,71 @@ export default function InvoiceFormPage() {
                                 );
                             })()}
                             {showNewCustomer && (
-                                <div className="mt-2 p-3 bg-orange-50 border border-orange-200 rounded-xl space-y-2">
+                                <div
+                                    className="mt-2 p-3 rounded-xl space-y-2"
+                                    style={{
+                                        background: 'var(--color-background-secondary)',
+                                        border: '0.5px solid var(--color-border-tertiary)',
+                                    }}
+                                >
                                     <div className="flex items-center justify-between">
-                                        <p className="text-xs font-black text-orange-700 uppercase">New Customer</p>
-                                        <button onClick={() => setShowNewCustomer(false)} className="text-gray-400 hover:text-gray-600"><X size={14}/></button>
+                                        <p
+                                            className="text-xs font-black uppercase"
+                                            style={{ color: 'var(--color-text-primary)' }}
+                                        >
+                                            New Customer
+                                        </p>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowNewCustomer(false)}
+                                            className="hover:opacity-80 transition-opacity"
+                                            style={{ color: 'var(--color-text-secondary)' }}
+                                        >
+                                            <X size={14} />
+                                        </button>
                                     </div>
-                                    <input type="text" placeholder="Customer Name *" value={newCustName} onChange={e => setNewCustName(e.target.value)}
-                                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400" />
-                                    <input type="text" placeholder="Phone" value={newCustPhone} onChange={e => setNewCustPhone(e.target.value)}
-                                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400" />
-                                    <input type="text" placeholder="Address" value={newCustAddress} onChange={e => setNewCustAddress(e.target.value)}
-                                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400" />
-                                    <button onClick={createNewCustomer} disabled={savingCust || !newCustName.trim()}
-                                        className="w-full py-2 bg-orange-500 text-white text-xs font-black rounded-lg hover:bg-orange-600 disabled:opacity-40 transition-all">
+                                    <input
+                                        type="text"
+                                        placeholder="Customer Name *"
+                                        value={newCustName}
+                                        onChange={e => setNewCustName(e.target.value)}
+                                        className="w-full rounded-lg px-3 py-2 text-sm focus:outline-none placeholder:text-[#8BA3C7]"
+                                        style={{
+                                            border: '0.5px solid var(--color-border-tertiary)',
+                                            background: 'var(--color-background-primary)',
+                                            color: 'var(--color-text-primary)',
+                                        }}
+                                    />
+                                    <input
+                                        type="text"
+                                        placeholder="Phone"
+                                        value={newCustPhone}
+                                        onChange={e => setNewCustPhone(e.target.value)}
+                                        className="w-full rounded-lg px-3 py-2 text-sm focus:outline-none placeholder:text-[#8BA3C7]"
+                                        style={{
+                                            border: '0.5px solid var(--color-border-tertiary)',
+                                            background: 'var(--color-background-primary)',
+                                            color: 'var(--color-text-primary)',
+                                        }}
+                                    />
+                                    <input
+                                        type="text"
+                                        placeholder="Address"
+                                        value={newCustAddress}
+                                        onChange={e => setNewCustAddress(e.target.value)}
+                                        className="w-full rounded-lg px-3 py-2 text-sm focus:outline-none placeholder:text-[#8BA3C7]"
+                                        style={{
+                                            border: '0.5px solid var(--color-border-tertiary)',
+                                            background: 'var(--color-background-primary)',
+                                            color: 'var(--color-text-primary)',
+                                        }}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={createNewCustomer}
+                                        disabled={savingCust || !newCustName.trim()}
+                                        className="w-full py-2 bg-orange-500 text-white text-xs font-black rounded-lg hover:bg-orange-600 disabled:opacity-40 transition-all"
+                                    >
                                         {savingCust ? 'Creating...' : 'Create & Select Customer'}
                                     </button>
                                 </div>
