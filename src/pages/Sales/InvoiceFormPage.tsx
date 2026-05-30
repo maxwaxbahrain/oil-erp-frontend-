@@ -97,6 +97,11 @@ function decrementCachedStock(productId: string | number, qty: number) {
     } catch { /* cache update is best-effort */ }
 }
 
+function autoRoundOffAmount(subtotal: number, effectiveDiscount: number, taxAmount: number): number {
+    const base = subtotal - effectiveDiscount + taxAmount;
+    return parseFloat((Math.round(base) - base).toFixed(2));
+}
+
 // CLEANUP-1 — Removed bumpCachedCustomerBalance. The PHASE-3 consistency
 // check confirmed getCustomers() in production goes straight to the
 // backend without merging the localStorage 'customers' cache, so the
@@ -169,6 +174,8 @@ export default function InvoiceFormPage() {
         remainingBalance: 0,
         depositAccountId: '',
     });
+
+    const [roundOffManual, setRoundOffManual] = useState(false);
 
     // ITEM 7F — Load bank/cash accounts from COA (1110 subtree). Auto-pick
     // the first sub-account of 1110 so users with a single bank get a sane
@@ -326,7 +333,9 @@ export default function InvoiceFormPage() {
         const taxAmount = Math.round(perLineTaxTotal * 100) / 100;
         const effectiveDiscount = (Number(formData.discount) || 0) + perLineDiscountTotal;
         const rawTotal = subtotal - effectiveDiscount + taxAmount;
-        const grandTotal = rawTotal + (formData.roundOff || 0);
+        const autoRound = autoRoundOffAmount(subtotal, effectiveDiscount, taxAmount);
+        const roundOff = roundOffManual ? (Number(formData.roundOff) || 0) : autoRound;
+        const grandTotal = rawTotal + roundOff;
         const remainingBalance = formData.paymentStatus === 'Paid' ? 0 :
             formData.paymentStatus === 'Advance Paid' ? grandTotal - formData.amountPaid :
                 grandTotal;
@@ -335,11 +344,11 @@ export default function InvoiceFormPage() {
             ...prev,
             subtotal,
             taxAmount,
+            roundOff,
             grandTotal,
-            roundOff: Math.round(subtotal - effectiveDiscount + taxAmount) - (subtotal - effectiveDiscount + taxAmount),
             remainingBalance
         }));
-    }, [formData.lineItems, formData.taxRate, formData.discount, formData.paymentStatus, formData.amountPaid]);
+    }, [formData.lineItems, formData.taxRate, formData.discount, formData.paymentStatus, formData.amountPaid, formData.roundOff, roundOffManual]);
 
     const handleAddLineItem = () => {
         const newItem: InvoiceLineItem = {
@@ -411,7 +420,7 @@ export default function InvoiceFormPage() {
         setFormData(prev => ({
             ...prev,
             lineItems: [...prev.lineItems, {
-                id: newId, productId: '', product: 'Service',
+                id: newId, productId: '', product: '',
                 description: '', quantity: 1, rate: 0, amount: 0, isService: true,
                 // ITEM 7D — default both per-line fields to 0.
                 lineDiscount: 0, lineTaxRate: 0,
@@ -893,6 +902,7 @@ export default function InvoiceFormPage() {
                             onChange={(val) => setFormData(p => ({ ...p, salesmanId: val }))}
                             placeholder="Search and select salesman..."
                             displayKey="name"
+                            theme="dark"
                         />
                         {showNewSalesman && (
                             <div
@@ -963,6 +973,7 @@ export default function InvoiceFormPage() {
                             onChange={(val) => setFormData(p => ({ ...p, vanId: val }))}
                             placeholder="Search and select van..."
                             displayKey="name"
+                            theme="dark"
                         />
                     </div>
                 </div>
@@ -985,6 +996,7 @@ export default function InvoiceFormPage() {
                                 placeholder="Search and select customer..."
                                 displayKey="name"
                                 disabled={loading}
+                                theme="dark"
                             />
                             {/* GAP D — customer avatar pill (visual enrichment below
                                 the SearchableSelect; cannot change what the select
@@ -1186,22 +1198,43 @@ export default function InvoiceFormPage() {
                                     // available stock right next to the row. Warn (rose) when
                                     // the quantity entered exceeds stock so the user spots it
                                     // before submitting.
-                                    const selectedProd = products.find(p => String(p.id) === String(item.productId));
-                                    const availableStock = selectedProd ? Number((selectedProd as any).stock ?? (selectedProd as any).current_stock ?? 0) : null;
+                                    const isServiceLine = !!item.isService;
+                                    const selectedProd = !isServiceLine
+                                        ? products.find(p => String(p.id) === String(item.productId))
+                                        : undefined;
+                                    const availableStock = selectedProd
+                                        ? Number((selectedProd as any).stock ?? (selectedProd as any).current_stock ?? 0)
+                                        : null;
                                     const qty = Number(item.quantity) || 0;
-                                    const overStock = availableStock !== null && qty > availableStock;
+                                    const overStock = !isServiceLine && availableStock !== null && qty > availableStock;
                                     return (
                                     <tr key={item.id} className="hover:bg-gray-50">
                                         <td className="px-4 py-3">
+                                            {isServiceLine ? (
+                                                <input
+                                                    type="text"
+                                                    value={item.product}
+                                                    onChange={(e) => handleLineItemChange(item.id, 'product', e.target.value)}
+                                                    placeholder="Service or cargo charge name..."
+                                                    className="w-full rounded-lg px-3 py-2 text-sm font-bold focus:outline-none placeholder:text-[#8BA3C7]"
+                                                    style={{
+                                                        border: '0.5px solid var(--color-border-tertiary)',
+                                                        background: 'var(--color-background-primary)',
+                                                        color: 'var(--color-text-primary)',
+                                                    }}
+                                                />
+                                            ) : (
                                             <SearchableSelect
                                                 options={products}
                                                 value={item.productId}
                                                 onChange={(productId) => handleProductSelect(item.id, productId)}
                                                 placeholder="Search product..."
                                                 displayKey="name"
+                                                theme="dark"
                                             />
+                                            )}
                                             {/* ITEM 7E — Stock badge under the product selector. */}
-                                            {selectedProd && availableStock !== null && (
+                                            {!isServiceLine && selectedProd && availableStock !== null && (
                                                 <div className={`mt-1 inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full ${
                                                     availableStock === 0
                                                         ? 'bg-rose-100 text-rose-700'
@@ -1473,17 +1506,42 @@ export default function InvoiceFormPage() {
                                 </div>
 
                                 <div className="flex justify-between items-center group">
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-2 flex-wrap">
                                         <span className="text-xs font-medium text-gray-500 group-hover:text-gray-900 transition-colors">Round off</span>
-                                        <button type="button"
-                                            onClick={() => setFormData(prev => { const base = prev.subtotal + prev.taxAmount - prev.discount; const roff = parseFloat((Math.round(base) - base).toFixed(2)); return { ...prev, roundOff: roff }; })}
-                                            className="text-[10px] px-2 py-0.5 bg-gray-100 hover:bg-gray-200 rounded font-bold text-gray-500 transition-all">Auto</button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setRoundOffManual(false)}
+                                            className={`text-[10px] px-2 py-0.5 rounded font-bold transition-all ${
+                                                !roundOffManual
+                                                    ? 'bg-[#4F8EF7] text-white'
+                                                    : 'bg-gray-100 hover:bg-gray-200 text-gray-500'
+                                            }`}
+                                        >
+                                            Auto
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setRoundOffManual(true)}
+                                            className={`text-[10px] px-2 py-0.5 rounded font-bold transition-all ${
+                                                roundOffManual
+                                                    ? 'bg-[#4F8EF7] text-white'
+                                                    : 'bg-gray-100 hover:bg-gray-200 text-gray-500'
+                                            }`}
+                                        >
+                                            Manual
+                                        </button>
                                     </div>
                                     <input
                                         type="number"
                                         value={formData.roundOff ? parseFloat(formData.roundOff.toFixed(2)) : ''}
-                                        onChange={(e) => setFormData(prev => ({ ...prev, roundOff: parseFloat(e.target.value) || 0 }))}
-                                        className="w-32 border-2 border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right font-mono font-black focus:border-[#4F8EF7] outline-none transition-all bg-gray-50"
+                                        onChange={(e) => {
+                                            setRoundOffManual(true);
+                                            setFormData(prev => ({ ...prev, roundOff: parseFloat(e.target.value) || 0 }));
+                                        }}
+                                        readOnly={!roundOffManual}
+                                        className={`w-32 border-2 rounded-lg px-3 py-1.5 text-sm text-right font-mono font-black focus:border-[#4F8EF7] outline-none transition-all ${
+                                            roundOffManual ? 'border-gray-200 bg-gray-50' : 'border-gray-100 bg-gray-100 text-gray-500'
+                                        }`}
                                         placeholder="0.00"
                                         step="0.01"
                                     />
