@@ -14,6 +14,7 @@ import {
 } from 'docx';
 import { saveAs } from 'file-saver';
 import type { Invoice } from './api';
+import { regenerateInvoiceShareToken } from './api';
 import type { CompanySettings } from './settingsService';
 import { getCompanySettings } from './settingsService';
 import { showToast } from '../utils/showToast';
@@ -31,9 +32,24 @@ function formatMoney(n: number): string {
 }
 
 /** Same URL the customer opens in the browser (no login). */
-export function getPublicInvoicePageUrl(shareToken: string): string {
+export function getPublicInvoicePageUrl(shareToken: string, pdfAuto = false): string {
   if (typeof window === 'undefined') return '';
-  return `${window.location.origin}/invoice/${encodeURIComponent(shareToken)}`;
+  const base = `${window.location.origin}/invoice/${encodeURIComponent(shareToken)}`;
+  return pdfAuto ? `${base}?pdf=1` : base;
+}
+
+/** Ensure invoice has a share token (regenerate on backend if missing). */
+export async function ensureInvoiceShareToken(invoice: InvoiceLike): Promise<string> {
+  const existing = (invoice.shareToken || invoice.share_token || '').trim();
+  if (existing) return existing;
+  const id = invoice.id;
+  if (id == null || id === '') {
+    throw new Error('Invoice must be saved before sharing');
+  }
+  const { share_token } = await regenerateInvoiceShareToken(id);
+  invoice.shareToken = share_token;
+  invoice.share_token = share_token;
+  return share_token;
 }
 
 export type SharePdfMethod = 'whatsapp' | 'sms' | 'email' | 'copy';
@@ -108,6 +124,13 @@ export async function shareInvoicePDF(
   method: SharePdfMethod
 ): Promise<SharePdfResult> {
   const companyData = company ?? getCompanySettings();
+
+  try {
+    await ensureInvoiceShareToken(invoice);
+  } catch {
+    showToast('Could not create a share link for this invoice.');
+    return { showAttachModal: false };
+  }
 
   if (method === 'copy') {
     const message = buildShareMessage(invoice, companyData);

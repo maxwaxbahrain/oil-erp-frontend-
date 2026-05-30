@@ -103,6 +103,7 @@ export interface SalesOrder {
 export interface PublicInvoicePayload {
   invoice_number: string;
   customer_name: string;
+  customer_address?: string | null;
   date: string | null;
   due_date: string | null;
   items: Array<Record<string, unknown>>;
@@ -777,6 +778,16 @@ export async function fetchPublicInvoiceByToken(token: string): Promise<PublicIn
     throw new Error(err.detail || `HTTP ${res.status}`);
   }
   return res.json();
+}
+
+/** Create or replace share token for an invoice (authenticated). */
+export async function regenerateInvoiceShareToken(
+  invoiceId: string | number
+): Promise<{ share_token: string; share_url: string }> {
+  return apiRequest<{ share_token: string; share_url: string }>(
+    `/invoices/${invoiceId}/share-token`,
+    { method: 'POST' }
+  );
 }
 
 function sliceDatePart(v: unknown): string {
