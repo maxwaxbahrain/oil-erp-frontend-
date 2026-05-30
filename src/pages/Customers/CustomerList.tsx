@@ -1,6 +1,29 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import {
+  Search,
+  Filter,
+  ArrowDownUp,
+  Download,
+  Plus,
+  Pencil,
+  Eye,
+  Trash2,
+  Loader2,
+  Users,
+} from 'lucide-react';
 import { type Customer, getCustomers, deleteCustomer } from '../../services/customerService';
+
+/* Visual tokens only (layout/CSS) */
+const ROW_GRID =
+  'grid grid-cols-[minmax(160px,1.5fr)_minmax(80px,0.9fr)_minmax(88px,0.8fr)_minmax(100px,0.85fr)_minmax(88px,0.75fr)_minmax(108px,0.9fr)] items-center gap-3';
+const STAT_CARD = 'rounded-xl bg-[#111827] border border-sky-500/20 p-5';
+const ROW_CARD =
+  'rounded-lg border border-sky-500/30 bg-[#111827] hover:bg-redwood-bg-surface/60 transition-colors';
+const TOOL_BTN =
+  'inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#111827] border border-sky-500/20 text-sm font-medium text-redwood-text-muted hover:text-redwood-text-main transition-colors shrink-0';
+const ICON_BTN =
+  'w-8 h-8 rounded-md border border-sky-500/25 bg-redwood-bg-light text-redwood-text-muted hover:text-redwood-text-main flex items-center justify-center';
 
 interface CustomerListProps {
   onEdit?: (customer: Customer) => void;
@@ -9,80 +32,156 @@ interface CustomerListProps {
   refreshTrigger?: number;
 }
 
+type StatusFilter = 'all' | 'pending' | 'clear' | 'credit' | 'inactive';
+
+function initials(name: string): string {
+  return (
+    name
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((w) => w[0] ?? '')
+      .join('')
+      .toUpperCase() || 'CU'
+  );
+}
+
+function avatarColors(id: string | number): { bg: string; color: string } {
+  const palette = [
+    { bg: 'rgba(59,130,246,0.2)', color: '#60A5FA' },
+    { bg: 'rgba(16,185,129,0.2)', color: '#34D399' },
+    { bg: 'rgba(245,158,11,0.2)', color: '#FBBF24' },
+    { bg: 'rgba(239,68,68,0.2)', color: '#F87171' },
+    { bg: 'rgba(139,92,246,0.2)', color: '#A78BFA' },
+  ];
+  const idx =
+    Math.abs(String(id).split('').reduce((a, c) => a + c.charCodeAt(0), 0)) % palette.length;
+  return palette[idx];
+}
+
+function formatRelativeDate(d?: string): string {
+  if (!d) return '—';
+  try {
+    const diff = Date.now() - new Date(d).getTime();
+    const days = Math.floor(diff / 86400000);
+    if (days === 0) return 'Today';
+    if (days === 1) return '1 day ago';
+    if (days < 7) return `${days} days ago`;
+    if (days < 30) return `${Math.floor(days / 7)} week${Math.floor(days / 7) > 1 ? 's' : ''} ago`;
+    return new Date(d).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  } catch {
+    return '—';
+  }
+}
+
+function statusBadge(c: Customer): { label: string; className: string } {
+  const bal = Number(c.balance ?? 0);
+  if (c.status === 'Suspended')
+    return { label: 'Suspended', className: 'bg-red-500/15 text-red-400 border border-red-500/25' };
+  if (c.status === 'Inactive')
+    return { label: 'Inactive', className: 'bg-white/5 text-slate-400 border border-white/10' };
+  if (bal < 0)
+    return { label: 'Credit', className: 'bg-blue-500/15 text-blue-400 border border-blue-500/25' };
+  if (bal === 0)
+    return { label: 'Clear ✓', className: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/25' };
+  return { label: 'Pending', className: 'bg-amber-500/15 text-amber-400 border border-amber-500/25' };
+}
+
+function formatMoney2(n: number): string {
+  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatOutstanding(bal: number): { text: string; className: string } {
+  if (bal < 0)
+    return {
+      text: `CR $${formatMoney2(Math.abs(bal))}`,
+      className: 'text-blue-400',
+    };
+  if (bal === 0) return { text: '$0.00', className: 'text-[#8892B0]' };
+  return {
+    text: `$${formatMoney2(bal)}`,
+    className: 'text-amber-400 font-semibold',
+  };
+}
+
+function exportCustomersCsv(rows: Customer[]) {
+  const escape = (v: string) => `"${String(v).replace(/"/g, '""')}"`;
+  const lines = [
+    ['Name', 'ID', 'Phone', 'Outstanding', 'Status'].join(','),
+    ...rows.map((c) => {
+      const bal = Number(c.balance ?? 0);
+      const badge = statusBadge(c);
+      return [
+        escape(c.name),
+        escape(c.code ?? `CUST-${c.id}`),
+        escape(c.phone ?? ''),
+        bal,
+        escape(badge.label),
+      ].join(',');
+    }),
+  ];
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `customers-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function CustomerList({ refreshTrigger }: CustomerListProps) {
   const navigate = useNavigate();
-  // FIX 2 — re-fetch on every navigation to /customers so balances
-  // stay fresh after an invoice/payment is created elsewhere.
   const location = useLocation();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [showFilterMenu, setShowFilterMenu] = useState(false);
+  const [sortByBalance, setSortByBalance] = useState(true);
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getCustomers();
+      setCustomers(data);
+    } catch (err) {
+      console.error('Failed to fetch customers:', err);
+      setError(
+        err instanceof Error ? err.message : 'Unable to load customers. Start the API and refresh.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-
-    async function loadRegistry() {
+    void (async () => {
       try {
         setLoading(true);
         setError(null);
         const data = await getCustomers();
-        if (cancelled) return;
-        // Use the server-side balance directly. The backend now maintains it
-        // correctly: invoice POST increments, payment POST decrements. We reset
-        // historical balances to the BETTANO 'Owes:' baseline via a one-shot script.
-        setCustomers(data);
-        setLoading(false);
+        if (!cancelled) {
+          setCustomers(data);
+          setLoading(false);
+        }
       } catch (err) {
         console.error('Failed to fetch customers:', err);
         if (!cancelled) {
           setError(
-            err instanceof Error ? err.message : 'Unable to load customers. Start the API (port 8000) and refresh.'
+            err instanceof Error ? err.message : 'Unable to load customers. Start the API and refresh.'
           );
           setLoading(false);
         }
       }
-    }
-
-    void loadRegistry();
+    })();
     return () => {
       cancelled = true;
     };
   }, [refreshTrigger, location.key]);
 
-  // FIX 4 — per-row delete with confirm + optimistic state update.
-  async function handleDelete(customer: Customer, e: React.MouseEvent) {
-    e.stopPropagation();
-    if (!window.confirm(`Delete customer "${customer.name}"?  This cannot be undone.`)) return;
-    try {
-      await deleteCustomer(String(customer.id));
-      setCustomers(prev => prev.filter(c => c.id !== customer.id));
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Delete failed.';
-      alert(`Could not delete: ${msg}\n\nThe customer may have invoices or payments referencing them.`);
-    }
-  }
-
-  async function loadData() {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await getCustomers();
-      setCustomers(data);
-    } catch (err) {
-      console.error('Failed to fetch customers:', err);
-      setError(err instanceof Error ? err.message : 'Unable to load customers. Start the API (port 8000) and refresh.');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // TASK 5 — Silent refetch when the user returns to this tab. No
-  // loading spinner, no error surface (we already have the previous
-  // snapshot rendered). Throttled to one fetch per 5 seconds so rapid
-  // tab-switching doesn't hammer the backend. Resolves ISSUE-T from
-  // the W6 trace: payment recorded in another tab now reflects on
-  // return without a manual refresh.
   const lastSilentLoadAtRef = useRef<number>(Date.now());
   useEffect(() => {
     async function silentRefresh() {
@@ -93,7 +192,7 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
         const data = await getCustomers();
         setCustomers(data);
       } catch {
-        // Silent: keep showing the previous snapshot if the refetch fails.
+        /* keep previous snapshot */
       }
     }
     function onVisibilityChange() {
@@ -110,377 +209,359 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
     };
   }, []);
 
-  const q = searchTerm.toLowerCase();
-  const filteredCustomers = customers.filter((customer) => {
-    const name = (customer.name ?? '').toLowerCase();
-    const idStr = String(customer.id ?? '').toLowerCase();
-    const addr = (customer.address ?? '').toLowerCase();
-    const city = (customer.city ?? '').toLowerCase();
-    return name.includes(q) || idStr.includes(q) || addr.includes(q) || city.includes(q);
-  });
-
-  // ── Display-only stats (never mutate existing state) ──────────
-  const _totalCount = customers.length;
-  const _outstandingTotal = customers.reduce(
-    (sum, c) => sum + Math.max(0, Number(c.balance ?? 0)), 0
-  );
-  const _creditCount = customers.filter(c => Number(c.balance ?? 0) < 0).length;
-  const _overdueCount = customers.filter(
-    c => Number(c.balance ?? 0) > 0
-      && c.status !== 'Inactive'
-      && c.status !== 'Suspended'
-  ).length;
-
-  // Sort filtered customers: positive balance first (highest first),
-  // then zero balance, then negative (credit)
-  const _sorted = [...filteredCustomers].sort((a, b) => {
-    const ba = Number(a.balance ?? 0);
-    const bb = Number(b.balance ?? 0);
-    if (ba > 0 && bb <= 0) return -1;
-    if (bb > 0 && ba <= 0) return 1;
-    return bb - ba;
-  });
-
-  // Helper — get initials from customer name
-  const _initials = (name: string): string =>
-    name.trim().split(/\s+/).slice(0, 2).map(w => w[0] ?? '').join('').toUpperCase() || 'CU';
-
-  // Helper — avatar background colour cycling by id
-  const _avatarColor = (id: string | number): string => {
-    const colours = [
-      { bg: 'rgba(74,143,245,.15)', color: '#4A8FF5' },
-      { bg: 'rgba(34,197,94,.15)',  color: '#22C55E' },
-      { bg: 'rgba(245,158,11,.15)', color: '#F59E0B' },
-      { bg: 'rgba(239,68,68,.15)',  color: '#EF4444' },
-      { bg: 'rgba(155,111,228,.15)', color: '#9B6FE4' },
-    ];
-    const idx = Math.abs(String(id).split('').reduce((a, c) => a + c.charCodeAt(0), 0)) % colours.length;
-    return JSON.stringify(colours[idx]);
-  };
-
-  // Helper — format last seen from created_at (best proxy we have)
-  const _fmtDate = (d?: string): string => {
-    if (!d) return '—';
+  async function handleDelete(customer: Customer, e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!window.confirm(`Delete customer "${customer.name}"? This cannot be undone.`)) return;
     try {
-      const diff = Date.now() - new Date(d).getTime();
-      const days = Math.floor(diff / 86400000);
-      if (days === 0) return 'Today';
-      if (days === 1) return 'Yesterday';
-      if (days < 7) return `${days} days ago`;
-      if (days < 30) return `${Math.floor(days / 7)} week${Math.floor(days / 7) > 1 ? 's' : ''} ago`;
-      return new Date(d).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-    } catch { return '—'; }
-  };
+      await deleteCustomer(String(customer.id));
+      setCustomers((prev) => prev.filter((c) => c.id !== customer.id));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Delete failed.';
+      alert(`Could not delete: ${msg}`);
+    }
+  }
 
-  // Helper — status badge config
-  const _statusBadge = (c: Customer): { label: string; style: React.CSSProperties } => {
-    const bal = Number(c.balance ?? 0);
-    if (c.status === 'Suspended')
-      return { label: 'Suspended', style: { background: 'rgba(239,68,68,.12)', color: '#B91C1C' } };
-    if (c.status === 'Inactive')
-      return { label: 'Inactive', style: { background: 'rgba(255,255,255,.06)', color: 'var(--color-text-secondary)' } };
-    if (bal < 0)
-      return { label: 'Credit', style: { background: 'rgba(74,143,245,.12)', color: '#4A8FF5' } };
-    if (bal === 0)
-      return { label: 'Clear ✓', style: { background: 'rgba(34,197,94,.12)', color: '#16A34A' } };
-    return { label: 'Pending', style: { background: 'rgba(245,158,11,.12)', color: '#B45309' } };
-  };
+  const stats = useMemo(() => {
+    const total = customers.length;
+    const outstandingTotal = customers.reduce((sum, c) => sum + Math.max(0, Number(c.balance ?? 0)), 0);
+    const owingCount = customers.filter((c) => Number(c.balance ?? 0) > 0).length;
+    const creditCount = customers.filter((c) => Number(c.balance ?? 0) < 0).length;
+    const activeCount = customers.filter(
+      (c) => c.status !== 'Inactive' && c.status !== 'Suspended'
+    ).length;
+    return { total, outstandingTotal, owingCount, creditCount, activeCount };
+  }, [customers]);
 
-  // Helper — balance display (accounting correct)
-  const _balDisplay = (bal: number): { text: string; color: string } => {
-    if (bal < 0) return { text: `CR $${Math.abs(bal).toLocaleString()}`, color: '#4A8FF5' };
-    if (bal === 0) return { text: '$0.00', color: 'var(--color-text-secondary)' };
-    return { text: `$${bal.toLocaleString()}`, color: '#F59E0B' };
-  };
-  // ──────────────────────────────────────────────────────────────
+  const q = searchTerm.toLowerCase().trim();
+  const filteredCustomers = useMemo(() => {
+    return customers.filter((customer) => {
+      const name = (customer.name ?? '').toLowerCase();
+      const idStr = String(customer.id ?? '').toLowerCase();
+      const code = (customer.code ?? '').toLowerCase();
+      const addr = (customer.address ?? '').toLowerCase();
+      const city = (customer.city ?? '').toLowerCase();
+      const matchesSearch =
+        !q || name.includes(q) || idStr.includes(q) || code.includes(q) || addr.includes(q) || city.includes(q);
+      if (!matchesSearch) return false;
+
+      const bal = Number(customer.balance ?? 0);
+      if (statusFilter === 'pending') return bal > 0;
+      if (statusFilter === 'clear') return bal === 0;
+      if (statusFilter === 'credit') return bal < 0;
+      if (statusFilter === 'inactive')
+        return customer.status === 'Inactive' || customer.status === 'Suspended';
+      return true;
+    });
+  }, [customers, q, statusFilter]);
+
+  const sortedCustomers = useMemo(() => {
+    const list = [...filteredCustomers];
+    if (sortByBalance) {
+      list.sort((a, b) => {
+        const ba = Number(a.balance ?? 0);
+        const bb = Number(b.balance ?? 0);
+        if (ba > 0 && bb <= 0) return -1;
+        if (bb > 0 && ba <= 0) return 1;
+        return bb - ba;
+      });
+    } else {
+      list.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
+    }
+    return list;
+  }, [filteredCustomers, sortByBalance]);
+
+  const filterLabel =
+    statusFilter === 'all'
+      ? 'Filter'
+      : statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1);
 
   return (
-    <div style={{ background: 'var(--color-background-tertiary)', minHeight: '100%', color: 'var(--color-text-primary)', fontFamily: 'inherit' }}>
-
-      {/* ── PAGE HEADER ── */}
-      <div style={{ padding: '14px 20px 12px', borderBottom: '0.5px solid var(--color-border-tertiary)', background: 'var(--color-background-secondary)' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
+    <div className="min-h-full bg-redwood-bg-light text-redwood-text-main pb-10">
+      <div className="max-w-[1400px] mx-auto px-4 md:px-6 pt-6 space-y-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div>
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--color-text-primary)', display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
-              👥 Customers
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-redwood-text-main flex items-center gap-2.5">
+              <Users size={28} className="text-blue-400 shrink-0" strokeWidth={2} />
+              Customers
             </h1>
-            <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', margin: 0, marginTop: 4 }}>
-              {_totalCount} customers · {_overdueCount} with outstanding balance · {_creditCount} with credit
+            <p className="text-sm text-redwood-text-muted mt-1">
+              {stats.total} customers · {stats.owingCount} with outstanding balance · {stats.creditCount}{' '}
+              with credit
             </p>
           </div>
           <button
+            type="button"
             onClick={() => navigate('/customers/new')}
-            style={{ background: '#4F8EF7', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-redwood-border bg-transparent text-redwood-text-main text-sm font-semibold hover:bg-white/5 transition-colors shrink-0"
           >
-            + Add customer
+            <Plus size={16} />
+            Add customer
           </button>
         </div>
 
-        {/* Filter row */}
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <div style={{ flex: 1, minWidth: 180, height: 32, background: 'var(--color-background-primary)', border: '0.5px solid var(--color-border-tertiary)', borderRadius: 8, display: 'flex', alignItems: 'center', padding: '0 10px', gap: 6, fontSize: 11, color: 'var(--color-text-secondary)' }}>
-            🔍
+        {/* Summary cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+          <div className={STAT_CARD}>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-redwood-text-muted">Total Customers</p>
+            <p className="text-3xl font-bold text-blue-400 mt-2 tabular-nums">{stats.total}</p>
+            <p className="text-xs text-redwood-text-muted mt-1">in database</p>
+          </div>
+          <div className={STAT_CARD}>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-redwood-text-muted">Outstanding AR</p>
+            <p
+              className={`text-3xl font-bold mt-2 tabular-nums ${
+                stats.outstandingTotal > 0 ? 'text-amber-400' : 'text-emerald-400'
+              }`}
+            >
+              ${stats.outstandingTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            </p>
+            <p className="text-xs text-redwood-text-muted mt-1">
+              {stats.owingCount} customer{stats.owingCount === 1 ? '' : 's'} owe
+            </p>
+          </div>
+          <div className={STAT_CARD}>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-redwood-text-muted">Credit Balances</p>
+            <p className="text-3xl font-bold text-redwood-text-muted mt-2 tabular-nums">{stats.creditCount}</p>
+            <p className="text-xs text-redwood-text-muted mt-1">overpaid (CR)</p>
+          </div>
+          <div className={STAT_CARD}>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-redwood-text-muted">Active Customers</p>
+            <p className="text-3xl font-bold text-emerald-400 mt-2 tabular-nums">{stats.activeCount}</p>
+            <p className="text-xs text-redwood-text-muted mt-1">not inactive</p>
+          </div>
+        </div>
+
+        {/* Toolbar — single row */}
+        <div className="flex flex-row flex-wrap items-center gap-3">
+          <div className="flex-1 min-w-[200px] flex items-center gap-2 rounded-lg bg-[#111827] border border-sky-500/20 px-3 py-2.5">
+            <Search size={16} className="text-redwood-text-muted shrink-0" />
             <input
               type="text"
               value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              placeholder="Search by name, ID, or city…"
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search by name, ID, or city..."
               autoComplete="off"
-              style={{ background: 'transparent', border: 'none', outline: 'none', color: 'var(--color-text-primary)', fontSize: 11, width: '100%', fontFamily: 'inherit' }}
+              className="flex-1 bg-transparent border-none outline-none text-sm text-redwood-text-main placeholder:text-redwood-text-muted"
             />
-            {searchTerm && (
-              <span
+            {searchTerm ? (
+              <button
+                type="button"
                 onClick={() => setSearchTerm('')}
-                style={{ cursor: 'pointer', color: 'var(--color-text-secondary)', fontSize: 13 }}
-              >×</span>
-            )}
+                className="text-redwood-text-muted hover:text-redwood-text-main text-lg leading-none"
+                aria-label="Clear search"
+              >
+                ×
+              </button>
+            ) : null}
           </div>
-          <div style={{ background: 'var(--color-background-primary)', border: '0.5px solid var(--color-border-tertiary)', borderRadius: 8, padding: '5px 11px', fontSize: 11, color: 'var(--color-text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
-            ↓ Balance
+          <div className="flex flex-row flex-wrap items-center gap-2 relative shrink-0">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowFilterMenu((v) => !v)}
+                className={TOOL_BTN}
+              >
+                <Filter size={16} />
+                {filterLabel}
+              </button>
+              {showFilterMenu ? (
+                <div className="absolute right-0 top-full mt-1 z-20 min-w-[160px] rounded-lg bg-[#111827] border border-sky-500/20 shadow-xl py-1">
+                  {(
+                    [
+                      ['all', 'All customers'],
+                      ['pending', 'Outstanding'],
+                      ['clear', 'Clear balance'],
+                      ['credit', 'Credit (CR)'],
+                      ['inactive', 'Inactive / suspended'],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => {
+                        setStatusFilter(key);
+                        setShowFilterMenu(false);
+                      }}
+                      className={`w-full text-left px-3 py-2 text-sm hover:bg-white/5 ${
+                        statusFilter === key ? 'text-blue-400' : 'text-redwood-text-muted'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            <button type="button" onClick={() => setSortByBalance((v) => !v)} className={TOOL_BTN}>
+              <ArrowDownUp size={16} />
+              Balance
+            </button>
+            <button
+              type="button"
+              onClick={() => exportCustomersCsv(sortedCustomers)}
+              disabled={sortedCustomers.length === 0}
+              className={`${TOOL_BTN} disabled:opacity-40`}
+            >
+              <Download size={16} />
+              Export
+            </button>
           </div>
-          <div style={{ background: 'var(--color-background-primary)', border: '0.5px solid var(--color-border-tertiary)', borderRadius: 8, padding: '5px 11px', fontSize: 11, color: 'var(--color-text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
-            ⚙ Filter
+        </div>
+
+        {/* Error */}
+        {error && !loading ? (
+          <div className="rounded-xl bg-red-500/10 border border-red-500/30 px-4 py-3 text-sm text-red-300 flex flex-wrap items-center gap-3">
+            <span>{error}</span>
+            <button
+              type="button"
+              onClick={() => void loadData()}
+              className="px-3 py-1 rounded-md bg-blue-600 text-white text-xs font-semibold"
+            >
+              Retry
+            </button>
           </div>
+        ) : null}
+
+        {/* Customer list */}
+        <div className="rounded-xl bg-[#111827] border border-sky-500/25 overflow-hidden">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-20 text-redwood-text-muted gap-3">
+              <Loader2 className="animate-spin text-blue-400" size={32} />
+              <span className="text-sm font-medium">Loading customers…</span>
+            </div>
+          ) : !error && customers.length === 0 ? (
+            <div className="text-center py-16 px-4">
+              <Users className="mx-auto text-redwood-text-muted mb-3" size={40} />
+              <p className="text-redwood-text-main font-semibold">No customers yet</p>
+              <p className="text-sm text-redwood-text-muted mt-1 mb-4">Start by adding your first customer</p>
+              <button
+                type="button"
+                onClick={() => navigate('/customers/new')}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold"
+              >
+                <Plus size={16} />
+                Add first customer
+              </button>
+            </div>
+          ) : !error && sortedCustomers.length === 0 ? (
+            <div className="text-center py-12 text-sm text-redwood-text-muted">
+              No customers match your search or filters.{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchTerm('');
+                  setStatusFilter('all');
+                }}
+                className="text-blue-400 underline"
+              >
+                Clear filters
+              </button>
+            </div>
+          ) : !error ? (
+            <>
+              <div className="overflow-x-auto min-w-0">
+                <div className="min-w-[720px] px-4 pt-4 pb-2">
+                  <div
+                    className={`${ROW_GRID} px-3 pb-2 text-[10px] font-bold uppercase tracking-wider text-redwood-text-muted border-b border-sky-500/15`}
+                  >
+                    <span>Customer</span>
+                    <span>Phone</span>
+                    <span>Added</span>
+                    <span className="text-right">Outstanding</span>
+                    <span>Status</span>
+                    <span className="text-right">Actions</span>
+                  </div>
+                  <div className="space-y-3 pt-3">
+                    {sortedCustomers.map((c) => {
+                      const colors = avatarColors(c.id);
+                      const bal = Number(c.balance ?? 0);
+                      const out = formatOutstanding(bal);
+                      const badge = statusBadge(c);
+                      return (
+                        <div
+                          key={c.id}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => navigate(`/customers/${c.id}`)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              navigate(`/customers/${c.id}`);
+                            }
+                          }}
+                          className={`${ROW_GRID} px-4 py-3.5 cursor-pointer ${ROW_CARD}`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div
+                              className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+                              style={{ background: colors.bg, color: colors.color }}
+                            >
+                              {initials(c.name)}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="font-semibold text-redwood-text-main text-sm truncate">{c.name}</div>
+                              <div className="text-xs text-redwood-text-muted">{c.code ?? `CUST-${c.id}`}</div>
+                            </div>
+                          </div>
+                          <span className="text-sm text-redwood-text-muted">{c.phone ?? '—'}</span>
+                          <span className="text-sm text-redwood-text-muted">{formatRelativeDate(c.created_at)}</span>
+                          <span className={`text-sm text-right tabular-nums ${out.className}`}>
+                            {out.text}
+                          </span>
+                          <span>
+                            <span
+                              className={`inline-block text-[10px] font-semibold px-2.5 py-0.5 rounded-full ${badge.className}`}
+                            >
+                              {badge.label}
+                            </span>
+                          </span>
+                          <div
+                            className="flex items-center justify-end gap-1.5"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => navigate(`/customers/edit/${c.id}`)}
+                              className={ICON_BTN}
+                              aria-label="Edit"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => navigate(`/customers/${c.id}`)}
+                              className={ICON_BTN}
+                              aria-label="View"
+                            >
+                              <Eye size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => void handleDelete(c, e)}
+                              className="w-8 h-8 rounded-md border border-red-500/35 bg-red-500/10 text-red-400 hover:bg-red-500/20 flex items-center justify-center"
+                              aria-label="Delete"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+              <div className="px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 text-xs text-redwood-text-muted border-t border-sky-500/15">
+                <span>
+                  Showing {sortedCustomers.length} of {customers.length} customers
+                  {searchTerm ? ` matching "${searchTerm}"` : ''}
+                </span>
+                <span>Click any row to open customer overview →</span>
+              </div>
+            </>
+          ) : null}
         </div>
       </div>
-
-      {/* ── STATS STRIP ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', background: 'var(--color-background-secondary)', borderBottom: '0.5px solid var(--color-border-tertiary)' }}>
-        {[
-          { label: 'Total customers',  value: String(_totalCount),
-            color: '#4F8EF7', sub: 'in database' },
-          { label: 'Outstanding AR',
-            value: `$${_outstandingTotal.toLocaleString()}`,
-            color: _outstandingTotal > 0 ? '#F59E0B' : '#22C55E',
-            sub: `${_overdueCount} customers owe` },
-          { label: 'Credit balances',  value: String(_creditCount),
-            color: '#4F8EF7', sub: 'overpaid (CR)' },
-          { label: 'Active customers',
-            value: String(customers.filter(c => c.status !== 'Inactive' && c.status !== 'Suspended').length),
-            color: '#22C55E', sub: 'not inactive' },
-        ].map((s, i) => (
-          <div key={s.label} style={{ padding: '10px 14px', borderRight: i < 3 ? '0.5px solid var(--color-border-tertiary)' : 'none' }}>
-            <div style={{ fontSize: 9, color: 'var(--color-text-tertiary)', fontWeight: 700, letterSpacing: '.5px', marginBottom: 3, textTransform: 'uppercase' }}>
-              {s.label}
-            </div>
-            <div style={{ fontSize: 16, fontWeight: 700, lineHeight: 1, marginBottom: 2, color: s.color }}>
-              {s.value}
-            </div>
-            <div style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>{s.sub}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* ── LOADING STATE ── */}
-      {loading && (
-        <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-secondary)', fontSize: 13 }}>
-          Loading customers…
-        </div>
-      )}
-
-      {/* ── ERROR STATE ── */}
-      {error && !loading && (
-        <div style={{ margin: 16, padding: 14, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.2)', borderRadius: 10, fontSize: 11, color: '#EF4444' }}>
-          {error}
-          <button
-            onClick={loadData}
-            style={{ marginLeft: 12, background: '#4F8EF7', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 10, cursor: 'pointer', fontFamily: 'inherit' }}
-          >
-            Retry
-          </button>
-        </div>
-      )}
-
-      {/* ── EMPTY STATE (no customers at all) ── */}
-      {!loading && !error && customers.length === 0 && (
-        <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-secondary)', fontSize: 13 }}>
-          <div style={{ fontSize: 36, marginBottom: 8 }}>👥</div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-text-primary)', marginBottom: 4 }}>
-            No customers yet
-          </div>
-          <div style={{ marginBottom: 14 }}>Start by adding your first customer</div>
-          <button
-            onClick={() => navigate('/customers/new')}
-            style={{ background: '#4F8EF7', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
-          >
-            + Add first customer
-          </button>
-        </div>
-      )}
-
-      {/* ── NO SEARCH RESULTS ── */}
-      {!loading && !error && customers.length > 0 && _sorted.length === 0 && (
-        <div style={{ padding: 30, textAlign: 'center', color: 'var(--color-text-secondary)', fontSize: 12 }}>
-          No customers match "{searchTerm}" —{' '}
-          <span
-            onClick={() => setSearchTerm('')}
-            style={{ color: '#4F8EF7', cursor: 'pointer', textDecoration: 'underline' }}
-          >
-            clear search
-          </span>
-        </div>
-      )}
-
-      {/* ── CUSTOMER TABLE ── */}
-      {!loading && !error && _sorted.length > 0 && (
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-            <thead>
-              <tr style={{ background: 'var(--color-background-secondary)' }}>
-                {['Customer', 'Phone', 'City', 'Added', 'Outstanding', 'Status', ''].map((h, i) => (
-                  <th
-                    key={i}
-                    style={{
-                      padding: '8px 12px',
-                      textAlign: i >= 5 ? 'right' : 'left',
-                      fontSize: 10, color: 'var(--color-text-tertiary)', fontWeight: 700,
-                      letterSpacing: '.4px', textTransform: 'uppercase',
-                      borderBottom: '0.5px solid var(--color-border-tertiary)',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {_sorted.map(c => {
-                const avatarStyle = JSON.parse(_avatarColor(c.id));
-                const bal = Number(c.balance ?? 0);
-                const balInfo = _balDisplay(bal);
-                const badge = _statusBadge(c);
-                const city = c.city ?? (c.address?.split(',')[1]?.trim() ?? '—');
-
-                return (
-                  <tr
-                    key={c.id}
-                    onClick={() => navigate(`/customers/${c.id}`)}
-                    style={{ cursor: 'pointer', borderBottom: '0.5px solid var(--color-border-tertiary)' }}
-                    onMouseEnter={(e: React.MouseEvent<HTMLTableRowElement>) => {
-                      e.currentTarget.style.background = 'var(--color-background-secondary)';
-                    }}
-                    onMouseLeave={(e: React.MouseEvent<HTMLTableRowElement>) => {
-                      e.currentTarget.style.background = 'transparent';
-                    }}
-                  >
-                    {/* Customer — avatar + name + id */}
-                    <td style={{ padding: '9px 12px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                        <div style={{
-                          width: 30, height: 30, borderRadius: '50%',
-                          background: avatarStyle.bg, color: avatarStyle.color,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          fontSize: 10, fontWeight: 600, flexShrink: 0,
-                        }}>
-                          {_initials(c.name)}
-                        </div>
-                        <div>
-                          <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', fontSize: 12, marginBottom: 1 }}>
-                            {c.name}
-                          </div>
-                          <div style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>
-                            {c.code ?? `CUST-${String(c.id).slice(-3)}`}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Phone */}
-                    <td style={{ padding: '9px 12px', color: 'var(--color-text-secondary)' }}>
-                      {c.phone ?? '—'}
-                    </td>
-
-                    {/* City */}
-                    <td style={{ padding: '9px 12px', color: 'var(--color-text-secondary)' }}>
-                      {city}
-                    </td>
-
-                    {/* Added date */}
-                    <td style={{ padding: '9px 12px', color: 'var(--color-text-secondary)' }}>
-                      {_fmtDate(c.created_at)}
-                    </td>
-
-                    {/* Outstanding balance */}
-                    <td style={{ padding: '9px 12px' }}>
-                      <span style={{ fontWeight: 600, color: balInfo.color }}>
-                        {balInfo.text}
-                      </span>
-                    </td>
-
-                    {/* Status badge */}
-                    <td style={{ padding: '9px 12px' }}>
-                      <span style={{
-                        fontSize: 9, fontWeight: 600, padding: '2px 8px',
-                        borderRadius: 20, display: 'inline-block', whiteSpace: 'nowrap',
-                        ...badge.style,
-                      }}>
-                        {badge.label}
-                      </span>
-                    </td>
-
-                    {/* Actions */}
-                    <td style={{ padding: '9px 12px', textAlign: 'right' }}>
-                      <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-                        <button
-                          onClick={(e: React.MouseEvent) => {
-                            e.stopPropagation();
-                            navigate(`/customers/edit/${c.id}`);
-                          }}
-                          aria-label="Edit customer"
-                          title="Edit customer"
-                          style={{
-                            width: 26, height: 26, borderRadius: 6, cursor: 'pointer',
-                            border: '0.5px solid var(--color-border-tertiary)',
-                            background: 'var(--color-background-secondary)',
-                            color: 'var(--color-text-secondary)', fontSize: 13,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontFamily: 'inherit',
-                          }}
-                        >
-                          ✏
-                        </button>
-                        <button
-                          onClick={(e: React.MouseEvent) => void handleDelete(c, e)}
-                          aria-label="Delete customer"
-                          title="Delete customer"
-                          style={{
-                            width: 26, height: 26, borderRadius: 6, cursor: 'pointer',
-                            border: '1px solid rgba(239,68,68,.2)',
-                            background: 'rgba(239,68,68,.06)',
-                            color: '#EF4444', fontSize: 13,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontFamily: 'inherit',
-                          }}
-                        >
-                          🗑
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-
-          {/* Row count footer */}
-          <div style={{
-            padding: '10px 14px',
-            borderTop: '0.5px solid var(--color-border-tertiary)',
-            background: 'var(--color-background-secondary)',
-            fontSize: 11, color: 'var(--color-text-secondary)',
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          }}>
-            <span>
-              Showing {_sorted.length} of {customers.length} customers
-              {searchTerm ? ` matching "${searchTerm}"` : ''}
-            </span>
-            <span style={{ color: 'var(--color-text-tertiary)' }}>
-              Click any row to open customer overview
-            </span>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
