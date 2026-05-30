@@ -222,10 +222,16 @@ export async function sendVoiceCommandToClaude(
     }
 
     let response: Response;
+    const token = localStorage.getItem('access_token');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) {
+        headers.Authorization = `Bearer ${token}`;
+    }
+
     try {
         response = await fetch(CHAT_ENDPOINT, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({
                 system: SYSTEM_PROMPT,
                 max_tokens: 300,

@@ -102,6 +102,23 @@ function autoRoundOffAmount(subtotal: number, effectiveDiscount: number, taxAmou
     return parseFloat((Math.round(base) - base).toFixed(2));
 }
 
+type VoicePrefillItem = {
+    name?: string;
+    qty?: number;
+    price?: number;
+};
+
+type VoicePrefillState = {
+    customer?: string;
+    items?: VoicePrefillItem[];
+};
+
+function fuzzyMatchByName<T extends { name: string }>(query: string, list: T[]): T | null {
+    const q = query.trim().toLowerCase();
+    if (!q) return null;
+    return list.find((row) => row.name.toLowerCase().includes(q)) ?? null;
+}
+
 // CLEANUP-1 — Removed bumpCachedCustomerBalance. The PHASE-3 consistency
 // check confirmed getCustomers() in production goes straight to the
 // backend without merging the localStorage 'customers' cache, so the
@@ -117,6 +134,7 @@ export default function InvoiceFormPage() {
     const [saving, setSaving] = useState(false);
     // FIX 1 — inline success notice replaces the blocking alert().
     const [savedNotice, setSavedNotice] = useState<string | null>(null);
+    const [voicePrefillBanner, setVoicePrefillBanner] = useState(false);
     const [showNewCustomer, setShowNewCustomer] = useState(false);
     const [newCustName, setNewCustName] = useState('');
     const [newCustPhone, setNewCustPhone] = useState('');
@@ -134,7 +152,14 @@ export default function InvoiceFormPage() {
     const [bankAccounts, setBankAccounts] = useState<Account[]>([]);
 
     const { id: invoiceIdParam } = useParams<{ id: string }>();
-    const locationState = location.state as { customerId?: string; customerName?: string; editMode?: boolean; invoice?: any } | null;
+    const locationState = location.state as {
+        customerId?: string;
+        customerName?: string;
+        editMode?: boolean;
+        invoice?: any;
+        voicePrefill?: VoicePrefillState;
+    } | null;
+    const voicePrefill = locationState?.voicePrefill;
     const isEditMode = !!(locationState?.editMode && locationState?.invoice) || !!(invoiceIdParam && invoiceIdParam !== 'new');
     const existingInvoice = locationState?.invoice || null;
     const prefilledCustomer = locationState;
@@ -255,7 +280,55 @@ export default function InvoiceFormPage() {
                         invoiceToEdit = allInvoices.find((inv: any) => String(inv.id) === String(invoiceIdParam)) || null;
                     } catch { /* ignore */ }
                 }
-                if (isEditMode && invoiceToEdit) {
+                if (!isEditMode && voicePrefill) {
+                    const customerQuery = String(voicePrefill.customer || '').trim();
+                    const matchedCustomer = customerQuery
+                        ? fuzzyMatchByName(customerQuery, customersData)
+                        : null;
+                    const customerId = matchedCustomer ? String(matchedCustomer.id) : '';
+                    const customerName = matchedCustomer?.name || customerQuery;
+
+                    const rawItems = Array.isArray(voicePrefill.items) ? voicePrefill.items : [];
+                    const lineItems =
+                        rawItems.length > 0
+                            ? rawItems.map((item, idx) => {
+                                  const rawName = String(item.name || '').trim();
+                                  const matchedProduct = rawName
+                                      ? fuzzyMatchByName(rawName, productsData)
+                                      : null;
+                                  const quantity = Number(item.qty) || 0;
+                                  const rate = Number(item.price) || 0;
+                                  return {
+                                      id: String(idx + 1),
+                                      productId: matchedProduct ? String(matchedProduct.id) : '',
+                                      product: matchedProduct?.name || rawName,
+                                      description: '',
+                                      quantity,
+                                      rate,
+                                      amount: quantity * rate,
+                                      isService: false,
+                                  };
+                              })
+                            : [
+                                  {
+                                      id: '1',
+                                      productId: '',
+                                      product: '',
+                                      description: '',
+                                      quantity: 0,
+                                      rate: 0,
+                                      amount: 0,
+                                  },
+                              ];
+
+                    setFormData((prev) => ({
+                        ...prev,
+                        customerId,
+                        customerName,
+                        lineItems,
+                    }));
+                    setVoicePrefillBanner(true);
+                } else if (isEditMode && invoiceToEdit) {
                     const inv = invoiceToEdit;
                     setFormData({
                         customerId: String(inv.customerId || ''),
@@ -689,6 +762,25 @@ export default function InvoiceFormPage() {
                         <p className="text-sm font-black text-emerald-800">Invoice {savedNotice} saved successfully</p>
                         <p className="text-[11px] text-emerald-700">Opening customer ledger…</p>
                     </div>
+                </div>
+            )}
+            {voicePrefillBanner && !savedNotice && (
+                <div
+                    className="rounded-xl p-4 flex items-center gap-3 shadow-sm"
+                    style={{
+                        background: 'rgba(59, 130, 246, 0.12)',
+                        border: '1px solid rgba(59, 130, 246, 0.35)',
+                    }}
+                >
+                    <div
+                        className="w-8 h-8 rounded-full flex items-center justify-center font-black text-white flex-shrink-0"
+                        style={{ background: '#3B82F6' }}
+                    >
+                        AI
+                    </div>
+                    <p className="text-sm font-semibold" style={{ color: '#93C5FD' }}>
+                        Invoice pre-filled from voice command — review and save
+                    </p>
                 </div>
             )}
             {/* Header — Soltol dark theme */}
