@@ -119,6 +119,14 @@ export default function FinanceDashboard() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
 
+  // Defensive view of the state — if the backend ever returns a
+  // non-array (null, error envelope like `{detail: "..."}`, paginated
+  // wrapper like `{results: [...]}`, etc.) the .filter/.map/.reduce
+  // calls below would throw and black-screen the dashboard. Coercing
+  // to [] here keeps the page rendering with empty data instead.
+  const safeInvoices = Array.isArray(invoices) ? invoices : [];
+  const safePayments = Array.isArray(payments) ? payments : [];
+
   // Responsive column count — same ResizeObserver pattern as
   // WarehouseDashboard. Re-evaluates on resize.
   const [cols, setCols] = useState({ kpi: 4, twoCol: true });
@@ -133,8 +141,17 @@ export default function FinanceDashboard() {
   }, []);
 
   useEffect(() => {
-    getInvoices().then(setInvoices).catch(console.error);
-    getPayments().then(setPayments).catch(console.error);
+    // Defence-in-depth: also coerce at the fetch boundary so the
+    // state itself stays a valid Invoice[]/Payment[]. If the backend
+    // returns a non-array shape we fall back to []. The .catch
+    // handlers reset to [] so a transient error can't leave stale
+    // data on screen.
+    getInvoices()
+      .then(data => setInvoices(Array.isArray(data) ? data : []))
+      .catch(() => setInvoices([]));
+    getPayments()
+      .then(data => setPayments(Array.isArray(data) ? data : []))
+      .catch(() => setPayments([]));
   }, []);
 
   // ───────── Computations (pure JS, no new APIs) ─────────
@@ -143,14 +160,14 @@ export default function FinanceDashboard() {
   // Cash position = sum of payments received. (No payables service
   // exists, so the "minus payables" half of the formula resolves
   // to 0. Sub-text still reads "Bank minus payables" per spec.)
-  const cashPosition = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const cashPosition = safePayments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
-  const receivables = calculateReceivables(invoices, payments, now);
+  const receivables = calculateReceivables(safeInvoices, safePayments, now);
   const arOutstanding = receivables.total;
   const arOver30 = receivables.days60 + receivables.days90;
 
   // VAT collected MTD + matching net income MTD.
-  const mtdInvoices = invoices.filter((i) => {
+  const mtdInvoices = safeInvoices.filter((i) => {
     const d = new Date(i.invoiceDate);
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
   });
@@ -193,19 +210,19 @@ export default function FinanceDashboard() {
   const worstAmount = worstReceivable?.balance ?? 0;
   const worstDays = worstInvoice ? daysOverdue(worstInvoice.dueDate) : null;
 
-  const mtdCollected = payments
+  const mtdCollected = safePayments
     .filter(p => {
       const d = new Date(p.payment_date);
       return !Number.isNaN(d.getTime()) && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
     })
     .reduce((s, p) => s + (Number(p.amount) || 0), 0);
-  const totalInvoiced = invoices.reduce((s, i) => s + (Number(i.grandTotal) || 0), 0);
-  const totalCollected = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const totalInvoiced = safeInvoices.reduce((s, i) => s + (Number(i.grandTotal) || 0), 0);
+  const totalCollected = safePayments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
   const collectionRate = totalInvoiced > 0 ? Math.min(100, (totalCollected / totalInvoiced) * 100) : null;
-  const linkedPaymentDays = payments
+  const linkedPaymentDays = safePayments
     .map(p => {
       if (!p.invoice_id) return null;
-      const inv = invoices.find(i => String(i.id) === String(p.invoice_id));
+      const inv = safeInvoices.find(i => String(i.id) === String(p.invoice_id));
       if (!inv) return null;
       const invoiceDate = new Date(inv.invoiceDate).getTime();
       const paymentDate = new Date(p.payment_date).getTime();
@@ -218,7 +235,7 @@ export default function FinanceDashboard() {
     : null;
 
   // Sequential invoice-number gap detection.
-  const seqList = invoices
+  const seqList = safeInvoices
     .map((i) => seqOf(i.invoiceNumber))
     .filter((n): n is number => n !== null)
     .sort((a, b) => a - b);
@@ -525,7 +542,7 @@ export default function FinanceDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {invoices.slice(0, 8).map((inv) => {
+                {safeInvoices.slice(0, 8).map((inv) => {
                   const gap = hasGap(inv.invoiceNumber);
                   const overdueDays = daysOverdue(inv.dueDate);
                   const isOverdue = inv.status === 'Overdue' || (overdueDays != null && overdueDays > 0);
@@ -601,7 +618,7 @@ export default function FinanceDashboard() {
                     </tr>
                   );
                 })}
-                {invoices.length === 0 && (
+                {safeInvoices.length === 0 && (
                   <tr>
                     <td colSpan={7} style={{
                       padding: '14px 5px', textAlign: 'center',
