@@ -390,10 +390,16 @@ export async function updateCustomer(id: string, data: Partial<Customer>): Promi
         return updated;
     }
 
+    const { status, ...rest } = data;
+    const body: Record<string, unknown> = { ...rest };
+    if (status !== undefined) {
+        body.is_active = status === 'Active';
+    }
+
     const response = await fetch(apiUrl(`customers/${id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
+        body: JSON.stringify(body),
     });
     if (!response.ok) throw new Error('Failed to update customer');
     const row = (await response.json()) as Record<string, unknown>;

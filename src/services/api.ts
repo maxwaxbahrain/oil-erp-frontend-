@@ -560,7 +560,7 @@ export async function voidPayment(p: {
 // Van APIs
 export const getVans = (): Promise<Van[]> => apiRequest<Van[]>('/vans');
 export const getVan = (id: string): Promise<Van> => apiRequest<Van>(`/vans/${id}`);
-export const createVan = (data: Partial<Van>): Promise<Van> => apiRequest<Van>('/vans/', { method: 'POST', body: JSON.stringify(data) });
+export const createVan = (data: Partial<Van>): Promise<Van> => apiRequest<Van>('/vans', { method: 'POST', body: JSON.stringify(data) });
 export const updateVan = (id: string, data: Partial<Van>): Promise<Van> => apiRequest<Van>(`/vans/${id}`, { method: 'PUT', body: JSON.stringify(data) });
 export const deleteVan = (id: string): Promise<void> => apiRequest<void>(`/vans/${id}`, { method: 'DELETE' });
 
@@ -648,7 +648,7 @@ function toBackendProductPayload(data: Partial<Product>): Record<string, unknown
 }
 
 export const createProduct = (data: Partial<Product>): Promise<Product> =>
-  apiRequest<Product>('/products', { method: 'POST', body: JSON.stringify(toBackendProductPayload(data)) });
+  apiRequest<Product>('/products/', { method: 'POST', body: JSON.stringify(toBackendProductPayload(data)) });
 export const updateProduct = (id: string, data: Partial<Product>): Promise<Product> =>
   apiRequest<Product>(`/products/${id}`, { method: 'PUT', body: JSON.stringify(toBackendProductPayload(data)) });
 
