@@ -1,4 +1,4 @@
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import {
   Menu,
   ChevronDown,
@@ -42,7 +42,7 @@ import api from '../api/axios';
 const ROLES = ['System Admin', 'Accountant', 'Sales Manager', 'Warehouse', 'Van Driver', 'AI Hub'] as const;
 
 const ROLE_ROUTES: Record<(typeof ROLES)[number], string> = {
-  'System Admin':  '/',
+  'System Admin':  '/dashboard',
   'Accountant':    '/finance/dashboard',
   'Sales Manager': '/sales/dashboard',
   'Warehouse':     '/warehouse/dashboard',
@@ -245,7 +245,20 @@ function App() {
 
   const navigate = useNavigate();
 
-  if (location.pathname === '/' || location.pathname === '/login' || location.pathname === '/signup') {
+  if (location.pathname === '/login' || location.pathname === '/signup') {
+    return <AppRoutes />;
+  }
+
+  // Landing page — show it to anonymous visitors, but immediately
+  // redirect authenticated users to /dashboard so the shell mounts
+  // and the role pill stays available. Returning <AppRoutes /> bare
+  // (without the shell) for authenticated users used to drop the
+  // chrome and surface as a "black screen" momentarily.
+  if (location.pathname === '/') {
+    const token = localStorage.getItem('access_token');
+    if (token) {
+      return <Navigate to="/dashboard" replace />;
+    }
     return <AppRoutes />;
   }
 
