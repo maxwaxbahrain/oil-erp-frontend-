@@ -2,6 +2,20 @@ import axios from 'axios';
 
 export const ACCESS_TOKEN_KEY = 'access_token';
 
+const AUTH_ROUTES = new Set(['/login', '/signup']);
+
+function isAuthRoute(pathname: string): boolean {
+  return AUTH_ROUTES.has(pathname);
+}
+
+/** Client-side navigation — avoids full reload that unmounts the app shell. */
+function redirectToLogin(): void {
+  const { pathname } = window.location;
+  if (isAuthRoute(pathname)) return;
+  window.history.replaceState(null, '', '/login');
+  window.dispatchEvent(new PopStateEvent('popstate'));
+}
+
 const baseURL = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
   .trim()
   .replace(/\/+$/, '');
@@ -28,9 +42,7 @@ api.interceptors.response.use(
       localStorage.removeItem(ACCESS_TOKEN_KEY);
       localStorage.removeItem('bettano_auth_user');
       localStorage.removeItem('bettano_current_user');
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login';
-      }
+      redirectToLogin();
     }
     return Promise.reject(error);
   }

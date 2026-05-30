@@ -22,15 +22,27 @@ export default function SatisfactionSurvey() {
     const run = async () => {
       try {
         if (localStorage.getItem('survey_shown') === 'true') return;
+      } catch {
+        return;
+      }
+      try {
         const res = await api.get<{ should_show: boolean }>('/api/tracking/survey/status');
         if (res.data.should_show) {
-          timer = window.setTimeout(() => setVisible(true), 3000);
+          timer = window.setTimeout(() => {
+            try {
+              setVisible(true);
+            } catch {
+              // Silent
+            }
+          }, 3000);
         }
       } catch {
-        // Silent
+        // Silent — survey status failures must not affect the app
       }
     };
-    run();
+    void run().catch(() => {
+      // Silent — uncaught async errors from run()
+    });
     return () => {
       if (timer) window.clearTimeout(timer);
     };
