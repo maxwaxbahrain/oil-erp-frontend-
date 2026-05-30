@@ -1,33 +1,34 @@
-// VOICE ASSISTANT — floating mic button + full-screen modal.
+// VOICE ASSISTANT — mobile floating mic (above bottom nav) + desktop hidden.
 //
-// IDLE state: small mic button at bottom-right (right-52 to avoid
-// collision with the AI Business Advisor pill at right-6).
+// Mobile (lg:hidden):
+//   * 56px blue FAB centered at bottom: 72px (above 56px nav)
+//   * Listening → pulsing blue ring; processing → spinner in circle
+//   * Active states → bottom sheet overlay for transcript / response
+//   * Same processVoiceCommand pipeline as CommandBar
 //
-// LISTENING / PROCESSING / SPEAKING states: full-screen modal with
-// a big circular state icon, status badge, transcript/response text,
-// Stop button, and a secondary text-input path for typed commands.
-//
-// User clicks mic → modal opens, recognition starts.  User can either
-// speak (transcript appears after Deepgram returns) or type a command
-// in the text box instead (which cancels recognition and processes
-// the typed text through the same VoiceCommandProcessor).
-//
-// After 3 seconds in 'speaking' state, the modal auto-closes and we
-// return to the small idle button.  Manual close (×) works any time.
-//
-// ISOLATION: same import surface as before — react, react-router-dom,
-// lucide-react (already in deps), and the three sibling files in this
-// folder + the service file.  No new project imports.
+// Desktop (lg+): mic lives in header CommandBar only — this component
+// renders nothing visible on large screens.
 // ============================================
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Mic, Loader2, Volume2, X, Send, Square } from 'lucide-react';
+import { Mic, Loader2, X, Send } from 'lucide-react';
 import { useDeepgramRecognition as useVoiceRecognition } from './useDeepgramRecognition';
 import { processVoiceCommand } from './VoiceCommandProcessor';
 
 type AssistantState = 'idle' | 'listening' | 'processing' | 'speaking';
+
+const MOBILE_FAB_CSS = `
+@keyframes mobileMicPulse {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(79, 142, 247, 0.45), 0 8px 24px rgba(79, 142, 247, 0.35);
+    }
+    50% {
+        box-shadow: 0 0 0 12px rgba(79, 142, 247, 0), 0 8px 28px rgba(79, 142, 247, 0.45);
+    }
+}
+`;
 
 export function VoiceAssistant() {
     const navigate = useNavigate();
@@ -36,33 +37,22 @@ export function VoiceAssistant() {
     const [responseMessage, setResponseMessage] = useState<string>('');
     const [typedCommand, setTypedCommand] = useState<string>('');
 
-    // When the user types a command and submits while recognition is
-    // still running, the recognition's eventual onResult would race
-    // against the typed flow.  This flag lets us drop that result.
     const ignoreNextResultRef = useRef<boolean>(false);
 
-    // ── Speak the assistant's reply via SpeechSynthesis.  The 3-second
-    //    'speaking' auto-close effect handles transitioning back to
-    //    idle, so we don't need utter.onend to do it.
     const speakReply = useCallback((text: string) => {
         if (!text) return;
         try {
-            const synth =
-                typeof window !== 'undefined'
-                    ? (window as Window & { speechSynthesis?: SpeechSynthesis }).speechSynthesis
-                    : undefined;
+            const synth = window.speechSynthesis;
             if (!synth) return;
             const utter = new SpeechSynthesisUtterance(text);
             utter.rate = 1.05;
             synth.cancel();
             synth.speak(utter);
         } catch {
-            /* 3s effect closes the modal regardless */
+            /* auto-close still runs */
         }
     }, []);
 
-    // ── Single command pipeline — used by BOTH voice transcript and
-    //    typed text.  Sets state, calls processor, speaks reply.
     const runCommand = useCallback(
         async (text: string) => {
             const t = (text || '').trim();
@@ -123,8 +113,6 @@ export function VoiceAssistant() {
         onError: handleListenError,
     });
 
-    // ── Click handler used by both the idle mic button AND the Stop
-    //    button inside the modal (listening → processing).
     const handleMicClick = useCallback(() => {
         if (state === 'processing' || state === 'speaking') return;
 
@@ -154,18 +142,16 @@ export function VoiceAssistant() {
             return;
         }
 
-        // state === 'listening' — user clicked Stop.  Flip to processing
-        // immediately so the UI reflects the upload + Deepgram round-trip.
-        try {
-            recognition.stop();
+        if (state === 'listening') {
+            try {
+                recognition.stop();
+            } catch {
+                /* hook callbacks handle state */
+            }
             setState('processing');
-        } catch {
-            /* hook callbacks will reset state */
         }
     }, [state, recognition, speakReply]);
 
-    // ── Typed command submission.  Cancels in-flight recognition
-    //    (with ignore flag) so its result doesn't race the typed flow.
     const handleTypedSubmit = useCallback(
         (e: FormEvent) => {
             e.preventDefault();
@@ -187,7 +173,6 @@ export function VoiceAssistant() {
         [typedCommand, state, recognition, runCommand]
     );
 
-    // ── Manual close (× button) — works in any non-idle state.
     const handleClose = useCallback(() => {
         if (state === 'listening') {
             ignoreNextResultRef.current = true;
@@ -208,7 +193,6 @@ export function VoiceAssistant() {
         setState('idle');
     }, [state, recognition]);
 
-    // ── 3-second auto-close from 'speaking' state.
     useEffect(() => {
         if (state !== 'speaking') return;
         const t = window.setTimeout(() => {
@@ -224,7 +208,6 @@ export function VoiceAssistant() {
         return () => window.clearTimeout(t);
     }, [state]);
 
-    // ── Unmount cleanup — silence any in-flight speech.
     useEffect(() => {
         return () => {
             try {
@@ -235,161 +218,160 @@ export function VoiceAssistant() {
         };
     }, []);
 
-    // ── Per-state modal copy + visuals.
-    const isModalOpen = state !== 'idle';
-    const statusLabel =
-        state === 'listening' ? 'Listening'
-        : state === 'processing' ? 'Processing'
-        : state === 'speaking' ? 'Speaking'
-        : '';
-    const StatusIcon =
-        state === 'listening' ? Mic
-        : state === 'processing' ? Loader2
-        : state === 'speaking' ? Volume2
-        : Mic;
-    const statusIconClasses =
-        state === 'listening'
-            ? 'bg-emerald-500 text-white animate-pulse'
-            : state === 'processing'
-                ? 'bg-[#C74634] text-white opacity-95'
-                : state === 'speaking'
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-gray-500 text-white';
-    const iconShadow =
-        state === 'listening'
-            ? '0 12px 36px rgba(16,185,129,0.4)'
-            : state === 'speaking'
-                ? '0 12px 36px rgba(59,130,246,0.4)'
-                : '0 12px 36px rgba(199,70,52,0.4)';
+    const isActive = state !== 'idle';
     const inputDisabled = state === 'processing' || state === 'speaking';
+    const fabListening = state === 'listening';
 
     return (
-        <>
-            {/* Floating mic button — visible only in idle state. */}
-            {!isModalOpen && (
-                <div
-                    className="fixed bottom-6 right-52 z-50 flex flex-col items-end gap-2 print:hidden"
-                    data-component="voice-assistant"
-                >
-                    <button
-                        onClick={handleMicClick}
-                        title="Click to speak a command"
-                        aria-label="Voice command assistant"
-                        className="w-14 h-14 rounded-full border-2 border-white bg-gray-500 hover:bg-gray-600 text-white flex items-center justify-center transition-all"
-                        style={{ boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}
-                    >
-                        <Mic size={22} />
-                    </button>
-                </div>
-            )}
+        <div className="lg:hidden print:hidden" data-component="voice-assistant-mobile">
+            <style>{MOBILE_FAB_CSS}</style>
 
-            {/* Modal — visible during listening / processing / speaking. */}
-            {isModalOpen && (
-                <div
-                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm print:hidden p-4"
-                    data-component="voice-assistant-modal"
-                    role="dialog"
-                    aria-modal="true"
-                    aria-label="Voice command assistant"
-                >
-                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md flex flex-col">
-                        {/* Header — close button */}
-                        <div className="flex justify-end p-3">
+            {/* Floating mic — centered above bottom nav */}
+            <button
+                type="button"
+                onClick={handleMicClick}
+                disabled={state === 'processing' || state === 'speaking'}
+                aria-label={
+                    state === 'listening'
+                        ? 'Stop listening and process'
+                        : 'Voice command'
+                }
+                title={
+                    state === 'listening'
+                        ? 'Tap to stop and process'
+                        : 'Tap to speak a command'
+                }
+                className="fixed z-[60] flex items-center justify-center rounded-full border-0 disabled:opacity-90"
+                style={{
+                    width: 56,
+                    height: 56,
+                    bottom: 72,
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    background: '#4F8EF7',
+                    color: '#fff',
+                    cursor:
+                        state === 'processing' || state === 'speaking'
+                            ? 'default'
+                            : 'pointer',
+                    animation: fabListening ? 'mobileMicPulse 1.4s ease-in-out infinite' : undefined,
+                    boxShadow: fabListening
+                        ? undefined
+                        : '0 8px 24px rgba(79, 142, 247, 0.35)',
+                }}
+            >
+                {state === 'processing' ? (
+                    <Loader2 size={26} className="animate-spin" aria-hidden />
+                ) : (
+                    <Mic size={26} strokeWidth={2.25} aria-hidden />
+                )}
+            </button>
+
+            {/* Bottom transcript overlay */}
+            {isActive && (
+                <>
+                    <div
+                        className="fixed inset-0 z-[55] bg-black/40"
+                        aria-hidden
+                        onClick={handleClose}
+                    />
+                    <div
+                        className="fixed left-3 right-3 z-[56] rounded-2xl border shadow-2xl"
+                        style={{
+                            bottom: 140,
+                            background: '#111827',
+                            borderColor: 'rgba(79, 142, 247, 0.35)',
+                            boxShadow: '0 12px 40px rgba(0,0,0,0.45)',
+                        }}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="Voice command"
+                    >
+                        <div className="flex items-center justify-between px-4 pt-3 pb-2">
+                            <span
+                                className="text-[10px] font-bold uppercase tracking-[0.2em]"
+                                style={{ color: '#93C5FD' }}
+                            >
+                                {state === 'listening'
+                                    ? 'Listening'
+                                    : state === 'processing'
+                                      ? 'Processing'
+                                      : 'Response'}
+                            </span>
                             <button
+                                type="button"
                                 onClick={handleClose}
                                 aria-label="Close"
-                                className="w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 flex items-center justify-center transition-colors"
+                                className="w-8 h-8 rounded-full flex items-center justify-center"
+                                style={{
+                                    background: 'rgba(255,255,255,0.08)',
+                                    color: '#94a3b8',
+                                }}
                             >
-                                <X size={18} />
+                                <X size={16} />
                             </button>
                         </div>
 
-                        {/* Body — big icon, status badge, headline, Stop button */}
-                        <div className="px-8 pb-6 flex flex-col items-center gap-5">
-                            <div
-                                className={`w-24 h-24 rounded-full flex items-center justify-center ${statusIconClasses}`}
-                                style={{ boxShadow: iconShadow }}
-                            >
-                                <StatusIcon
-                                    size={44}
-                                    className={state === 'processing' ? 'animate-spin' : ''}
-                                />
-                            </div>
-
-                            <div
-                                className="text-[11px] font-black uppercase tracking-[0.3em]"
-                                style={{ color: '#C74634' }}
-                            >
-                                {statusLabel}
-                            </div>
-
-                            <div className="min-h-[3.5rem] flex flex-col items-center justify-center text-center px-2 gap-2">
-                                {state === 'listening' && (
-                                    <div className="text-base text-gray-800 leading-relaxed font-medium">
-                                        {lastTranscript || 'Listening… speak your command'}
-                                    </div>
-                                )}
-                                {state === 'processing' && (
-                                    <div className="text-base text-gray-800 leading-relaxed font-medium">
-                                        {lastTranscript
-                                            ? `"${lastTranscript}"`
-                                            : 'Processing your command…'}
-                                    </div>
-                                )}
-                                {state === 'speaking' && (
-                                    <>
-                                        {lastTranscript && (
-                                            <div className="text-sm text-gray-500 italic">
-                                                "{lastTranscript}"
-                                            </div>
-                                        )}
-                                        <div className="text-base text-gray-800 leading-relaxed font-medium">
-                                            {responseMessage || 'Done.'}
-                                        </div>
-                                    </>
-                                )}
-                            </div>
-
+                        <div className="px-4 pb-3 min-h-[3rem]">
                             {state === 'listening' && (
-                                <button
-                                    onClick={handleMicClick}
-                                    className="px-6 py-2.5 rounded-full text-white text-sm font-bold flex items-center gap-2 transition-all hover:opacity-90"
-                                    style={{ backgroundColor: '#C74634' }}
-                                >
-                                    <Square size={14} fill="currentColor" />
-                                    Stop
-                                </button>
+                                <p className="text-sm leading-relaxed" style={{ color: '#EEF2FF' }}>
+                                    {lastTranscript || 'Speak your command…'}
+                                </p>
+                            )}
+                            {state === 'processing' && (
+                                <p className="text-sm leading-relaxed" style={{ color: '#EEF2FF' }}>
+                                    {lastTranscript
+                                        ? `"${lastTranscript}"`
+                                        : 'Processing your command…'}
+                                </p>
+                            )}
+                            {state === 'speaking' && (
+                                <div className="space-y-1">
+                                    {lastTranscript && (
+                                        <p className="text-xs italic" style={{ color: '#94a3b8' }}>
+                                            "{lastTranscript}"
+                                        </p>
+                                    )}
+                                    <p className="text-sm leading-relaxed" style={{ color: '#EEF2FF' }}>
+                                        {responseMessage || 'Done.'}
+                                    </p>
+                                </div>
                             )}
                         </div>
 
-                        {/* Footer — typed command alternative */}
                         <form
                             onSubmit={handleTypedSubmit}
-                            className="border-t border-gray-100 p-4 flex gap-2 bg-gray-50 rounded-b-3xl"
+                            className="flex gap-2 px-3 pb-3 border-t"
+                            style={{ borderColor: 'rgba(255,255,255,0.08)' }}
                         >
                             <input
                                 type="text"
                                 value={typedCommand}
                                 onChange={(e) => setTypedCommand(e.target.value)}
-                                placeholder="Or type a command... e.g. make invoice for Ali, 5 units at $48"
+                                placeholder="Or type a command…"
                                 disabled={inputDisabled}
                                 aria-label="Type a command"
-                                className="flex-1 text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:border-[#C74634] disabled:opacity-50 bg-white"
+                                className="flex-1 text-sm rounded-xl px-3 py-2 focus:outline-none disabled:opacity-50"
+                                style={{
+                                    background: '#0d1420',
+                                    border: '1px solid rgba(79, 142, 247, 0.25)',
+                                    color: '#EEF2FF',
+                                }}
                             />
                             <button
                                 type="submit"
                                 disabled={!typedCommand.trim() || inputDisabled}
                                 aria-label="Send typed command"
-                                className="w-10 h-10 rounded-xl text-white flex items-center justify-center disabled:opacity-40 transition-all hover:opacity-90"
-                                style={{ backgroundColor: '#C74634' }}
+                                className="w-10 h-10 rounded-xl flex items-center justify-center disabled:opacity-40"
+                                style={{ background: '#4F8EF7', color: '#fff' }}
                             >
                                 <Send size={16} />
                             </button>
                         </form>
                     </div>
-                </div>
+                </>
             )}
-        </>
+        </div>
     );
 }
 

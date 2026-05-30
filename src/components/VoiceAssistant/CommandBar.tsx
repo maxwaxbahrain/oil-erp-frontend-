@@ -378,15 +378,14 @@ export function CommandBar() {
                         </button>
                     )}
 
-                    {/* Mic — 28px circle. Blue when idle, red ring + scale
-                        on hover, red pulse during listening. Logic unchanged. */}
+                    {/* Mic — desktop only; mobile uses floating FAB in VoiceAssistant. */}
                     <button
                         type="button"
                         onClick={handleMicToggle}
                         disabled={micDisabled}
                         aria-label={state === 'listening' ? 'Stop and submit' : 'Speak a command'}
                         title={state === 'listening' ? 'Stop and submit' : 'Click to speak'}
-                        className={`flex-shrink-0 disabled:opacity-40 ${state === 'listening' ? 'animate-pulse' : ''}`}
+                        className={`hidden lg:flex flex-shrink-0 disabled:opacity-40 ${state === 'listening' ? 'animate-pulse' : ''}`}
                         style={{
                             width: '28px',
                             height: '28px',
