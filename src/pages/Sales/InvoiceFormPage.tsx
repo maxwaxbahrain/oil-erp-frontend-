@@ -399,7 +399,8 @@ export default function InvoiceFormPage() {
             setShowNewCustomer(false);
             setNewCustName(''); setNewCustPhone(''); setNewCustAddress('');
         } catch (e) {
-            alert('Failed to create customer. Please try again.');
+            const msg = e instanceof Error ? e.message : String(e);
+            alert(`Failed to create customer: ${msg}`);
         } finally {
             setSavingCust(false);
         }

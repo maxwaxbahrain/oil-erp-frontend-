@@ -424,7 +424,72 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
 // Customer APIs
 export const getCustomers = (): Promise<Customer[]> => apiRequest<Customer[]>('/customers/');
 export const getCustomer = (id: string): Promise<Customer> => apiRequest<Customer>(`/customers/${id}`);
-export const createCustomer = (data: Partial<Customer>): Promise<Customer> => apiRequest<Customer>('/customers', { method: 'POST', body: JSON.stringify(data) });
+function formatApiErrorDetail(detail: unknown): string {
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => {
+        if (item && typeof item === 'object' && 'msg' in item) {
+          return String((item as { msg?: string }).msg);
+        }
+        return JSON.stringify(item);
+      })
+      .join('; ');
+  }
+  if (detail && typeof detail === 'object') return JSON.stringify(detail);
+  return 'Request failed';
+}
+
+/** POST /api/customers/ — trailing slash required (bare /customers 307 breaks fetch POST). */
+export async function createCustomer(data: Partial<Customer>): Promise<Customer> {
+  const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+  const body = {
+    name: data.name ?? '',
+    email: data.email?.trim() || undefined,
+    phone: data.phone?.trim() || undefined,
+    address: data.address?.trim() || undefined,
+    category: (data.category ?? 'retail').toLowerCase(),
+    credit_limit: data.credit_limit ?? 0,
+    opening_balance: data.opening_balance ?? 0,
+    gps_location: data.gps_location?.trim() || undefined,
+    notes: data.notes?.trim() || undefined,
+  };
+
+  const response = await fetch(`${API_BASE_URL}/customers/`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    let detail = `HTTP ${response.status}`;
+    try {
+      const err = JSON.parse(text) as { detail?: unknown };
+      if (err.detail !== undefined) detail = formatApiErrorDetail(err.detail);
+    } catch {
+      if (text) detail = text.slice(0, 300);
+    }
+    throw new Error(detail);
+  }
+
+  const row = (await response.json()) as Record<string, unknown>;
+  const bal = row.balance;
+  const balanceNum =
+    typeof bal === 'number' && !Number.isNaN(bal)
+      ? bal
+      : parseFloat(String(bal ?? '0')) || 0;
+  return {
+    ...(row as unknown as Customer),
+    id: String(row.id ?? ''),
+    name: row.name != null ? String(row.name) : '',
+    balance: balanceNum,
+  };
+}
 export const updateCustomer = (id: string, data: Partial<Customer>): Promise<Customer> => apiRequest<Customer>(`/customers/${id}`, { method: 'PUT', body: JSON.stringify(data) });
 export const deleteCustomer = (id: string): Promise<void> => apiRequest<void>(`/customers/${id}`, { method: 'DELETE' });
 // FIX W2-1 — Invoice delete (paid-invoice guard lives at the call site).
