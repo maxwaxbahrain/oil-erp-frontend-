@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, type CSSProperties } from 'react';
+import { useState, useEffect, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getInvoices, getPayments, type Invoice, type Payment } from '../../services/api';
 import { calculateReceivables } from '../../utils/arMetrics';
@@ -104,15 +104,10 @@ const daysOverdue = (dueDate: string) => {
   return Math.floor((Date.now() - due) / 86400000);
 };
 
-// Extract trailing numeric portion of invoice number for gap detection.
-// Guarded against null/undefined — backend rows occasionally omit
-// invoiceNumber, which used to crash the whole dashboard via
-// `.match()` on undefined and produce a black screen.
-const seqOf = (invoiceNumber: string | null | undefined): number | null => {
-  if (!invoiceNumber) return null;
-  const m = invoiceNumber.match(/(\d+)$/);
-  return m ? parseInt(m[1], 10) : null;
-};
+// Gap detection has been removed (it crashed production on invoice numbers
+// like INV-1735689600000 that parsed to 13-digit "sequence" numbers).
+// `seqOf` and the matching gap-set logic are intentionally gone; reintroduce
+// only with a strict invoice-number whitelist and a hard cap on gap-fill.
 
 export default function FinanceDashboard() {
   const navigate = useNavigate();
@@ -234,45 +229,15 @@ export default function FinanceDashboard() {
     ? Math.round(linkedPaymentDays.reduce((s, n) => s + n, 0) / linkedPaymentDays.length)
     : null;
 
-  // Sequential invoice-number gap detection.
-  // Wrapped in useMemo so it only recomputes when invoices change
-  // — and hardened against the two ways this used to crash:
-  //   1. Filter sequence numbers > 1,000,000 so a stray timestamp-as-
-  //      invoice-number (e.g. "INV-1735689600000") can't blow the
-  //      gap window up to a billion.
-  //   2. Cap the inner gap-fill loop at MAX_GAP_FILL iterations so
-  //      a missing range never adds more than that many entries to
-  //      the Set. Without this cap, V8's 2^24 Set-size limit could
-  //      throw "RangeError: Set maximum size exceeded" mid-render.
-  const { gapSet } = useMemo(() => {
-    const seqList = safeInvoices
-      .map((i) => seqOf(i.invoiceNumber))
-      .filter((n): n is number => n !== null && n <= 1_000_000)
-      .sort((a, b) => a - b);
-    const gapSet = new Set<number>();
-    const MAX_GAP_FILL = 1_000;
-    for (let k = 1; k < seqList.length; k++) {
-      if (seqList[k] !== seqList[k - 1] + 1) {
-        for (
-          let n = seqList[k - 1] + 1;
-          n < seqList[k] && (n - seqList[k - 1]) <= MAX_GAP_FILL;
-          n++
-        ) {
-          gapSet.add(n);
-        }
-      }
-    }
-    return { seqList, gapSet };
-  }, [safeInvoices]);
-  // An invoice is flagged as a "gap" point if the number right
-  // before it is missing — that's where the audit trail breaks.
-  // Same null/undefined guard as seqOf — defends against malformed
-  // backend rows.
-  const hasGap = (invoiceNumber: string | null | undefined): boolean => {
-    if (!invoiceNumber) return false;
-    const s = seqOf(invoiceNumber);
-    return s !== null && gapSet.has(s - 1);
-  };
+  // Sequential invoice-number gap detection has been removed.
+  // The previous implementation could crash with "RangeError: Set
+  // maximum size exceeded" when the backend returned invoice numbers
+  // ending in huge digit runs (timestamps, DB ids, etc.) and the
+  // gap-fill loop tried to enumerate every missing integer between a
+  // small sequence and a 13-digit one. Even the bounded version was
+  // judged not worth the risk; it can be re-added later behind a
+  // strict invoice-number validator. The previous `hasGap` helper
+  // has been removed alongside its only consumer in the JSX below.
 
   // ─── Compliance checklist ─────
   const compliance = [
@@ -547,7 +512,7 @@ export default function FinanceDashboard() {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
-                  {['Invoice', 'Seq', 'Net', 'VAT', 'Gross', 'Lock', 'Status'].map((h) => (
+                  {['Invoice', 'Net', 'VAT', 'Gross', 'Lock', 'Status'].map((h) => (
                     <th key={h} style={{
                       fontSize: '8px', fontWeight: 600, textTransform: 'uppercase',
                       color: 'var(--color-redwood-text-subtle)', padding: '4px 5px',
@@ -562,7 +527,6 @@ export default function FinanceDashboard() {
               </thead>
               <tbody>
                 {safeInvoices.slice(0, 8).map((inv) => {
-                  const gap = hasGap(inv.invoiceNumber);
                   const overdueDays = daysOverdue(inv.dueDate);
                   const isOverdue = inv.status === 'Overdue' || (overdueDays != null && overdueDays > 0);
                   const statusBadge = inv.status === 'Paid'
@@ -580,14 +544,6 @@ export default function FinanceDashboard() {
                         whiteSpace: 'nowrap',
                       }}>
                         {inv.invoiceNumber}
-                      </td>
-                      <td style={{
-                        fontSize: '8.5px',
-                        color: gap ? '#F59E0B' : '#22C55E',
-                        padding: '5px 5px',
-                        borderBottom: '1px solid var(--color-redwood-border)',
-                      }}>
-                        {gap ? '⚠ Gap' : '✓'}
                       </td>
                       <td style={{
                         fontSize: '8.5px', textAlign: 'right',
@@ -639,7 +595,7 @@ export default function FinanceDashboard() {
                 })}
                 {safeInvoices.length === 0 && (
                   <tr>
-                    <td colSpan={7} style={{
+                    <td colSpan={6} style={{
                       padding: '14px 5px', textAlign: 'center',
                       fontSize: '10px', color: 'var(--color-redwood-text-muted)',
                     }}>
