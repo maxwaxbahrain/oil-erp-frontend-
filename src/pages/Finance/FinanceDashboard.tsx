@@ -105,7 +105,11 @@ const daysOverdue = (dueDate: string) => {
 };
 
 // Extract trailing numeric portion of invoice number for gap detection.
-const seqOf = (invoiceNumber: string): number | null => {
+// Guarded against null/undefined — backend rows occasionally omit
+// invoiceNumber, which used to crash the whole dashboard via
+// `.match()` on undefined and produce a black screen.
+const seqOf = (invoiceNumber: string | null | undefined): number | null => {
+  if (!invoiceNumber) return null;
   const m = invoiceNumber.match(/(\d+)$/);
   return m ? parseInt(m[1], 10) : null;
 };
@@ -226,7 +230,10 @@ export default function FinanceDashboard() {
   }
   // An invoice is flagged as a "gap" point if the number right
   // before it is missing — that's where the audit trail breaks.
-  const hasGap = (invoiceNumber: string): boolean => {
+  // Same null/undefined guard as seqOf — defends against malformed
+  // backend rows.
+  const hasGap = (invoiceNumber: string | null | undefined): boolean => {
+    if (!invoiceNumber) return false;
     const s = seqOf(invoiceNumber);
     return s !== null && gapSet.has(s - 1);
   };
