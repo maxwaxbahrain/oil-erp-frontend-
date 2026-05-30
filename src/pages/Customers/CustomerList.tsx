@@ -1,25 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import {
-  Search,
-  Filter,
-  ArrowDownUp,
-  Download,
-  Plus,
-  Pencil,
-  Eye,
-  Trash2,
-  Loader2,
-  Users,
-} from 'lucide-react';
+import { Search, Plus, Loader2, Users } from 'lucide-react';
 import { type Customer, getCustomers, deleteCustomer } from '../../services/customerService';
 
 /* Visual tokens only (layout/CSS) */
 const ROW_GRID =
   'grid grid-cols-[minmax(160px,1.5fr)_minmax(80px,0.9fr)_minmax(88px,0.8fr)_minmax(100px,0.85fr)_minmax(88px,0.75fr)_minmax(108px,0.9fr)] items-center gap-3';
-const STAT_CARD = 'rounded-xl bg-[#111827] border border-sky-500/20 p-5';
+const STAT_CARD = 'rounded-xl bg-[#111827] border border-sky-500/40 p-5';
 const ROW_CARD =
-  'rounded-lg border border-sky-500/30 bg-[#111827] hover:bg-redwood-bg-surface/60 transition-colors';
+  'rounded-lg border border-sky-500/40 bg-[#111827] hover:bg-redwood-bg-surface/60 transition-colors';
 const TOOL_BTN =
   'inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#111827] border border-sky-500/20 text-sm font-medium text-redwood-text-muted hover:text-redwood-text-main transition-colors shrink-0';
 const ICON_BTN =
@@ -282,7 +271,23 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-redwood-text-main flex items-center gap-2.5">
-              <Users size={28} className="text-blue-400 shrink-0" strokeWidth={2} />
+              <svg
+                width="28"
+                height="28"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#60A5FA"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="shrink-0"
+                aria-hidden
+              >
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
               Customers
             </h1>
             <p className="text-sm text-redwood-text-muted mt-1">
@@ -293,7 +298,7 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
           <button
             type="button"
             onClick={() => navigate('/customers/new')}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-redwood-border bg-transparent text-redwood-text-main text-sm font-semibold hover:bg-white/5 transition-colors shrink-0"
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[#4F8EF7] text-white border-none hover:bg-[#3b7edd] text-sm font-semibold transition-colors shrink-0"
           >
             <Plus size={16} />
             Add customer
@@ -362,7 +367,9 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
                 onClick={() => setShowFilterMenu((v) => !v)}
                 className={TOOL_BTN}
               >
-                <Filter size={16} />
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
+                </svg>
                 {filterLabel}
               </button>
               {showFilterMenu ? (
@@ -394,7 +401,12 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
               ) : null}
             </div>
             <button type="button" onClick={() => setSortByBalance((v) => !v)} className={TOOL_BTN}>
-              <ArrowDownUp size={16} />
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="m21 16-4 4-4-4" />
+                <path d="M17 20V4" />
+                <path d="m3 8 4-4 4 4" />
+                <path d="M7 4v16" />
+              </svg>
               Balance
             </button>
             <button
@@ -403,7 +415,11 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
               disabled={sortedCustomers.length === 0}
               className={`${TOOL_BTN} disabled:opacity-40`}
             >
-              <Download size={16} />
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" x2="12" y1="15" y2="3" />
+              </svg>
               Export
             </button>
           </div>
@@ -526,7 +542,10 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
                               className={ICON_BTN}
                               aria-label="Edit"
                             >
-                              <Pencil size={14} />
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                                <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                                <path d="m15 5 4 4" />
+                              </svg>
                             </button>
                             <button
                               type="button"
@@ -534,7 +553,10 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
                               className={ICON_BTN}
                               aria-label="View"
                             >
-                              <Eye size={14} />
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                                <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+                                <circle cx="12" cy="12" r="3" />
+                              </svg>
                             </button>
                             <button
                               type="button"
@@ -542,7 +564,11 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
                               className="w-8 h-8 rounded-md border border-red-500/35 bg-red-500/10 text-red-400 hover:bg-red-500/20 flex items-center justify-center"
                               aria-label="Delete"
                             >
-                              <Trash2 size={14} />
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                                <path d="M3 6h18" />
+                                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                              </svg>
                             </button>
                           </div>
                         </div>
