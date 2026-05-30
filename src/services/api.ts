@@ -558,8 +558,34 @@ export async function getProduct(id: string): Promise<Product> {
   if (!payload || typeof payload !== 'object') throw new Error('Product not found');
   return normalizeApiProductRow(payload as Record<string, unknown>);
 }
-export const createProduct = (data: Partial<Product>): Promise<Product> => apiRequest<Product>('/products', { method: 'POST', body: JSON.stringify(data) });
-export const updateProduct = (id: string, data: Partial<Product>): Promise<Product> => apiRequest<Product>(`/products/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+
+/** Map frontend `Product` fields to FastAPI `ProductCreate` / `ProductUpdate` keys. */
+function toBackendProductPayload(data: Partial<Product>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (data.name !== undefined) out.name = data.name;
+  if (data.sku !== undefined) out.sku = data.sku;
+  if (data.category !== undefined) out.category = data.category;
+  if (data.unit !== undefined) out.unit = data.unit;
+
+  const price = data.unit_price ?? (data as { price?: number }).price;
+  if (price !== undefined) out.price = numField(price);
+
+  const cost = data.cost_price ?? (data as { cost?: number }).cost;
+  if (cost !== undefined) out.cost = numField(cost);
+
+  const stock = data.current_stock ?? (data as { stock?: number }).stock;
+  if (stock !== undefined) out.stock = numField(stock);
+
+  const minStock = data.minimum_stock ?? (data as { min_stock?: number }).min_stock;
+  if (minStock !== undefined) out.min_stock = numField(minStock);
+
+  return out;
+}
+
+export const createProduct = (data: Partial<Product>): Promise<Product> =>
+  apiRequest<Product>('/products', { method: 'POST', body: JSON.stringify(toBackendProductPayload(data)) });
+export const updateProduct = (id: string, data: Partial<Product>): Promise<Product> =>
+  apiRequest<Product>(`/products/${id}`, { method: 'PUT', body: JSON.stringify(toBackendProductPayload(data)) });
 
 // ============================================
 // INVOICE FUNCTIONS
