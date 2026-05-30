@@ -1,4 +1,4 @@
-import { useState, useEffect, type CSSProperties } from 'react';
+import { useState, useEffect, useMemo, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getInvoices, getPayments, type Invoice, type Payment } from '../../services/api';
 import { calculateReceivables } from '../../utils/arMetrics';
@@ -235,16 +235,35 @@ export default function FinanceDashboard() {
     : null;
 
   // Sequential invoice-number gap detection.
-  const seqList = safeInvoices
-    .map((i) => seqOf(i.invoiceNumber))
-    .filter((n): n is number => n !== null)
-    .sort((a, b) => a - b);
-  const gapSet = new Set<number>();
-  for (let k = 1; k < seqList.length; k++) {
-    if (seqList[k] !== seqList[k - 1] + 1) {
-      for (let n = seqList[k - 1] + 1; n < seqList[k]; n++) gapSet.add(n);
+  // Wrapped in useMemo so it only recomputes when invoices change
+  // — and hardened against the two ways this used to crash:
+  //   1. Filter sequence numbers > 1,000,000 so a stray timestamp-as-
+  //      invoice-number (e.g. "INV-1735689600000") can't blow the
+  //      gap window up to a billion.
+  //   2. Cap the inner gap-fill loop at MAX_GAP_FILL iterations so
+  //      a missing range never adds more than that many entries to
+  //      the Set. Without this cap, V8's 2^24 Set-size limit could
+  //      throw "RangeError: Set maximum size exceeded" mid-render.
+  const { gapSet } = useMemo(() => {
+    const seqList = safeInvoices
+      .map((i) => seqOf(i.invoiceNumber))
+      .filter((n): n is number => n !== null && n <= 1_000_000)
+      .sort((a, b) => a - b);
+    const gapSet = new Set<number>();
+    const MAX_GAP_FILL = 1_000;
+    for (let k = 1; k < seqList.length; k++) {
+      if (seqList[k] !== seqList[k - 1] + 1) {
+        for (
+          let n = seqList[k - 1] + 1;
+          n < seqList[k] && (n - seqList[k - 1]) <= MAX_GAP_FILL;
+          n++
+        ) {
+          gapSet.add(n);
+        }
+      }
     }
-  }
+    return { seqList, gapSet };
+  }, [safeInvoices]);
   // An invoice is flagged as a "gap" point if the number right
   // before it is missing — that's where the audit trail breaks.
   // Same null/undefined guard as seqOf — defends against malformed
