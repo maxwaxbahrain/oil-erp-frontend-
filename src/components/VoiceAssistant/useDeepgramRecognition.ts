@@ -23,16 +23,15 @@ import { useCallback, useEffect, useRef } from 'react';
 const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
     .trim()
     .replace(/\/+$/, '');
-const TRANSCRIBE_ENDPOINT = `${API_HOST}/ai/transcribe`;
+const TRANSCRIBE_BASE = `${API_HOST}/ai/transcribe`;
 
 const MAX_RECORDING_MS = 30_000;
 
 export interface UseDeepgramRecognitionOptions {
     onResult: (transcript: string) => void;
     onError: (message: string) => void;
-    /** Accepted for parity with useVoiceRecognition; ignored — the
-     *  backend forces language=en for best accent recognition. */
-    lang?: string;
+    /** BCP-47-ish code sent as ?language= on POST /ai/transcribe (default en). */
+    language?: string;
 }
 
 export interface UseDeepgramRecognitionApi {
@@ -81,18 +80,22 @@ function filenameForMime(mimeType: string): string {
 export function useDeepgramRecognition(
     options: UseDeepgramRecognitionOptions
 ): UseDeepgramRecognitionApi {
-    const { onResult, onError } = options;
+    const { onResult, onError, language = 'en' } = options;
 
     // Latest-callback refs so MediaRecorder event handlers always
     // call the freshest closure without re-creating the recorder.
     const onResultRef = useRef(onResult);
     const onErrorRef = useRef(onError);
+    const languageRef = useRef(language);
     useEffect(() => {
         onResultRef.current = onResult;
     }, [onResult]);
     useEffect(() => {
         onErrorRef.current = onError;
     }, [onError]);
+    useEffect(() => {
+        languageRef.current = language || 'en';
+    }, [language]);
 
     const recorderRef = useRef<MediaRecorder | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
@@ -139,7 +142,8 @@ export function useDeepgramRecognition(
                     filenameForMime(mimeType)
                 );
 
-                const response = await fetch(TRANSCRIBE_ENDPOINT, {
+                const lang = encodeURIComponent(languageRef.current || 'en');
+                const response = await fetch(`${TRANSCRIBE_BASE}?language=${lang}`, {
                     method: 'POST',
                     body: form,
                 });

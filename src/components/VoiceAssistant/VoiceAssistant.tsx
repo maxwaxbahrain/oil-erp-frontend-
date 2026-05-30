@@ -16,10 +16,19 @@ import { useNavigate } from 'react-router-dom';
 import { Mic, Loader2, X, Send } from 'lucide-react';
 import { useDeepgramRecognition as useVoiceRecognition } from './useDeepgramRecognition';
 import { processVoiceCommand } from './VoiceCommandProcessor';
+import {
+    VOICE_LANGUAGES,
+    readStoredVoiceLang,
+    storeVoiceLang,
+    type VoiceLanguageCode,
+} from './voiceLanguages';
 
 type AssistantState = 'idle' | 'listening' | 'processing' | 'speaking';
 
 const MOBILE_FAB_CSS = `
+.voice-lang-pills::-webkit-scrollbar {
+    display: none;
+}
 @keyframes mobileMicPulse {
     0%, 100% {
         box-shadow: 0 0 0 0 rgba(79, 142, 247, 0.45), 0 8px 24px rgba(79, 142, 247, 0.35);
@@ -36,8 +45,14 @@ export function VoiceAssistant() {
     const [lastTranscript, setLastTranscript] = useState<string>('');
     const [responseMessage, setResponseMessage] = useState<string>('');
     const [typedCommand, setTypedCommand] = useState<string>('');
+    const [voiceLang, setVoiceLang] = useState<VoiceLanguageCode>(() => readStoredVoiceLang());
 
     const ignoreNextResultRef = useRef<boolean>(false);
+
+    const selectVoiceLang = useCallback((code: VoiceLanguageCode) => {
+        setVoiceLang(code);
+        storeVoiceLang(code);
+    }, []);
 
     const speakReply = useCallback((text: string) => {
         if (!text) return;
@@ -111,6 +126,7 @@ export function VoiceAssistant() {
     const recognition = useVoiceRecognition({
         onResult: handleTranscript,
         onError: handleListenError,
+        language: voiceLang,
     });
 
     const handleMicClick = useCallback(() => {
@@ -225,6 +241,39 @@ export function VoiceAssistant() {
     return (
         <div className="lg:hidden print:hidden" data-component="voice-assistant-mobile">
             <style>{MOBILE_FAB_CSS}</style>
+
+            {/* Language pills — above FAB */}
+            <div
+                className="voice-lang-pills fixed z-[60] left-1/2 -translate-x-1/2 flex gap-1.5 overflow-x-auto"
+                style={{
+                    bottom: 136,
+                    maxWidth: 'min(280px, 92vw)',
+                    scrollbarWidth: 'none',
+                    msOverflowStyle: 'none',
+                }}
+            >
+                {VOICE_LANGUAGES.map((lang) => {
+                    const active = lang.code === voiceLang;
+                    return (
+                        <button
+                            key={lang.code}
+                            type="button"
+                            onClick={() => selectVoiceLang(lang.code)}
+                            className="flex-shrink-0 rounded-full px-2.5 py-1 text-[11px] whitespace-nowrap"
+                            style={{
+                                background: active ? '#4F8EF7' : 'rgba(255,255,255,0.08)',
+                                color: active ? '#fff' : '#8BA3C7',
+                                border: active
+                                    ? '1px solid #4F8EF7'
+                                    : '1px solid rgba(255,255,255,0.1)',
+                            }}
+                        >
+                            <span className="mr-1">{lang.flag}</span>
+                            {lang.native}
+                        </button>
+                    );
+                })}
+            </div>
 
             {/* Floating mic — centered above bottom nav */}
             <button

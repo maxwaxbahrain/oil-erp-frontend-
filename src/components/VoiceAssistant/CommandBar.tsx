@@ -29,6 +29,12 @@ import { useNavigate } from 'react-router-dom';
 import { Sparkles, Mic } from 'lucide-react';
 import { useDeepgramRecognition } from './useDeepgramRecognition';
 import { processVoiceCommand } from './VoiceCommandProcessor';
+import {
+    VOICE_LANGUAGES,
+    readStoredVoiceLang,
+    storeVoiceLang,
+    type VoiceLanguageCode,
+} from './voiceLanguages';
 
 type BarState = 'idle' | 'listening' | 'processing' | 'result';
 
@@ -60,9 +66,12 @@ export function CommandBar() {
     const [query, setQuery] = useState('');
     const [transcript, setTranscript] = useState('');
     const [response, setResponse] = useState('');
+    const [voiceLang, setVoiceLang] = useState<VoiceLanguageCode>(() => readStoredVoiceLang());
+    const [langMenuOpen, setLangMenuOpen] = useState(false);
 
     const inputRef = useRef<HTMLInputElement | null>(null);
     const containerRef = useRef<HTMLDivElement | null>(null);
+    const langMenuRef = useRef<HTMLDivElement | null>(null);
     const ignoreNextResultRef = useRef(false);
 
     // stateRef lets stable callbacks read the current state without
@@ -126,7 +135,25 @@ export function CommandBar() {
     const recognition = useDeepgramRecognition({
         onResult: handleTranscript,
         onError: handleListenError,
+        language: voiceLang,
     });
+
+    const selectVoiceLang = useCallback((code: VoiceLanguageCode) => {
+        setVoiceLang(code);
+        storeVoiceLang(code);
+        setLangMenuOpen(false);
+    }, []);
+
+    useEffect(() => {
+        if (!langMenuOpen) return;
+        const onDocClick = (e: MouseEvent) => {
+            if (!langMenuRef.current?.contains(e.target as Node)) {
+                setLangMenuOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', onDocClick);
+        return () => document.removeEventListener('mousedown', onDocClick);
+    }, [langMenuOpen]);
 
     // ── Cancel / dismiss ────────────────────────────────────────
     const closeAndReset = useCallback(() => {
@@ -377,6 +404,56 @@ export function CommandBar() {
                             </svg>
                         </button>
                     )}
+
+                    {/* Language picker — desktop command bar */}
+                    <div className="hidden lg:block relative flex-shrink-0" ref={langMenuRef}>
+                        <button
+                            type="button"
+                            onClick={() => setLangMenuOpen((v) => !v)}
+                            aria-label="Voice language"
+                            title="Voice recognition language"
+                            className="w-7 h-7 rounded-full flex items-center justify-center text-sm"
+                            style={{
+                                background: 'rgba(255,255,255,0.06)',
+                                border: '1px solid rgba(79,142,247,0.25)',
+                            }}
+                        >
+                            🌐
+                        </button>
+                        {langMenuOpen && (
+                            <div
+                                className="absolute top-full right-0 mt-2 z-[120] rounded-xl p-2 shadow-2xl"
+                                style={{
+                                    width: 200,
+                                    background: '#111827',
+                                    border: '1px solid rgba(79,142,247,0.35)',
+                                }}
+                            >
+                                <div className="grid grid-cols-2 gap-1 max-h-[220px] overflow-y-auto">
+                                    {VOICE_LANGUAGES.map((lang) => {
+                                        const active = lang.code === voiceLang;
+                                        return (
+                                            <button
+                                                key={lang.code}
+                                                type="button"
+                                                onClick={() => selectVoiceLang(lang.code)}
+                                                className="rounded-lg px-2 py-1.5 text-left text-[11px] transition-colors"
+                                                style={{
+                                                    background: active
+                                                        ? '#4F8EF7'
+                                                        : 'rgba(255,255,255,0.05)',
+                                                    color: active ? '#fff' : '#8BA3C7',
+                                                }}
+                                            >
+                                                <span className="mr-1">{lang.flag}</span>
+                                                {lang.code.toUpperCase()}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+                    </div>
 
                     {/* Mic — desktop only; mobile uses floating FAB in VoiceAssistant. */}
                     <button
