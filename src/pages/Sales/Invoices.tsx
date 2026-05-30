@@ -21,7 +21,8 @@ import {
   Trash2,
   Plus } from 'lucide-react';
 import clsx from 'clsx';
-import { getInvoices, type Invoice, deleteInvoice } from '../../services/api';
+import { API_BASE_URL, getInvoices, type Invoice, deleteInvoice } from '../../services/api';
+import { ACCESS_TOKEN_KEY } from '../../api/axios';
 import { getCustomers, type Customer } from '../../services/customerService';
 import { getCompanySettings, type CompanySettings } from '../../services/settingsService';
 import {
@@ -145,11 +146,21 @@ export default function Invoices() {
     setError(null);
     try {
       const [invList, custList] = await Promise.all([getInvoices(), getCustomers()]);
+      if (invList.length === 0) {
+        console.error('[Invoices] getInvoices() returned an empty array', {
+          endpoint: `${API_BASE_URL}/invoices/`,
+          hasAuthToken: Boolean(localStorage.getItem(ACCESS_TOKEN_KEY)),
+          hint: 'If you expected invoices, check 401 (login), wrong API host (VITE_API_URL), or an empty database.',
+        });
+      }
       setInvoices(invList);
       setCustomers(custList);
       setCompany(getCompanySettings());
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to load invoices');
+      const msg = e instanceof Error ? e.message : 'Failed to load invoices';
+      console.error('[Invoices] Failed to load invoices:', e);
+      setError(msg);
+      setInvoices([]);
     } finally {
       setLoading(false);
     }
@@ -564,15 +575,33 @@ export default function Invoices() {
           <div className="rounded-xl bg-[rgba(239,68,68,0.10)] text-[#FCA5A5] text-sm font-bold px-4 py-3 border border-[rgba(239,68,68,0.2)]">{error}</div>
         )}
 
-        {loading && invoices.length === 0 ? (
+        {loading && invoices.length === 0 && !error ? (
           <div className="flex flex-col items-center justify-center py-20 text-gray-500 gap-3 rounded-2xl bg-white border border-gray-100">
             <Loader2 className="animate-spin" style={{ color: THEME_PRIMARY }} size={36} />
             <span className="text-sm font-bold">Loading invoices…</span>
           </div>
+        ) : error ? (
+          <div className="text-center py-16 px-4 rounded-2xl bg-white border border-red-200 shadow-sm">
+            <p className="text-red-700 font-black uppercase tracking-wide text-sm">Could not load invoices</p>
+            <p className="text-sm text-red-600 font-semibold mt-2 break-words">{error}</p>
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white"
+              style={{ background: THEME_PRIMARY }}
+            >
+              <RefreshCw size={16} />
+              Retry
+            </button>
+          </div>
         ) : filteredInvoices.length === 0 ? (
           <div className="text-center py-16 px-4 rounded-2xl bg-white border border-gray-200 shadow-sm">
-            <p className="text-gray-800 font-black uppercase tracking-wide text-sm">No invoices in this view</p>
-            <p className="text-sm text-gray-500 font-semibold mt-2">Adjust filters or refresh.</p>
+            <p className="text-gray-800 font-black uppercase tracking-wide text-sm">
+              {invoices.length === 0 ? 'No invoices yet' : 'No invoices in this view'}
+            </p>
+            <p className="text-sm text-gray-500 font-semibold mt-2">
+              {invoices.length === 0 ? 'Create an invoice or refresh after logging in.' : 'Adjust filters or refresh.'}
+            </p>
           </div>
         ) : (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden -mx-1 sm:mx-0">

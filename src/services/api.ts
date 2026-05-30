@@ -858,16 +858,11 @@ function mapApiInvoiceToInvoice(inv: Record<string, unknown>): Invoice {
   };
 }
 
-// Get all invoices (from backend)
+// Get all invoices (from backend). Throws on auth/network/API errors.
 export async function getInvoices(): Promise<Invoice[]> {
-  try {
-    const raw = await apiRequest<unknown>('/invoices/');
-    const list = Array.isArray(raw) ? raw : [];
-    return list.map((inv) => mapApiInvoiceToInvoice(inv as Record<string, unknown>));
-  } catch (error) {
-    console.error('Failed to get invoices:', error);
-    return [];
-  }
+  const raw = await apiRequest<unknown>('/invoices/');
+  const list = Array.isArray(raw) ? raw : [];
+  return list.map((inv) => mapApiInvoiceToInvoice(inv as Record<string, unknown>));
 }
 
 // Get invoices for a specific customer
