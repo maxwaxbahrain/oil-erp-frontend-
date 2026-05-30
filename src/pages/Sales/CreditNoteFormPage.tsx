@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Plus, Trash2 } from 'lucide-react';
-import { getCustomers, getCustomerInvoices, type Customer, type Invoice } from '../../services/api';
+import { getCustomers, getCustomerInvoices, getInvoiceById, type Customer, type Invoice } from '../../services/api';
 import {
   createCreditNote,
   updateCreditNote,
@@ -14,6 +14,31 @@ import {
 import SearchableSelect from '../../components/common/SearchableSelect';
 
 const THEME = '#800020';
+
+const EMPTY_CREDIT_ITEM: CreditNoteItem = { description: '', quantity: 1, unitPrice: 0, amount: 0 };
+const EMPTY_CREDIT_ITEMS: CreditNoteItem[] = [EMPTY_CREDIT_ITEM];
+
+function lineDescription(li: Invoice['lineItems'][number]): string {
+  const product = (li.product || '').trim();
+  const desc = (li.description || '').trim();
+  if (product && desc && product !== desc) return `${product} — ${desc}`;
+  return product || desc || 'Line item';
+}
+
+function creditItemsFromInvoice(inv: Invoice): CreditNoteItem[] {
+  const lines = inv.lineItems || [];
+  if (lines.length === 0) return EMPTY_CREDIT_ITEMS;
+  return lines.map((li) => {
+    const quantity = Number(li.quantity) || 0;
+    const unitPrice = Number(li.rate) || 0;
+    return {
+      description: lineDescription(li),
+      quantity,
+      unitPrice,
+      amount: quantity * unitPrice,
+    };
+  });
+}
 
 // CLEANUP-1 — Removed bumpCachedCustomerBalance. The PHASE-3 consistency
 // check found getCustomers() never reads the localStorage 'customers'
@@ -61,6 +86,8 @@ export default function CreditNoteFormPage() {
   const [editingCNNumber, setEditingCNNumber] = useState('');
   const [editingStatus, setEditingStatus] = useState<CreditStatus>('draft');
   const [hydrating, setHydrating] = useState(false);
+  /** Skip one invoice auto-fill after edit-mode hydration (would overwrite saved CN items). */
+  const skipInvoiceAutoFill = useRef(false);
   // CLEANUP-1 — Removed editingPriorIssued/editingPriorTotal. They only
   // existed to feed the optimistic customer-balance delta calc which is
   // now gone. Backend is authoritative for balance.
@@ -125,6 +152,7 @@ export default function CreditNoteFormPage() {
           setUseSimpleAmount(false);
           setItems(its);
         }
+        if (cn.originalInvoiceId) skipInvoiceAutoFill.current = true;
       } catch (e) {
         alert('Failed to load credit note: ' + (e instanceof Error ? e.message : String(e)));
         navigate('/sales/credit-notes');
@@ -146,6 +174,30 @@ export default function CreditNoteFormPage() {
     })();
   }, [customerId, customers]);
 
+  // Auto-populate credit lines from the linked invoice; clear when unlinked.
+  useEffect(() => {
+    if (skipInvoiceAutoFill.current) {
+      skipInvoiceAutoFill.current = false;
+      return;
+    }
+    if (!linkedInvoice || !invoiceId) return;
+
+    let cancelled = false;
+    void (async () => {
+      let inv = invoices.find((i) => String(i.id) === String(invoiceId));
+      if (!inv || !(inv.lineItems?.length)) {
+        const fetched = await getInvoiceById(invoiceId);
+        if (fetched) inv = fetched;
+      }
+      if (!inv || cancelled) return;
+      setUseSimpleAmount(false);
+      setItems(creditItemsFromInvoice(inv));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [linkedInvoice, invoiceId, invoices]);
+
   function updateItem(index: number, patch: Partial<CreditNoteItem>) {
     setItems((prev) =>
       prev.map((it, i) => {
@@ -157,8 +209,20 @@ export default function CreditNoteFormPage() {
     );
   }
 
+  const selectedInvoice = useMemo(
+    () => (linkedInvoice && invoiceId ? invoices.find((i) => String(i.id) === String(invoiceId)) : undefined),
+    [linkedInvoice, invoiceId, invoices]
+  );
+
   const subtotal = useMemo(() => (useSimpleAmount ? simpleAmount : items.reduce((s, i) => s + i.amount, 0)), [useSimpleAmount, simpleAmount, items]);
-  const tax = 0;
+  const tax = useMemo(() => {
+    if (useSimpleAmount || !linkedInvoice || !invoiceId || !selectedInvoice) return 0;
+    const invSub = Number(selectedInvoice.subtotal) || 0;
+    const invTax = Number(selectedInvoice.taxAmount) || 0;
+    if (subtotal <= 0) return 0;
+    if (invSub <= 0) return invTax;
+    return (subtotal / invSub) * invTax;
+  }, [useSimpleAmount, linkedInvoice, invoiceId, selectedInvoice, subtotal]);
   const total = subtotal + tax;
 
   async function save(status: 'draft' | 'issued') {
@@ -243,9 +307,32 @@ export default function CreditNoteFormPage() {
 
         <section>
           <h2 className="text-xs font-black uppercase text-gray-500 mb-3">2. Linked Invoice (optional)</h2>
-          <label className="text-sm font-bold flex items-center gap-2"><input type="checkbox" checked={linkedInvoice} onChange={(e) => setLinkedInvoice(e.target.checked)} /> Link to invoice</label>
+          <label className="text-sm font-bold flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={linkedInvoice}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                setLinkedInvoice(checked);
+                if (!checked) {
+                  setInvoiceId('');
+                  setItems(EMPTY_CREDIT_ITEMS);
+                  setUseSimpleAmount(false);
+                }
+              }}
+            />{' '}
+            Link to invoice
+          </label>
           {linkedInvoice && (
-            <select className="mt-3 w-full border rounded-lg px-3 py-2.5" value={invoiceId} onChange={(e) => setInvoiceId(e.target.value)}>
+            <select
+              className="mt-3 w-full border rounded-lg px-3 py-2.5"
+              value={invoiceId}
+              onChange={(e) => {
+                const id = e.target.value;
+                setInvoiceId(id);
+                if (!id) setItems(EMPTY_CREDIT_ITEMS);
+              }}
+            >
               <option value="">Select invoice</option>
               {invoices.map((i) => <option key={i.id} value={i.id}>{i.invoiceNumber} - {i.customerName}</option>)}
             </select>
