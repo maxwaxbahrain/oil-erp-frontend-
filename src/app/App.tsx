@@ -446,9 +446,7 @@ function App() {
             </button>
           </div>
 
-          {/* Header-center command bar — search + voice.  Hidden on
-              phones (the header is too narrow to host the pill plus
-              the right-cluster icons). */}
+          {/* Header-center command bar — search + voice (mic desktop only). */}
           <div
             style={{
               flex: 1,
@@ -667,7 +665,7 @@ function App() {
         {/* Tab row — broad navigation categories with route mapping */}
         <div className="bg-redwood-midnight border-b border-[rgba(255,255,255,0.07)] px-3 flex items-end overflow-x-auto hide-scrollbar print:hidden">
           {[
-            { key: 'overview',  label: 'Overview',       route: '/',                   icon: LayoutDashboard, prefix: ['/'] },
+            { key: 'overview',  label: 'Overview',       route: '/dashboard',          icon: LayoutDashboard, prefix: ['/'] },
             { key: 'finance',   label: 'Finance & Tax',  route: '/finance/dashboard',  icon: Receipt,         prefix: ['/finance', '/tax'] },
             { key: 'warehouse', label: 'Warehouse',      route: '/warehouse/dashboard',icon: Package,         prefix: ['/warehouse', '/products', '/inventory'] },
             { key: 'mobile',    label: 'Field & Mobile', route: '/logistics/pod',      icon: Smartphone,      prefix: ['/logistics', '/pod', '/van-sales'] },
