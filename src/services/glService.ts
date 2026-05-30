@@ -148,3 +148,75 @@ export function getGLCashFlow(start: string, end: string): Promise<GLCashFlow> {
 export function getGLAccounts(): Promise<GLAccount[]> {
   return apiRequest<GLAccount[]>('/accounts/');
 }
+
+export interface GLTrialBalanceRow {
+  account_id: number;
+  code: string;
+  name: string;
+  type: string;
+  normal_balance: string;
+  debit: number;
+  credit: number;
+  balance: number;
+}
+
+export interface GLTrialBalance {
+  as_of: string;
+  accounts: GLTrialBalanceRow[];
+  total_debit: number;
+  total_credit: number;
+  is_balanced: boolean;
+}
+
+export interface GLJournalEntryLine {
+  id: number;
+  account_id: number;
+  account_code: string | null;
+  account_name: string | null;
+  debit: number;
+  credit: number;
+  memo: string | null;
+}
+
+export interface GLJournalEntry {
+  id: number;
+  entry_number: string;
+  entry_date: string | null;
+  memo: string | null;
+  source_type: string | null;
+  source_id: string | null;
+  status: string;
+  lines: GLJournalEntryLine[];
+}
+
+export interface OpeningBalancePayloadEntry {
+  account_name: string;
+  amount: number;
+}
+
+export interface PostOpeningBalancesResult {
+  success: boolean;
+  journal_entry_id: number;
+  entries_count: number;
+}
+
+export function getGLTrialBalance(asOf?: string): Promise<GLTrialBalance> {
+  const params = new URLSearchParams();
+  if (asOf) params.set('as_of', asOf);
+  const qs = params.toString();
+  return apiRequest<GLTrialBalance>(`/gl/trial-balance${qs ? `?${qs}` : ''}`);
+}
+
+export function getGLJournalEntries(): Promise<GLJournalEntry[]> {
+  return apiRequest<GLJournalEntry[]>('/gl/journal-entries');
+}
+
+export function postOpeningBalances(
+  entries: OpeningBalancePayloadEntry[],
+  asOfDate: string,
+): Promise<PostOpeningBalancesResult> {
+  return apiRequest<PostOpeningBalancesResult>('/gl/opening-balances', {
+    method: 'POST',
+    body: JSON.stringify({ entries, as_of_date: asOfDate }),
+  });
+}
