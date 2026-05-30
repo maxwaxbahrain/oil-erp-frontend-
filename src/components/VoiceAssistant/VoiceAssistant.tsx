@@ -13,31 +13,13 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Mic, Loader2, X, Send } from 'lucide-react';
+import { X, Send } from 'lucide-react';
 import { useDeepgramRecognition as useVoiceRecognition } from './useDeepgramRecognition';
 import { processVoiceCommand } from './VoiceCommandProcessor';
-import {
-    VOICE_LANGUAGES,
-    readStoredVoiceLang,
-    storeVoiceLang,
-    type VoiceLanguageCode,
-} from './voiceLanguages';
+import { readStoredVoiceLang, storeVoiceLang, type VoiceLanguageCode } from './voiceLanguages';
+import { VoiceMicFabShell } from './VoiceMicFabShell';
 
 type AssistantState = 'idle' | 'listening' | 'processing' | 'speaking';
-
-const MOBILE_FAB_CSS = `
-.voice-lang-pills::-webkit-scrollbar {
-    display: none;
-}
-@keyframes mobileMicPulse {
-    0%, 100% {
-        box-shadow: 0 0 0 0 rgba(79, 142, 247, 0.45), 0 8px 24px rgba(79, 142, 247, 0.35);
-    }
-    50% {
-        box-shadow: 0 0 0 12px rgba(79, 142, 247, 0), 0 8px 28px rgba(79, 142, 247, 0.45);
-    }
-}
-`;
 
 export function VoiceAssistant() {
     const navigate = useNavigate();
@@ -46,6 +28,7 @@ export function VoiceAssistant() {
     const [responseMessage, setResponseMessage] = useState<string>('');
     const [typedCommand, setTypedCommand] = useState<string>('');
     const [voiceLang, setVoiceLang] = useState<VoiceLanguageCode>(() => readStoredVoiceLang());
+    const [ringOpen, setRingOpen] = useState(false);
 
     const ignoreNextResultRef = useRef<boolean>(false);
 
@@ -240,81 +223,18 @@ export function VoiceAssistant() {
 
     return (
         <div className="lg:hidden print:hidden" data-component="voice-assistant-mobile">
-            <style>{MOBILE_FAB_CSS}</style>
-
-            {/* Language pills — above FAB */}
-            <div
-                className="voice-lang-pills fixed z-[60] left-1/2 -translate-x-1/2 flex gap-1.5 overflow-x-auto"
-                style={{
-                    bottom: 136,
-                    maxWidth: 'min(280px, 92vw)',
-                    scrollbarWidth: 'none',
-                    msOverflowStyle: 'none',
-                }}
-            >
-                {VOICE_LANGUAGES.map((lang) => {
-                    const active = lang.code === voiceLang;
-                    return (
-                        <button
-                            key={lang.code}
-                            type="button"
-                            onClick={() => selectVoiceLang(lang.code)}
-                            className="flex-shrink-0 rounded-full px-2.5 py-1 text-[11px] whitespace-nowrap"
-                            style={{
-                                background: active ? '#4F8EF7' : 'rgba(255,255,255,0.08)',
-                                color: active ? '#fff' : '#8BA3C7',
-                                border: active
-                                    ? '1px solid #4F8EF7'
-                                    : '1px solid rgba(255,255,255,0.1)',
-                            }}
-                        >
-                            <span className="mr-1">{lang.flag}</span>
-                            {lang.native}
-                        </button>
-                    );
-                })}
-            </div>
-
-            {/* Floating mic — centered above bottom nav */}
-            <button
-                type="button"
-                onClick={handleMicClick}
-                disabled={state === 'processing' || state === 'speaking'}
-                aria-label={
-                    state === 'listening'
-                        ? 'Stop listening and process'
-                        : 'Voice command'
-                }
-                title={
-                    state === 'listening'
-                        ? 'Tap to stop and process'
-                        : 'Tap to speak a command'
-                }
-                className="fixed z-[60] flex items-center justify-center rounded-full border-0 disabled:opacity-90"
-                style={{
-                    width: 56,
-                    height: 56,
-                    bottom: 72,
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    background: '#4F8EF7',
-                    color: '#fff',
-                    cursor:
-                        state === 'processing' || state === 'speaking'
-                            ? 'default'
-                            : 'pointer',
-                    animation: fabListening ? 'mobileMicPulse 1.4s ease-in-out infinite' : undefined,
-                    boxShadow: fabListening
-                        ? undefined
-                        : '0 8px 24px rgba(79, 142, 247, 0.35)',
-                }}
-            >
-                {state === 'processing' ? (
-                    <Loader2 size={26} className="animate-spin" aria-hidden />
-                ) : (
-                    <Mic size={26} strokeWidth={2.25} aria-hidden />
-                )}
-            </button>
+            <VoiceMicFabShell
+                variant="mobile"
+                voiceLang={voiceLang}
+                ringOpen={ringOpen}
+                setRingOpen={setRingOpen}
+                onSelectLang={selectVoiceLang}
+                onMicClick={handleMicClick}
+                micDisabled={state === 'processing' || state === 'speaking'}
+                fabListening={fabListening}
+                showProcessing={state === 'processing'}
+                showRingBackdrop={!isActive}
+            />
 
             {/* Bottom transcript overlay */}
             {isActive && (

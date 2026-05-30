@@ -35,6 +35,7 @@ import {
     storeVoiceLang,
     type VoiceLanguageCode,
 } from './voiceLanguages';
+import { VoiceMicFabShell } from './VoiceMicFabShell';
 
 type BarState = 'idle' | 'listening' | 'processing' | 'result';
 
@@ -68,6 +69,7 @@ export function CommandBar() {
     const [response, setResponse] = useState('');
     const [voiceLang, setVoiceLang] = useState<VoiceLanguageCode>(() => readStoredVoiceLang());
     const [langMenuOpen, setLangMenuOpen] = useState(false);
+    const [ringOpen, setRingOpen] = useState(false);
 
     const inputRef = useRef<HTMLInputElement | null>(null);
     const containerRef = useRef<HTMLDivElement | null>(null);
@@ -279,6 +281,7 @@ export function CommandBar() {
     const micDisabled = state === 'processing' || state === 'result';
 
     return (
+        <>
         <div
             ref={containerRef}
             className="w-full print:hidden"
@@ -499,6 +502,20 @@ export function CommandBar() {
                 </form>
             </div>
         </div>
+
+        {/* Desktop floating mic FAB — bottom-right, separate from header pill */}
+        <VoiceMicFabShell
+            variant="desktop"
+            voiceLang={voiceLang}
+            ringOpen={ringOpen}
+            setRingOpen={setRingOpen}
+            onSelectLang={selectVoiceLang}
+            onMicClick={handleMicToggle}
+            micDisabled={micDisabled}
+            fabListening={state === 'listening'}
+            showProcessing={state === 'processing'}
+        />
+        </>
     );
 }
 

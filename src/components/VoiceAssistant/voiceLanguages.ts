@@ -4,7 +4,6 @@ export const VOICE_LANGUAGES = [
     { code: 'hi', label: 'Hindi', flag: '🇮🇳', native: 'हिन्दी' },
     { code: 'es', label: 'Spanish', flag: '🇪🇸', native: 'Español' },
     { code: 'ar', label: 'Arabic', flag: '🇸🇦', native: 'العربية' },
-    { code: 'bn', label: 'Bengali', flag: '🇧🇩', native: 'বাংলা' },
     { code: 'pt', label: 'Portuguese', flag: '🇧🇷', native: 'Português' },
     { code: 'ru', label: 'Russian', flag: '🇷🇺', native: 'Русский' },
     { code: 'ur', label: 'Urdu', flag: '🇵🇰', native: 'اردو' },
@@ -36,8 +35,71 @@ export type VoiceLanguageCode = (typeof VOICE_LANGUAGES)[number]['code'];
 
 export const DEFAULT_VOICE_LANG: VoiceLanguageCode = 'en';
 export const VOICE_LANG_KEY = 'soltol_voice_lang';
+export const VOICE_LANG_RECENT_KEY = 'soltol_voice_lang_recent';
+
+/** Semicircle arc above FAB — fan from upper-left to upper-right. */
+export const FAB_ARC_ANGLES_DEG = [210, 240, 270, 300, 330, 0] as const;
+export const FAB_ARC_RADIUS_PX = 80;
 
 const SUPPORTED_CODES = new Set<string>(VOICE_LANGUAGES.map((l) => l.code));
+
+const langByCode = new Map(VOICE_LANGUAGES.map((l) => [l.code, l]));
+
+export function getVoiceLanguage(code: string) {
+    return langByCode.get(code as VoiceLanguageCode);
+}
+
+/** Pill offset from FAB center (standard math: 0° = right, 90° = up). */
+export function arcPillOffset(angleDeg: number, radiusPx: number = FAB_ARC_RADIUS_PX) {
+    const rad = (angleDeg * Math.PI) / 180;
+    const x = Math.cos(rad) * radiusPx;
+    const y = Math.sin(rad) * radiusPx;
+    return { x, y };
+}
+
+function readRecentVoiceLangCodes(): VoiceLanguageCode[] {
+    try {
+        const raw = localStorage.getItem(VOICE_LANG_RECENT_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw) as unknown;
+        if (!Array.isArray(parsed)) return [];
+        return parsed.filter(
+            (c): c is VoiceLanguageCode =>
+                typeof c === 'string' && SUPPORTED_CODES.has(c)
+        );
+    } catch {
+        return [];
+    }
+}
+
+function writeRecentVoiceLangCodes(codes: VoiceLanguageCode[]): void {
+    try {
+        localStorage.setItem(VOICE_LANG_RECENT_KEY, JSON.stringify(codes.slice(0, 6)));
+    } catch {
+        /* ignore */
+    }
+}
+
+/** Six languages for the FAB arc: current + recents + first six in list. */
+export function getRingLanguages(current: VoiceLanguageCode) {
+    const firstSix = VOICE_LANGUAGES.slice(0, 6).map((l) => l.code);
+    const ordered: VoiceLanguageCode[] = [];
+    const add = (code: VoiceLanguageCode) => {
+        if (!SUPPORTED_CODES.has(code) || ordered.includes(code)) return;
+        ordered.push(code);
+    };
+    add(current);
+    for (const code of readRecentVoiceLangCodes()) add(code);
+    for (const code of firstSix) add(code);
+    return ordered
+        .slice(0, 6)
+        .map((code) => langByCode.get(code)!)
+        .filter(Boolean);
+}
+
+export function getArcLanguages(current: VoiceLanguageCode) {
+    return getRingLanguages(current);
+}
 
 export function readStoredVoiceLang(): VoiceLanguageCode {
     try {
@@ -54,6 +116,9 @@ export function readStoredVoiceLang(): VoiceLanguageCode {
 export function storeVoiceLang(code: string): void {
     try {
         localStorage.setItem(VOICE_LANG_KEY, code);
+        if (!SUPPORTED_CODES.has(code)) return;
+        const recent = readRecentVoiceLangCodes().filter((c) => c !== code);
+        writeRecentVoiceLangCodes([code as VoiceLanguageCode, ...recent]);
     } catch {
         /* ignore */
     }
