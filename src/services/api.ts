@@ -764,9 +764,14 @@ export async function updatePayment(id: string, data: Partial<Payment>): Promise
   return raw as Payment;
 }
 
+/** Public invoice by share token — no auth; uses configured API host (VITE_API_URL). */
 export async function fetchPublicInvoiceByToken(token: string): Promise<PublicInvoicePayload> {
-  const url = `https://ferocity-virtual-smog.ngrok-free.dev/api/invoices/view/${encodeURIComponent(token)}`;
-  const res = await fetch(url);
+  const url = `${API_BASE_URL}/invoices/view/${encodeURIComponent(token)}`;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+    cache: 'no-store',
+  });
   if (!res.ok) {
     const err = (await res.json().catch(() => ({}))) as { detail?: string };
     throw new Error(err.detail || `HTTP ${res.status}`);
