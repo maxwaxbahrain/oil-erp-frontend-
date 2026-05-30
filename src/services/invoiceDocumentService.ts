@@ -91,12 +91,21 @@ function buildLinkOnlyShareMessage(invoice: InvoiceLike, company: CompanySetting
   const invNum = invoice.invoiceNumber || invoice.invoice_number || '';
   const total = Number(invoice.grandTotal ?? invoice.total ?? 0).toFixed(2);
   const customer = invoice.customerName || invoice.customer_name || '';
+  const token = (invoice.shareToken || invoice.share_token || '').trim();
+  const frontendBase =
+    window.location.hostname === 'localhost'
+      ? 'https://hon-treasures-breed-define.trycloudflare.com'
+      : window.location.origin;
+  const link = token ? `${frontendBase}/invoice/${token}` : '';
 
   return `Hi ${customer},
 
 Your invoice from ${company.name}:
 Invoice: ${invNum}
 Amount: $${total}
+
+Click on this message to view your invoice:
+${link}
 
 ${company.name}
 ${company.phone}
