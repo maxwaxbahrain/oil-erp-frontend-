@@ -119,7 +119,10 @@ export function CommandBar() {
                 // Empty transcript = silence / zero-byte / Deepgram heard
                 // nothing.  Surface it as a result instead of silently
                 // returning to idle so the user sees the assistant tried.
-                setTranscript('');
+                // Mirror the message into `transcript` so the bubble's
+                // `!!transcript` visibility gate actually renders it
+                // (same fix pattern as handleListenError below).
+                setTranscript('No speech detected. Please try again.');
                 setResponse('No speech detected. Please try again.');
                 setState('result');
                 return;
