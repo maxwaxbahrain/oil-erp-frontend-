@@ -118,7 +118,12 @@ type VoicePrefillState = {
 function fuzzyMatchByName<T extends { name: string }>(query: string, list: T[]): T | null {
     const q = query.trim().toLowerCase();
     if (!q) return null;
-    return list.find((row) => row.name.toLowerCase().includes(q)) ?? null;
+    // TEMP DEBUG — remove once voice product matching is verified in prod
+    console.log('[FuzzyMatch] query:', JSON.stringify(q),
+        'list names:', list.map((r) => JSON.stringify(r.name)));
+    const result = list.find((row) => row.name.toLowerCase().includes(q)) ?? null;
+    console.log('[FuzzyMatch] result:', result ? (result as any).name : 'NO MATCH');
+    return result;
 }
 
 // CLEANUP-1 — Removed bumpCachedCustomerBalance. The PHASE-3 consistency
@@ -303,6 +308,14 @@ export default function InvoiceFormPage() {
                     const salesmanId = matchedSalesman ? String(matchedSalesman.id) : '';
 
                     const rawItems = Array.isArray(voicePrefill.items) ? voicePrefill.items : [];
+                    // TEMP DEBUG — surface the raw inputs so we can see in the
+                    // browser console why a particular voice item didn't match.
+                    // Remove once product matching is verified in prod.
+                    console.log('[VoicePrefill] productsData count:',
+                        productsData.length,
+                        'names:', productsData.map((p: any) => p.name));
+                    console.log('[VoicePrefill] voice items:',
+                        JSON.stringify(voicePrefill?.items));
                     const lineItems =
                         rawItems.length > 0
                             ? rawItems.map((item, idx) => {
