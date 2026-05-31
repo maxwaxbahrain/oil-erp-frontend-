@@ -116,7 +116,12 @@ export function CommandBar() {
             }
             const t = text.trim();
             if (!t) {
-                setState('idle');
+                // Empty transcript = silence / zero-byte / Deepgram heard
+                // nothing.  Surface it as a result instead of silently
+                // returning to idle so the user sees the assistant tried.
+                setTranscript('');
+                setResponse('No speech detected. Please try again.');
+                setState('result');
                 return;
             }
             void runCommand(t);
@@ -129,7 +134,10 @@ export function CommandBar() {
             ignoreNextResultRef.current = false;
             return;
         }
-        setTranscript('');
+        // Mirror the message into `transcript` too — the bubble's
+        // visibility is gated on `!!transcript`, so without this the
+        // error is set but never rendered.  See showTranscriptBox below.
+        setTranscript(message || 'Microphone error.');
         setResponse(message || 'Microphone error.');
         setState('result');
     }, []);

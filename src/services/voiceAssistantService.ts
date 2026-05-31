@@ -183,6 +183,10 @@ Rules:
 - "make invoice for CUSTOMER, QTY of PRODUCT at PRICE" → CREATE_INVOICE.
   Put structured data in "data": { "customer": "...", "items": [{"name": "...", "qty": N, "price": P}] }.
   Always set "path" to "/sales/invoices/new" for CREATE_INVOICE.
+- "X bought from me / X purchased / sold to X / X took / X got"
+  + quantity + product → CREATE_INVOICE.  Extract customer name,
+  product, qty, and price if mentioned.  Use price: 0 when no
+  price is spoken.  Always set "path" to "/sales/invoices/new".
 - "what can I do" / "what pages are there" / general questions → ANSWER.
   Leave "path" empty; put the spoken reply in "message".
 - The "message" field must be a single short sentence, 12 words or fewer,
@@ -208,6 +212,9 @@ Output: {"action":"SEARCH","path":"/sales/invoices?search=1042","message":"Searc
 
 Input: "make invoice for Ali, 20 cases of 0W20 Bettano at 43 dollars"
 Output: {"action":"CREATE_INVOICE","path":"/sales/invoices/new","data":{"customer":"Ali","items":[{"name":"0W20 Bettano","qty":20,"price":43}]},"message":"Creating invoice for Ali"}
+
+Input: "Ali bought from me 5 cases of engine oil"
+Output: {"action":"CREATE_INVOICE","path":"/sales/invoices/new","data":{"customer":"Ali","items":[{"name":"engine oil","qty":5,"price":0}]},"message":"Creating invoice for Ali"}
 
 Input: "what can I do"
 Output: {"action":"ANSWER","message":"You can say: open any page, create invoices, or search customers and invoices."}`;
