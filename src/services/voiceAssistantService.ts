@@ -181,12 +181,15 @@ Rules:
 - "find / search customer NAME" → SEARCH with path "/customers?search=NAME".
 - "find / search invoice NUMBER" → SEARCH with path "/sales/invoices?search=NUMBER".
 - "make invoice for CUSTOMER, QTY of PRODUCT at PRICE" → CREATE_INVOICE.
-  Put structured data in "data": { "customer": "...", "items": [{"name": "...", "qty": N, "price": P}] }.
+  Put structured data in "data": { "customer": "...", "salesman": "salesman name if mentioned, else omit", "items": [{"name": "...", "qty": N, "price": P}] }.
   Always set "path" to "/sales/invoices/new" for CREATE_INVOICE.
 - "X bought from me / X purchased / sold to X / X took / X got"
   + quantity + product → CREATE_INVOICE.  Extract customer name,
-  product, qty, and price if mentioned.  Use price: 0 when no
-  price is spoken.  Always set "path" to "/sales/invoices/new".
+  product, qty, and price if mentioned.  Also extract salesman
+  name when phrased as "from / via / by SALESMAN" or "salesman
+  NAME".  Omit the "salesman" field when none is spoken.
+  Use price: 0 when no price is spoken.
+  Always set "path" to "/sales/invoices/new".
 - "what can I do" / "what pages are there" / general questions → ANSWER.
   Leave "path" empty; put the spoken reply in "message".
 - The "message" field must be a single short sentence, 12 words or fewer,

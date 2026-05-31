@@ -110,6 +110,7 @@ type VoicePrefillItem = {
 
 type VoicePrefillState = {
     customer?: string;
+    salesman?: string;
     items?: VoicePrefillItem[];
 };
 
@@ -288,6 +289,18 @@ export default function InvoiceFormPage() {
                     const customerId = matchedCustomer ? String(matchedCustomer.id) : '';
                     const customerName = matchedCustomer?.name || customerQuery;
 
+                    // Match salesman by name against the in-memory salesmen list
+                    // (loaded from localStorage at component init via getSalesmen()).
+                    // No salesman spoken → leave empty so the form's required-field
+                    // validation still prompts the user to pick one.
+                    const salesmanQuery = String(voicePrefill.salesman || '').trim();
+                    const matchedSalesman = salesmanQuery
+                        ? salesmen.find((s) =>
+                              s.name.toLowerCase().includes(salesmanQuery.toLowerCase())
+                          ) ?? null
+                        : null;
+                    const salesmanId = matchedSalesman ? String(matchedSalesman.id) : '';
+
                     const rawItems = Array.isArray(voicePrefill.items) ? voicePrefill.items : [];
                     const lineItems =
                         rawItems.length > 0
@@ -297,7 +310,21 @@ export default function InvoiceFormPage() {
                                       ? fuzzyMatchByName(rawName, productsData)
                                       : null;
                                   const quantity = Number(item.qty) || 0;
-                                  const rate = Number(item.price) || 0;
+                                  // Spoken price wins; fall back to the catalog's
+                                  // unit price only when the user didn't say one
+                                  // and we matched a product.  Field name on
+                                  // Product varies by backend shape (price /
+                                  // unitPrice / sellingPrice) — try each.
+                                  const rate =
+                                      Number(item.price) ||
+                                      (matchedProduct
+                                          ? Number(
+                                                (matchedProduct as any).price ||
+                                                    (matchedProduct as any).unitPrice ||
+                                                    (matchedProduct as any).sellingPrice ||
+                                                    0
+                                            )
+                                          : 0);
                                   return {
                                       id: String(idx + 1),
                                       productId: matchedProduct ? String(matchedProduct.id) : '',
@@ -325,6 +352,7 @@ export default function InvoiceFormPage() {
                         ...prev,
                         customerId,
                         customerName,
+                        salesmanId,
                         lineItems,
                     }));
                     setVoicePrefillBanner(true);
