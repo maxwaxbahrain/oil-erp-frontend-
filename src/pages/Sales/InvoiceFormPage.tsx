@@ -313,16 +313,19 @@ export default function InvoiceFormPage() {
                                   const quantity = Number(item.qty) || 0;
                                   // Spoken price wins; fall back to the catalog's
                                   // unit price only when the user didn't say one
-                                  // and we matched a product.  The Product type
-                                  // (services/api.ts) uses snake_case `unit_price`;
-                                  // keep camelCase fallbacks for shape drift safety.
+                                  // and we matched a product.  Verified against the
+                                  // live staging API: products ship with snake_case
+                                  // `price` on the wire (the TS Product interface's
+                                  // `unit_price` is aspirational).  Try `price`
+                                  // first, then carry camelCase / `unit_price` /
+                                  // `sellingPrice` as defensive shape-drift fallbacks.
                                   const rate =
                                       Number(item.price) ||
                                       (matchedProduct
                                           ? Number(
-                                                (matchedProduct as any).unit_price ||
+                                                (matchedProduct as any).price ||
+                                                    (matchedProduct as any).unit_price ||
                                                     (matchedProduct as any).unitPrice ||
-                                                    (matchedProduct as any).price ||
                                                     (matchedProduct as any).sellingPrice ||
                                                     0
                                             )
