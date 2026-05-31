@@ -111,6 +111,7 @@ type VoicePrefillItem = {
 type VoicePrefillState = {
     customer?: string;
     salesman?: string;
+    date?: string;
     items?: VoicePrefillItem[];
 };
 
@@ -312,15 +313,16 @@ export default function InvoiceFormPage() {
                                   const quantity = Number(item.qty) || 0;
                                   // Spoken price wins; fall back to the catalog's
                                   // unit price only when the user didn't say one
-                                  // and we matched a product.  Field name on
-                                  // Product varies by backend shape (price /
-                                  // unitPrice / sellingPrice) — try each.
+                                  // and we matched a product.  The Product type
+                                  // (services/api.ts) uses snake_case `unit_price`;
+                                  // keep camelCase fallbacks for shape drift safety.
                                   const rate =
                                       Number(item.price) ||
                                       (matchedProduct
                                           ? Number(
-                                                (matchedProduct as any).price ||
+                                                (matchedProduct as any).unit_price ||
                                                     (matchedProduct as any).unitPrice ||
+                                                    (matchedProduct as any).price ||
                                                     (matchedProduct as any).sellingPrice ||
                                                     0
                                             )
@@ -348,11 +350,22 @@ export default function InvoiceFormPage() {
                                   },
                               ];
 
+                    // Voice may carry an invoice date (resolved by Claude to
+                    // YYYY-MM-DD).  Validate the shape before applying so a
+                    // malformed value doesn't break the date input — fall
+                    // through to the existing today's-date default otherwise.
+                    const voiceDate =
+                        typeof voicePrefill.date === 'string' &&
+                        /^\d{4}-\d{2}-\d{2}$/.test(voicePrefill.date)
+                            ? voicePrefill.date
+                            : null;
+
                     setFormData((prev) => ({
                         ...prev,
                         customerId,
                         customerName,
                         salesmanId,
+                        ...(voiceDate ? { invoiceDate: voiceDate } : {}),
                         lineItems,
                     }));
                     setVoicePrefillBanner(true);
