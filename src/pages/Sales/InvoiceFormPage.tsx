@@ -13,6 +13,11 @@ import { getAccounts, type Account } from '../Accounts/ChartOfAccounts';
 import { generateInvoicePDF } from '../../utils/invoicePDF';
 // ITEM 16 — Escape closes the topmost open inline modal.
 import { useEscape } from '../../hooks/useEscape';
+// VOICE — fuzzy matcher backing customer/salesman/product lookups.
+// Loaded eagerly: only used when the voice prefill handler fires, but
+// the bundle cost (~12 KB gz) is trivial vs. preventing the page-load
+// flicker that a dynamic import would introduce on first voice command.
+import Fuse from 'fuse.js';
 
 interface InvoiceLineItem {
     id: string;
@@ -115,15 +120,70 @@ type VoicePrefillState = {
     items?: VoicePrefillItem[];
 };
 
+// VOICE — Normalize a string for fuzzy matching: NFKD-fold, strip
+// diacritics, replace any non letter/digit codepoint with a space,
+// collapse internal whitespace, lowercase, trim.  Applied to BOTH the
+// query and every catalog name, so "Bettano  Oil 5W-30" and
+// "bettano oil 5w 30" become identical haystacks.
+function normalizeForMatch(s: string): string {
+    return s
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^\p{L}\p{N}]+/gu, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+}
+
 function fuzzyMatchByName<T extends { name: string }>(query: string, list: T[]): T | null {
-    const q = query.trim().toLowerCase();
+    const q = normalizeForMatch(query);
     if (!q) return null;
+
+    type Indexed = { entry: T; norm: string };
+    const indexed: Indexed[] = list.map((entry) => ({
+        entry,
+        norm: normalizeForMatch(entry.name),
+    }));
+
+    // Fast path — exactly one normalized catalog name contains the
+    // normalized query as a substring.  Deterministic answer for clean
+    // transcripts; falls through to Fuse only when ambiguous (zero or
+    // multiple hits).
+    const substringHits = indexed.filter((row) => row.norm && row.norm.includes(q));
+    if (substringHits.length === 1) {
+        const hit = substringHits[0];
+        // TEMP DEBUG — remove once voice product matching is verified in prod
+        console.log('[FuzzyMatch] query:', JSON.stringify(q));
+        console.log('[FuzzyMatch] top 3 candidates:', [
+            { name: hit.entry.name, score: 0 },
+        ]);
+        console.log('[FuzzyMatch] result:', hit.entry.name, '(substring fast path)');
+        return hit.entry;
+    }
+
+    const fuse = new Fuse<Indexed>(indexed, {
+        keys: ['norm'],
+        threshold: 0.4,
+        ignoreLocation: true,
+        includeScore: true,
+        minMatchCharLength: 2,
+    });
+    const results = fuse.search(q);
+
     // TEMP DEBUG — remove once voice product matching is verified in prod
-    console.log('[FuzzyMatch] query:', JSON.stringify(q),
-        'list names:', list.map((r) => JSON.stringify(r.name)));
-    const result = list.find((row) => row.name.toLowerCase().includes(q)) ?? null;
-    console.log('[FuzzyMatch] result:', result ? (result as any).name : 'NO MATCH');
-    return result;
+    console.log('[FuzzyMatch] query:', JSON.stringify(q));
+    console.log(
+        '[FuzzyMatch] top 3 candidates:',
+        results.slice(0, 3).map((r) => ({ name: r.item.entry.name, score: r.score })),
+    );
+
+    const top = results[0];
+    if (top && (top.score ?? 1) <= 0.4) {
+        console.log('[FuzzyMatch] result:', top.item.entry.name);
+        return top.item.entry;
+    }
+    console.log('[FuzzyMatch] result:', 'NO MATCH');
+    return null;
 }
 
 // CLEANUP-1 — Removed bumpCachedCustomerBalance. The PHASE-3 consistency
@@ -297,13 +357,14 @@ export default function InvoiceFormPage() {
 
                     // Match salesman by name against the in-memory salesmen list
                     // (loaded from localStorage at component init via getSalesmen()).
-                    // No salesman spoken → leave empty so the form's required-field
-                    // validation still prompts the user to pick one.
+                    // Routed through the same fuzzy matcher as customer/product so
+                    // misspellings and order-of-words drift from the transcript
+                    // resolve consistently.  No salesman spoken → leave empty so
+                    // the form's required-field validation still prompts the user
+                    // to pick one.
                     const salesmanQuery = String(voicePrefill.salesman || '').trim();
                     const matchedSalesman = salesmanQuery
-                        ? salesmen.find((s) =>
-                              s.name.toLowerCase().includes(salesmanQuery.toLowerCase())
-                          ) ?? null
+                        ? fuzzyMatchByName(salesmanQuery, salesmen)
                         : null;
                     const salesmanId = matchedSalesman ? String(matchedSalesman.id) : '';
 
