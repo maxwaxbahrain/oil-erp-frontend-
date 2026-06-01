@@ -6,6 +6,10 @@ export const ADVISOR_SIDE_KEY = "soltol-advisor-side";
 export const ADVISOR_DEFAULT_WIDTH = 480;
 export const ADVISOR_MIN_WIDTH = 360;
 
+export const ADVISOR_TRANSITION_MS = 240;
+export const ADVISOR_TRANSITION_EASING = "cubic-bezier(0.4, 0, 0.2, 1)";
+export const ADVISOR_TRANSITION = `${ADVISOR_TRANSITION_MS}ms ${ADVISOR_TRANSITION_EASING}`;
+
 export type AdvisorSide = "left" | "right";
 
 export function getAdvisorMaxWidth(viewportWidth = window.innerWidth): number {
