@@ -34,7 +34,8 @@ import AIAssistant from '../components/AIAssistant';
 import SatisfactionSurvey from '../components/SatisfactionSurvey';
 import VoiceAssistant from '../components/VoiceAssistant/VoiceAssistant';
 import CommandBar from '../components/VoiceAssistant/CommandBar';
-import AdvisorDock from '../components/advisor/AdvisorDock';
+import AdvisorDock, { type AdvisorLayout } from '../components/advisor/AdvisorDock';
+import { loadAdvisorSide, loadAdvisorWidth } from '../constants/advisor';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { getInvoices, getCustomers, getProducts, getPayments } from '../services/api';
 import { getPurchaseOrders } from '../services/purchasesService';
@@ -87,6 +88,10 @@ function App() {
     setOpenGroups((p) => ({ ...p, [key]: true }));
   const [notifsOpen, setNotifsOpen] = useState(false);
   const [advisorOpen, setAdvisorOpen] = useState(false);
+  const [advisorLayout, setAdvisorLayout] = useState<AdvisorLayout>(() => ({
+    width: loadAdvisorWidth(),
+    side: loadAdvisorSide(),
+  }));
   // Light/dark mode toggle — flips `light` class on <body>, persists
   // to localStorage key `soltol-theme`. Cosmetic only — no business logic.
   const [isLight, setIsLight] = useState<boolean>(() => {
@@ -296,7 +301,14 @@ function App() {
           </button>
         </div>
       )}
-    <div className="flex flex-1 min-h-0 overflow-hidden">
+    <div
+      className="flex flex-1 min-h-0 overflow-hidden"
+      style={{
+        marginRight: advisorOpen && advisorLayout.side === 'right' ? advisorLayout.width : undefined,
+        marginLeft: advisorOpen && advisorLayout.side === 'left' ? advisorLayout.width : undefined,
+        transition: 'margin 0.2s ease-out',
+      }}
+    >
       {/* ── 54px icon RAIL — always visible on lg+, hidden on mobile.
           Click any rail icon to open the drawer with that group
           pre-expanded. Rail itself is in the flex flow and reserves
@@ -753,8 +765,6 @@ function App() {
           </div>
         </div>
 
-        <AdvisorDock open={advisorOpen} onClose={() => setAdvisorOpen(false)} />
-
         {/* AI Accountant - Available on all pages */}
         <AIAssistant context={aiCtx} />
         <VoiceAssistant />
@@ -819,6 +829,12 @@ function App() {
           );
         })}
       </nav>
+
+      <AdvisorDock
+        open={advisorOpen}
+        onClose={() => setAdvisorOpen(false)}
+        onLayoutChange={setAdvisorLayout}
+      />
     </div>
     </div>
   );
