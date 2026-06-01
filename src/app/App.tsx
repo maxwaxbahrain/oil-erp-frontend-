@@ -26,6 +26,7 @@ import {
   Sparkles,
   Sun,
   Moon,
+  Bot,
 } from 'lucide-react';
 import { AppRoutes } from './routes';
 import Sidebar from '../components/layout/Sidebar';
@@ -33,6 +34,7 @@ import AIAssistant from '../components/AIAssistant';
 import SatisfactionSurvey from '../components/SatisfactionSurvey';
 import VoiceAssistant from '../components/VoiceAssistant/VoiceAssistant';
 import CommandBar from '../components/VoiceAssistant/CommandBar';
+import AdvisorDock from '../components/advisor/AdvisorDock';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { getInvoices, getCustomers, getProducts, getPayments } from '../services/api';
 import { getPurchaseOrders } from '../services/purchasesService';
@@ -84,6 +86,7 @@ function App() {
   const openGroup = (key: string) =>
     setOpenGroups((p) => ({ ...p, [key]: true }));
   const [notifsOpen, setNotifsOpen] = useState(false);
+  const [advisorOpen, setAdvisorOpen] = useState(false);
   // Light/dark mode toggle — flips `light` class on <body>, persists
   // to localStorage key `soltol-theme`. Cosmetic only — no business logic.
   const [isLight, setIsLight] = useState<boolean>(() => {
@@ -205,12 +208,14 @@ function App() {
     });
   }, []);
 
-  // Global keyboard shortcut: Escape closes the drawer overlay
-  // (any viewport) before falling back to history.back.
+  // Global keyboard shortcut: Escape closes the advisor panel, then the
+  // drawer overlay (any viewport) before falling back to history.back.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      if (sidebarOpen) {
+      if (advisorOpen) {
+        setAdvisorOpen(false);
+      } else if (sidebarOpen) {
         setSidebarOpen(false);
       } else {
         window.history.back();
@@ -218,7 +223,7 @@ function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [sidebarOpen]);
+  }, [advisorOpen, sidebarOpen]);
 
   // TC-06 — Auto-collapse the sidebar on narrow viewports (mobile /
   // portrait) so the 260px Sidebar.tsx doesn't eat half the screen.
@@ -529,6 +534,33 @@ function App() {
                 <span className="w-[5px] h-[5px] rounded-full animate-pulse" style={{ background: '#22C55E' }} />
                 Live
               </div>
+              <button
+                type="button"
+                onClick={() => setAdvisorOpen((v) => !v)}
+                aria-label={advisorOpen ? 'Close AI Advisor' : 'Open AI Advisor'}
+                aria-expanded={advisorOpen}
+                title="AI Advisor"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 10px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--color-redwood-border)',
+                  background: advisorOpen ? 'var(--color-badge-blue-bg)' : 'transparent',
+                  color: advisorOpen ? 'var(--color-brand-blue-tint)' : 'var(--color-redwood-text-muted)',
+                  fontSize: '11px',
+                  fontWeight: 500,
+                  fontFamily: 'inherit',
+                  cursor: 'pointer',
+                  transition: 'background-color 0.15s ease, color 0.15s ease',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                }}
+              >
+                <Bot size={18} />
+                <span className="hidden sm:inline">AI Advisor</span>
+              </button>
               {/* FIX 5 — Light/dark mode toggle. */}
               <button
                 type="button"
@@ -715,6 +747,8 @@ function App() {
             <AppRoutes />
           </div>
         </div>
+
+        <AdvisorDock open={advisorOpen} onClose={() => setAdvisorOpen(false)} />
 
         {/* AI Accountant - Available on all pages */}
         <AIAssistant context={aiCtx} />
