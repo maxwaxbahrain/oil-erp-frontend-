@@ -1,5 +1,5 @@
 import { type FormEvent, useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, Link, useNavigate } from 'react-router-dom';
 import { Loader2, Lock, User, UserCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -180,6 +180,18 @@ export default function LoginPage() {
                 required
                 style={inputStyle(passFocused, password.length > 0)}
               />
+            </div>
+            <div className="mt-2 flex justify-end">
+              <Link
+                to="/forgot-password"
+                style={{
+                  fontSize: '13px',
+                  color: '#85B7EB',
+                  textDecoration: 'none',
+                }}
+              >
+                Forgot password?
+              </Link>
             </div>
           </div>
 

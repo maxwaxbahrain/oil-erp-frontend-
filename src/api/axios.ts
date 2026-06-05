@@ -2,7 +2,7 @@ import axios from 'axios';
 
 export const ACCESS_TOKEN_KEY = 'access_token';
 
-const AUTH_ROUTES = new Set(['/login', '/signup']);
+const AUTH_ROUTES = new Set(['/login', '/signup', '/forgot-password', '/reset-password']);
 
 function isAuthRoute(pathname: string): boolean {
   return AUTH_ROUTES.has(pathname);
