@@ -4,8 +4,28 @@ import api from '../../api/axios';
 
 interface LogEntry { time: string; msg: string; type: 'info' | 'success' | 'error' | 'warn'; }
 interface Results { customers?: number; products?: number; suppliers?: number; invoices?: number; supplierPurchases?: number; supplierPayments?: number; }
+interface EntityImportStats { created?: number; updated?: number; skipped?: number; failed?: number; errors?: string[]; }
 
 const ts = () => new Date().toLocaleTimeString();
+
+const formatEntityCounts = (stats: EntityImportStats): string => {
+    const parts: string[] = [];
+    parts.push(`${stats.created ?? 0} created`);
+    if (stats.updated) parts.push(`${stats.updated} updated`);
+    if (stats.skipped) parts.push(`${stats.skipped} skipped`);
+    if (stats.failed) parts.push(`${stats.failed} failed`);
+    return parts.join(', ');
+};
+
+const ENTITY_IMPORT_LOGS: { key: string; emoji: string; label: string }[] = [
+    { key: 'customers', emoji: '👥', label: 'Customers' },
+    { key: 'products', emoji: '📦', label: 'Products' },
+    { key: 'suppliers', emoji: '🏭', label: 'Suppliers' },
+    { key: 'invoices', emoji: '📄', label: 'Invoices' },
+    { key: 'payments', emoji: '💳', label: 'Payments' },
+    { key: 'purchase_orders', emoji: '🛒', label: 'POs' },
+    { key: 'supplier_payments', emoji: '🏦', label: 'Supplier payments' },
+];
 
 export default function DataMigration() {
     const [file, setFile] = useState<File | null>(null);
@@ -170,18 +190,21 @@ export default function DataMigration() {
 
             prog(50, 'Importing to ERP...');
             log('⬆️ Sending to ERP backend...', 'info');
-            const { data: importResponse } = await api.post<{ success: boolean; results: Record<string, { created?: number; updated?: number; skipped?: number }> }>(
+            const { data: importResponse } = await api.post<{ success: boolean; results: Record<string, EntityImportStats> }>(
                 '/api/migrate/full-import',
                 data,
             );
             const backendResults = importResponse.results ?? {};
 
-            if (backendResults.customers) log(`👥 Customers: ${backendResults.customers.created || 0} created, ${backendResults.customers.updated || 0} updated`, 'success');
-            if (backendResults.products) log(`📦 Products: ${backendResults.products.created || 0} created`, 'success');
-            if (backendResults.suppliers) log(`🏭 Suppliers: ${backendResults.suppliers.created || 0} created`, 'success');
-            if (backendResults.invoices) log(`📄 Invoices: ${backendResults.invoices.created || 0} created`, 'success');
-            if (backendResults.purchase_orders) log(`🛒 POs: ${backendResults.purchase_orders.created || 0} created${backendResults.purchase_orders.skipped ? `, ${backendResults.purchase_orders.skipped} skipped` : ''}`, 'success');
-            if (backendResults.supplier_payments) log(`🏦 Supplier payments: ${backendResults.supplier_payments.created || 0} created${backendResults.supplier_payments.skipped ? `, ${backendResults.supplier_payments.skipped} skipped` : ''}`, 'success');
+            for (const { key, emoji, label } of ENTITY_IMPORT_LOGS) {
+                const stats = backendResults[key];
+                if (!stats) continue;
+                const hasErrors = (stats.errors?.length ?? 0) > 0 || (stats.failed ?? 0) > 0;
+                log(`${emoji} ${label}: ${formatEntityCounts(stats)}`, hasErrors ? 'warn' : 'success');
+                for (const err of stats.errors ?? []) {
+                    log(`   ↳ ${err}`, 'error');
+                }
+            }
 
             prog(100, 'Done!');
             setDone(true);
