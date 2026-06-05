@@ -2,6 +2,7 @@ import { useState, type CSSProperties, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Loader2, Lock, ChevronRight, CheckCircle } from 'lucide-react';
 import api from '../../api/axios';
+import PasswordInput from '../../components/ui/PasswordInput';
 import { useAuth } from '../../contexts/AuthContext';
 
 const C = {
@@ -173,9 +174,8 @@ export default function ChangePassword() {
             <label htmlFor="current-password" style={{ display: 'block', fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 600 }}>
               Current password
             </label>
-            <input
+            <PasswordInput
               id="current-password"
-              type="password"
               autoComplete="current-password"
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
@@ -188,9 +188,8 @@ export default function ChangePassword() {
             <label htmlFor="new-password" style={{ display: 'block', fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 600 }}>
               New password
             </label>
-            <input
+            <PasswordInput
               id="new-password"
-              type="password"
               autoComplete="new-password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
@@ -205,9 +204,8 @@ export default function ChangePassword() {
             <label htmlFor="confirm-password" style={{ display: 'block', fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 600 }}>
               Confirm new password
             </label>
-            <input
+            <PasswordInput
               id="confirm-password"
-              type="password"
               autoComplete="new-password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}

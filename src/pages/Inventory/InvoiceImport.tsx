@@ -13,6 +13,7 @@ import {
     File,
     Loader2
 } from 'lucide-react';
+import PasswordInput from '../../components/ui/PasswordInput';
 import { useNavigate } from 'react-router-dom';
 import { FreeInvoiceProcessor, type InvoiceData } from '../../services/invoiceProcessor';
 import { createSupplier, createPurchaseOrder, getSuppliers, type PurchaseOrderItem } from '../../services/purchasesService';
@@ -426,8 +427,7 @@ export default function InvoiceImport() {
                                         For perfect extraction of complex invoice tables, specific product codes (SKUs), and correct formatting, enter your OpenAI API Key.
                                         This switches the engine from Tesseract (Left-to-Right basic) to <b>Claude AI</b> (Human-level).
                                     </p>
-                                    <input
-                                        type="password"
+                                    <PasswordInput
                                         placeholder="sk-proj-..."
                                         value={apiKey}
                                         onChange={(e) => setApiKey(e.target.value)}

@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import api from '../../api/axios';
+import PasswordInput from '../../components/ui/PasswordInput';
 import { useAuth, type AuthRole } from '../../contexts/AuthContext';
 
 const C = {
@@ -389,9 +390,8 @@ export default function UserManagement() {
                 />
               </Field>
               <Field label={editingUser ? 'New Password (optional)' : 'Password'}>
-                <input
+                <PasswordInput
                   style={inputStyle}
-                  type="password"
                   value={form.password}
                   onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
                   required={!editingUser}

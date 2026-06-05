@@ -1,6 +1,7 @@
 import { type FormEvent, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { Building2, Loader2, Lock, Mail, User } from 'lucide-react';
+import PasswordInput from '../components/ui/PasswordInput';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../api/axios';
 
@@ -142,15 +143,26 @@ export default function SignupPage() {
                   {!hasContent && (
                     <Icon size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" style={{ color: C.dim }} />
                   )}
-                  <input
-                    id={field.id}
-                    type={field.type}
-                    value={field.value}
-                    onChange={(e) => field.set(e.target.value)}
-                    required
-                    className={`w-full rounded-lg py-2.5 pr-3 text-sm outline-none ${hasContent ? 'pl-3' : 'pl-10'}`}
-                    style={inputStyle}
-                  />
+                  {field.type === 'password' ? (
+                    <PasswordInput
+                      id={field.id}
+                      value={field.value}
+                      onChange={(e) => field.set(e.target.value)}
+                      required
+                      className={`w-full rounded-lg py-2.5 text-sm outline-none ${hasContent ? 'pl-3' : 'pl-10'}`}
+                      style={inputStyle}
+                    />
+                  ) : (
+                    <input
+                      id={field.id}
+                      type={field.type}
+                      value={field.value}
+                      onChange={(e) => field.set(e.target.value)}
+                      required
+                      className={`w-full rounded-lg py-2.5 pr-3 text-sm outline-none ${hasContent ? 'pl-3' : 'pl-10'}`}
+                      style={inputStyle}
+                    />
+                  )}
                 </div>
               </div>
             );

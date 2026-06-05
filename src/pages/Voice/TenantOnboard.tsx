@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import { Building2, Loader2, CheckCircle2, AlertCircle, Copy, ShieldCheck } from 'lucide-react';
 import clsx from 'clsx';
+import PasswordInput from '../../components/ui/PasswordInput';
 import { onboardTenant, type TenantOnboardResponse } from '../../services/voiceService';
 
 interface FormState {
@@ -220,8 +221,7 @@ export default function TenantOnboard() {
                         </FormField>
                     </div>
                     <FormField label="Platform admin key" required hint="not stored — used for this request only">
-                        <input
-                            type="password"
+                        <PasswordInput
                             value={form.admin_key}
                             onChange={(e) => update('admin_key', e.target.value)}
                             required

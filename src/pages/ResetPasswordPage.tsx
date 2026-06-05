@@ -2,6 +2,7 @@ import { type FormEvent, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Loader2, Lock } from 'lucide-react';
 import api from '../api/axios';
+import PasswordInput from '../components/ui/PasswordInput';
 import AuthPageShell from '../components/auth/AuthPageShell';
 import { authIconStyle, authInputStyle, authLabelStyle, authPrimaryButtonStyle } from './authPageUtils';
 
@@ -125,9 +126,8 @@ export default function ResetPasswordPage() {
           </label>
           <div className="relative">
             <Lock size={18} style={authIconStyle(newPassword.length > 0)} />
-            <input
+            <PasswordInput
               id="new-password"
-              type="password"
               autoComplete="new-password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
@@ -146,9 +146,8 @@ export default function ResetPasswordPage() {
           </label>
           <div className="relative">
             <Lock size={18} style={authIconStyle(confirmPassword.length > 0)} />
-            <input
+            <PasswordInput
               id="confirm-password"
-              type="password"
               autoComplete="new-password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
