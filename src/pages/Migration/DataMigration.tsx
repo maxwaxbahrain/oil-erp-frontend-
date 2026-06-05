@@ -1,9 +1,6 @@
 import { useState, useCallback } from 'react';
 import { Upload, CheckCircle, RefreshCw, Trash2, Users, Package, FileText, CreditCard, TrendingUp, Zap } from 'lucide-react';
-import { createSupplier, getSuppliers } from '../../services/purchasesService';
-import { saveImportedProduct } from '../../services/productService';
-
-const API = (import.meta.env.VITE_API_URL as string || 'http://localhost:8000').replace(/\/$/, '');
+import api from '../../api/axios';
 
 interface LogEntry { time: string; msg: string; type: 'info' | 'success' | 'error' | 'warn'; }
 interface Results { customers?: number; products?: number; suppliers?: number; invoices?: number; supplierPurchases?: number; supplierPayments?: number; }
@@ -142,362 +139,6 @@ export default function DataMigration() {
         return { customers, suppliers, products, invoices, payments, purchase_orders, supplier_payments };
     };
 
-    const importProductsDirect = async (products: any[]) => {
-        // Fetch existing products ONCE so we dedupe by name (case-insensitive).
-        // Without this every re-import multiplied every product by another copy
-        // because the previous SKU-key generated a fresh IMP-... id each time.
-        const existingByName: Record<string, any> = {};
-        try {
-            const r = await fetch(`${API}/api/products/`);
-            if (r.ok) {
-                const list = await r.json();
-                const arr = Array.isArray(list) ? list : (list?.results || list?.data || []);
-                for (const ex of arr) {
-                    const key = String(ex.name || '').trim().toLowerCase();
-                    if (key) existingByName[key] = ex;
-                }
-            }
-        } catch { /* continue */ }
-
-        let created = 0;
-        let updated = 0;
-        let skipped = 0;
-        for (let i = 0; i < products.length; i++) {
-            const p = products[i];
-            const nameKey = String(p.name || '').trim().toLowerCase();
-            if (!nameKey) { skipped++; continue; }
-            const existing = existingByName[nameKey];
-            const uniqueSku = (p.sku && p.sku.trim()) || existing?.sku || `IMP-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
-            const payload = { name: p.name, sku: uniqueSku, category: p.category || 'Imported', price: Number(p.price) || 0, cost: Number(p.cost) || 0, stock: Number(p.stock) || 0, min_stock: 10, unit: p.unit || 'unit', description: p.description || '' };
-            try {
-                let prod: any = null;
-                if (existing) {
-                    // Update existing product instead of creating a duplicate.
-                    const r = await fetch(`${API}/api/products/${existing.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...existing, ...payload }) });
-                    if (r.ok) { prod = await r.json().catch(() => existing); updated++; }
-                } else {
-                    const r = await fetch(`${API}/api/products/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                    if (r.ok) { prod = await r.json().catch(() => null); created++; existingByName[nameKey] = prod || payload; }
-                }
-                if (prod) {
-                    saveImportedProduct({
-                        id: String(prod?.id || `LOCAL-${Date.now()}-${i}`),
-                        name: p.name, sku: prod?.sku || uniqueSku, category: payload.category, status: 'Active' as const,
-                        uom: payload.unit, description: payload.description || p.name, shortDescription: payload.description?.slice(0, 80) || '',
-                        velocityStatus: 'Medium' as const, salesVelocity: 0, salesTrend: 0, revenueContribution: 0,
-                        grossMarginPercent: 30, netProfitPerUnit: 0, avgDailySales: 0, daysStockRemaining: 0,
-                        reorderLevel: 10, overstockRisk: 'Low' as const, leadTimeDays: 7, minOrderQty: 1,
-                        locations: [], priceHistory: [], images: [],
-                        pricing: { purchasePriceExWorks: payload.cost, freightShipping: 0, importDuty: 0, otherDirectCosts: 0, landedCost: payload.cost, operatingExpenseAllocation: 0, sellingPrice: payload.price, taxRate: 0, taxIncluded: false },
-                        aiEnabled: false, aiDemandPrediction: 0, aiConfidenceLevel: 0,
-                    } as any);
-                }
-            } catch { /* continue */ }
-            if (i % 20 === 0) prog(70 + Math.round((i / products.length) * 10), `Importing ${i + 1}/${products.length} products...`);
-        }
-        log(`📦 Products: ${created} created, ${updated} updated${skipped ? `, ${skipped} skipped` : ''}`, 'success');
-        return created + updated;
-    };
-
-    const importInvoicesDirect = async (invoices: any[]) => {
-        let custMap: Record<string, string> = {};
-        try {
-            const r = await fetch(`${API}/api/customers/`);
-            if (r.ok) {
-                const list = await r.json();
-                const arr = Array.isArray(list) ? list : (list?.results || list?.data || []);
-                for (const c of arr) {
-                    const nm = String(c.name || '').trim().toLowerCase();
-                    if (nm && c.id != null) custMap[nm] = String(c.id);
-                }
-            }
-        } catch { /* continue */ }
-
-        let created = 0;
-        for (let i = 0; i < invoices.length; i++) {
-            const inv = invoices[i];
-            const custName = String(inv.customer_name || '').trim();
-            const customerId = custMap[custName.toLowerCase()];
-            if (!customerId) continue;
-            const grand = Number(inv.amount) || 0;
-            const payload = {
-                invoiceNumber: inv.invoice_number || `INV-${Date.now()}-${i}`,
-                customerId, customerName: custName,
-                invoiceDate: inv.date || new Date().toISOString().split('T')[0],
-                dueDate: null,
-                lineItems: [{ product: 'Imported', description: inv.notes || '', quantity: 1, rate: grand, amount: grand, productId: null, itemCode: null }],
-                subtotal: grand, taxRate: 0, taxAmount: 0, discount: 0, grandTotal: grand,
-                notes: inv.notes || 'BETTANO import', salesman: '', van: '',
-                payment_status: inv.status === 'paid' ? 'Paid' : 'Unpaid',
-                payment_method: 'Cash',
-                amount_paid: inv.status === 'paid' ? grand : 0,
-                remaining_balance: inv.status === 'paid' ? 0 : grand,
-                status: inv.status || 'paid',
-            };
-            try {
-                const r = await fetch(`${API}/api/invoices/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                if (r.ok) created++;
-            } catch { /* continue */ }
-            if (i % 25 === 0) prog(90 + Math.round((i / invoices.length) * 8), `Importing ${i + 1}/${invoices.length} invoices...`);
-        }
-        return created;
-    };
-
-    const importSuppliersDirect = async (suppliers: any[]) => {
-        const existing = await getSuppliers();
-        const existingNames = new Set(existing.map(s => s.name.toLowerCase().trim()));
-        let created = 0;
-        for (let i = 0; i < suppliers.length; i++) {
-            const s = suppliers[i];
-            const name = String(s.name || '').trim();
-            if (!name || existingNames.has(name.toLowerCase())) continue;
-            try {
-                await createSupplier({ name, code: `SUP-${Date.now().toString().slice(-6)}-${i}`, contactPerson: '', email: s.email || '', phone: s.phone || '', address: s.address || '', taxId: '', status: 'Active', paymentTerms: 'Net 30', currency: 'USD', rating: 'A', notes: s.notes || 'BETTANO import' });
-                existingNames.add(name.toLowerCase());
-                created++;
-            } catch { /* continue */ }
-            if (i % 20 === 0) prog(80 + Math.round((i / suppliers.length) * 10), `Importing ${i + 1}/${suppliers.length} suppliers...`);
-        }
-        return created;
-    };
-
-    // Builds a supplier-name → id map by hitting the backend list endpoint.
-    // POs and supplier payments reference suppliers by NAME in BETTANO; we
-    // need the freshly-assigned backend int id to POST them.
-    const buildSupplierNameMap = async (): Promise<Record<string, string>> => {
-        const map: Record<string, string> = {};
-        try {
-            const r = await fetch(`${API}/api/suppliers/`);
-            if (r.ok) {
-                const list = await r.json();
-                if (Array.isArray(list)) {
-                    for (const s of list) {
-                        const key = String(s.name || '').trim().toLowerCase();
-                        if (key && s.id != null) map[key] = String(s.id);
-                    }
-                }
-            }
-        } catch { /* continue */ }
-        return map;
-    };
-
-    const importSupplierPurchasesDirect = async (purchaseOrders: any[]) => {
-        const nameToId = await buildSupplierNameMap();
-        let created = 0;
-        let skipped = 0;
-        for (let i = 0; i < purchaseOrders.length; i++) {
-            const po = purchaseOrders[i];
-            const sid = nameToId[String(po.supplier_name || '').trim().toLowerCase()];
-            if (!sid) { skipped++; continue; }
-            const payload = {
-                poNumber: po.po_number || `PUR-${Date.now()}-${i}`,
-                date: po.date,
-                expectedDate: po.expected_date || po.date,
-                status: po.status || 'Received',
-                payment_status: po.payment_status || 'Unpaid',
-                subtotal: Number(po.subtotal) || 0,
-                taxTotal: Number(po.tax_total) || 0,
-                grandTotal: Number(po.grand_total) || 0,
-                amount_paid: Number(po.amount_paid) || 0,
-                notes: po.notes || 'BETTANO import',
-                items: (po.items || []).map((it: any) => ({
-                    productId: it.product_id || '',
-                    productName: it.product_name || '',
-                    uom: it.uom || 'unit',
-                    quantity: Number(it.quantity) || 0,
-                    unitPrice: Number(it.unit_price) || 0,
-                    taxRate: 0, discount: 0,
-                    total: Number(it.total) || 0,
-                })),
-            };
-            try {
-                const r = await fetch(`${API}/api/suppliers/${sid}/purchases`, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload),
-                });
-                if (r.ok) created++; else skipped++;
-            } catch { skipped++; }
-            if (i % 10 === 0) prog(85 + Math.round((i / purchaseOrders.length) * 5), `Importing ${i + 1}/${purchaseOrders.length} supplier POs...`);
-        }
-        return { created, skipped };
-    };
-
-    const importSupplierPaymentsDirect = async (supplierPayments: any[]) => {
-        const nameToId = await buildSupplierNameMap();
-        let created = 0;
-        let skipped = 0;
-        for (let i = 0; i < supplierPayments.length; i++) {
-            const p = supplierPayments[i];
-            const sid = nameToId[String(p.supplier_name || '').trim().toLowerCase()];
-            if (!sid) { skipped++; continue; }
-            const payload = {
-                amount: Number(p.amount) || 0,
-                date: p.date,
-                paymentMethod: p.payment_method || 'Bank Transfer',
-                reference: p.reference || '',
-                notes: p.notes || 'BETTANO import',
-            };
-            try {
-                const r = await fetch(`${API}/api/suppliers/${sid}/payments`, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload),
-                });
-                if (r.ok) created++; else skipped++;
-            } catch { skipped++; }
-            if (i % 10 === 0) prog(90 + Math.round((i / supplierPayments.length) * 3), `Importing ${i + 1}/${supplierPayments.length} supplier payments...`);
-        }
-        return { created, skipped };
-    };
-
-    const importPaymentsIdempotent = async (payments: any[]) => {
-        // Match payments to customers by name; skip if a payment with the same reference already exists.
-        const nameToId: Record<string, number> = {};
-        try {
-            const r = await fetch(`${API}/api/customers/`);
-            if (r.ok) {
-                const list = await r.json();
-                const arr = Array.isArray(list) ? list : (list?.results || list?.data || []);
-                for (const c of arr) {
-                    const key = String(c.name || '').trim().toLowerCase();
-                    if (key) nameToId[key] = c.id;
-                }
-            }
-        } catch { /* continue */ }
-
-        const existingRefs = new Set<string>();
-        for (const cid of new Set(Object.values(nameToId))) {
-            try {
-                const r = await fetch(`${API}/api/customers/${cid}/payments`);
-                if (r.ok) {
-                    const pays = await r.json();
-                    for (const p of pays) {
-                        const ref = String(p.reference || '').trim().toLowerCase();
-                        if (ref) existingRefs.add(`${cid}::${ref}`);
-                    }
-                }
-            } catch { /* continue */ }
-        }
-
-        let created = 0;
-        let skipped = 0;
-        for (let i = 0; i < payments.length; i++) {
-            const p = payments[i];
-            const key = String(p.customer_name || '').trim().toLowerCase();
-            const cid = nameToId[key];
-            if (!cid) { skipped++; continue; }
-            const ref = String(p.reference || '').trim();
-            if (ref && existingRefs.has(`${cid}::${ref.toLowerCase()}`)) { skipped++; continue; }
-            const payload = {
-                customer_id: cid,
-                amount: Number(p.amount) || 0,
-                payment_date: String(p.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10),
-                payment_method: 'Cash',
-                reference: ref,
-                notes: 'BETTANO import',
-            };
-            try {
-                const r = await fetch(`${API}/api/customers/${cid}/payments`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                if (r.ok) {
-                    created++;
-                    if (ref) existingRefs.add(`${cid}::${ref.toLowerCase()}`);
-                }
-            } catch { /* continue */ }
-            if (i % 25 === 0) prog(95 + Math.round((i / payments.length) * 4), `Importing ${i + 1}/${payments.length} payments...`);
-        }
-        return { created, skipped };
-    };
-
-    const importCustomersIdempotent = async (customers: any[]) => {
-        // Fetch existing customers ONCE so we can update-by-name instead of duplicating.
-        const existingByName: Record<string, any> = {};
-        try {
-            const r = await fetch(`${API}/api/customers/`);
-            if (r.ok) {
-                const list = await r.json();
-                const arr = Array.isArray(list) ? list : (list?.results || list?.data || []);
-                for (const c of arr) {
-                    const key = String(c.name || '').trim().toLowerCase();
-                    if (key) existingByName[key] = c;
-                }
-            }
-        } catch { /* continue */ }
-
-        let created = 0;
-        let updated = 0;
-        for (let i = 0; i < customers.length; i++) {
-            const c = customers[i];
-            const key = String(c.name || '').trim().toLowerCase();
-            const existing = key ? existingByName[key] : null;
-            try {
-                if (existing) {
-                    const payload = { ...existing, ...c, balance: c.balance, opening_balance: c.opening_balance ?? c.balance };
-                    const r = await fetch(`${API}/api/customers/${existing.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                    if (r.ok) updated++;
-                } else {
-                    const r = await fetch(`${API}/api/customers/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(c) });
-                    if (r.ok) {
-                        const made = await r.json();
-                        existingByName[key] = made;
-                        if (c.balance !== 0) await fetch(`${API}/api/customers/${made.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...made, balance: c.balance, opening_balance: c.balance }) });
-                        created++;
-                    }
-                }
-            } catch { /* continue */ }
-            if (i % 20 === 0) prog(55 + Math.round((i / customers.length) * 10), `Importing ${i + 1}/${customers.length} customers...`);
-        }
-        return { created, updated };
-    };
-
-    const postToBackend = async (data: any) => {
-        const backendResults: any = {};
-
-        if (data.customers?.length) {
-            log(`👥 Importing ${data.customers.length} customers (dedup by name)...`, 'info');
-            backendResults.customers = await importCustomersIdempotent(data.customers);
-        }
-
-        if (!backendResults.products?.created && data.products?.length) {
-            log(`📦 Importing ${data.products.length} products directly...`, 'info');
-            const productsCreated = await importProductsDirect(data.products);
-            backendResults.products = { created: productsCreated };
-        }
-
-        if (!backendResults.suppliers?.created && data.suppliers?.length) {
-            log(`🏭 Importing ${data.suppliers.length} suppliers directly...`, 'info');
-            const suppliersCreated = await importSuppliersDirect(data.suppliers);
-            backendResults.suppliers = { created: suppliersCreated };
-        }
-
-        // Per-supplier purchases (POs) + payments. Must run AFTER suppliers
-        // exist so the name → id lookup resolves. Both endpoints are
-        // idempotent so re-runs are safe.
-        if (data.purchase_orders?.length) {
-            log(`🛒 Importing ${data.purchase_orders.length} supplier POs into respective profiles...`, 'info');
-            backendResults.supplierPurchases = await importSupplierPurchasesDirect(data.purchase_orders);
-            log(`🛒 POs: ${backendResults.supplierPurchases.created} created${backendResults.supplierPurchases.skipped ? `, ${backendResults.supplierPurchases.skipped} skipped` : ''}`, 'success');
-        }
-
-        if (data.supplier_payments?.length) {
-            log(`🏦 Importing ${data.supplier_payments.length} supplier payments into respective profiles...`, 'info');
-            backendResults.supplierPayments = await importSupplierPaymentsDirect(data.supplier_payments);
-            log(`🏦 Supplier payments: ${backendResults.supplierPayments.created} created${backendResults.supplierPayments.skipped ? `, ${backendResults.supplierPayments.skipped} skipped` : ''}`, 'success');
-        }
-
-        if (!backendResults.invoices?.created && data.invoices?.length) {
-            log(`📄 Importing ${data.invoices.length} invoices directly...`, 'info');
-            const invoicesCreated = await importInvoicesDirect(data.invoices);
-            backendResults.invoices = { created: invoicesCreated };
-            if (invoicesCreated === 0) log('⚠️ No invoices matched existing customers — skipped', 'warn');
-        }
-
-        if (data.payments?.length) {
-            log(`💵 Importing ${data.payments.length} payments (dedup by reference)...`, 'info');
-            backendResults.payments = await importPaymentsIdempotent(data.payments);
-            log(`💵 Payments: ${backendResults.payments.created} created, ${backendResults.payments.skipped} skipped`, 'success');
-        }
-
-        return backendResults;
-    };
 
     const parseCsv = async (text: string) => {
         const rows = text.split(/\r?\n/).filter(l => l.trim());
@@ -529,12 +170,18 @@ export default function DataMigration() {
 
             prog(50, 'Importing to ERP...');
             log('⬆️ Sending to ERP backend...', 'info');
-            const backendResults = await postToBackend(data);
+            const { data: importResponse } = await api.post<{ success: boolean; results: Record<string, { created?: number; updated?: number; skipped?: number }> }>(
+                '/api/migrate/full-import',
+                data,
+            );
+            const backendResults = importResponse.results ?? {};
 
             if (backendResults.customers) log(`👥 Customers: ${backendResults.customers.created || 0} created, ${backendResults.customers.updated || 0} updated`, 'success');
             if (backendResults.products) log(`📦 Products: ${backendResults.products.created || 0} created`, 'success');
             if (backendResults.suppliers) log(`🏭 Suppliers: ${backendResults.suppliers.created || 0} created`, 'success');
             if (backendResults.invoices) log(`📄 Invoices: ${backendResults.invoices.created || 0} created`, 'success');
+            if (backendResults.purchase_orders) log(`🛒 POs: ${backendResults.purchase_orders.created || 0} created${backendResults.purchase_orders.skipped ? `, ${backendResults.purchase_orders.skipped} skipped` : ''}`, 'success');
+            if (backendResults.supplier_payments) log(`🏦 Supplier payments: ${backendResults.supplier_payments.created || 0} created${backendResults.supplier_payments.skipped ? `, ${backendResults.supplier_payments.skipped} skipped` : ''}`, 'success');
 
             prog(100, 'Done!');
             setDone(true);
@@ -543,8 +190,8 @@ export default function DataMigration() {
                 products: backendResults.products?.created || 0,
                 suppliers: backendResults.suppliers?.created || 0,
                 invoices: backendResults.invoices?.created || 0,
-                supplierPurchases: backendResults.supplierPurchases?.created || 0,
-                supplierPayments: backendResults.supplierPayments?.created || 0,
+                supplierPurchases: backendResults.purchase_orders?.created || 0,
+                supplierPayments: backendResults.supplier_payments?.created || 0,
             });
             log('🎉 Migration complete! Suppliers populated with their POs and payments.', 'success');
         } catch (e: any) { log(`❌ ${e.message}`, 'error'); prog(0, ''); }
@@ -555,9 +202,8 @@ export default function DataMigration() {
         if (!confirm('Clear ALL customers from ERP? Cannot be undone.')) return;
         setBusy(true);
         try {
-            const r = await fetch(`${API}/api/customers/bulk/clear-all`, { method: 'DELETE' });
-            const d = await r.json();
-            log(`✅ Cleared ${d.deleted} customers`, 'success');
+            const { data } = await api.delete<{ deleted: number }>('/api/migrate/clear-all');
+            log(`✅ Cleared ${data.deleted} customers`, 'success');
             setResults(null); setDone(false);
         } catch (e: any) { log(`❌ ${e.message}`, 'error'); }
         finally { setBusy(false); }
