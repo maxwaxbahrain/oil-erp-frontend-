@@ -6,6 +6,7 @@ import {
     DollarSign, Settings, ChevronDown, ChevronUp,
     CheckCircle, XCircle, ArrowRight, Search, Clock
 } from 'lucide-react';
+import PasswordInput from '../../components/ui/PasswordInput';
 import { getProducts } from '../../services/productService';
 
 // Amazon revenue/prices are always in marketplace currency (USD/AED), never PKR.
@@ -1231,10 +1232,17 @@ export default function AmazonIntegration() {
                                 ].map(f => (
                                     <div key={f.k}>
                                         <label className="block text-[10px] font-semibold text-gray-500 mb-1">{f.l}</label>
-                                        <input type={f.pw ? 'password' : 'text'} value={(config as any)[f.k]}
-                                            onChange={e => upd(f.k as keyof AmazonConfig, e.target.value)}
-                                            placeholder={f.ph}
-                                            className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-orange-400" />
+                                        {f.pw ? (
+                                            <PasswordInput value={(config as any)[f.k]}
+                                                onChange={e => upd(f.k as keyof AmazonConfig, e.target.value)}
+                                                placeholder={f.ph}
+                                                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-orange-400" />
+                                        ) : (
+                                            <input type="text" value={(config as any)[f.k]}
+                                                onChange={e => upd(f.k as keyof AmazonConfig, e.target.value)}
+                                                placeholder={f.ph}
+                                                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-orange-400" />
+                                        )}
                                     </div>
                                 ))}
                                 <div>

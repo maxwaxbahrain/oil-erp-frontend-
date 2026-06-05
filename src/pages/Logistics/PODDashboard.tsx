@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import clsx from 'clsx';
+import PasswordInput from '../../components/ui/PasswordInput';
 
 // --- Types ---
 type ViewState = 'login' | 'dashboard' | 'map' | 'deliveries' | 'drivers' | 'reports' | 'settings' | 'communication';
@@ -62,7 +63,7 @@ export default function PODDashboard() {
                         </div>
                         <div>
                             <label className="block text-xs font-bold text-redwood-text-muted uppercase mb-1">Password</label>
-                            <input type="password" className="w-full p-3 border border-redwood-border rounded-sm bg-redwood-bg-light focus:outline-none focus:border-redwood-brand" placeholder="••••••••" />
+                            <PasswordInput className="w-full p-3 border border-redwood-border rounded-sm bg-redwood-bg-light focus:outline-none focus:border-redwood-brand" placeholder="••••••••" />
                         </div>
                         <button
                             onClick={() => setIsLoggedIn(true)}

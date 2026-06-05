@@ -1,6 +1,7 @@
 import { type FormEvent, useState } from 'react';
 import { Navigate, Link, useNavigate } from 'react-router-dom';
 import { Loader2, Lock, User, UserCircle } from 'lucide-react';
+import PasswordInput from '../components/ui/PasswordInput';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function LoginPage() {
@@ -169,9 +170,8 @@ export default function LoginPage() {
             </label>
             <div className="relative">
               <Lock size={18} style={iconStyle(password.length > 0)} />
-              <input
+              <PasswordInput
                 id="password"
-                type="password"
                 autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}

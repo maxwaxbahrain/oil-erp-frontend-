@@ -17,6 +17,7 @@ import {
     Settings, RefreshCw, ArrowRight,
 } from 'lucide-react';
 import clsx from 'clsx';
+import PasswordInput from '../../components/ui/PasswordInput';
 import LiveCallCard from '../../components/Voice/LiveCallCard';
 import CoachingTipBanner from '../../components/Voice/CoachingTipBanner';
 import SentimentBadge from '../../components/Voice/SentimentBadge';
@@ -344,8 +345,7 @@ export default function VoiceDashboard() {
                         </div>
                         <div>
                             <label className="block text-[11px] font-black text-redwood-text-muted uppercase tracking-widest mb-1">Tenant API Key</label>
-                            <input
-                                type="password"
+                            <PasswordInput
                                 value={tmpKey}
                                 onChange={(e) => setTmpKey(e.target.value)}
                                 placeholder="01234567-89ab-cdef-….secretvalue"

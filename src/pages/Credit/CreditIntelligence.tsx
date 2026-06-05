@@ -6,6 +6,7 @@ import {
     ArrowLeft, ExternalLink, Star, DollarSign,
     ChevronDown, ChevronUp
 } from 'lucide-react';
+import PasswordInput from '../../components/ui/PasswordInput';
 import { getCustomers, getInvoices, type Customer } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
 
@@ -707,8 +708,8 @@ export default function CreditIntelligence() {
                                         Get API Key <ExternalLink size={9} />
                                     </a>
                                 </div>
-                                <input value={(settings as any)[api.key]} onChange={e => setSettings(p => ({ ...p, [api.key]: e.target.value }))}
-                                    type="password" placeholder={api.ph}
+                                <PasswordInput value={(settings as any)[api.key]} onChange={e => setSettings(p => ({ ...p, [api.key]: e.target.value }))}
+                                    placeholder={api.ph}
                                     className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-blue-400" />
                             </div>
                         ))}
