@@ -3,6 +3,34 @@ import { Navigate, Link, useNavigate } from 'react-router-dom';
 import { Loader2, Lock, User, UserCircle } from 'lucide-react';
 import PasswordInput from '../components/ui/PasswordInput';
 import { useAuth } from '../contexts/AuthContext';
+import { isStaging } from '../config/appEnv';
+
+function responseDetail(err: unknown): string | undefined {
+  const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail) && detail.length > 0) {
+    const first = detail[0];
+    if (typeof first === 'object' && first !== null && 'msg' in first) {
+      return String((first as { msg: unknown }).msg);
+    }
+  }
+  return undefined;
+}
+
+function loginErrorMessage(err: unknown, fallback: string): string {
+  const statusCode = (err as { response?: { status?: number } })?.response?.status;
+  if (statusCode === 429) {
+    return 'Too many login attempts. Please wait a minute and try again.';
+  }
+  if (statusCode === 403) {
+    const detail = responseDetail(err);
+    if (detail && /internal|restricted|disabled in this environment/i.test(detail)) {
+      return detail;
+    }
+    if (detail) return detail;
+  }
+  return fallback;
+}
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -28,12 +56,7 @@ export default function LoginPage() {
       await login(username.trim(), password);
       navigate('/', { replace: true });
     } catch (err) {
-      const statusCode = (err as { response?: { status?: number } })?.response?.status;
-      if (statusCode === 429) {
-        setError('Too many login attempts. Please wait a minute and try again.');
-      } else {
-        setError('Invalid username or password');
-      }
+      setError(loginErrorMessage(err, 'Invalid username or password'));
     } finally {
       setSubmitting(false);
     }
@@ -46,12 +69,7 @@ export default function LoginPage() {
       await login('demo', 'demo');
       navigate('/', { replace: true });
     } catch (err) {
-      const statusCode = (err as { response?: { status?: number } })?.response?.status;
-      if (statusCode === 429) {
-        setError('Too many login attempts. Please wait a minute and try again.');
-      } else {
-        setError('Guest login is unavailable right now');
-      }
+      setError(loginErrorMessage(err, 'Guest login is unavailable right now'));
     } finally {
       setSubmitting(false);
     }
@@ -141,6 +159,21 @@ export default function LoginPage() {
           <p className="mt-3" style={{ fontSize: '14px', color: 'rgba(255,255,255,0.55)' }}>
             Sign in to continue
           </p>
+          {isStaging && (
+            <p
+              className="mt-4"
+              style={{
+                fontSize: '13px',
+                color: 'var(--auth-accent)',
+                background: 'var(--auth-accent-soft-bg)',
+                border: '1px solid var(--auth-badge-border)',
+                borderRadius: '8px',
+                padding: '8px 12px',
+              }}
+            >
+              Internal / Developer environment
+            </p>
+          )}
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -252,14 +285,18 @@ export default function LoginPage() {
           Sign in as Guest
         </button>
 
-        <div style={{ height: '1px', background: 'rgba(255,255,255,0.08)', margin: '20px 0' }} />
+        {!isStaging && (
+          <>
+            <div style={{ height: '1px', background: 'rgba(255,255,255,0.08)', margin: '20px 0' }} />
 
-        <p className="text-center" style={{ fontSize: '14px', color: 'rgba(255,255,255,0.7)' }}>
-          Don&apos;t have an account?{' '}
-          <a href="/signup" style={{ color: '#85B7EB' }}>
-            Start your free trial →
-          </a>
-        </p>
+            <p className="text-center" style={{ fontSize: '14px', color: 'rgba(255,255,255,0.7)' }}>
+              Don&apos;t have an account?{' '}
+              <a href="/signup" style={{ color: '#85B7EB' }}>
+                Start your free trial →
+              </a>
+            </p>
+          </>
+        )}
 
         <div className="mt-6 text-center">
           <p style={{ fontSize: '13px', color: 'rgba(255,255,255,0.75)', fontWeight: 500 }}>SOLTOL ONE</p>
