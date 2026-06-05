@@ -49,6 +49,30 @@
   --text-muted: var(--color-redwood-text-muted);
   --border-subtle: var(--color-redwood-border);
   --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+
+  /* Public auth pages (login / signup / forgot / reset password) */
+  --auth-page-bg: #06080f;
+  --auth-card-bg: #0d0f18;
+  --auth-card-border: rgba(79, 107, 244, 0.2);
+  --auth-brand: #4F6BF4;
+  --auth-brand-hover: #3d5ae0;
+  --auth-accent: #85B7EB;
+  --auth-accent-soft-bg: rgba(79, 107, 244, 0.12);
+  --auth-text: #ffffff;
+  --auth-text-muted: rgba(255, 255, 255, 0.55);
+  --auth-text-label: rgba(255, 255, 255, 0.65);
+  --auth-text-link: rgba(255, 255, 255, 0.7);
+  --auth-text-footer: rgba(255, 255, 255, 0.75);
+  --auth-text-footer-muted: rgba(255, 255, 255, 0.6);
+  --auth-input-bg: rgba(255, 255, 255, 0.05);
+  --auth-input-bg-focus: rgba(79, 107, 244, 0.06);
+  --auth-input-border: rgba(255, 255, 255, 0.1);
+  --auth-input-border-focus: rgba(79, 107, 244, 0.5);
+  --auth-icon: rgba(255, 255, 255, 0.35);
+  --auth-badge-bg: rgba(79, 107, 244, 0.15);
+  --auth-badge-border: rgba(79, 107, 244, 0.3);
+  --auth-error-bg: rgba(239, 68, 68, 0.12);
+  --auth-error-text: var(--color-brand-red-tint);
 }
 
 /* ── GLOBAL DARK FALLBACK — covers pages not yet migrated ──

@@ -4,6 +4,8 @@ import ProtectedRoute from '../components/ProtectedRoute';
 import AccountingSetupRequired from '../components/common/AccountingSetupRequired';
 import LoginPage from '../pages/LoginPage';
 import SignupPage from '../pages/SignupPage';
+import ForgotPasswordPage from '../pages/ForgotPasswordPage';
+import ResetPasswordPage from '../pages/ResetPasswordPage';
 import LandingPage from '../pages/LandingPage';
 import BillingPage from '../pages/BillingPage';
 import SuperAdminPage from '../pages/SuperAdminPage';
@@ -166,6 +168,8 @@ export const AppRoutes = () => {
         <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/invoice/:token" element={<PublicInvoice />} />
             <Route path="/" element={<LandingPage />} />
 
