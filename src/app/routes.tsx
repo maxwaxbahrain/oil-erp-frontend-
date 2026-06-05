@@ -301,8 +301,6 @@ export const AppRoutes = () => {
             <Route path="/voice/calls/:callId" element={<VoiceCallDetail />} />
             <Route path="/voice/analytics" element={<VoiceAnalytics />} />
             <Route path="/voice/coaching-rules" element={<VoiceCoachingRules />} />
-            <Route path="/voice/onboard" element={<VoiceTenantOnboard />} />
-            <Route path="/migrate" element={<DataMigration />} />
             <Route path="/marketing" element={<MarketingHub />} />
             <Route path="/marketing/studio" element={<AIContentStudio />} />
             <Route path="/marketing/segments" element={<CustomerSegments />} />
@@ -344,8 +342,9 @@ export const AppRoutes = () => {
 
             <Route path="/settings/password" element={<ChangePassword />} />
 
-            {/* Admin-only routes */}
+            {/* Admin-only routes (tenant admin role) */}
             <Route element={<ProtectedRoute roles={['admin']} />}>
+                <Route path="/migrate" element={<DataMigration />} />
                 <Route path="/access-management" element={<UserAccessManagement />} />
                 <Route path="/users/dashboard" element={<OrgDashboard />} />
                 <Route path="/users/performance" element={<OrgPerformance />} />
@@ -359,10 +358,15 @@ export const AppRoutes = () => {
                 <Route path="/users/partners" element={<PartnerDirectory />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/settings/billing" element={<BillingPage />} />
+                <Route path="/settings/users" element={<UserManagement />} />
+            </Route>
+
+            {/* Platform super-admin only (username === 'admin') */}
+            <Route element={<ProtectedRoute superAdminOnly />}>
                 <Route path="/superadmin" element={<SuperAdminPage />} />
                 <Route path="/superadmin/emails" element={<SuperAdminPage />} />
                 <Route path="/superadmin/tenant/:tenantId" element={<TenantProfilePage />} />
-                <Route path="/settings/users" element={<UserManagement />} />
+                <Route path="/voice/onboard" element={<VoiceTenantOnboard />} />
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />
