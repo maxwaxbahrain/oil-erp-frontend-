@@ -151,14 +151,7 @@ function fuzzyMatchByName<T extends { name: string }>(query: string, list: T[]):
     // multiple hits).
     const substringHits = indexed.filter((row) => row.norm && row.norm.includes(q));
     if (substringHits.length === 1) {
-        const hit = substringHits[0];
-        // TEMP DEBUG — remove once voice product matching is verified in prod
-        console.log('[FuzzyMatch] query:', JSON.stringify(q));
-        console.log('[FuzzyMatch] top 3 candidates:', [
-            { name: hit.entry.name, score: 0 },
-        ]);
-        console.log('[FuzzyMatch] result:', hit.entry.name, '(substring fast path)');
-        return hit.entry;
+        return substringHits[0].entry;
     }
 
     const fuse = new Fuse<Indexed>(indexed, {
@@ -170,19 +163,10 @@ function fuzzyMatchByName<T extends { name: string }>(query: string, list: T[]):
     });
     const results = fuse.search(q);
 
-    // TEMP DEBUG — remove once voice product matching is verified in prod
-    console.log('[FuzzyMatch] query:', JSON.stringify(q));
-    console.log(
-        '[FuzzyMatch] top 3 candidates:',
-        results.slice(0, 3).map((r) => ({ name: r.item.entry.name, score: r.score })),
-    );
-
     const top = results[0];
     if (top && (top.score ?? 1) <= 0.4) {
-        console.log('[FuzzyMatch] result:', top.item.entry.name);
         return top.item.entry;
     }
-    console.log('[FuzzyMatch] result:', 'NO MATCH');
     return null;
 }
 
@@ -369,14 +353,6 @@ export default function InvoiceFormPage() {
                     const salesmanId = matchedSalesman ? String(matchedSalesman.id) : '';
 
                     const rawItems = Array.isArray(voicePrefill.items) ? voicePrefill.items : [];
-                    // TEMP DEBUG — surface the raw inputs so we can see in the
-                    // browser console why a particular voice item didn't match.
-                    // Remove once product matching is verified in prod.
-                    console.log('[VoicePrefill] productsData count:',
-                        productsData.length,
-                        'names:', productsData.map((p: any) => p.name));
-                    console.log('[VoicePrefill] voice items:',
-                        JSON.stringify(voicePrefill?.items));
                     const lineItems =
                         rawItems.length > 0
                             ? rawItems.map((item, idx) => {
