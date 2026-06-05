@@ -15,6 +15,8 @@
 // user systems are unified.
 // ============================================
 
+import { ACCESS_TOKEN_KEY } from '../api/axios';
+
 const RAW_BASE = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
     .trim()
     .replace(/\/+$/, '');
@@ -95,6 +97,11 @@ async function voiceRequest<T>(path: string, options: VoiceRequestOptions = {}):
             throw new VoiceApiError(401, 'Voice credentials not configured. Set your X-Tenant-Api-Key.');
         }
         headers['X-Tenant-Api-Key'] = key;
+    } else {
+        const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
     }
     const res = await fetch(url, { ...options, headers });
     if (!res.ok) {
