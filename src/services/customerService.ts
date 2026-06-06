@@ -425,16 +425,38 @@ export async function deleteCustomer(id: string): Promise<void> {
 // LEDGER OPERATIONS
 // ============================================
 
+function ledgerEntryTime(date: string | undefined): number {
+    const t = new Date(date ?? 0).getTime();
+    return Number.isNaN(t) ? 0 : t;
+}
+
+/** Oldest first — for running-balance accumulation. Tie-break: id ascending. */
+export function compareLedgerByDateAsc(
+    a: { date?: string; id?: string | number },
+    b: { date?: string; id?: string | number },
+): number {
+    const byDate = ledgerEntryTime(a.date) - ledgerEntryTime(b.date);
+    if (byDate !== 0) return byDate;
+    return String(a.id ?? '').localeCompare(String(b.id ?? ''), undefined, { numeric: true });
+}
+
+/** Newest first — for display. Tie-break: id descending. */
+export function compareLedgerByDateDesc(
+    a: { date?: string; id?: string | number },
+    b: { date?: string; id?: string | number },
+): number {
+    const byDate = ledgerEntryTime(b.date) - ledgerEntryTime(a.date);
+    if (byDate !== 0) return byDate;
+    return String(b.id ?? '').localeCompare(String(a.id ?? ''), undefined, { numeric: true });
+}
+
 export async function getCustomerLedger(customerId: string): Promise<LedgerEntry[]> {
     if (USE_MOCK) {
         await delay(400);
         const ledger = getStorage<LedgerEntry>('customer_ledger');
         return ledger
             .filter(entry => entry.customer_id === customerId)
-            .sort((a, b) =>
-                new Date(b.date).getTime() -
-                new Date(a.date).getTime()
-            );
+            .sort(compareLedgerByDateDesc);
     }
     const response = await fetch(
         apiUrl(`customers/${customerId}/ledger`)
@@ -443,9 +465,15 @@ export async function getCustomerLedger(customerId: string): Promise<LedgerEntry
         throw new Error('Failed to fetch customer ledger');
 
     const raw = await response.json();
+    const chronological = [...raw].sort((a: { date?: string; id?: string | number }, b: { date?: string; id?: string | number }) =>
+        compareLedgerByDateAsc(
+            { date: a.date, id: a.id },
+            { date: b.date, id: b.id },
+        ),
+    );
 
     let runningBalance = 0;
-    return raw.map((entry: any) => {
+    const entries: LedgerEntry[] = chronological.map((entry: any) => {
         const debit = Number(entry.debit) || 0;
         const credit = Number(entry.credit) || 0;
         const isCreditType =
@@ -476,6 +504,8 @@ export async function getCustomerLedger(customerId: string): Promise<LedgerEntry
                     : undefined,
         };
     });
+
+    return [...entries].sort(compareLedgerByDateDesc);
 }
 
 export async function addLedgerEntry(entry: Omit<LedgerEntry, 'id'>): Promise<LedgerEntry> {
