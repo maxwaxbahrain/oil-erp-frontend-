@@ -176,7 +176,6 @@ export const AppRoutes = () => {
 
             <Route element={<ProtectedRoute />}>
             <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/finance/dashboard" element={<FinanceDashboard />} />
             <Route path="/sales/dashboard" element={<SalesDashboard />} />
             <Route path="/warehouse/dashboard" element={<WarehouseDashboard />} />
             <Route path="/van/dashboard" element={<VanDriverDashboard />} />
@@ -245,7 +244,9 @@ export const AppRoutes = () => {
             <Route path="/customers/edit/:id" element={<CustomerEditPage />} />
             <Route path="/customers/:id" element={<CustomerOverview />} />
 
-            {/* Finance & Operations */}
+            {/* Finance & Operations — admin/accountant only (matches backend finance write RBAC) */}
+            <Route element={<ProtectedRoute roles={['admin', 'accountant']} />}>
+            <Route path="/finance/dashboard" element={<FinanceDashboard />} />
             <Route path="/finance/expenses" element={<ExpenseManagement />} />
             <Route path="/finance/expenses/bulk-upload" element={<ExpensesBulkUpload />} />
             <Route path="/finance/expenses/approvals" element={<ExpenseApprovals />} />
@@ -264,6 +265,7 @@ export const AppRoutes = () => {
             <Route path="/finance/financial-statement" element={<FinancialStatement />} />
             <Route path="/finance/payment-edit" element={<PaymentEdit />} />
             <Route path="/finance/bad-debts" element={<BadDebtsJV />} />
+            </Route>
             <Route path="/ai" element={<AIHub />} />
             <Route path="/ai/auto-po" element={<AutoPOGeneration />} />
             <Route path="/ai/anomaly" element={<AnomalyDetection />} />
