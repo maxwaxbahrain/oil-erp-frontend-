@@ -250,9 +250,10 @@ export default function Invoices() {
     }
 
     return list.sort((a, b) => {
-      const da = toLocalDay(b.invoiceDate)?.getTime() ?? 0;
-      const db = toLocalDay(a.invoiceDate)?.getTime() ?? 0;
-      return da - db;
+      const tb = toLocalDay(b.invoiceDate)?.getTime() ?? 0;
+      const ta = toLocalDay(a.invoiceDate)?.getTime() ?? 0;
+      if (tb !== ta) return tb - ta;
+      return String(b.id).localeCompare(String(a.id), undefined, { numeric: true });
     });
   }, [invoices, search, filterTab, dateFrom, dateTo, salesmanFilter, customerById, today]);
 

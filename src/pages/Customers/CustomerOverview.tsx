@@ -34,6 +34,8 @@ import {
     getCustomers,
     getCustomerPayments,
     getCustomerLedger,
+    compareLedgerByDateAsc,
+    compareLedgerByDateDesc,
     type Customer,
     type Payment
 } from '../../services/customerService';
@@ -388,16 +390,11 @@ export default function CustomerOverview() {
             // unique entry. Keeping the variable name for downstream compatibility.
             const uniqueTransactions = allTransactions;
 
-            // ITEM 5B — Display ledger chronologically (oldest at top, newest
-            // at bottom) to match how accountants read a ledger book. The
-            // running balance accumulates oldest-to-newest, so removing the
-            // .reverse() also fixes the visual flow (balance grows downward).
-            const sortedTransactions = uniqueTransactions.sort((a, b) =>
-                new Date(a.date).getTime() - new Date(b.date).getTime()
-            );
+            // Running balance is computed oldest→newest; display newest first.
+            const chronological = [...uniqueTransactions].sort(compareLedgerByDateAsc);
 
             let runningBalance = 0;
-            const ledgerEntries: LedgerEntry[] = sortedTransactions.map(tx => {
+            const ledgerEntries: LedgerEntry[] = chronological.map(tx => {
                 runningBalance += (tx.debit - tx.credit);
                 return {
                     ...tx,
@@ -408,7 +405,7 @@ export default function CustomerOverview() {
                 };
             });
 
-            setLedger(ledgerEntries);
+            setLedger([...ledgerEntries].sort(compareLedgerByDateDesc));
 
             // Calculate real stats from actual data.
             // (1) Outstanding balance = the server-side customer.balance — same source
