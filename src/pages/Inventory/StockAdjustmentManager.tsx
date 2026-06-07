@@ -18,6 +18,7 @@ import {
 import { aiStockService, type AIStockAdjustment, type AIInsight } from '../../services/aiStockService';
 import { getProducts, type Product } from '../../services/productService';
 import { getOilErpApiBase } from '../../config/apiBase';
+import { authFetch } from '../../api/axios';
 
 type DecisionLogItem = {
     id: string;
@@ -222,7 +223,7 @@ export default function StockAdjustmentManager() {
         let backendNewStock: number | null = null;
         try {
             const base = getOilErpApiBase().replace(/\/$/, '');
-            const listResp = await fetch(`${base}/products/`, { cache: 'no-store' });
+            const listResp = await authFetch(`${base}/products/`, { cache: 'no-store' });
             if (!listResp.ok) {
                 backendErr = `GET /products/ -> HTTP ${listResp.status}`;
             } else {
@@ -236,7 +237,7 @@ export default function StockAdjustmentManager() {
                 } else {
                     const currentBackendStock = Number(backendProduct.stock) || 0;
                     backendNewStock = currentBackendStock + manualDelta;
-                    const putResp = await fetch(`${base}/products/${backendProduct.id}`, {
+                    const putResp = await authFetch(`${base}/products/${backendProduct.id}`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ stock: backendNewStock }),

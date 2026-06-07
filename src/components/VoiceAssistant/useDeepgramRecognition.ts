@@ -17,6 +17,7 @@
 // ============================================
 
 import { useCallback, useEffect, useRef } from 'react';
+import { authFetch } from '../../api/axios';
 
 // Same VITE_API_URL convention as the rest of the project, inlined so
 // this file stays isolated.
@@ -143,7 +144,7 @@ export function useDeepgramRecognition(
                 );
 
                 const lang = encodeURIComponent(languageRef.current || 'en');
-                const response = await fetch(`${TRANSCRIBE_BASE}?language=${lang}`, {
+                const response = await authFetch(`${TRANSCRIBE_BASE}?language=${lang}`, {
                     method: 'POST',
                     body: form,
                 });

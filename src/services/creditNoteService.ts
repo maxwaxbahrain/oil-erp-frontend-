@@ -1,4 +1,5 @@
 import { API_BASE_URL, createPayment, type Invoice } from './api';
+import { authFetch } from '../api/axios';
 
 export type CreditReason = 'overcharge' | 'return' | 'price_adjustment' | 'goodwill' | 'other';
 export type CreditStatus = 'draft' | 'issued' | 'partially_used' | 'fully_used' | 'cancelled';
@@ -114,28 +115,28 @@ function toApi(input: any) {
 }
 
 export async function getCreditNotes(): Promise<CreditNote[]> {
-  const r = await fetch(`${API_BASE_URL}/credit-notes/`);
+  const r = await authFetch(`${API_BASE_URL}/credit-notes/`);
   if (!r.ok) throw new Error('Failed to load credit notes');
   const rows = await r.json();
   return (rows as any[]).map(toUi);
 }
 
 export async function getCreditNote(id: string): Promise<CreditNote | null> {
-  const r = await fetch(`${API_BASE_URL}/credit-notes/${id}`);
+  const r = await authFetch(`${API_BASE_URL}/credit-notes/${id}`);
   if (r.status === 404) return null;
   if (!r.ok) throw new Error('Failed to load credit note');
   return toUi(await r.json());
 }
 
 export async function getCustomerCreditNotes(customerId: string): Promise<CreditNote[]> {
-  const r = await fetch(`${API_BASE_URL}/credit-notes/customer/${encodeURIComponent(customerId)}`);
+  const r = await authFetch(`${API_BASE_URL}/credit-notes/customer/${encodeURIComponent(customerId)}`);
   if (!r.ok) throw new Error('Failed to load customer credit notes');
   const rows = await r.json();
   return (rows as any[]).map(toUi);
 }
 
 export async function createCreditNote(input: CreditNoteCreateInput): Promise<CreditNote> {
-  const r = await fetch(`${API_BASE_URL}/credit-notes/`, {
+  const r = await authFetch(`${API_BASE_URL}/credit-notes/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(toApi(input)),
@@ -166,7 +167,7 @@ export async function updateCreditNote(
 ): Promise<CreditNote> {
   const body: any = toApi(patch);
   if (patch.status) body.status = patch.status;
-  const r = await fetch(`${API_BASE_URL}/credit-notes/${id}`, {
+  const r = await authFetch(`${API_BASE_URL}/credit-notes/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

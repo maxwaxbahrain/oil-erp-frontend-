@@ -17,6 +17,7 @@ import {
     ShieldAlert,
 } from 'lucide-react';
 import { getAccounts, DEFAULT_ACCOUNTS, type Account } from './ChartOfAccounts';
+import { authFetch } from '../../api/axios';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -54,7 +55,7 @@ const JV_API = `${API_HOST}/api/journal-vouchers`;
 
 export const getJournalVouchers = async (): Promise<JournalVoucher[]> => {
     try {
-        const r = await fetch(`${JV_API}/`);
+        const r = await authFetch(`${JV_API}/`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const rows = await r.json();
         return Array.isArray(rows) ? rows : [];
@@ -65,7 +66,7 @@ export const getJournalVouchers = async (): Promise<JournalVoucher[]> => {
 };
 
 const createJV = async (jv: JournalVoucher): Promise<JournalVoucher> => {
-    const r = await fetch(`${JV_API}/`, {
+    const r = await authFetch(`${JV_API}/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -92,7 +93,7 @@ const createJV = async (jv: JournalVoucher): Promise<JournalVoucher> => {
 };
 
 const deleteJVApi = async (id: string): Promise<void> => {
-    const r = await fetch(`${JV_API}/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    const r = await authFetch(`${JV_API}/${encodeURIComponent(id)}`, { method: 'DELETE' });
     if (!r.ok && r.status !== 204) {
         const text = await r.text().catch(() => '');
         throw new Error(`Failed to delete voucher: ${r.status} ${text}`);

@@ -10,6 +10,7 @@ import {
     MessageCircle,
     AlertTriangle,
 } from 'lucide-react';
+import { authFetch } from '../../api/axios';
 import { getProducts } from '../../services/api';
 import { getSuppliers, createPurchaseOrder } from '../../services/purchasesService';
 import { getCurrentUser } from '../../store/authStore';
@@ -245,7 +246,7 @@ export default function AutoPOGeneration() {
         setAiLoading(true);
         const API = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
         try {
-            const res = await fetch(`${API}/ai/chat`, {
+            const res = await authFetch(`${API}/ai/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

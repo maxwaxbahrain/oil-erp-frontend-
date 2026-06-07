@@ -6,6 +6,7 @@ import {
     ArrowLeft, ExternalLink, Star, DollarSign,
     ChevronDown, ChevronUp
 } from 'lucide-react';
+import { authFetch } from '../../api/axios';
 import PasswordInput from '../../components/ui/PasswordInput';
 import { getCustomers, getInvoices, type Customer } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
@@ -127,7 +128,7 @@ export default function CreditIntelligence() {
         const erpBalance = custInvoices.filter(i => i.status !== 'Paid').reduce((s: number, i: any) => s + i.grandTotal, 0);
 
         try {
-            const res = await fetch(`${API}/ai/credit/search`, {
+            const res = await authFetch(`${API}/ai/credit/search`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

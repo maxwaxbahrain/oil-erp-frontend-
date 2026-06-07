@@ -1,5 +1,6 @@
 import { getPurchaseOrders, updatePurchaseOrder, type PurchaseOrder } from './purchasesService';
 import { getOilErpApiBase } from '../config/apiBase';
+import { authFetch } from '../api/axios';
 
 // FIX W3-1 — Path B (this module) now writes stock to the SAME backend
 // endpoint that Path A uses (PurchasesDashboard's Confirm GRN button).
@@ -224,7 +225,7 @@ export const postGRN = async (grnId: string): Promise<PostGRNResult> => {
         }
         attempted++;
         try {
-            const res = await fetch(apiUrl(`products/${item.productId}/add-stock`), {
+            const res = await authFetch(apiUrl(`products/${item.productId}/add-stock`), {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

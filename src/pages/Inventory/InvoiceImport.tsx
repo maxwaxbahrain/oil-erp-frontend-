@@ -18,6 +18,7 @@ import { useNavigate } from 'react-router-dom';
 import { FreeInvoiceProcessor, type InvoiceData } from '../../services/invoiceProcessor';
 import { createSupplier, createPurchaseOrder, getSuppliers, type PurchaseOrderItem } from '../../services/purchasesService';
 import { saveImportedProduct } from '../../services/productService';
+import { authFetch } from '../../api/axios';
 
 type ImportStep = 'upload' | 'processing' | 'review' | 'success';
 type UploadedFile = {
@@ -92,7 +93,7 @@ export default function InvoiceImport() {
                 try {
                     // Create in backend
                     const uniqueSku = item.sku || `IMP-${Date.now()}-${Math.random().toString(36).slice(2,5).toUpperCase()}`;
-                    const res = await fetch(`${API}/api/products/`, {
+                    const res = await authFetch(`${API}/api/products/`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({

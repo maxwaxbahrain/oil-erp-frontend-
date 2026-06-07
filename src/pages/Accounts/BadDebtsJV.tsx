@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { getCustomers, getInvoices, type Customer, type Invoice } from '../../services/api';
 import { getAccounts, DEFAULT_ACCOUNTS } from './ChartOfAccounts';
+import { authFetch } from '../../api/axios';
 
 // Helper to generate JV number
 const nextBDJVNumber = (): string => {
@@ -397,7 +398,7 @@ export default function BadDebtsJV() {
                     notes: `Bad debt write-off (${jv.jvNumber}) — ${notes || 'no narration'}`,
                 };
                 try {
-                    const r = await fetch(`${base}/customers/${cid}/payments`, {
+                    const r = await authFetch(`${base}/customers/${cid}/payments`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload),
@@ -411,11 +412,11 @@ export default function BadDebtsJV() {
 
             for (const cid of touchedCustomerIds) {
                 try {
-                    const r = await fetch(`${base}/customers/${cid}`, { cache: 'no-store' });
+                    const r = await authFetch(`${base}/customers/${cid}`, { cache: 'no-store' });
                     if (!r.ok) continue;
                     const cust = await r.json();
                     if (Number(cust?.balance) < 0) {
-                        await fetch(`${base}/customers/${cid}`, {
+                        await authFetch(`${base}/customers/${cid}`, {
                             method: 'PUT',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ balance: 0 }),
@@ -473,7 +474,7 @@ export default function BadDebtsJV() {
                     type: 'debit',
                 };
                 try {
-                    const r = await fetch(`${base}/customers/${a.customerId}/debits`, {
+                    const r = await authFetch(`${base}/customers/${a.customerId}/debits`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload),

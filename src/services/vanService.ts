@@ -1,4 +1,5 @@
 import { API_BASE_URL } from './api';
+import { ACCESS_TOKEN_KEY } from '../api/axios';
 const USE_MOCK = false;
 const STORAGE_KEY = 'vans';
 
@@ -92,8 +93,13 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
     }
 
     const url = `${API_BASE_URL}${endpoint}`;
+    const token = localStorage.getItem(ACCESS_TOKEN_KEY);
     const config: RequestInit = {
-        headers: { 'Content-Type': 'application/json', ...options.headers },
+        headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            ...(options.headers as Record<string, string> | undefined),
+        },
         ...options,
     };
 

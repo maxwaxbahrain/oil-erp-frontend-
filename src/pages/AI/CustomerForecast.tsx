@@ -15,6 +15,7 @@ import {
     Clock,
     Bot,
 } from 'lucide-react';
+import { authFetch } from '../../api/axios';
 import { getInvoices, getCustomers } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
 import { getCurrentUser } from '../../store/authStore';
@@ -236,7 +237,7 @@ export default function CustomerForecast() {
         try {
             const top5 = [...forecasts].sort((a, b) => b.totalSpend - a.totalSpend).slice(0, 5);
             const atRisk = forecasts.filter(f => f.risk === 'high').slice(0, 5);
-            const res = await fetch(`${API}/ai/chat`, {
+            const res = await authFetch(`${API}/ai/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

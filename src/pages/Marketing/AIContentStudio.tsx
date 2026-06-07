@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Zap, Copy, Check, RefreshCw, Download } from 'lucide-react';
 import { getProducts, getImportedProducts } from '../../services/productService';
 import { getCustomers } from '../../services/api';
+import { authFetch } from '../../api/axios';
 
 const API = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
 
@@ -90,7 +91,7 @@ export default function AIContentStudio() {
         const productContext = selectedProduct || 'Soltol engine oils and lubricants';
 
         try {
-            const res = await fetch(`${API}/ai/chat`, {
+            const res = await authFetch(`${API}/ai/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

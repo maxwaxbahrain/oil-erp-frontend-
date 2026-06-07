@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { authFetch } from '../../api/axios';
 // TC-80 — Read segment context from query params in CampaignManager.
 import { useSearchParams } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
@@ -107,7 +108,7 @@ export function CustomerSegments() {
         setAiLoading(true);
         try {
             const summary = segments.map(s => `${s.name}: ${s.customers.length} customers`).join(', ');
-            const res = await fetch(`${API}/ai/chat`, {
+            const res = await authFetch(`${API}/ai/chat`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     system: 'You are a marketing strategist for a NYC oil distribution company. Give 3 specific campaign ideas based on customer segments. Max 150 words. No markdown.',

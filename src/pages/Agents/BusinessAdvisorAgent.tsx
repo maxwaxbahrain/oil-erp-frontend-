@@ -7,6 +7,7 @@ import { getCustomers, getInvoices, getPayments } from '../../services/api';
 import { getProducts } from '../../services/productService';
 import { getPurchaseOrders } from '../../services/purchasesService';
 import { formatCurrency } from '../../services/settingsService';
+import { authFetch } from '../../api/axios';
 
 interface Message {
     id: string;
@@ -155,7 +156,7 @@ export default function BusinessAdvisorAgent() {
         const newHistory = [...history, { role: 'user', content: userText }];
 
         try {
-            const res = await fetch(`${API}/ai/chat`, {
+            const res = await authFetch(`${API}/ai/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

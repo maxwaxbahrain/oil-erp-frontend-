@@ -1,4 +1,5 @@
 import { type Customer, API_BASE_URL } from './api';
+import { withBearerAuth } from '../api/axios';
 const USE_MOCK = false;
 
 export type SalesOrderStatus =
@@ -139,10 +140,10 @@ export function mapApiSalesOrder(raw: Record<string, unknown>): SalesOrder {
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
+  const res = await fetch(url, withBearerAuth({
     ...init,
     headers: { 'Content-Type': 'application/json', ...init?.headers },
-  });
+  }));
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
     try {

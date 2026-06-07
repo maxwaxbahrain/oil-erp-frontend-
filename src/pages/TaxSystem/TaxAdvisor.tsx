@@ -24,6 +24,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Send, MessageSquare, User, RefreshCw, ShieldAlert } from 'lucide-react';
 import { getFilingList } from './services/filingApi';
+import { authFetch } from '../../api/axios';
 
 
 interface Message {
@@ -142,7 +143,7 @@ export default function TaxAdvisor() {
         let assistantReply = '';
 
         try {
-            const res = await fetch(`${API}/api/ai/tax-advisor/stream`, {
+            const res = await authFetch(`${API}/api/ai/tax-advisor/stream`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ messages: newHistory }),

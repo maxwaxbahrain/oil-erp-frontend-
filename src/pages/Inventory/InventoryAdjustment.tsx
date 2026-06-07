@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { getProducts as getMergedProducts } from '../../services/productService';
 import { getCurrentUser } from '../../store/authStore';
+import { authFetch } from '../../api/axios';
 
 interface Adjustment {
     id: string;
@@ -259,7 +260,7 @@ export default function InventoryAdjustment() {
             let backendId: string | number | null = null;
             let backendCurrentStock = 0;
             try {
-                const listResp = await fetch(`${base}/products/`, { cache: 'no-store' });
+                const listResp = await authFetch(`${base}/products/`, { cache: 'no-store' });
                 if (listResp.ok) {
                     const list = await listResp.json();
                     const arr = Array.isArray(list) ? list : list?.results || list?.data || [];
@@ -288,7 +289,7 @@ export default function InventoryAdjustment() {
                     min_stock: sel.minimum_stock || 0,
                     unit: sel.unit || 'unit',
                 };
-                const createResp = await fetch(`${base}/products/`, {
+                const createResp = await authFetch(`${base}/products/`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(createBody),
@@ -306,7 +307,7 @@ export default function InventoryAdjustment() {
                 form.type === 'add'
                     ? backendCurrentStock + form.quantity
                     : Math.max(0, backendCurrentStock - form.quantity);
-            const putResp = await fetch(`${base}/products/${backendId}`, {
+            const putResp = await authFetch(`${base}/products/${backendId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ stock: newStock }),

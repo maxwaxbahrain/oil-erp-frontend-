@@ -1,4 +1,5 @@
 import { getOilErpApiBase } from '../config/apiBase';
+import { authFetch } from '../api/axios';
 
 // CUSTOMER SERVICE
 // Centralized customer management with mock data support
@@ -211,7 +212,7 @@ function formatCustomersHttpError(status: number, text: string): string {
 }
 
 async function fetchCustomersRows(primaryUrl: string): Promise<Customer[]> {
-    const response = await fetch(primaryUrl, { cache: 'no-store' });
+    const response = await authFetch(primaryUrl, { cache: 'no-store' });
     const text = await response.text().catch(() => '');
     const ct = (response.headers.get('content-type') || '').toLowerCase();
 
@@ -286,7 +287,7 @@ export async function getCustomer(id: string): Promise<Customer> {
         return customer;
     }
 
-    const response = await fetch(apiUrl(`customers/${id}`));
+    const response = await authFetch(apiUrl(`customers/${id}`));
     if (!response.ok) throw new Error('Failed to fetch customer');
     const row = (await response.json()) as Record<string, unknown>;
     return normalizeCustomerFromApi(row);
@@ -351,7 +352,7 @@ export async function createCustomer(data: Partial<Customer>): Promise<Customer>
         gps_location: data.gps_location?.trim() || undefined,
         notes: data.notes?.trim() || undefined,
     };
-    const response = await fetch(apiUrl('customers/'), {
+    const response = await authFetch(apiUrl('customers/'), {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -396,7 +397,7 @@ export async function updateCustomer(id: string, data: Partial<Customer>): Promi
         body.is_active = status === 'Active';
     }
 
-    const response = await fetch(apiUrl(`customers/${id}`), {
+    const response = await authFetch(apiUrl(`customers/${id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -415,7 +416,7 @@ export async function deleteCustomer(id: string): Promise<void> {
         return;
     }
 
-    const response = await fetch(apiUrl(`customers/${id}`), {
+    const response = await authFetch(apiUrl(`customers/${id}`), {
         method: 'DELETE'
     });
     if (!response.ok) throw new Error('Failed to delete customer');
@@ -458,7 +459,7 @@ export async function getCustomerLedger(customerId: string): Promise<LedgerEntry
             .filter(entry => entry.customer_id === customerId)
             .sort(compareLedgerByDateDesc);
     }
-    const response = await fetch(
+    const response = await authFetch(
         apiUrl(`customers/${customerId}/ledger`)
     );
     if (!response.ok)
@@ -541,7 +542,7 @@ export async function addLedgerEntry(entry: Omit<LedgerEntry, 'id'>): Promise<Le
         return newEntry;
     }
 
-    const response = await fetch(apiUrl(`customers/${entry.customer_id}/ledger`), {
+    const response = await authFetch(apiUrl(`customers/${entry.customer_id}/ledger`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(entry)
@@ -563,7 +564,7 @@ export async function getCustomerPayments(customerId: string): Promise<Payment[]
             .sort((a, b) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime());
     }
 
-    const response = await fetch(apiUrl(`customers/${customerId}/payments`));
+    const response = await authFetch(apiUrl(`customers/${customerId}/payments`));
     if (!response.ok) throw new Error('Failed to fetch customer payments');
     const raw = await response.json();
     // The backend returns numeric ids; the Payment type (and downstream code that
@@ -603,7 +604,7 @@ export async function createPayment(payment: Omit<Payment, 'id' | 'created_at'>)
         return newPayment;
     }
 
-    const response = await fetch(apiUrl(`customers/${payment.customer_id}/payments`), {
+    const response = await authFetch(apiUrl(`customers/${payment.customer_id}/payments`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payment)
@@ -623,7 +624,7 @@ export async function getOverdueCustomers(): Promise<Customer[]> {
         return customers.filter(c => (c.balance || 0) < 0);
     }
 
-    const response = await fetch(apiUrl('customers/overdue'));
+    const response = await authFetch(apiUrl('customers/overdue'));
     if (!response.ok) throw new Error('Failed to fetch overdue customers');
     const payload = await response.json().catch(() => null);
     return parseCustomersJson(payload).map(normalizeCustomerFromApi);
@@ -649,7 +650,7 @@ export async function getCustomerStats(): Promise<CustomerStats> {
         };
     }
 
-    const response = await fetch(apiUrl('customers/stats'));
+    const response = await authFetch(apiUrl('customers/stats'));
     if (!response.ok) throw new Error('Failed to fetch customer stats');
     return response.json();
 }
@@ -668,7 +669,7 @@ export async function searchCustomers(query: string): Promise<Customer[]> {
         );
     }
 
-    const response = await fetch(`${apiUrl('customers/search')}?q=${encodeURIComponent(query)}`);
+    const response = await authFetch(`${apiUrl('customers/search')}?q=${encodeURIComponent(query)}`);
     if (!response.ok) throw new Error('Failed to search customers');
     const payload = await response.json().catch(() => null);
     return parseCustomersJson(payload).map(normalizeCustomerFromApi);

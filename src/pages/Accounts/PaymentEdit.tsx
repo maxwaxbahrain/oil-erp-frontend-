@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Edit2, Save, X, RefreshCw, Check, AlertTriangle } from 'lucide-react';
 import { useTracking } from '../../hooks/useTracking';
 import { getPayments, getCustomers, type Payment, type Customer } from '../../services/api';
+import { authFetch } from '../../api/axios';
 import { formatCurrency } from '../../services/settingsService';
 
 const PAYMENT_METHODS = ['Cash', 'Bank Transfer', 'Cheque', 'Credit Card', 'Online', 'Other'];
@@ -98,7 +99,7 @@ export default function PaymentEdit() {
         setSaving(true);
         try {
             const API = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
-            const res = await fetch(`${API}/ledger/payment/${editId}`, {
+            const res = await authFetch(`${API}/ledger/payment/${editId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(editForm)
