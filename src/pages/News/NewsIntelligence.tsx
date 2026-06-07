@@ -1,6 +1,7 @@
 import { useState, useEffect, type CSSProperties } from 'react';
 import { RefreshCw, AlertTriangle } from 'lucide-react';
 import { getProducts, getImportedProducts } from '../../services/productService';
+import { authFetch } from '../../api/axios';
 
 const API = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
 const NEWS_CACHE_KEY = 'bettano_news_cache';
@@ -78,7 +79,7 @@ export default function NewsIntelligence() {
     const refreshStatus = async (ctx?: string) => {
         setLoading(true);
         try {
-            const res = await fetch(`${API}/ai/news`, {
+            const res = await authFetch(`${API}/ai/news`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ business_context: ctx || businessCtx, max_articles: 0 }),

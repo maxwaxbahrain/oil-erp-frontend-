@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { authFetch } from '../api/axios';
 
 export interface ActionItem {
   task: string;
@@ -172,7 +173,7 @@ export function useMeetingRecorder() {
     }
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/ai/meeting/process`, {
+      const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/ai/meeting/process`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -215,7 +216,7 @@ export function useMeetingRecorder() {
     setStatus('processing');
     setError(null);
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/ai/meeting/process`, {
+      const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/ai/meeting/process`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

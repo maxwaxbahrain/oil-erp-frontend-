@@ -1,4 +1,5 @@
 import { getOilErpApiBase } from '../config/apiBase';
+import { authFetch } from '../api/axios';
 
 export interface PurchaseOrderItem {
     productId: string;
@@ -166,7 +167,7 @@ const migrateLocalStorageOnce = async (): Promise<void> => {
     }
     try {
         for (const s of meaningful) {
-            await fetch(`${SUPPLIERS_API}/`, {
+            await authFetch(`${SUPPLIERS_API}/`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(toApi(s)),
@@ -180,13 +181,13 @@ const migrateLocalStorageOnce = async (): Promise<void> => {
 
 export const getSuppliers = async (): Promise<Supplier[]> => {
     try {
-        const res = await fetch(`${SUPPLIERS_API}/`);
+        const res = await authFetch(`${SUPPLIERS_API}/`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const rows = await res.json();
         if (Array.isArray(rows) && rows.length === 0) {
             await migrateLocalStorageOnce();
             // Re-fetch in case migration uploaded rows.
-            const res2 = await fetch(`${SUPPLIERS_API}/`);
+            const res2 = await authFetch(`${SUPPLIERS_API}/`);
             if (res2.ok) {
                 const after = await res2.json();
                 return Array.isArray(after) ? after.map(fromApi) : [];
@@ -202,7 +203,7 @@ export const getSuppliers = async (): Promise<Supplier[]> => {
 
 export const getSupplierById = async (id: string): Promise<Supplier | null> => {
     try {
-        const res = await fetch(`${SUPPLIERS_API}/${encodeURIComponent(id)}`);
+        const res = await authFetch(`${SUPPLIERS_API}/${encodeURIComponent(id)}`);
         if (res.status === 404) return null;
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return fromApi(await res.json());
@@ -213,7 +214,7 @@ export const getSupplierById = async (id: string): Promise<Supplier | null> => {
 };
 
 export const createSupplier = async (supplier: Partial<Supplier>): Promise<Supplier> => {
-    const res = await fetch(`${SUPPLIERS_API}/`, {
+    const res = await authFetch(`${SUPPLIERS_API}/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(toApi(supplier)),
@@ -226,7 +227,7 @@ export const createSupplier = async (supplier: Partial<Supplier>): Promise<Suppl
 };
 
 export const updateSupplier = async (id: string, data: Partial<Supplier>): Promise<Supplier> => {
-    const res = await fetch(`${SUPPLIERS_API}/${encodeURIComponent(id)}`, {
+    const res = await authFetch(`${SUPPLIERS_API}/${encodeURIComponent(id)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(toApi(data)),
@@ -239,7 +240,7 @@ export const updateSupplier = async (id: string, data: Partial<Supplier>): Promi
 };
 
 export const deleteSupplier = async (id: string): Promise<void> => {
-    const res = await fetch(`${SUPPLIERS_API}/${encodeURIComponent(id)}`, {
+    const res = await authFetch(`${SUPPLIERS_API}/${encodeURIComponent(id)}`, {
         method: 'DELETE',
     });
     if (!res.ok && res.status !== 204) {
@@ -265,7 +266,7 @@ export const deleteSupplier = async (id: string): Promise<void> => {
 export const getPurchaseOrders = async (): Promise<PurchaseOrder[]> => {
     // Fetch POs across all suppliers. Used by Aged Payable to compute totals.
     try {
-        const sRes = await fetch(`${SUPPLIERS_API}/`);
+        const sRes = await authFetch(`${SUPPLIERS_API}/`);
         if (!sRes.ok) throw new Error(`HTTP ${sRes.status}`);
         const sList = await sRes.json();
         if (!Array.isArray(sList)) return [];
@@ -273,7 +274,7 @@ export const getPurchaseOrders = async (): Promise<PurchaseOrder[]> => {
         await Promise.all(
             sList.map(async (s: any) => {
                 try {
-                    const r = await fetch(`${SUPPLIERS_API}/${s.id}/purchases`);
+                    const r = await authFetch(`${SUPPLIERS_API}/${s.id}/purchases`);
                     if (!r.ok) return;
                     const rows = await r.json();
                     if (Array.isArray(rows)) all.push(...rows);
@@ -288,7 +289,7 @@ export const getPurchaseOrders = async (): Promise<PurchaseOrder[]> => {
 
 export const getSupplierPurchases = async (supplierId: string): Promise<PurchaseOrder[]> => {
     try {
-        const r = await fetch(`${SUPPLIERS_API}/${encodeURIComponent(supplierId)}/purchases`);
+        const r = await authFetch(`${SUPPLIERS_API}/${encodeURIComponent(supplierId)}/purchases`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const rows = await r.json();
         return Array.isArray(rows) ? rows : [];
@@ -301,7 +302,7 @@ export const getSupplierPurchases = async (supplierId: string): Promise<Purchase
 export const createPurchaseOrder = async (po: Omit<PurchaseOrder, 'id'>): Promise<PurchaseOrder> => {
     const supplierId = String(po.supplierId || '');
     if (!supplierId) throw new Error('createPurchaseOrder: supplierId is required');
-    const r = await fetch(`${SUPPLIERS_API}/${encodeURIComponent(supplierId)}/purchases`, {
+    const r = await authFetch(`${SUPPLIERS_API}/${encodeURIComponent(supplierId)}/purchases`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -339,7 +340,7 @@ export const updatePurchaseOrder = async (id: string, data: Partial<PurchaseOrde
     // Calls the backend PATCH /api/purchase-orders/{id} so procurement-flow
     // transitions (approve, GRN, mark paid) actually persist instead of
     // silently writing to localStorage.
-    const res = await fetch(`${API_HOST}/api/purchase-orders/${encodeURIComponent(id)}`, {
+    const res = await authFetch(`${API_HOST}/api/purchase-orders/${encodeURIComponent(id)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -368,7 +369,7 @@ export const updatePurchaseOrder = async (id: string, data: Partial<PurchaseOrde
 // already hard-gates the button to Draft status, but we still surface
 // any backend rejection as a friendly error rather than swallowing it.
 export const deletePurchaseOrder = async (id: string): Promise<void> => {
-    const res = await fetch(`${API_HOST}/api/purchase-orders/${encodeURIComponent(id)}`, {
+    const res = await authFetch(`${API_HOST}/api/purchase-orders/${encodeURIComponent(id)}`, {
         method: 'DELETE',
     });
     if (!res.ok) {
@@ -379,7 +380,7 @@ export const deletePurchaseOrder = async (id: string): Promise<void> => {
 
 export const getSupplierPayments = async (supplierId: string): Promise<SupplierPayment[]> => {
     try {
-        const r = await fetch(`${SUPPLIERS_API}/${encodeURIComponent(supplierId)}/payments`);
+        const r = await authFetch(`${SUPPLIERS_API}/${encodeURIComponent(supplierId)}/payments`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const rows = await r.json();
         return Array.isArray(rows) ? rows : [];
@@ -392,7 +393,7 @@ export const getSupplierPayments = async (supplierId: string): Promise<SupplierP
 export const createSupplierPayment = async (payment: Omit<SupplierPayment, 'id'>): Promise<SupplierPayment> => {
     const supplierId = String(payment.supplierId || '');
     if (!supplierId) throw new Error('createSupplierPayment: supplierId is required');
-    const r = await fetch(`${SUPPLIERS_API}/${encodeURIComponent(supplierId)}/payments`, {
+    const r = await authFetch(`${SUPPLIERS_API}/${encodeURIComponent(supplierId)}/payments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -413,7 +414,7 @@ export const createSupplierPayment = async (payment: Omit<SupplierPayment, 'id'>
 export const getSupplierBalance = async (supplierId: string): Promise<number> => {
     // Backend computes it: opening + purchases − payments.
     try {
-        const r = await fetch(`${SUPPLIERS_API}/${encodeURIComponent(supplierId)}/balance`);
+        const r = await authFetch(`${SUPPLIERS_API}/${encodeURIComponent(supplierId)}/balance`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const j = await r.json();
         return Number(j.balance) || 0;
@@ -496,7 +497,7 @@ export const confirmGRN = async (id: string): Promise<GRNResult> => {
         }
         attempted++;
         try {
-            const res = await fetch(apiUrl(`products/${item.productId}/add-stock`), {
+            const res = await authFetch(apiUrl(`products/${item.productId}/add-stock`), {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

@@ -8,6 +8,7 @@ import { getVans, API_BASE_URL, getInvoices, getProducts as getApiProducts, getS
 import { createVanLoad } from '../../services/vanLoadService';
 import { getSalesReturns } from '../../services/salesReturnService';
 import { getCurrentUser } from '../../store/authStore';
+import { authFetch } from '../../api/axios';
 
 const C = {
     bg: '#060f1c',
@@ -270,7 +271,7 @@ export default function VanOperations() {
         (async () => {
             setVanLoadsLoading(true);
             try {
-                const res = await fetch(`${API_BASE_URL}/van-loads/today`, { cache: 'no-store' });
+                const res = await authFetch(`${API_BASE_URL}/van-loads/today`, { cache: 'no-store' });
                 const data = res.ok ? await res.json() : [];
                 if (cancelled) return;
                 setVanLoadsToday(Array.isArray(data) ? data : []);
@@ -463,7 +464,7 @@ export default function VanOperations() {
 
     const handleAddVan = async () => {
         try {
-            const response = await fetch(
+            const response = await authFetch(
                 `${API_BASE_URL}/vans`,
                 {
                     method: 'POST',
@@ -492,7 +493,7 @@ export default function VanOperations() {
 
     const handleEditVan = async () => {
         try {
-            const response = await fetch(
+            const response = await authFetch(
                 `${API_BASE_URL}/vans/${editVanForm.id}`,
                 {
                     method: 'PUT',

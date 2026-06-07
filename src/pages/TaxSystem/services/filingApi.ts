@@ -12,6 +12,8 @@
 
 // ─── Base URL + helpers ──────────────────────────────────────────────
 
+import { withBearerAuth } from '../../../api/axios';
+
 
 const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
     .trim()
@@ -51,7 +53,7 @@ async function request<T>(
     init?: RequestInit,
 ): Promise<ApiResult<T>> {
     try {
-        const r = await fetch(url, init);
+        const r = await fetch(url, withBearerAuth(init));
         if (!r.ok) {
             return { error: await readError(r) };
         }

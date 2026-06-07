@@ -48,4 +48,30 @@ api.interceptors.response.use(
   }
 );
 
+/** Merge Bearer token into fetch init — same key/interceptor as axios `api`. */
+export function withBearerAuth(init: RequestInit = {}): RequestInit {
+  const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+  if (!token) return init;
+
+  const existing: Record<string, string> =
+    init.headers instanceof Headers
+      ? Object.fromEntries(init.headers.entries())
+      : Array.isArray(init.headers)
+        ? Object.fromEntries(init.headers)
+        : { ...(init.headers as Record<string, string> | undefined) };
+
+  return {
+    ...init,
+    headers: {
+      ...existing,
+      Authorization: `Bearer ${token}`,
+    },
+  };
+}
+
+/** Authenticated fetch for services that cannot use the axios instance. */
+export async function authFetch(url: string, init?: RequestInit): Promise<Response> {
+  return fetch(url, withBearerAuth(init));
+}
+
 export default api;

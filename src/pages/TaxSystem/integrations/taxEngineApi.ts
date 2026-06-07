@@ -3,6 +3,7 @@
 // modules import from here so the URL / error handling stays consistent.
 
 import type { TaxEngineHealth, TaxRule, TaxNexus, TaxProviderConfig, ProviderId, TaxExemption } from '../data/types';
+import { authFetch } from '../../../api/axios';
 
 const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
     .trim()
@@ -27,7 +28,7 @@ const ENGINE_DOWN: TaxEngineHealth = {
 
 export async function fetchEngineHealth(): Promise<TaxEngineHealth> {
     try {
-        const r = await fetch(`${TAX_ENGINE_API}/health`);
+        const r = await authFetch(`${TAX_ENGINE_API}/health`);
         if (!r.ok) return { ...ENGINE_DOWN, timestamp: new Date().toISOString() };
         return (await r.json()) as TaxEngineHealth;
     } catch (e) {
@@ -41,7 +42,7 @@ export async function listTaxRules(activeOnly = false): Promise<TaxRule[]> {
     try {
         const url = new URL(`${TAX_ENGINE_API}/rules`);
         if (activeOnly) url.searchParams.set('active_only', 'true');
-        const r = await fetch(url.toString());
+        const r = await authFetch(url.toString());
         if (!r.ok) return [];
         const rows = await r.json();
         return Array.isArray(rows) ? rows : [];
@@ -69,7 +70,7 @@ async function readError(r: Response): Promise<string> {
 
 export async function createTaxRule(payload: Partial<TaxRule>): Promise<{ rule: TaxRule | null; error?: string }> {
     try {
-        const r = await fetch(`${TAX_ENGINE_API}/rules`, {
+        const r = await authFetch(`${TAX_ENGINE_API}/rules`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -91,7 +92,7 @@ export async function createTaxRule(payload: Partial<TaxRule>): Promise<{ rule: 
 
 export async function updateTaxRule(id: string, payload: Partial<TaxRule>): Promise<{ rule: TaxRule | null; error?: string }> {
     try {
-        const r = await fetch(`${TAX_ENGINE_API}/rules/${encodeURIComponent(id)}`, {
+        const r = await authFetch(`${TAX_ENGINE_API}/rules/${encodeURIComponent(id)}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -113,7 +114,7 @@ export async function updateTaxRule(id: string, payload: Partial<TaxRule>): Prom
 
 export async function deleteTaxRule(id: string): Promise<{ ok: boolean; error?: string }> {
     try {
-        const r = await fetch(`${TAX_ENGINE_API}/rules/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        const r = await authFetch(`${TAX_ENGINE_API}/rules/${encodeURIComponent(id)}`, { method: 'DELETE' });
         if (!r.ok && r.status !== 204) return { ok: false, error: await readError(r) };
         return { ok: true };
     } catch (e: any) {
@@ -129,7 +130,7 @@ export async function listNexus(activeOnly = false): Promise<TaxNexus[]> {
     try {
         const url = new URL(`${TAX_ENGINE_API}/nexus`);
         if (activeOnly) url.searchParams.set('active_only', 'true');
-        const r = await fetch(url.toString());
+        const r = await authFetch(url.toString());
         if (!r.ok) return [];
         const rows = await r.json();
         return Array.isArray(rows) ? rows : [];
@@ -142,7 +143,7 @@ export async function listNexus(activeOnly = false): Promise<TaxNexus[]> {
 
 export async function createNexus(payload: Partial<TaxNexus>): Promise<{ nexus: TaxNexus | null; error?: string }> {
     try {
-        const r = await fetch(`${TAX_ENGINE_API}/nexus`, {
+        const r = await authFetch(`${TAX_ENGINE_API}/nexus`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -163,7 +164,7 @@ export async function createNexus(payload: Partial<TaxNexus>): Promise<{ nexus: 
 
 export async function updateNexus(id: string, payload: Partial<TaxNexus>): Promise<{ nexus: TaxNexus | null; error?: string }> {
     try {
-        const r = await fetch(`${TAX_ENGINE_API}/nexus/${encodeURIComponent(id)}`, {
+        const r = await authFetch(`${TAX_ENGINE_API}/nexus/${encodeURIComponent(id)}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -184,7 +185,7 @@ export async function updateNexus(id: string, payload: Partial<TaxNexus>): Promi
 
 export async function deleteNexus(id: string): Promise<{ ok: boolean; error?: string }> {
     try {
-        const r = await fetch(`${TAX_ENGINE_API}/nexus/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        const r = await authFetch(`${TAX_ENGINE_API}/nexus/${encodeURIComponent(id)}`, { method: 'DELETE' });
         if (!r.ok && r.status !== 204) return { ok: false, error: await readError(r) };
         return { ok: true };
     } catch (e: any) {
@@ -206,7 +207,7 @@ const PROVIDER_STORAGE_KEY = 'taxEngine.providerConfigs.v1';
 
 export async function listProviderConfigs(): Promise<TaxProviderConfig[]> {
     try {
-        const r = await fetch(`${TAX_ENGINE_API}/providers`);
+        const r = await authFetch(`${TAX_ENGINE_API}/providers`);
         if (!r.ok) return [];
         const rows = await r.json();
         return Array.isArray(rows) ? rows : [];
@@ -222,7 +223,7 @@ export async function saveProviderConfig(
 ): Promise<{ config: TaxProviderConfig | null; error?: string }> {
     if (!config.id) return { config: null, error: 'Provider id is required' };
     try {
-        const r = await fetch(`${TAX_ENGINE_API}/providers/${encodeURIComponent(config.id)}`, {
+        const r = await authFetch(`${TAX_ENGINE_API}/providers/${encodeURIComponent(config.id)}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -248,7 +249,7 @@ export async function setActiveProvider(
     providerId: ProviderId,
 ): Promise<{ ok: boolean; active: ProviderId; error?: string }> {
     try {
-        const r = await fetch(`${TAX_ENGINE_API}/providers/${encodeURIComponent(providerId)}/activate`, {
+        const r = await authFetch(`${TAX_ENGINE_API}/providers/${encodeURIComponent(providerId)}/activate`, {
             method: 'POST',
         });
         if (!r.ok) return { ok: false, active: providerId, error: await readError(r) };
@@ -261,7 +262,7 @@ export async function setActiveProvider(
 
 export async function deleteProviderConfig(providerId: ProviderId): Promise<{ ok: boolean; error?: string }> {
     try {
-        const r = await fetch(`${TAX_ENGINE_API}/providers/${encodeURIComponent(providerId)}`, { method: 'DELETE' });
+        const r = await authFetch(`${TAX_ENGINE_API}/providers/${encodeURIComponent(providerId)}`, { method: 'DELETE' });
         if (!r.ok && r.status !== 204) return { ok: false, error: await readError(r) };
         return { ok: true };
     } catch (e: any) {
@@ -278,7 +279,7 @@ const EXEMPTION_STORAGE_KEY = 'taxEngine.exemptions.v1';
 
 export async function listExemptions(): Promise<TaxExemption[]> {
     try {
-        const r = await fetch(`${TAX_ENGINE_API}/exemptions`);
+        const r = await authFetch(`${TAX_ENGINE_API}/exemptions`);
         if (!r.ok) return [];
         const rows = await r.json();
         return Array.isArray(rows) ? rows : [];
@@ -296,7 +297,7 @@ export async function createExemption(
     if (!payload.jurisdiction?.trim()) return { exemption: null, error: 'Jurisdiction is required' };
     if (!payload.certificateNumber?.trim()) return { exemption: null, error: 'Certificate number is required' };
     try {
-        const r = await fetch(`${TAX_ENGINE_API}/exemptions`, {
+        const r = await authFetch(`${TAX_ENGINE_API}/exemptions`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -323,7 +324,7 @@ export async function updateExemption(
     payload: Partial<TaxExemption>,
 ): Promise<{ exemption: TaxExemption | null; error?: string }> {
     try {
-        const r = await fetch(`${TAX_ENGINE_API}/exemptions/${encodeURIComponent(id)}`, {
+        const r = await authFetch(`${TAX_ENGINE_API}/exemptions/${encodeURIComponent(id)}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -347,7 +348,7 @@ export async function updateExemption(
 
 export async function deleteExemption(id: string): Promise<{ ok: boolean; error?: string }> {
     try {
-        const r = await fetch(`${TAX_ENGINE_API}/exemptions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        const r = await authFetch(`${TAX_ENGINE_API}/exemptions/${encodeURIComponent(id)}`, { method: 'DELETE' });
         if (!r.ok && r.status !== 204) return { ok: false, error: await readError(r) };
         return { ok: true };
     } catch (e: any) {
@@ -534,7 +535,7 @@ export async function calculateTaxApi(
     payload: CalculateRequest,
 ): Promise<{ result: CalculateResponse | null; error?: string }> {
     try {
-        const r = await fetch(`${TAX_V1_API}/calculate`, {
+        const r = await authFetch(`${TAX_V1_API}/calculate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
@@ -563,7 +564,7 @@ export async function listTaxTransactions(
         if (filters.customerId) url.searchParams.set('customerId', filters.customerId);
         if (filters.limit !== undefined) url.searchParams.set('limit', String(filters.limit));
         if (filters.offset !== undefined) url.searchParams.set('offset', String(filters.offset));
-        const r = await fetch(url.toString());
+        const r = await authFetch(url.toString());
         if (!r.ok) return [];
         const rows = await r.json();
         return Array.isArray(rows) ? rows : [];
@@ -577,7 +578,7 @@ export async function listTaxTransactions(
 /** GET /api/v1/tax/transaction/{id} — one transaction + line breakdown. */
 export async function getTaxTransaction(transactionId: string): Promise<TaxTransactionRow | null> {
     try {
-        const r = await fetch(`${TAX_V1_API}/transaction/${encodeURIComponent(transactionId)}`);
+        const r = await authFetch(`${TAX_V1_API}/transaction/${encodeURIComponent(transactionId)}`);
         if (!r.ok) return null;
         return (await r.json()) as TaxTransactionRow;
     } catch (e) {
@@ -590,7 +591,7 @@ export async function getTaxTransaction(transactionId: string): Promise<TaxTrans
 /** POST /api/v1/tax/commit — flip status='draft' → 'committed'. */
 export async function commitTaxTransaction(transactionId: string): Promise<{ ok: boolean; error?: string }> {
     try {
-        const r = await fetch(`${TAX_V1_API}/commit`, {
+        const r = await authFetch(`${TAX_V1_API}/commit`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ transactionId }),
@@ -608,7 +609,7 @@ export async function cancelTaxTransaction(
     reason?: string,
 ): Promise<{ ok: boolean; error?: string }> {
     try {
-        const r = await fetch(`${TAX_V1_API}/cancel`, {
+        const r = await authFetch(`${TAX_V1_API}/cancel`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ transactionId, reason }),
@@ -623,7 +624,7 @@ export async function cancelTaxTransaction(
 /** DELETE /api/v1/tax/transaction/{id} — only allowed for draft status. */
 export async function deleteTaxTransaction(transactionId: string): Promise<{ ok: boolean; error?: string }> {
     try {
-        const r = await fetch(`${TAX_V1_API}/transaction/${encodeURIComponent(transactionId)}`, { method: 'DELETE' });
+        const r = await authFetch(`${TAX_V1_API}/transaction/${encodeURIComponent(transactionId)}`, { method: 'DELETE' });
         if (!r.ok && r.status !== 204) return { ok: false, error: await readError(r) };
         return { ok: true };
     } catch (e: any) {

@@ -29,6 +29,7 @@ import { getSuppliers } from '../../services/purchasesService';
 import { getCompanyProfile } from '../../services/settingsService';
 import { getExpensesSnapshot, type Expense } from '../../services/expenseService';
 import { calculateReceivables } from '../../utils/arMetrics';
+import { authFetch } from '../../api/axios';
 
 const panelStyle: CSSProperties = {
     background: 'var(--color-redwood-bg-surface)',
@@ -71,7 +72,7 @@ const BANK_TX_API = `${API_HOST}/api/bank-transactions`;
 // Manual bank transactions (rent, salary, deposit, etc.) — backend persisted.
 async function getBankTxsApi(): Promise<any[]> {
     try {
-        const r = await fetch(`${BANK_TX_API}/`);
+        const r = await authFetch(`${BANK_TX_API}/`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const rows = await r.json();
         const out = Array.isArray(rows) ? rows.map(t => ({ ...t, balance: 0, isManual: true })) : [];
@@ -89,7 +90,7 @@ async function createBankTxApi(tx: {
     amount: number; reference: string; category: string;
 }): Promise<any | null> {
     try {
-        const r = await fetch(`${BANK_TX_API}/`, {
+        const r = await authFetch(`${BANK_TX_API}/`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(tx),
@@ -110,7 +111,7 @@ async function updateBankTxApi(id: string, tx: {
     amount: number; reference: string; category: string;
 }): Promise<any | null> {
     try {
-        const r = await fetch(`${BANK_TX_API}/${encodeURIComponent(id)}`, {
+        const r = await authFetch(`${BANK_TX_API}/${encodeURIComponent(id)}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(tx),
@@ -128,7 +129,7 @@ async function updateBankTxApi(id: string, tx: {
 
 async function deleteBankTxApi(id: string): Promise<boolean> {
     try {
-        const r = await fetch(`${BANK_TX_API}/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        const r = await authFetch(`${BANK_TX_API}/${encodeURIComponent(id)}`, { method: 'DELETE' });
         if (!r.ok && r.status !== 204) {
             const text = await r.text().catch(() => '');
             throw new Error(`HTTP ${r.status} ${text}`);
@@ -142,7 +143,7 @@ async function deleteBankTxApi(id: string): Promise<boolean> {
 
 async function getPDC(): Promise<PDCheque[]> {
     try {
-        const r = await fetch(`${PDC_API}/`);
+        const r = await authFetch(`${PDC_API}/`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const rows = await r.json();
         return Array.isArray(rows) ? rows : [];
@@ -154,7 +155,7 @@ async function getPDC(): Promise<PDCheque[]> {
 
 async function createPDCApi(p: Omit<PDCheque, 'id' | 'status' | 'createdAt'>): Promise<PDCheque | null> {
     try {
-        const r = await fetch(`${PDC_API}/`, {
+        const r = await authFetch(`${PDC_API}/`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -175,7 +176,7 @@ async function createPDCApi(p: Omit<PDCheque, 'id' | 'status' | 'createdAt'>): P
 
 async function patchPDCApi(id: string, status: PDCheque['status']): Promise<boolean> {
     try {
-        const r = await fetch(`${PDC_API}/${encodeURIComponent(id)}`, {
+        const r = await authFetch(`${PDC_API}/${encodeURIComponent(id)}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ status }),
@@ -310,7 +311,7 @@ export default function Banking() {
             const supPayLists = await Promise.all(
                 suppliers.map(async s => {
                     try {
-                        const r = await fetch(`${API_HOST}/api/suppliers/${s.id}/payments`);
+                        const r = await authFetch(`${API_HOST}/api/suppliers/${s.id}/payments`);
                         if (!r.ok) return [];
                         const rows: SupplierPaymentRow[] = await r.json();
                         return Array.isArray(rows) ? rows.map(row => ({ row, supplierName: s.name })) : [];

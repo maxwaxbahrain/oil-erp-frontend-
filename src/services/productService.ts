@@ -47,6 +47,7 @@ export interface ProductSpecification {
 
 
 import { getOilErpApiBase } from '../config/apiBase';
+import { authFetch } from '../api/axios';
 
 export interface Product {
     id: string;
@@ -266,7 +267,7 @@ export async function getProducts(): Promise<Product[]> {
     // when the user tried to edit them. If the backend is unreachable we
     // return an empty list instead of a stale localStorage snapshot.
     try {
-        const response = await fetch(apiUrl('products/'), { cache: 'no-store' });
+        const response = await authFetch(apiUrl('products/'), { cache: 'no-store' });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const payload = await response.json().catch(() => null);
         return parseProductsJson(payload).map(mapApiProductToProduct);
@@ -282,7 +283,7 @@ export async function getProductById(id: string): Promise<Product | undefined> {
 
     // Try backend
     try {
-        const response = await fetch(apiUrl(`products/${encodeURIComponent(id)}`), { cache: 'no-store' });
+        const response = await authFetch(apiUrl(`products/${encodeURIComponent(id)}`), { cache: 'no-store' });
         if (response.ok) {
             const raw = (await response.json().catch(() => null)) as Record<string, unknown> | null;
             if (raw && typeof raw === 'object') {
@@ -344,7 +345,7 @@ export async function saveProduct(product: Partial<Product>): Promise<Product> {
         : apiUrl('products/');
     const initialMethod: 'PUT' | 'POST' = hasId ? 'PUT' : 'POST';
 
-    let resp = await fetch(initialUrl, {
+    let resp = await authFetch(initialUrl, {
         method: initialMethod,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(backendPayload),
@@ -358,7 +359,7 @@ export async function saveProduct(product: Partial<Product>): Promise<Product> {
     // old ghost id so the catalog doesn't end up with a duplicate.
     if (resp.status === 404 && hasId) {
         method = 'POST';
-        resp = await fetch(apiUrl('products/'), {
+        resp = await authFetch(apiUrl('products/'), {
             method,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(backendPayload),

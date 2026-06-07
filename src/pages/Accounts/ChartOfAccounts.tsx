@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { getCustomers, getInvoices, getPayments } from '../../services/api';
 import { getSuppliers, getSupplierBalance, getSupplierPurchases } from '../../services/purchasesService';
+import { authFetch } from '../../api/axios';
 import { getJournalVouchers } from './JournalVoucher';
 import { useEscape } from '../../hooks/useEscape';
 
@@ -407,7 +408,7 @@ async function computeAccountBalances(accounts: Account[]): Promise<Record<strin
     const supplierPaymentLists = await Promise.all(
         suppliers.map(async s => {
             try {
-                const r = await fetch(
+                const r = await authFetch(
                     `${String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/+$/, '')}/api/suppliers/${s.id}/payments`,
                 );
                 if (!r.ok) return [];
@@ -421,7 +422,7 @@ async function computeAccountBalances(accounts: Account[]): Promise<Record<strin
     let manualBankNet = 0;
     try {
         const apiHost = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/+$/, '');
-        const r = await fetch(`${apiHost}/api/bank-transactions/`);
+        const r = await authFetch(`${apiHost}/api/bank-transactions/`);
         if (r.ok) {
             const rows: any[] = await r.json();
             if (Array.isArray(rows)) {

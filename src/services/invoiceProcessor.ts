@@ -4,6 +4,7 @@
  */
 
 import { createWorker } from 'tesseract.js';
+import { authFetch } from '../api/axios';
 
 export interface SupplierInfo {
     name: string;
@@ -284,7 +285,7 @@ CRITICAL PRICE RULES — READ CAREFULLY:
 - grandTotal = sum of all lineTotal values
 - Return ONLY the JSON object, no explanation text`;
 
-        const response = await fetch(`${API_HOST}/ai/chat`, {
+        const response = await authFetch(`${API_HOST}/ai/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

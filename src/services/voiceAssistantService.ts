@@ -7,6 +7,7 @@
 // Advisor uses (src/components/AIAssistant.tsx).
 //
 // ISOLATION: imports nothing.  Uses plain fetch() and inlines the
+import { authFetch } from '../api/axios';
 // API_HOST lookup.  Does NOT import from src/services/api.ts.
 // ============================================
 
@@ -254,7 +255,7 @@ export async function sendVoiceCommandToClaude(
     }
 
     try {
-        response = await fetch(CHAT_ENDPOINT, {
+        response = await authFetch(CHAT_ENDPOINT, {
             method: 'POST',
             headers,
             body: JSON.stringify({

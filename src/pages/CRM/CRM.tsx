@@ -6,6 +6,7 @@ import {
     DollarSign, Trash2, X, Check, ArrowLeft,
     Building2, Star
 } from 'lucide-react';
+import { authFetch } from '../../api/axios';
 import { getCustomers, type Customer } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
 
@@ -651,7 +652,7 @@ export default function CRM() {
                                         const btn = document.getElementById('ai-deal-btn');
                                         if (btn) btn.textContent = 'Analyzing...';
                                         try {
-                                            const res = await fetch(`${API2}/ai/chat`, {
+                                            const res = await authFetch(`${API2}/ai/chat`, {
                                                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                                                 body: JSON.stringify({
                                                     system: 'You are a CRM sales advisor for Soltol oil distributor NYC. Give concise deal advice in 3-4 sentences. Be specific and actionable.',

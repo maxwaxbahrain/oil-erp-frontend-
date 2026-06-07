@@ -3,6 +3,7 @@ import {
     Send, Plus, Check, Clock, AlertCircle,
     Zap, Search, X, Edit2, Trash2
 } from 'lucide-react';
+import { authFetch } from '../../api/axios';
 import { getUsers, getCurrentUser, type User } from '../../store/authStore';
 
 const API = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
@@ -334,7 +335,7 @@ export default function Pulse() {
         sendMessage(userMsg);
         setAiLoading(true);
         try {
-            const res = await fetch(`${API}/ai/chat`, {
+            const res = await authFetch(`${API}/ai/chat`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     system: `You are a helpful team assistant in the ${activeRoomData?.name} channel of SOLTOL ONE business platform. Keep responses concise and professional. Max 2-3 sentences.`,

@@ -1,4 +1,5 @@
 // Expense Management Service
+import { authFetch } from '../api/axios';
 
 export interface ExpenseCategory {
     id: string;
@@ -289,7 +290,7 @@ export async function getExpenses(): Promise<Expense[]> {
 
 export async function getExpensesSnapshot(): Promise<{ expenses: Expense[]; stale: boolean; error?: Error }> {
     try {
-        const r = await fetch(`${EXPENSES_API}/`);
+        const r = await authFetch(`${EXPENSES_API}/`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const rows = await r.json();
         _expensesCache = (Array.isArray(rows) ? rows : []).map(_expenseFromApi);
@@ -327,7 +328,7 @@ export async function saveExpense(expense: Partial<Expense>): Promise<Expense> {
         // filters undefined keys so we don't accidentally null-out
         // unrelated fields.
         const body = _expenseToApi(expense);
-        const res = await fetch(`${EXPENSES_API}/${encodeURIComponent(String(expense.id))}`, {
+        const res = await authFetch(`${EXPENSES_API}/${encodeURIComponent(String(expense.id))}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -364,7 +365,7 @@ export async function saveExpense(expense: Partial<Expense>): Promise<Expense> {
         paymentMethod: expense.paymentMethod || 'Cash',
     };
     const body = _expenseToApi(seeded);
-    const res = await fetch(`${EXPENSES_API}/`, {
+    const res = await authFetch(`${EXPENSES_API}/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -450,7 +451,7 @@ export async function deleteExpense(id: string, opts?: { force?: boolean }): Pro
     // force=true isn't passed). The frontend forwards the force flag
     // when the user acknowledges the second confirmation.
     const query = opts?.force ? '?force=true' : '';
-    const res = await fetch(`${EXPENSES_API}/${encodeURIComponent(id)}${query}`, {
+    const res = await authFetch(`${EXPENSES_API}/${encodeURIComponent(id)}${query}`, {
         method: 'DELETE',
     });
     if (!res.ok) {
@@ -531,7 +532,7 @@ export async function extractExpenseFromReceipt(file: File): Promise<AIExtracted
         throw new Error(`Unsupported receipt type "${mime || 'unknown'}". Use JPG, PNG, or PDF.`);
     }
 
-    const res = await fetch(`${API_HOST}/ai/chat`, {
+    const res = await authFetch(`${API_HOST}/ai/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -597,7 +598,7 @@ export async function generateExpenseHeadWithAI(description: string, amount = 0)
     accountCode: string;
     similarCategories: string[];
 }> {
-    const res = await fetch(API_HOST + '/ai/chat', {
+    const res = await authFetch(API_HOST + '/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -714,7 +715,7 @@ export async function suggestExpenseCategory(
         .replace('{DESCRIPTION}', description || '(none)')
         .replace('{AMOUNT}',      String(amount || 0));
 
-    const res = await fetch(API_HOST + '/ai/chat', {
+    const res = await authFetch(API_HOST + '/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -972,7 +973,7 @@ function parseCsv(text: string): string[][] {
 }
 
 async function callBulkParserAI(payload: Record<string, unknown>): Promise<unknown[]> {
-    const res = await fetch(API_HOST + '/ai/chat', {
+    const res = await authFetch(API_HOST + '/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -1165,7 +1166,7 @@ export async function estimateMileage(from: string, to: string): Promise<Mileage
         'Use "rough" or "approximate" for confidence unless you have ' +
         'verified the route.';
 
-    const res = await fetch(API_HOST + '/ai/chat', {
+    const res = await authFetch(API_HOST + '/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1252,7 +1253,7 @@ export async function queryExpensesNaturalLanguage(question: string): Promise<Nl
         '  "chart_type": "bar" | "pie" | "line" | "none"\n' +
         '}';
 
-    const res = await fetch(API_HOST + '/ai/chat', {
+    const res = await authFetch(API_HOST + '/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1565,7 +1566,7 @@ export async function pushExpenseToAccounting(expense: Expense): Promise<{ jvNum
         ],
     };
 
-    const res = await fetch(API_HOST + '/api/journal-vouchers/', {
+    const res = await authFetch(API_HOST + '/api/journal-vouchers/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(jv),

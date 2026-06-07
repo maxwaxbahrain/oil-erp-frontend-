@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { type Supplier, type PurchaseOrder, deleteSupplier } from '../../services/purchasesService';
+import { authFetch } from '../../api/axios';
 
 const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
     .trim()
@@ -205,7 +206,7 @@ export default function SupplierList() {
         const fetchSuppliers = async () => {
             setLoading(true);
             try {
-                const res = await fetch(`${SUPPLIERS_API}/`);
+                const res = await authFetch(`${SUPPLIERS_API}/`);
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const rows = await res.json();
                 const list: any[] = Array.isArray(rows) ? rows : [];

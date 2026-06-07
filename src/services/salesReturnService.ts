@@ -2,6 +2,7 @@
  * Sales returns — backend /api/sales-returns/
  */
 import { API_BASE_URL, getInvoices, type Invoice } from './api';
+import { authFetch } from '../api/axios';
 
 export type ReturnStatus = 'draft' | 'pending' | 'approved' | 'completed';
 
@@ -117,14 +118,14 @@ function mapApiRow(r: Record<string, unknown>): SalesReturn {
 }
 
 export async function getSalesReturns(): Promise<SalesReturn[]> {
-  const res = await fetch(`${API_BASE_URL}/sales-returns/`);
+  const res = await authFetch(`${API_BASE_URL}/sales-returns/`);
   if (!res.ok) throw new Error(await parseError(res));
   const raw = (await res.json()) as Record<string, unknown>[];
   return raw.map(mapApiRow);
 }
 
 export async function getSalesReturn(id: string): Promise<SalesReturn | null> {
-  const res = await fetch(`${API_BASE_URL}/sales-returns/${encodeURIComponent(id)}`);
+  const res = await authFetch(`${API_BASE_URL}/sales-returns/${encodeURIComponent(id)}`);
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(await parseError(res));
   return mapApiRow((await res.json()) as Record<string, unknown>);
@@ -182,7 +183,7 @@ export interface CreateSalesReturnPayload {
 }
 
 export async function createSalesReturnApi(payload: CreateSalesReturnPayload): Promise<SalesReturn> {
-  const res = await fetch(`${API_BASE_URL}/sales-returns/`, {
+  const res = await authFetch(`${API_BASE_URL}/sales-returns/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -225,7 +226,7 @@ export async function patchSalesReturn(
   if (body.tax != null) payload.tax = body.tax;
   if (body.totalReturnAmount != null) payload.totalReturnAmount = body.totalReturnAmount;
 
-  const res = await fetch(`${API_BASE_URL}/sales-returns/${encodeURIComponent(id)}`, {
+  const res = await authFetch(`${API_BASE_URL}/sales-returns/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

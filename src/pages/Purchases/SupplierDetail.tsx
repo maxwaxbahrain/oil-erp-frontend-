@@ -42,6 +42,7 @@ import {
     type SupplierPayment,
     type SupplierLedgerEntry
 } from '../../services/purchasesService';
+import { authFetch } from '../../api/axios';
 
 // SupplierDetail v3 (direct API): bypasses the service layer for read paths
 // so cached old bundles can't show stale localStorage data. Writes still
@@ -71,7 +72,7 @@ const fromApiSupplier = (r: any): Supplier => ({
 
 const fetchSupplierFromApi = async (id: string): Promise<Supplier | null> => {
     try {
-        const r = await fetch(`${SUPPLIERS_API}/${encodeURIComponent(id)}`);
+        const r = await authFetch(`${SUPPLIERS_API}/${encodeURIComponent(id)}`);
         if (r.status === 404) return null;
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return fromApiSupplier(await r.json());
@@ -83,7 +84,7 @@ const fetchSupplierFromApi = async (id: string): Promise<Supplier | null> => {
 
 const fetchSupplierPurchasesFromApi = async (id: string): Promise<PurchaseOrder[]> => {
     try {
-        const r = await fetch(`${SUPPLIERS_API}/${encodeURIComponent(id)}/purchases`);
+        const r = await authFetch(`${SUPPLIERS_API}/${encodeURIComponent(id)}/purchases`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const rows = await r.json();
         return Array.isArray(rows) ? rows : [];
@@ -95,7 +96,7 @@ const fetchSupplierPurchasesFromApi = async (id: string): Promise<PurchaseOrder[
 
 const fetchSupplierPaymentsFromApi = async (id: string): Promise<SupplierPayment[]> => {
     try {
-        const r = await fetch(`${SUPPLIERS_API}/${encodeURIComponent(id)}/payments`);
+        const r = await authFetch(`${SUPPLIERS_API}/${encodeURIComponent(id)}/payments`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const rows = await r.json();
         return Array.isArray(rows) ? rows : [];

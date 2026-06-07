@@ -1,4 +1,5 @@
 // AI Types & Interfaces
+import { authFetch } from '../api/axios';
 export type AdjustmentType = 'auto' | 'approval_required' | 'investigation_required';
 export type AdjustmentReason = 'shrinkage' | 'demand_reorder' | 'sales_reconciliation' | 'damage' | 'expiry' | 'location_balance';
 
@@ -62,7 +63,7 @@ class AIStockService {
         const bases = this.getProductApiBases();
         for (const base of bases) {
             try {
-                const response = await fetch(`${base}/products/?limit=5000`, { cache: 'no-store' });
+                const response = await authFetch(`${base}/products/?limit=5000`, { cache: 'no-store' });
                 if (!response.ok) continue;
                 const data = await response.json();
                 if (Array.isArray(data)) return data;
@@ -179,7 +180,7 @@ class AIStockService {
         const nextStock = adjustment.currentStock + adjustment.suggestedAdjustment;
         for (const base of bases) {
             try {
-                const response = await fetch(`${base}/products/${adjustment.productId}`, {
+                const response = await authFetch(`${base}/products/${adjustment.productId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ stock: nextStock }),

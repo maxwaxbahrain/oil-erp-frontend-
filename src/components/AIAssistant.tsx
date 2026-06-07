@@ -3,6 +3,7 @@ import { BrainCircuit, Send, X, Minimize2, Maximize2, Loader, Copy, Check, FileT
 import * as XLSX from 'xlsx';
 import { useMicInput } from '../hooks/useMicInput';
 import { MicButton } from './MicButton';
+import { authFetch } from '../api/axios';
 
 interface Message {
     role: 'user' | 'assistant';
@@ -312,7 +313,7 @@ ${text.split('\n').map(line => {
             const headers: Record<string, string> = { 'Content-Type': 'application/json' };
             if (token) headers.Authorization = `Bearer ${token}`;
 
-            const response = await fetch(`${API_HOST}/ai/chat`, {
+            const response = await authFetch(`${API_HOST}/ai/chat`, {
                 method: 'POST',
                 headers,
                 body: JSON.stringify({

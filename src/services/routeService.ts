@@ -1,4 +1,5 @@
 import { getOilErpApiBase } from '../config/apiBase';
+import { authFetch } from '../api/axios';
 
 function routeApiBase(): string {
   return getOilErpApiBase().replace(/\/$/, '');
@@ -56,7 +57,7 @@ export interface UpdateRouteStopInput {
 }
 
 const getJson = async <T>(path: string): Promise<T> => {
-  const response = await fetch(`${routeApiBase()}${path}`);
+  const response = await authFetch(`${routeApiBase()}${path}`);
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`);
   }
@@ -69,7 +70,7 @@ export const getRouteStops = (dayId: number) => getJson<RouteStop[]>(`/routes/${
 
 /** Priority (★) route stops → global customers table. */
 export const syncPriorityRouteToCustomers = async (): Promise<SyncRoutePriorityResult> => {
-  const response = await fetch(`${routeApiBase()}/routes/sync-priority-to-customers`, {
+  const response = await authFetch(`${routeApiBase()}/routes/sync-priority-to-customers`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -94,7 +95,7 @@ export const syncPriorityRouteToCustomers = async (): Promise<SyncRoutePriorityR
 };
 
 export const createRouteStop = async (dayId: number, data: CreateRouteStopInput): Promise<RouteStop> => {
-  const response = await fetch(`${routeApiBase()}/routes/${dayId}/stops`, {
+  const response = await authFetch(`${routeApiBase()}/routes/${dayId}/stops`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -110,7 +111,7 @@ export const updateRouteStop = async (
   stopId: number,
   data: UpdateRouteStopInput
 ): Promise<RouteStop> => {
-  const response = await fetch(`${routeApiBase()}/routes/${dayId}/stops/${stopId}`, {
+  const response = await authFetch(`${routeApiBase()}/routes/${dayId}/stops/${stopId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
