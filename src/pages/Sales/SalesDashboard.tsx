@@ -6,7 +6,7 @@ import { calculateCollectionRate } from '../../utils/salesMetrics';
 
 function isImportedCustomer(c: { notes?: string }): boolean {
   const notes = String(c.notes || '').toLowerCase();
-  return notes.includes('bettano import') || notes.includes('imported');
+  return notes.includes('bettano |') || notes.includes('bettano import') || notes.includes('csv import');
 }
 
 function parseActivityDate(raw?: string): Date | null {
@@ -177,11 +177,7 @@ export default function SalesDashboard() {
   // Product velocity — line-item units in the last 90 days (sales orders + invoices, deduped)
   const ninetyDaysAgo = Date.now() - 90 * 86400000;
   const isWithin90Days = (d: Date) => d.getTime() >= ninetyDaysAgo;
-  const linkedOrderIds = new Set<string>();
-  invoices.forEach((inv: any) => {
-    const soId = inv.sales_order_id ?? inv.salesOrderId;
-    if (soId != null && soId !== '') linkedOrderIds.add(String(soId));
-  });
+  const linkedOrderIds = new Set(salesOrders.map((o: any) => String(o.id)));
 
   const prodCountMap: Record<string, number> = {};
   const addVelocity = (productKey: string, units: number) => {
@@ -527,7 +523,11 @@ export default function SalesDashboard() {
               </div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-              {topProducts.map((p, i) => {
+              {topVelocityCount === 0 ? (
+                <div style={{ fontSize: '11px', color: 'var(--color-redwood-text-muted)', textAlign: 'center', padding: '12px 0' }}>
+                  {products.length === 0 ? 'No product data' : 'No sales in the last 90 days'}
+                </div>
+              ) : topProducts.map((p, i) => {
                 const label = velocityLabel(p.count, topVelocityCount);
                 const color = label === 'Fast'
                   ? 'var(--color-brand-green)'
@@ -579,11 +579,6 @@ export default function SalesDashboard() {
                   </div>
                 );
               })}
-              {topProducts.length === 0 && (
-                <div style={{ fontSize: '11px', color: 'var(--color-redwood-text-muted)', textAlign: 'center', padding: '12px 0' }}>
-                  No product data
-                </div>
-              )}
             </div>
           </div>
 

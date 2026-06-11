@@ -57,7 +57,7 @@ function _fmtDate(d?: string): string {
 
 function isImportedCustomer(c: { notes?: string }): boolean {
     const notes = String(c.notes || '').toLowerCase();
-    return notes.includes('bettano import') || notes.includes('imported');
+    return notes.includes('bettano |') || notes.includes('bettano import') || notes.includes('csv import');
 }
 
 export default function Dashboard() {
@@ -356,7 +356,7 @@ export default function Dashboard() {
             label: 'Overdue Amount',
             value: `$${overdueTotal.toLocaleString()}`,
             color: overdueTotal > 0 ? C.red : C.green,
-            sub: overdueTotal > 0 ? `${overdueCount} customers` : 'All clear ✓',
+            sub: overdueTotal > 0 ? `${overdueCount} invoices` : 'All clear ✓',
         },
         {
             label: 'Orders Today',
