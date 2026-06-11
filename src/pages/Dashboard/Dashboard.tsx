@@ -17,6 +17,7 @@ import {
 } from '../../services/api';
 import { getPurchaseOrders } from '../../services/purchasesService';
 import { useEscape } from '../../hooks/useEscape';
+import { calculateReceivables } from '../../utils/arMetrics';
 
 // ── Spec colour tokens (fallback hex matches V2 mockup) ─────────
 const C = {
@@ -54,6 +55,11 @@ function _fmtDate(d?: string): string {
     catch { return d; }
 }
 
+function isImportedCustomer(c: { notes?: string }): boolean {
+    const notes = String(c.notes || '').toLowerCase();
+    return notes.includes('bettano import') || notes.includes('imported');
+}
+
 export default function Dashboard() {
     const navigate = useNavigate();
     const { trackPage } = useTracking();
@@ -66,6 +72,7 @@ export default function Dashboard() {
     const [vansData, setVansData] = useState<any[]>([]);
     const [paymentsData, setPaymentsData] = useState<any[]>([]);
     const [customersCount, setCustomersCount] = useState(0);
+    const [customersData, setCustomersData] = useState<any[]>([]);
     const [newCustomersThisMonth, setNewCustomersThisMonth] = useState(0);
     const [, setDataError] = useState(false);
 
@@ -119,9 +126,11 @@ export default function Dashboard() {
             setPaymentsData(Array.isArray(pays) ? pays : []);
             const custList = Array.isArray(customers) ? customers : [];
             setCustomersCount(custList.length);
+            setCustomersData(custList);
 
             const now = new Date();
             const thisMonth = custList.filter((c: any) => {
+                if (isImportedCustomer(c)) return false;
                 if (!c.created_at) return false;
                 const d = new Date(c.created_at);
                 return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
@@ -210,19 +219,30 @@ export default function Dashboard() {
         return sum + (Number(inv.grandTotal) || 0);
     }, 0);
 
-    const unpaidInvoices = invoices.filter(i =>
-        ['unpaid', 'pending', 'partial', 'overdue'].includes(String(i.status || '').toLowerCase())
+    const receivables = useMemo(
+        () => calculateReceivables(invoices, paymentsData, _now),
+        [invoices, paymentsData],
     );
-    const totalOutstanding = unpaidInvoices.reduce(
-        (sum, i) => sum + (Number(i.remaining_balance ?? i.grandTotal) || 0), 0
-    );
-    const unpaidInvoiceCount = unpaidInvoices.length;
+    const totalOutstanding = receivables.total;
+    const unpaidInvoiceCount = receivables.invoices.length;
+    const overdueTotal = receivables.days30 + receivables.days60 + receivables.days90;
+    const overdueCount = receivables.invoices.filter(r => r.bucket !== 'current').length;
 
-    const overdueInvoices = invoices.filter(i => String(i.status || '').toLowerCase() === 'overdue');
-    const overdueTotal = overdueInvoices.reduce(
-        (sum, i) => sum + (Number(i.remaining_balance ?? i.grandTotal) || 0), 0
-    );
-    const overdueCount = overdueInvoices.length;
+    const customerNameById = useMemo(() => {
+        const map = new Map<string, string>();
+        customersData.forEach((c: any) => {
+            if (c.id != null && c.name) map.set(String(c.id), String(c.name));
+        });
+        return map;
+    }, [customersData]);
+
+    function resolveCustomerName(inv: Invoice): string {
+        const trimmed = String(inv.customerName || '').trim();
+        if (trimmed) return trimmed;
+        const cid = inv.customerId ? String(inv.customerId) : '';
+        if (cid && customerNameById.has(cid)) return customerNameById.get(cid)!;
+        return cid ? `Customer #${cid}` : 'Unknown customer';
+    }
 
     const todayOrders = salesOrdersData.filter((o: any) => {
         const d = String(o.orderDate || o.createdAt || '').slice(0, 10);
@@ -269,22 +289,20 @@ export default function Dashboard() {
         return sum;
     }, 0);
 
-    // Top outstanding customers — grouped from invoices
-    const topOutstandingCustomers = (() => {
+    // Top outstanding customers — grouped from payment-aware receivables
+    const topOutstandingCustomers = useMemo(() => {
         const map = new Map<string, { name: string; balance: number; overdue: boolean }>();
-        invoices.forEach(inv => {
-            const status = String(inv.status || '').toLowerCase();
-            if (!['unpaid', 'pending', 'partial', 'overdue'].includes(status)) return;
-            const key = inv.customerName || String((inv as any).customerId || '?');
-            const name = inv.customerName || key;
-            const amt = Number(inv.remaining_balance ?? inv.grandTotal) || 0;
+        receivables.invoices.forEach(({ invoice: inv, balance, bucket }) => {
+            const cid = inv.customerId ? String(inv.customerId) : resolveCustomerName(inv as Invoice);
+            const name = resolveCustomerName(inv as Invoice);
+            const key = cid || name;
             const prev = map.get(key) || { name, balance: 0, overdue: false };
-            prev.balance += amt;
-            if (status === 'overdue') prev.overdue = true;
+            prev.balance += balance;
+            if (bucket !== 'current') prev.overdue = true;
             map.set(key, prev);
         });
         return [...map.values()].sort((a, b) => b.balance - a.balance).slice(0, 5);
-    })();
+    }, [receivables, customerNameById]);
 
     // Top products — aggregate revenue from sales orders / invoice line items
     const topProducts = (() => {
@@ -789,12 +807,13 @@ export default function Dashboard() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {unpaidInvoices.length === 0 ? (
+                                    {receivables.invoices.length === 0 ? (
                                         <tr><td colSpan={5} style={{ padding: '32px 10px', textAlign: 'center', color: C.t2, fontSize: 11 }}>
                                             No open invoices ✓
                                         </td></tr>
-                                    ) : unpaidInvoices.slice(0, 6).map((inv: any, i: number) => {
-                                        const isOverdue = String(inv.status || '').toLowerCase() === 'overdue';
+                                    ) : receivables.invoices.slice(0, 6).map((row, i: number) => {
+                                        const inv = row.invoice as Invoice;
+                                        const isOverdue = row.bucket !== 'current';
                                         return (
                                             <tr
                                                 key={i}
@@ -805,10 +824,10 @@ export default function Dashboard() {
                                                     {inv.invoiceNumber ?? inv.id ?? '—'}
                                                 </td>
                                                 <td style={{ fontSize: 11, color: C.t, padding: '8px 10px', borderBottom: `1px solid ${C.bd2}`, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>
-                                                    {inv.customerName ?? '—'}
+                                                    {resolveCustomerName(inv)}
                                                 </td>
                                                 <td style={{ fontSize: 11, color: C.t, padding: '8px 10px', borderBottom: `1px solid ${C.bd2}`, fontFamily: 'monospace' }}>
-                                                    ${(Number(inv.remaining_balance ?? inv.grandTotal) || 0).toFixed(2)}
+                                                    ${row.balance.toFixed(2)}
                                                 </td>
                                                 <td style={{ fontSize: 11, padding: '8px 10px', borderBottom: `1px solid ${C.bd2}`, color: isOverdue ? C.red : C.amber }}>
                                                     {_fmtDate(inv.dueDate ?? (inv as any).due_date ?? inv.invoiceDate)}
@@ -893,19 +912,19 @@ export default function Dashboard() {
                         </div>
                         {(() => {
                             const colours = [C.green, C.blue, C.amber, C.purple];
-                            const list: { name: string; val: number; pct: number; color: string }[] = topProducts.length > 0
-                                ? (() => {
-                                    const maxVal = topProducts[0][1] || 1;
-                                    return topProducts.map(([name, val], i) => ({
-                                        name, val, pct: Math.round((val / maxVal) * 100), color: colours[i],
-                                    }));
-                                })()
-                                : [
-                                    { name: 'Bettano OW16 SP', val: 3120, pct: 88, color: C.green },
-                                    { name: 'Bettano OW20 SP', val: 1440, pct: 52, color: C.blue },
-                                    { name: 'Mobil 5W30',      val: 840,  pct: 30, color: C.amber },
-                                    { name: 'Castrol GTX',     val: 533,  pct: 16, color: C.purple },
-                                ];
+                            if (topProducts.length === 0) {
+                                return (
+                                    <div style={{ padding: '20px 0', textAlign: 'center', color: C.t2, fontSize: 11 }}>
+                                        No sales data yet
+                                    </div>
+                                );
+                            }
+                            const list = (() => {
+                                const maxVal = topProducts[0][1] || 1;
+                                return topProducts.map(([name, val], i) => ({
+                                    name, val, pct: Math.round((val / maxVal) * 100), color: colours[i],
+                                }));
+                            })();
                             return list.map((p, i) => (
                                 <div key={i} style={{
                                     display: 'flex', alignItems: 'center', gap: 8,

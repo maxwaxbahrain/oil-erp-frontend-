@@ -157,6 +157,8 @@ export interface Invoice {
   amount_paid?: number;
   remaining_balance?: number;
   createdAt: string;
+  sales_order_id?: string | number;
+  salesOrderId?: string | number;
 }
 
 // Mock Database Helpers
@@ -855,6 +857,8 @@ function mapApiInvoiceToInvoice(inv: Record<string, unknown>): Invoice {
     amount_paid: paid,
     remaining_balance,
     createdAt: inv.created_at != null ? String(inv.created_at) : new Date().toISOString(),
+    sales_order_id: inv.sales_order_id != null ? (inv.sales_order_id as string | number) : undefined,
+    salesOrderId: inv.sales_order_id != null ? String(inv.sales_order_id) : undefined,
   };
 }
 
