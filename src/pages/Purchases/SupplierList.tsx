@@ -217,8 +217,8 @@ export default function SupplierList() {
                         let purchases: PurchaseOrder[] = [];
                         try {
                             const [br, pr] = await Promise.all([
-                                fetch(`${SUPPLIERS_API}/${s.id}/balance`),
-                                fetch(`${SUPPLIERS_API}/${s.id}/purchases`),
+                                authFetch(`${SUPPLIERS_API}/${s.id}/balance`),
+                                authFetch(`${SUPPLIERS_API}/${s.id}/purchases`),
                             ]);
                             if (br.ok) {
                                 const j = await br.json();

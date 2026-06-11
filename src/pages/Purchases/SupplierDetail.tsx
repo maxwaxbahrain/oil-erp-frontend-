@@ -234,9 +234,10 @@ export default function SupplierDetail() {
         if (!id) return;
         try {
             setLoadingDetails(true);
-            const [suppPurchases, suppPayments] = await Promise.all([
+            const [suppPurchases, suppPayments, suppData] = await Promise.all([
                 fetchSupplierPurchasesFromApi(id),
                 fetchSupplierPaymentsFromApi(id),
+                fetchSupplierFromApi(id),
             ]);
 
             // eslint-disable-next-line no-console
@@ -279,7 +280,7 @@ export default function SupplierDetail() {
                 new Date(a.date).getTime() - new Date(b.date).getTime()
             );
 
-            let runningBalance = 0;
+            let runningBalance = suppData?.openingBalance ?? 0;
             const ledgerEntries: SupplierLedgerEntry[] = sortedTransactions.map(tx => {
                 runningBalance += (tx.credit - tx.debit); // Liability increases with credit (purchase), decreases with debit (payment)
                 return { ...tx, balance: runningBalance };
@@ -683,8 +684,17 @@ export default function SupplierDetail() {
             <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
                 <div className="bg-white border border-[#ddd] rounded-[4px] p-[20px] shadow-sm m-[10px]">
                     <div className="text-xs font-bold text-gray-500 uppercase mb-1">Outstanding Liability</div>
-                    <div className={`text-2xl font-black font-mono ${outstandingBalance > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                        {outstandingBalance > 0 ? outstandingBalance.toLocaleString() : '-'}
+                    <div className={`text-2xl font-black font-mono ${outstandingBalance > 0 ? 'text-rose-600' : outstandingBalance < 0 ? 'text-emerald-600' : 'text-gray-900'}`}>
+                        {outstandingBalance > 0
+                            ? outstandingBalance.toLocaleString()
+                            : outstandingBalance < 0
+                                ? (
+                                    <>
+                                        +{Math.abs(outstandingBalance).toLocaleString()}
+                                        <span className="text-xs font-bold uppercase ml-1 opacity-80">credit</span>
+                                    </>
+                                )
+                                : '0'}
                     </div>
                 </div>
 
