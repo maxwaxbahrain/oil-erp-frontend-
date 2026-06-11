@@ -38,6 +38,7 @@ import AdvisorDock from '../components/advisor/AdvisorDock';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { getInvoices, getCustomers, getProducts, getPayments } from '../services/api';
 import { getPurchaseOrders } from '../services/purchasesService';
+import { calculateReceivables } from '../utils/arMetrics';
 import api from '../api/axios';
 
 // Six role dashboards — pill cycles through these; each route must exist.
@@ -140,16 +141,12 @@ function App() {
   const [trialBanner, setTrialBanner] = useState<{ daysLeft: number } | null>(null);
   const alertCounts = useMemo(() => {
     const invs = (aiCtx.invoices as any[]) || [];
+    const pays = (aiCtx.payments as any[]) || [];
     const prods = (aiCtx.products as any[]) || [];
-    const unpaidList = invs.filter((i) => {
-      const s = String(i.status || '').toLowerCase();
-      return s === 'unpaid' || s === 'pending' || s === 'partial' || s === 'overdue';
-    });
-    const unpaid = unpaidList.length;
-    const unpaidTotal = unpaidList.reduce(
-      (sum, i) => sum + (Number(i.remaining_balance ?? i.grandTotal) || 0), 0
-    );
-    const overdue = invs.filter((i) => String(i.status || '').toLowerCase() === 'overdue').length;
+    const receivables = calculateReceivables(invs, pays, new Date());
+    const unpaid = receivables.invoices.length;
+    const unpaidTotal = receivables.total;
+    const overdue = receivables.invoices.filter((r) => r.bucket !== 'current').length;
     const lowStock = prods.filter((p) => Number(p.current_stock || 0) < 10).length;
     return { unpaid, unpaidTotal, overdue, lowStock };
   }, [aiCtx]);
