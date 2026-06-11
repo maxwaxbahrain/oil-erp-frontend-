@@ -8,6 +8,16 @@ interface EntityImportStats { created?: number; updated?: number; skipped?: numb
 
 const ts = () => new Date().toLocaleTimeString();
 
+/** Parse BETTANO numeric strings; strips comma thousands separators. */
+const parseMigrationNum = (raw: unknown, fallback = 0): number => {
+    if (raw === null || raw === undefined || raw === '') return fallback;
+    if (typeof raw === 'number') return Number.isFinite(raw) ? raw : fallback;
+    const cleaned = String(raw).trim().replace(/,/g, '');
+    if (!cleaned) return fallback;
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : fallback;
+};
+
 const formatEntityCounts = (stats: EntityImportStats): string => {
     const parts: string[] = [];
     parts.push(`${stats.created ?? 0} created`);
@@ -74,19 +84,44 @@ export default function DataMigration() {
             if (!name) continue;
             const safe = name.replace(/'/g, "''");
             const res = q(`SELECT ROUND(SUM(CASE WHEN v_type='Sales' AND debit='${safe}' THEN amount ELSE 0 END) - SUM(CASE WHEN v_type='Receipt' AND credit='${safe}' THEN amount ELSE 0 END), 2) as bal FROM vouchers`);
-            balMap[name] = Number(res[0]?.bal) || 0;
+            balMap[name] = parseMigrationNum(res[0]?.bal);
         }
 
         const customers = custRows.map((r: any) => {
             const name = String(r.aname || '').trim();
             const bal = balMap[name] ?? 0;
-            return { name: name.slice(0, 150), address: String(r.address || '').trim().slice(0, 300) || null, phone: String(r.phone || '').trim().slice(0, 50) || null, email: null, opening_balance: Number(r.op_bal || 0), balance: bal, credit_limit: Number(r.credit_limit || 0), category: 'retail', notes: `BETTANO | Owes: $${bal.toFixed(2)}` };
+            return { name: name.slice(0, 150), address: String(r.address || '').trim().slice(0, 300) || null, phone: String(r.phone || '').trim().slice(0, 50) || null, email: null, opening_balance: parseMigrationNum(r.op_bal), balance: bal, credit_limit: parseMigrationNum(r.credit_limit), category: 'retail', notes: `BETTANO | Owes: $${bal.toFixed(2)}` };
         }).filter((c: any) => c.name);
 
         log(`👥 ${customers.length} customers — real outstanding balances calculated`, 'success');
 
-        const suppRows = q(`SELECT aname, address, phone FROM account_detail WHERE (a_type LIKE '%Creditors%' OR a_type LIKE '%Supplier%') AND status=1`);
-        const suppliers = suppRows.map((r: any) => ({ name: String(r.aname || '').trim().slice(0, 150), address: String(r.address || '').slice(0, 300) || null, phone: String(r.phone || '').slice(0, 50) || null, email: null, notes: 'BETTANO import' })).filter((s: any) => s.name);
+        const suppRows = q(`SELECT aname, address, phone, email_id, op_bal, credit_limit, remarks FROM account_detail WHERE (a_type LIKE '%Creditors%' OR a_type LIKE '%Supplier%') AND status=1`);
+
+        const suppBalMap: Record<string, number> = {};
+        for (const r of suppRows) {
+            const name = String(r.aname || '').trim();
+            if (!name) continue;
+            const safe = name.replace(/'/g, "''");
+            const res = q(`SELECT ROUND(SUM(CASE WHEN v_type='Purchase' AND credit='${safe}' THEN amount ELSE 0 END) - SUM(CASE WHEN v_type='Payment' AND debit='${safe}' THEN amount ELSE 0 END), 2) as bal FROM vouchers`);
+            suppBalMap[name] = parseMigrationNum(res[0]?.bal);
+        }
+
+        const suppliers = suppRows.map((r: any) => {
+            const name = String(r.aname || '').trim();
+            const apBal = suppBalMap[name] ?? 0;
+            const remark = String(r.remarks || '').trim();
+            const notesParts = [`BETTANO | AP: $${apBal.toFixed(2)}`];
+            if (remark) notesParts.push(remark);
+            return {
+                name: name.slice(0, 150),
+                address: String(r.address || '').trim().slice(0, 300) || null,
+                phone: String(r.phone || '').trim().slice(0, 50) || null,
+                email: String(r.email_id || '').trim() || null,
+                opening_balance: parseMigrationNum(r.op_bal),
+                credit_limit: parseMigrationNum(r.credit_limit),
+                notes: notesParts.join(' | ').slice(0, 500),
+            };
+        }).filter((s: any) => s.name);
         const supplierNameSet = new Set(suppliers.map((s: any) => s.name));
 
         // ── Per-supplier PURCHASES (v_type='Purchase') ──────────────────────
@@ -103,10 +138,10 @@ export default function DataMigration() {
             .filter((h: any) => supplierNameSet.has(String(h.supplier_name || '').trim()))
             .map((h: any) => {
                 const sName = String(h.supplier_name || '').trim();
-                const grand = Number(h.amount) || 0;
+                const grand = parseMigrationNum(h.amount);
                 const items = (itemsByVoucher[String(h.v_id)] || []).map((it: any) => {
-                    const qty = Number(it.units) || 0;
-                    const price = Number(it.cost_per_unit) || 0;
+                    const qty = parseMigrationNum(it.units);
+                    const price = parseMigrationNum(it.cost_per_unit);
                     return {
                         product_id: '', product_name: String(it.item || '').slice(0, 200),
                         uom: 'unit', quantity: qty, unit_price: price,
@@ -139,19 +174,35 @@ export default function DataMigration() {
                 supplier_name: String(p.supplier_name || '').trim(),
                 date: String(p.date || '').slice(0, 20),
                 reference: String(p.vch_no || '').slice(0, 100),
-                amount: Number(p.amount) || 0,
+                amount: parseMigrationNum(p.amount),
                 payment_method: 'Bank Transfer',
                 notes: `BETTANO import · ${String(p.bank || '').trim()}`,
             }));
 
-        const prodRows = q(`SELECT item, units_name, sku, item_desc, defaultsellingprice, defaultpurchaseprice FROM item_measure WHERE item IS NOT NULL AND TRIM(item) != ''`);
-        const products = prodRows.map((r: any) => ({ name: String(r.item || '').trim().slice(0, 150), sku: String(r.sku || '').replace('SKU:', '').trim().slice(0, 100), description: String(r.item_desc || r.units_name || '').slice(0, 300), price: Number(r.defaultsellingprice || 0), cost: Number(r.defaultpurchaseprice || 0), stock: 0, category: 'Imported', unit: String(r.units_name || 'unit').slice(0, 50) })).filter((p: any) => p.name);
+        // ORDER BY keeps the first row per item name deterministic when multiple UOM rows exist.
+        const prodRows = q(`SELECT item, units_name, sku, item_desc, defaultsellingprice, defaultpurchaseprice FROM item_measure WHERE item IS NOT NULL AND TRIM(item) != '' ORDER BY item ASC, units_name ASC`);
+        const productByName = new Map<string, Record<string, unknown>>();
+        for (const r of prodRows) {
+            const name = String(r.item || '').trim().slice(0, 150);
+            if (!name || productByName.has(name)) continue;
+            productByName.set(name, r);
+        }
+        const products = Array.from(productByName.values()).map((r: any) => ({
+            name: String(r.item || '').trim().slice(0, 150),
+            sku: String(r.sku || '').replace('SKU:', '').trim().slice(0, 100),
+            description: String(r.item_desc || r.units_name || '').slice(0, 300),
+            price: parseMigrationNum(r.defaultsellingprice),
+            cost: parseMigrationNum(r.defaultpurchaseprice),
+            stock: 0,
+            category: 'Imported',
+            unit: String(r.units_name || 'unit').slice(0, 50),
+        })).filter((p: any) => p.name);
 
         const invRows = q(`SELECT date, vch_no, debit as customer_name, amount, narration FROM vouchers WHERE v_type='Sales' ORDER BY date`);
-        const invoices = invRows.map((r: any) => ({ invoice_number: String(r.vch_no || '').slice(0, 100), customer_name: String(r.customer_name || '').trim(), date: String(r.date || ''), amount: Number(r.amount || 0), notes: String(r.narration || ''), status: 'paid' })).filter((i: any) => i.customer_name && i.amount > 0);
+        const invoices = invRows.map((r: any) => ({ invoice_number: String(r.vch_no || '').slice(0, 100), customer_name: String(r.customer_name || '').trim(), date: String(r.date || ''), amount: parseMigrationNum(r.amount), notes: String(r.narration || ''), status: 'paid' })).filter((i: any) => i.customer_name && i.amount > 0);
 
         const payRows = q(`SELECT date, vch_no, credit as customer_name, amount FROM vouchers WHERE v_type='Receipt' ORDER BY date`);
-        const payments = payRows.map((r: any) => ({ reference: String(r.vch_no || '').slice(0, 100), customer_name: String(r.customer_name || '').trim(), date: String(r.date || ''), amount: Number(r.amount || 0) })).filter((p: any) => p.customer_name && p.amount > 0);
+        const payments = payRows.map((r: any) => ({ reference: String(r.vch_no || '').slice(0, 100), customer_name: String(r.customer_name || '').trim(), date: String(r.date || ''), amount: parseMigrationNum(r.amount) })).filter((p: any) => p.customer_name && p.amount > 0);
 
         db.close();
         log(`📦 ${products.length} products, ${suppliers.length} suppliers, ${invoices.length} invoices, ${payments.length} payments`, 'info');
@@ -172,7 +223,7 @@ export default function DataMigration() {
         const customers = rows.slice(1).map(l => {
             const v = l.split(',').map(x => x.trim().replace(/^['"]|['"]$/g, ''));
             const get = (f: string) => f ? v[headers.indexOf(f)] || '' : '';
-            return { name: get(nf), email: null, phone: get(pf) || null, address: get(af) || null, balance: parseFloat(get(bf)) || 0, opening_balance: parseFloat(get(bf)) || 0, category: 'retail', notes: 'CSV import' };
+            return { name: get(nf), email: null, phone: get(pf) || null, address: get(af) || null, balance: parseMigrationNum(get(bf)), opening_balance: parseMigrationNum(get(bf)), category: 'retail', notes: 'CSV import' };
         }).filter(c => c.name);
         return { customers, suppliers: [], products: [], invoices: [], payments: [] };
     };
@@ -210,8 +261,8 @@ export default function DataMigration() {
             setDone(true);
             setResults({
                 customers: (backendResults.customers?.created || 0) + (backendResults.customers?.updated || 0),
-                products: backendResults.products?.created || 0,
-                suppliers: backendResults.suppliers?.created || 0,
+                products: (backendResults.products?.created || 0) + (backendResults.products?.updated || 0),
+                suppliers: (backendResults.suppliers?.created || 0) + (backendResults.suppliers?.updated || 0),
                 invoices: backendResults.invoices?.created || 0,
                 supplierPurchases: backendResults.purchase_orders?.created || 0,
                 supplierPayments: backendResults.supplier_payments?.created || 0,
