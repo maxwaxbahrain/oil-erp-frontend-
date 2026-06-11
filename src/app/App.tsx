@@ -48,7 +48,7 @@ const ROLE_ROUTES: Record<(typeof ROLES)[number], string> = {
   'Accountant':    '/finance/dashboard',
   'Sales Manager': '/sales/dashboard',
   'Warehouse':     '/warehouse/dashboard',
-  'Van Driver':    '/van/dashboard',
+  'Van Driver':    '/logistics/pod',
   'AI Hub':        '/ai/hub',
 };
 
@@ -723,10 +723,9 @@ function App() {
             { key: 'finance',   label: 'Finance & Tax',  route: '/finance/dashboard',  icon: Receipt,         prefix: ['/finance', '/tax'] },
             { key: 'warehouse', label: 'Warehouse',      route: '/warehouse/dashboard',icon: Package,         prefix: ['/warehouse', '/products', '/inventory'] },
             { key: 'mobile',    label: 'Field & Mobile', route: '/logistics/pod',      icon: Smartphone,      prefix: ['/logistics', '/pod', '/van-sales'] },
-            { key: 'security',  label: 'Security',       route: '/access-management',  icon: Shield,          prefix: ['/access-management', '/users'] },
+            { key: 'security',  label: 'Security',       route: '/settings/users',     icon: Shield,          prefix: ['/settings/users'] },
             { key: 'sales',     label: 'Sales & CRM',    route: '/sales/dashboard',    icon: TrendingUp,      prefix: ['/sales', '/customers', '/crm'] },
             { key: 'ai',        label: 'AI Hub',         route: '/ai/hub',             icon: Sparkles,        prefix: ['/ai', '/agents'] },
-            { key: 'pulse',     label: 'Pulse',          route: '/pulse',              icon: Megaphone,       prefix: ['/pulse'] },
           ].map((t) => {
             const Icon = t.icon;
             const isActive = t.key === 'overview'
