@@ -9,7 +9,7 @@ import {
     FileText, AlertTriangle, CheckCircle2,
 } from 'lucide-react';
 import {
-    getPreview, pdfDownloadUrl,
+    getPreview, downloadFilingPdf,
     type PreviewResponse, type FilingStatus,
 } from '../services/filingApi';
 import SourceBadge from './components/SourceBadge';
@@ -64,6 +64,8 @@ export default function FilingPreview() {
     const [preview, setPreview] = useState<PreviewResponse | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [pdfBusy, setPdfBusy] = useState(false);
+    const [pdfError, setPdfError] = useState<string | null>(null);
 
     useEffect(() => {
         if (!filingId || isNaN(filingId)) {
@@ -85,6 +87,18 @@ export default function FilingPreview() {
             return;
         }
         setPreview(data);
+    };
+
+    const handlePdfDownload = async () => {
+        if (!preview) return;
+        setPdfError(null);
+        setPdfBusy(true);
+        const { error: dlError } = await downloadFilingPdf({
+            filingId: preview.filing_id,
+            filename: `form_${preview.form_type}_${preview.tax_year}_${preview.filing_id}.pdf`,
+        });
+        setPdfBusy(false);
+        if (dlError) setPdfError(dlError);
     };
 
     if (loading) {
@@ -155,15 +169,17 @@ export default function FilingPreview() {
                     </div>
                 </div>
 
-                <div className="flex items-center justify-end gap-2 mt-5 pt-4 border-t border-gray-50 flex-wrap">
-                    <a
-                        href={pdfDownloadUrl(preview.filing_id)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-xs font-black uppercase tracking-wide"
+                <div className="flex flex-col items-end gap-1 mt-5 pt-4 border-t border-gray-50">
+                    <div className="flex items-center justify-end gap-2 flex-wrap">
+                    <button
+                        type="button"
+                        onClick={handlePdfDownload}
+                        disabled={pdfBusy}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white rounded-xl text-xs font-black uppercase tracking-wide"
                     >
-                        <Download size={14} /> Download PDF
-                    </a>
+                        {pdfBusy ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                        {pdfBusy ? 'Downloading…' : 'Download PDF'}
+                    </button>
                     {(preview.status === 'ready' || preview.status === 'accepted') && (
                         <button
                             onClick={() => navigate(`/tax/filing/wizard/${preview.filing_id}`)}
@@ -171,6 +187,10 @@ export default function FilingPreview() {
                         >
                             <Edit3 size={14} /> Amend
                         </button>
+                    )}
+                    </div>
+                    {pdfError && (
+                        <p className="text-xs font-bold text-rose-600">{pdfError}</p>
                     )}
                 </div>
             </div>
