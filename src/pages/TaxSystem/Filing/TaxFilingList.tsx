@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import {
     getFilingList,
-    pdfDownloadUrl,
+    downloadFilingPdf,
     type FilingListItem,
     type FilingStatus,
 } from '../services/filingApi';
@@ -133,11 +133,25 @@ const STATUS_BADGE: Record<FilingStatus, { bg: string; text: string; label: stri
 
 function FilingCard({ filing }: { filing: FilingListItem; onAction: () => void }) {
     const navigate = useNavigate();
+    const [pdfBusy, setPdfBusy] = useState(false);
+    const [pdfError, setPdfError] = useState<string | null>(null);
     const badge = STATUS_BADGE[filing.status] ?? STATUS_BADGE.draft;
     const canResume = filing.status === 'in_progress' || filing.status === 'draft';
     const canView = filing.status === 'ready' || filing.status === 'submitted' || filing.status === 'accepted';
     const canAmend = filing.status === 'ready' || filing.status === 'accepted';
     const created = filing.created_at ? new Date(filing.created_at).toLocaleDateString() : '—';
+
+    const handlePdfDownload = async () => {
+        setPdfError(null);
+        setPdfBusy(true);
+        const { error } = await downloadFilingPdf({
+            filingId: filing.filing_id,
+            pdfUrl: filing.pdf_url,
+            filename: `form_${filing.form_type}_${filing.tax_year}_${filing.filing_id}.pdf`,
+        });
+        setPdfBusy(false);
+        if (error) setPdfError(error);
+    };
 
     return (
         <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all">
@@ -203,14 +217,20 @@ function FilingCard({ filing }: { filing: FilingListItem; onAction: () => void }
                     </button>
                 )}
                 {filing.pdf_url && (
-                    <a
-                        href={pdfDownloadUrl(filing.filing_id)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-xs font-black uppercase tracking-wide flex items-center gap-2"
-                    >
-                        <Download size={12} /> PDF
-                    </a>
+                    <div className="flex flex-col items-end gap-1">
+                        <button
+                            type="button"
+                            onClick={handlePdfDownload}
+                            disabled={pdfBusy}
+                            className="px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white rounded-xl text-xs font-black uppercase tracking-wide flex items-center gap-2"
+                        >
+                            {pdfBusy ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+                            {pdfBusy ? 'Downloading…' : 'PDF'}
+                        </button>
+                        {pdfError && (
+                            <p className="text-[10px] font-bold text-rose-600 max-w-[200px] text-right">{pdfError}</p>
+                        )}
+                    </div>
                 )}
                 {canAmend && (
                     <button

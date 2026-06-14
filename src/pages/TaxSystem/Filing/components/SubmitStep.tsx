@@ -8,7 +8,7 @@ import { CheckCircle2, Download, AlertTriangle, FileText, Loader2 } from 'lucide
 import {
     submitFiling,
     generatePdf,
-    pdfDownloadUrl,
+    downloadFilingPdf,
     type SubmitResponse,
     type PdfGenerationResponse,
 } from '../../services/filingApi';
@@ -38,8 +38,21 @@ export default function SubmitStep({
     const [submitBusy, setSubmitBusy] = useState(false);
     const [submitResult, setSubmitResult] = useState<SubmitResponse | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [pdfDownloadBusy, setPdfDownloadBusy] = useState(false);
+    const [pdfDownloadError, setPdfDownloadError] = useState<string | null>(null);
 
     const allAcked = warnings.length === 0 || acked.size === warnings.length;
+
+    const handlePdfDownload = async () => {
+        setPdfDownloadError(null);
+        setPdfDownloadBusy(true);
+        const { error: dlError } = await downloadFilingPdf({
+            filingId,
+            filename: `form_${formType}_${taxYear}_${filingId}.pdf`,
+        });
+        setPdfDownloadBusy(false);
+        if (dlError) setPdfDownloadError(dlError);
+    };
 
     const toggleAck = (idx: number) => {
         setAcked(prev => {
@@ -111,16 +124,18 @@ export default function SubmitStep({
                     </div>
                 </div>
 
+                <div className="flex flex-col items-center gap-2">
                 <div className="flex gap-3 justify-center flex-wrap">
                     {submitResult.pdf_url && (
-                        <a
-                            href={pdfDownloadUrl(filingId)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-2 px-5 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-black uppercase tracking-wide transition-all shadow-md"
+                        <button
+                            type="button"
+                            onClick={handlePdfDownload}
+                            disabled={pdfDownloadBusy}
+                            className="inline-flex items-center gap-2 px-5 py-3 bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white rounded-xl text-sm font-black uppercase tracking-wide transition-all shadow-md"
                         >
-                            <Download size={16} /> Download PDF
-                        </a>
+                            {pdfDownloadBusy ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                            {pdfDownloadBusy ? 'Downloading…' : 'Download PDF'}
+                        </button>
                     )}
                     <button
                         onClick={() => navigate('/tax/filing')}
@@ -128,6 +143,10 @@ export default function SubmitStep({
                     >
                         Back to Filings
                     </button>
+                </div>
+                {pdfDownloadError && (
+                    <p className="text-xs font-bold text-rose-600">{pdfDownloadError}</p>
+                )}
                 </div>
 
                 <p className="text-xs text-gray-400 italic max-w-md mx-auto">
@@ -221,14 +240,15 @@ export default function SubmitStep({
                             <CheckCircle2 size={16} /> PDF Ready ·{' '}
                             <span className="font-mono">{(pdfResult.file_size / 1024).toFixed(0)} KB</span>
                         </div>
-                        <a
-                            href={pdfDownloadUrl(filingId)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-2 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-black uppercase"
+                        <button
+                            type="button"
+                            onClick={handlePdfDownload}
+                            disabled={pdfDownloadBusy}
+                            className="inline-flex items-center gap-2 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded-lg text-xs font-black uppercase"
                         >
-                            <Download size={14} /> Download
-                        </a>
+                            {pdfDownloadBusy ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                            {pdfDownloadBusy ? 'Downloading…' : 'Download'}
+                        </button>
                     </div>
                 ) : (
                     <button
@@ -257,9 +277,9 @@ export default function SubmitStep({
                 )}
             </div>
 
-            {error && (
+            {(error || pdfDownloadError) && (
                 <div className="bg-rose-50 border border-rose-200 rounded-xl px-4 py-3 text-sm font-bold text-rose-700 flex items-center gap-2">
-                    <AlertTriangle size={16} /> {error}
+                    <AlertTriangle size={16} /> {error || pdfDownloadError}
                 </div>
             )}
         </div>

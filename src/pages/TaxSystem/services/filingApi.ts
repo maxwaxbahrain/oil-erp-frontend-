@@ -12,7 +12,7 @@
 
 // ─── Base URL + helpers ──────────────────────────────────────────────
 
-import { withBearerAuth } from '../../../api/axios';
+import { authFetch, withBearerAuth } from '../../../api/axios';
 
 
 const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
@@ -454,10 +454,52 @@ export function submitFiling(
 }
 
 
-/** Direct URL for the PDF download — wizard's "Download" button
- *  uses this as an anchor href, no XHR needed. */
+/** Direct URL for the PDF download endpoint. */
 export function pdfDownloadUrl(filingId: number): string {
     return `${FILING_API}/session/${filingId}/pdf`;
+}
+
+
+function resolvePdfFetchUrl(filingId: number, pdfUrl?: string | null): string {
+    if (pdfUrl?.trim()) {
+        const u = pdfUrl.trim();
+        if (u.startsWith('http://') || u.startsWith('https://')) return u;
+        if (u.startsWith('/')) return `${API_HOST}${u}`;
+        return `${API_HOST}/${u}`;
+    }
+    return pdfDownloadUrl(filingId);
+}
+
+
+/** Authenticated PDF download — fetches with Bearer token, saves via blob URL. */
+export async function downloadFilingPdf(opts: {
+    filingId: number;
+    pdfUrl?: string | null;
+    filename?: string;
+}): Promise<ApiResult<void>> {
+    const url = resolvePdfFetchUrl(opts.filingId, opts.pdfUrl);
+    try {
+        const res = await authFetch(url);
+        if (!res.ok) {
+            return { error: await readError(res) };
+        }
+        const blob = await res.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        try {
+            const a = document.createElement('a');
+            a.href = objectUrl;
+            a.download = opts.filename ?? `filing_${opts.filingId}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        } finally {
+            URL.revokeObjectURL(objectUrl);
+        }
+        return {};
+    } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return { error: `Network error: ${msg}` };
+    }
 }
 
 

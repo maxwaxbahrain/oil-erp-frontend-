@@ -121,7 +121,6 @@ export default function Sidebar({
                     Core
                 </div>
                 <NavItem to="/" icon={LayoutDashboard} label="Dashboard" />
-                <NavItem to="/pulse" icon={Send} label="PULSE — Team Chat" />
                 <NavItem to="/pulse/notes" icon={FileText} label="Meeting Notes" />
                 <NavItem to="/migrate" icon={Database} label="📥 Data Migration" />
                 <NavItem to="/portal" icon={User} label="Employee Portal" />

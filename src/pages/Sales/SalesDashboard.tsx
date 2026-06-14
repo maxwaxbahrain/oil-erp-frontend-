@@ -4,6 +4,51 @@ import { useNavigate } from 'react-router-dom';
 import { getCustomers, getSalesOrders, getProducts, getInvoices, getPayments } from '../../services/api';
 import { calculateCollectionRate } from '../../utils/salesMetrics';
 
+function isImportedCustomer(c: { notes?: string }): boolean {
+  const notes = String(c.notes || '').toLowerCase();
+  return notes.includes('bettano |') || notes.includes('bettano import') || notes.includes('csv import');
+}
+
+function parseActivityDate(raw?: string): Date | null {
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function getCustomerLastActivityDate(
+  customerId: string | number,
+  salesOrders: any[],
+  invoices: any[],
+): Date | null {
+  const cid = String(customerId);
+  const dates: Date[] = [];
+  salesOrders.forEach((o) => {
+    if (String(o.customerId || o.customer_id) !== cid) return;
+    const d = parseActivityDate(o.createdAt || o.orderDate || o.date);
+    if (d) dates.push(d);
+  });
+  invoices.forEach((inv) => {
+    if (String(inv.customerId || inv.customer_id) !== cid) return;
+    const d = parseActivityDate(inv.invoiceDate || inv.createdAt);
+    if (d) dates.push(d);
+  });
+  if (dates.length === 0) return null;
+  return new Date(Math.max(...dates.map((d) => d.getTime())));
+}
+
+function lineItemUnits(item: any): number {
+  const qty = Number(item.quantity);
+  return qty > 0 ? qty : 1;
+}
+
+function velocityLabel(count: number, topCount: number): 'Fast' | 'Med' | 'Slow' {
+  if (topCount <= 0 || count <= 0) return 'Slow';
+  const share = count / topCount;
+  if (share >= 0.66) return 'Fast';
+  if (share >= 0.33) return 'Med';
+  return 'Slow';
+}
+
 // ─── Shared style tokens (mirror public/preview.html tc-sales spec) ──────
 const panelStyle: CSSProperties = {
   background: 'var(--color-redwood-bg-surface)',
@@ -62,20 +107,22 @@ export default function SalesDashboard() {
   const totalCustomers = customers.length;
   const now = new Date();
   const newThisMonth = customers.filter((c: any) => {
-    const created = new Date(c.createdAt || c.created_at || '');
+    if (isImportedCustomer(c)) return false;
+    const created = parseActivityDate(c.createdAt || c.created_at);
+    if (!created) return false;
     return created.getMonth() === now.getMonth() && created.getFullYear() === now.getFullYear();
   }).length;
 
-  // Churn = customer's most-recent order is between 60 and 365 days ago.
-  // Customers with no order at all (null/invalid date) are excluded — they
-  // were previously bucketed at daysSince=999 and skewed the count.
+  const daysSinceLastActivity = (customerId: string | number): number | null => {
+    const last = getCustomerLastActivityDate(customerId, salesOrders, invoices);
+    if (!last) return null;
+    return Math.floor((Date.now() - last.getTime()) / 86400000);
+  };
+
+  // Churn = customer's most-recent sales order OR invoice is between 60 and 365 days ago.
   const churnRisk = customers.filter((c: any) => {
-    const lastOrder = salesOrders
-      .filter((o: any) => String(o.customerId || o.customer_id) === String(c.id))
-      .sort((a: any, b: any) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime())[0];
-    if (!lastOrder) return false;
-    const daysSince = Math.floor((Date.now() - new Date(lastOrder.createdAt || lastOrder.date).getTime()) / 86400000);
-    return daysSince >= 60 && daysSince <= 365;
+    const daysSince = daysSinceLastActivity(c.id);
+    return daysSince != null && daysSince >= 60 && daysSince <= 365;
   }).length;
 
   const mtdOrders = salesOrders.filter((o: any) => {
@@ -120,26 +167,44 @@ export default function SalesDashboard() {
   // Churn list — worst first
   const churnList = customers
     .map((c: any) => {
-      const lastOrder = salesOrders
-        .filter((o: any) => String(o.customerId || o.customer_id) === String(c.id))
-        .sort((a: any, b: any) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime())[0];
-      const daysSince = lastOrder
-        ? Math.floor((Date.now() - new Date(lastOrder.createdAt || lastOrder.date).getTime()) / 86400000)
-        : 999;
-      return { name: c.name, daysSince };
+      const daysSince = daysSinceLastActivity(c.id);
+      return { name: c.name, daysSince: daysSince ?? 999 };
     })
     .filter(c => c.daysSince >= 60 && c.daysSince <= 365)
     .sort((a, b) => b.daysSince - a.daysSince)
     .slice(0, 3);
 
-  // Product velocity — top 3 by line-item appearance count
+  // Product velocity — line-item units in the last 90 days (sales orders + invoices, deduped)
+  const ninetyDaysAgo = Date.now() - 90 * 86400000;
+  const isWithin90Days = (d: Date) => d.getTime() >= ninetyDaysAgo;
+  const linkedOrderIds = new Set(salesOrders.map((o: any) => String(o.id)));
+
   const prodCountMap: Record<string, number> = {};
+  const addVelocity = (productKey: string, units: number) => {
+    if (!productKey) return;
+    prodCountMap[productKey] = (prodCountMap[productKey] || 0) + units;
+  };
+
   salesOrders.forEach((o: any) => {
+    const d = parseActivityDate(o.createdAt || o.orderDate || o.date);
+    if (!d || !isWithin90Days(d)) return;
     (o.items || o.orderItems || o.lineItems || o.lines || []).forEach((item: any) => {
       const pid = String(item.productId || item.product_id || item.product || item.name || '');
-      prodCountMap[pid] = (prodCountMap[pid] || 0) + 1;
+      addVelocity(pid, lineItemUnits(item));
     });
   });
+
+  invoices.forEach((inv: any) => {
+    const soId = inv.sales_order_id ?? inv.salesOrderId;
+    if (soId != null && linkedOrderIds.has(String(soId))) return;
+    const d = parseActivityDate(inv.invoiceDate || inv.createdAt);
+    if (!d || !isWithin90Days(d)) return;
+    (inv.lineItems || inv.items || []).forEach((item: any) => {
+      const pid = String(item.productId || item.product_id || item.product || item.name || '');
+      addVelocity(pid, lineItemUnits(item));
+    });
+  });
+
   const topProducts = products
     .map((p: any) => ({
       name: p.name,
@@ -147,6 +212,7 @@ export default function SalesDashboard() {
     }))
     .sort((a, b) => b.count - a.count)
     .slice(0, 3);
+  const topVelocityCount = topProducts[0]?.count ?? 0;
 
   return (
     <div style={{ paddingBottom: '40px' }}>
@@ -457,11 +523,19 @@ export default function SalesDashboard() {
               </div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-              {topProducts.map((p, i) => {
-                const isFast = i === 0;
-                const isMed = i === 1;
-                const color = isFast ? 'var(--color-brand-green)' : isMed ? 'var(--color-brand-amber)' : 'var(--color-redwood-text-subtle)';
-                const label = isFast ? 'Fast' : isMed ? 'Med' : 'Slow';
+              {topVelocityCount === 0 ? (
+                <div style={{ fontSize: '11px', color: 'var(--color-redwood-text-muted)', textAlign: 'center', padding: '12px 0' }}>
+                  {products.length === 0 ? 'No product data' : 'No sales in the last 90 days'}
+                </div>
+              ) : topProducts.map((p, i) => {
+                const label = velocityLabel(p.count, topVelocityCount);
+                const color = label === 'Fast'
+                  ? 'var(--color-brand-green)'
+                  : label === 'Med'
+                    ? 'var(--color-brand-amber)'
+                    : 'var(--color-redwood-text-subtle)';
+                const isFast = label === 'Fast';
+                const isMed = label === 'Med';
                 return (
                   <div
                     key={i}
@@ -500,16 +574,11 @@ export default function SalesDashboard() {
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
                     </div>
                     <span style={{ fontSize: '10px', fontWeight: 600, color, flexShrink: 0, marginLeft: '8px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {label} — {p.count}/mo
+                      {label} — {p.count} in 90d
                     </span>
                   </div>
                 );
               })}
-              {topProducts.length === 0 && (
-                <div style={{ fontSize: '11px', color: 'var(--color-redwood-text-muted)', textAlign: 'center', padding: '12px 0' }}>
-                  No product data
-                </div>
-              )}
             </div>
           </div>
 

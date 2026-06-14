@@ -19,12 +19,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     ArrowLeft, ArrowRight, Calendar, DollarSign, CheckCircle, Sparkles,
-    MessageSquare, FileText, Loader2, AlertCircle, ExternalLink,
+    MessageSquare, FileText, Loader2, AlertCircle, Download,
 } from 'lucide-react';
 import {
     getDashboardSummary,
     getUpcomingDeadlines,
     getFilingList,
+    downloadFilingPdf,
     type DashboardSummary,
     type UpcomingDeadline,
     type FilingListItem,
@@ -380,14 +381,7 @@ export default function TaxDashboard() {
                                                             {f.status === 'draft' || f.status === 'in_progress' ? 'Resume' : 'View'}
                                                         </button>
                                                         {f.pdf_url && (
-                                                            <a
-                                                                href={f.pdf_url}
-                                                                target="_blank"
-                                                                rel="noopener noreferrer"
-                                                                className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-md transition-all flex items-center gap-1"
-                                                            >
-                                                                PDF <ExternalLink size={9} />
-                                                            </a>
+                                                            <FilingPdfDownloadButton filing={f} />
                                                         )}
                                                     </div>
                                                 </td>
@@ -464,6 +458,44 @@ export default function TaxDashboard() {
                         )}
                     </div>
                 </>
+            )}
+        </div>
+    );
+}
+
+
+function FilingPdfDownloadButton({ filing }: { filing: FilingListItem }) {
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const handleClick = async () => {
+        setError(null);
+        setBusy(true);
+        const { error: dlError } = await downloadFilingPdf({
+            filingId: filing.filing_id,
+            pdfUrl: filing.pdf_url,
+            filename: `form_${filing.form_type}_${filing.tax_year}_${filing.filing_id}.pdf`,
+        });
+        setBusy(false);
+        if (dlError) setError(dlError);
+    };
+
+    return (
+        <div className="flex flex-col items-end gap-0.5">
+            <button
+                type="button"
+                onClick={handleClick}
+                disabled={busy}
+                title={error ?? undefined}
+                className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1 bg-blue-50 hover:bg-blue-100 disabled:opacity-60 text-blue-700 rounded-md transition-all flex items-center gap-1"
+            >
+                {busy ? <Loader2 size={9} className="animate-spin" /> : <Download size={9} />}
+                {busy ? '…' : 'PDF'}
+            </button>
+            {error && (
+                <span className="text-[9px] font-bold text-rose-600 max-w-[120px] text-right leading-tight">
+                    {error}
+                </span>
             )}
         </div>
     );

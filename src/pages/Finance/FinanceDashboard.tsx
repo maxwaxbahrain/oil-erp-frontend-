@@ -239,38 +239,6 @@ export default function FinanceDashboard() {
   // strict invoice-number validator. The previous `hasGap` helper
   // has been removed alongside its only consumer in the JSX below.
 
-  // ─── Compliance checklist ─────
-  const compliance = [
-    { status: '—', iconBg: 'rgba(148,163,184,.14)', iconColor: 'var(--color-redwood-text-muted)',
-      title: 'Tax registration number on every invoice',
-      sub: 'Not checked',
-      badge: 'Not checked', badgeBg: 'rgba(148,163,184,.12)', badgeColor: 'var(--color-redwood-text-muted)' },
-    { status: '—', iconBg: 'rgba(148,163,184,.14)', iconColor: 'var(--color-redwood-text-muted)',
-      title: 'VAT breakdown separately on printed invoice',
-      sub: 'Not checked',
-      badge: 'Not checked', badgeBg: 'rgba(148,163,184,.12)', badgeColor: 'var(--color-redwood-text-muted)' },
-    { status: '—', iconBg: 'rgba(148,163,184,.14)', iconColor: 'var(--color-redwood-text-muted)',
-      title: 'Invoice locking — no edits after posting',
-      sub: 'Not checked',
-      badge: 'Not checked', badgeBg: 'rgba(148,163,184,.12)', badgeColor: 'var(--color-redwood-text-muted)' },
-    { status: '—', iconBg: 'rgba(148,163,184,.14)', iconColor: 'var(--color-redwood-text-muted)',
-      title: 'Sequential numbering',
-      sub: 'Not checked',
-      badge: 'Not checked', badgeBg: 'rgba(148,163,184,.12)', badgeColor: 'var(--color-redwood-text-muted)' },
-    { status: '—', iconBg: 'rgba(148,163,184,.14)', iconColor: 'var(--color-redwood-text-muted)',
-      title: '7-year record retention — all posted invoices archived',
-      sub: 'Not checked',
-      badge: 'Not checked', badgeBg: 'rgba(148,163,184,.12)', badgeColor: 'var(--color-redwood-text-muted)' },
-    { status: '—', iconBg: 'rgba(148,163,184,.14)', iconColor: 'var(--color-redwood-text-muted)',
-      title: 'VAT column on invoice table with correct 15% calculation',
-      sub: 'Not checked',
-      badge: 'Not checked', badgeBg: 'rgba(148,163,184,.12)', badgeColor: 'var(--color-redwood-text-muted)' },
-    { status: '—', iconBg: 'rgba(148,163,184,.14)', iconColor: 'var(--color-redwood-text-muted)',
-      title: 'Payment terms on every invoice — Net 15, Net 30, COD',
-      sub: 'Not checked',
-      badge: 'Not checked', badgeBg: 'rgba(148,163,184,.12)', badgeColor: 'var(--color-redwood-text-muted)' },
-  ];
-
   // ─── Render ─────────────────────────────────────────
   return (
     <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', paddingBottom: '80px' }}>
@@ -343,15 +311,6 @@ export default function FinanceDashboard() {
           value: `$${fmt(vatMTD)}`,
           valueColor: '#7C3AED',
           sub: `At 15% on $${fmt(netIncomeMTD)} income`,
-        })}
-        {kpiCard({
-          stripe: 'linear-gradient(90deg,#F59E0B,#FCD34D)',
-          label: 'Compliance Score',
-          badge: '30%',
-          badgeBg: 'rgba(245,158,11,.18)', badgeColor: '#FCD34D',
-          value: '30%',
-          valueColor: 'var(--color-brand-amber)',
-          sub: 'Critical issues — see checklist',
         })}
       </div>
 
@@ -455,49 +414,33 @@ export default function FinanceDashboard() {
         gridTemplateColumns: cols.twoCol ? '1fr minmax(190px,0.55fr)' : '1fr',
         gap: '8px',
       }}>
-        {/* D1 — Legal Compliance Checklist */}
+        {/* D1 — Compliance (not configured) */}
         <div style={panel}>
           <div style={{
             fontSize: '12px', fontWeight: 600,
             color: 'var(--color-redwood-text-main)', marginBottom: '8px',
           }}>
-            ⚖️ Legal Compliance Checklist
+            ⚖️ Compliance checks
           </div>
-
-          {compliance.map((c, i) => (
-            <div key={i} style={{
-              display: 'flex', alignItems: 'flex-start', gap: '7px',
-              padding: '6px 8px',
-              background: 'var(--color-redwood-row-bg)',
-              border: '1px solid var(--color-redwood-border)',
-              borderRadius: '6px',
-              marginBottom: '4px',
-            }}>
-              <div style={{
-                width: '16px', height: '16px', borderRadius: '50%',
-                background: c.iconBg, color: c.iconColor,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: '9px', flexShrink: 0, marginTop: '1px',
-                fontWeight: 700,
-              }}>
-                {c.status}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: '10px', color: 'var(--color-redwood-text-main)' }}>{c.title}</div>
-                <div style={{ fontSize: '8.5px', color: 'var(--color-redwood-text-subtle)', marginTop: '1px' }}>{c.sub}</div>
-              </div>
-              <span style={{
-                fontSize: '7.5px', fontWeight: 700, padding: '2px 7px',
-                borderRadius: '999px',
-                background: c.badgeBg, color: c.badgeColor,
-                whiteSpace: 'nowrap', flexShrink: 0,
-                marginTop: '1px',
-              }}>
-                {c.badge}
-              </span>
+          <div style={{
+            background: 'var(--color-redwood-row-bg)',
+            border: '1px solid var(--color-redwood-border)',
+            borderRadius: '8px',
+            padding: '14px 12px',
+          }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>
+              Compliance checks not configured yet
             </div>
-          ))}
-
+            <p style={{
+              margin: '8px 0 0',
+              fontSize: '11px',
+              lineHeight: 1.55,
+              color: 'var(--color-redwood-text-muted)',
+            }}>
+              This page previously showed a fabricated compliance score and static checklist rows without
+              automated legal or tax validation. Those demo metrics are hidden until compliance rules are connected.
+            </p>
+          </div>
         </div>
 
         {/* D2 — Invoices Legal Format View */}

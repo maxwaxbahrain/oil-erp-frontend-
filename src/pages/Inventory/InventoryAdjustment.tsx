@@ -101,6 +101,47 @@ const ghostBtn: CSSProperties = {
 };
 
 type HistoryPeriod = '7' | '30' | '90' | 'all';
+type PageMode = 'single' | 'bulk';
+
+type BulkRowResult = {
+    id: string;
+    name: string;
+    status: 'saved' | 'failed';
+    error?: string;
+};
+
+function apiProductsBase(): string {
+    return String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '') + '/api';
+}
+
+async function putProductStock(productId: string, stock: number): Promise<void> {
+    const putResp = await authFetch(`${apiProductsBase()}/products/${productId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stock }),
+    });
+    if (!putResp.ok) {
+        const detail = await putResp.text().catch(() => '');
+        throw new Error(detail.slice(0, 200) || putResp.statusText);
+    }
+}
+
+async function runWithConcurrency<T>(
+    items: T[],
+    concurrency: number,
+    worker: (item: T, index: number) => Promise<void>,
+): Promise<void> {
+    let nextIndex = 0;
+    async function runWorker() {
+        while (nextIndex < items.length) {
+            const idx = nextIndex;
+            nextIndex += 1;
+            await worker(items[idx], idx);
+        }
+    }
+    const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => runWorker());
+    await Promise.all(workers);
+}
 
 function fmtUsd(n: number): string {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
@@ -185,12 +226,20 @@ export default function InventoryAdjustment() {
         note: '',
         date: new Date().toISOString().slice(0, 10),
     });
+    const [mode, setMode] = useState<PageMode>('single');
+    const [bulkFilter, setBulkFilter] = useState('');
+    const [bulkNewStock, setBulkNewStock] = useState<Record<string, string>>({});
+    const [bulkSaving, setBulkSaving] = useState(false);
+    const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
+    const [bulkResults, setBulkResults] = useState<BulkRowResult[]>([]);
+
+    const refreshProducts = async () => {
+        const list = await getMergedProducts();
+        setProducts(list.map(flatten));
+    };
 
     useEffect(() => {
-        getMergedProducts().then((list) => {
-            setProducts(list.map(flatten));
-            setLoading(false);
-        });
+        refreshProducts().finally(() => setLoading(false));
         setAdjustments(getAdjs());
     }, []);
 
@@ -243,6 +292,109 @@ export default function InventoryAdjustment() {
               : historyPeriod === '90'
                 ? 'Last 90 days'
                 : 'All time';
+
+    const bulkFilteredProducts = useMemo(() => {
+        const q = bulkFilter.trim().toLowerCase();
+        if (!q) return products;
+        return products.filter(
+            (p) =>
+                (p.name || '').toLowerCase().includes(q) ||
+                (p.sku || '').toLowerCase().includes(q),
+        );
+    }, [products, bulkFilter]);
+
+    const bulkPendingChanges = useMemo(() => {
+        return products
+            .map((p) => {
+                const raw = bulkNewStock[p.id];
+                if (raw === undefined || raw.trim() === '') return null;
+                const parsed = Number(raw);
+                if (Number.isNaN(parsed) || parsed < 0) return null;
+                if (parsed === p.current_stock) return null;
+                return { id: p.id, name: p.name, sku: p.sku, current_stock: p.current_stock, newStock: parsed };
+            })
+            .filter((row): row is NonNullable<typeof row> => row != null);
+    }, [products, bulkNewStock]);
+
+    const handleBulkNewStockChange = (productId: string, value: string) => {
+        if (value.trim() === '') {
+            setBulkNewStock((prev) => {
+                const next = { ...prev };
+                delete next[productId];
+                return next;
+            });
+            return;
+        }
+        if (value === '-' || value.endsWith('.')) {
+            setBulkNewStock((prev) => ({ ...prev, [productId]: value }));
+            return;
+        }
+        const parsed = Number(value);
+        if (Number.isNaN(parsed) || parsed < 0) return;
+        setBulkNewStock((prev) => ({ ...prev, [productId]: value }));
+    };
+
+    const handleBulkSaveAll = async () => {
+        const changes = bulkPendingChanges.filter((row) => row.id);
+        if (changes.length === 0) {
+            alert('No stock changes to save. Enter a new stock value that differs from current stock.');
+            return;
+        }
+        const invalid = changes.filter((row) => row.newStock < 0 || Number.isNaN(row.newStock));
+        if (invalid.length > 0) {
+            alert('Negative stock values are not allowed.');
+            return;
+        }
+        if (!window.confirm(`Update stock for ${changes.length} product${changes.length === 1 ? '' : 's'}?`)) {
+            return;
+        }
+
+        setBulkSaving(true);
+        setBulkResults([]);
+        setBulkProgress({ done: 0, total: changes.length });
+        const results: BulkRowResult[] = [];
+
+        try {
+            await runWithConcurrency(changes, 5, async (row) => {
+                try {
+                    await putProductStock(row.id, row.newStock);
+                    results.push({ id: row.id, name: row.name, status: 'saved' });
+                } catch (e) {
+                    results.push({
+                        id: row.id,
+                        name: row.name,
+                        status: 'failed',
+                        error: e instanceof Error ? e.message : 'Save failed',
+                    });
+                }
+                setBulkProgress({ done: results.length, total: changes.length });
+                setBulkResults([...results]);
+            });
+
+            await refreshProducts();
+            setBulkNewStock((prev) => {
+                const next = { ...prev };
+                for (const row of changes) {
+                    if (results.some((r) => r.id === row.id && r.status === 'saved')) {
+                        delete next[row.id];
+                    }
+                }
+                return next;
+            });
+
+            const saved = results.filter((r) => r.status === 'saved').length;
+            const failed = results.filter((r) => r.status === 'failed').length;
+            setSuccess(
+                failed === 0
+                    ? `Bulk entry complete — ${saved} product${saved === 1 ? '' : 's'} updated`
+                    : `Bulk entry finished — ${saved} saved, ${failed} failed`,
+            );
+            setTimeout(() => setSuccess(''), 5000);
+        } finally {
+            setBulkSaving(false);
+            setBulkProgress(null);
+        }
+    };
 
     const handleSave = async () => {
         if (!form.productId || !form.reason || form.quantity <= 0) {
@@ -386,12 +538,9 @@ export default function InventoryAdjustment() {
     };
 
     const handleBulkAdjustment = () => {
-        try {
-            sessionStorage.setItem('pm_active_tab', 'Stock Adjustment');
-        } catch {
-            /* ignore */
-        }
-        navigate('/products');
+        setMode('bulk');
+        setBulkResults([]);
+        setBulkProgress(null);
     };
 
     const bumpQuantity = (delta: number) => {
@@ -512,6 +661,214 @@ export default function InventoryAdjustment() {
                 </div>
             )}
 
+            {/* Mode toggle — single vs bulk entry */}
+            <div style={{ display: 'flex', gap: 6, padding: '10px 16px 0', flexWrap: 'wrap' }}>
+                <button
+                    type="button"
+                    onClick={() => setMode('single')}
+                    style={{
+                        padding: '8px 14px',
+                        borderRadius: 8,
+                        border: mode === 'single' ? '1px solid rgba(79,142,247,.45)' : '1px solid rgba(255,255,255,.08)',
+                        background: mode === 'single' ? 'rgba(79,142,247,.12)' : C.bg4,
+                        color: mode === 'single' ? C.blue : C.dim,
+                        fontWeight: 700,
+                        fontSize: 10.5,
+                        cursor: 'pointer',
+                        fontFamily: 'inherit',
+                    }}
+                >
+                    Single adjustment
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setMode('bulk')}
+                    style={{
+                        padding: '8px 14px',
+                        borderRadius: 8,
+                        border: mode === 'bulk' ? '1px solid rgba(255,153,0,.45)' : '1px solid rgba(255,255,255,.08)',
+                        background: mode === 'bulk' ? 'rgba(255,153,0,.12)' : C.bg4,
+                        color: mode === 'bulk' ? C.orange : C.dim,
+                        fontWeight: 700,
+                        fontSize: 10.5,
+                        cursor: 'pointer',
+                        fontFamily: 'inherit',
+                    }}
+                >
+                    Bulk entry
+                </button>
+            </div>
+
+            {mode === 'bulk' ? (
+                <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div style={{ ...panel, padding: '14px 16px' }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+                            <div>
+                                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: C.muted }}>
+                                    Bulk stock entry
+                                </div>
+                                <p style={{ margin: '4px 0 0', fontSize: 10.5, color: C.dim, maxWidth: 520 }}>
+                                    Set opening stock for many products at once. Blank = no change. Uses each product&apos;s backend ID.
+                                </p>
+                            </div>
+                            <div style={{ fontSize: 10, color: C.muted }}>
+                                {bulkPendingChanges.length > 0
+                                    ? `${bulkPendingChanges.length} product${bulkPendingChanges.length === 1 ? '' : 's'} ready to save`
+                                    : 'No pending changes'}
+                            </div>
+                        </div>
+
+                        <div style={{ position: 'relative', marginBottom: 12 }}>
+                            <Search size={14} color={C.dim} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)' }} />
+                            <input
+                                type="text"
+                                value={bulkFilter}
+                                onChange={(e) => setBulkFilter(e.target.value)}
+                                placeholder="Filter by product name or SKU..."
+                                style={{
+                                    width: '100%',
+                                    padding: '9px 12px 9px 32px',
+                                    borderRadius: 8,
+                                    border: '1px solid rgba(255,255,255,.1)',
+                                    background: C.bg4,
+                                    color: C.text,
+                                    fontSize: 11,
+                                    outline: 'none',
+                                    fontFamily: 'inherit',
+                                    boxSizing: 'border-box',
+                                }}
+                            />
+                        </div>
+
+                        {loading ? (
+                            <div style={{ padding: 40, textAlign: 'center', color: C.dim }}>Loading products...</div>
+                        ) : (
+                            <div style={{ maxHeight: 420, overflowY: 'auto', border: '1px solid rgba(255,255,255,.06)', borderRadius: 8 }}>
+                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                                    <thead>
+                                        <tr style={{ background: C.bg4, position: 'sticky', top: 0, zIndex: 1 }}>
+                                            {['Product name', 'SKU', 'Current stock', 'New stock'].map((h) => (
+                                                <th
+                                                    key={h}
+                                                    style={{
+                                                        textAlign: 'left',
+                                                        padding: '8px 10px',
+                                                        fontSize: 9,
+                                                        fontWeight: 700,
+                                                        textTransform: 'uppercase',
+                                                        letterSpacing: '.4px',
+                                                        color: C.dim,
+                                                        borderBottom: '1px solid rgba(255,255,255,.08)',
+                                                    }}
+                                                >
+                                                    {h}
+                                                </th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {bulkFilteredProducts.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={4} style={{ padding: 24, textAlign: 'center', color: C.dim }}>
+                                                    No products match your filter
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            bulkFilteredProducts.map((p) => {
+                                                const raw = bulkNewStock[p.id] ?? '';
+                                                const parsed = raw.trim() === '' ? null : Number(raw);
+                                                const invalid = parsed != null && (Number.isNaN(parsed) || parsed < 0);
+                                                const changed = parsed != null && !invalid && parsed !== p.current_stock;
+                                                const result = bulkResults.find((r) => r.id === p.id);
+                                                return (
+                                                    <tr key={p.id} style={{ borderBottom: '1px solid rgba(255,255,255,.04)' }}>
+                                                        <td style={{ padding: '8px 10px', color: C.text, maxWidth: 220 }}>
+                                                            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                                                            {result && (
+                                                                <div style={{ fontSize: 9, marginTop: 2, color: result.status === 'saved' ? C.green : C.red }}>
+                                                                    {result.status === 'saved' ? 'Saved' : `Failed: ${result.error || 'error'}`}
+                                                                </div>
+                                                            )}
+                                                        </td>
+                                                        <td style={{ padding: '8px 10px', color: C.muted, fontFamily: 'ui-monospace, monospace', fontSize: 10 }}>
+                                                            {p.sku || '—'}
+                                                        </td>
+                                                        <td style={{ padding: '8px 10px', color: C.orange, fontFamily: 'ui-monospace, monospace', fontWeight: 600 }}>
+                                                            {p.current_stock}
+                                                        </td>
+                                                        <td style={{ padding: '6px 10px' }}>
+                                                            <input
+                                                                type="number"
+                                                                min={0}
+                                                                step="any"
+                                                                value={raw}
+                                                                disabled={bulkSaving}
+                                                                onChange={(e) => handleBulkNewStockChange(p.id, e.target.value)}
+                                                                placeholder="—"
+                                                                style={{
+                                                                    width: '100%',
+                                                                    maxWidth: 120,
+                                                                    padding: '6px 8px',
+                                                                    borderRadius: 6,
+                                                                    border: `1px solid ${invalid ? 'rgba(239,68,68,.5)' : changed ? 'rgba(79,142,247,.45)' : 'rgba(255,255,255,.1)'}`,
+                                                                    background: C.bg4,
+                                                                    color: C.text,
+                                                                    fontSize: 11,
+                                                                    fontFamily: 'ui-monospace, monospace',
+                                                                    outline: 'none',
+                                                                }}
+                                                            />
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+
+                        {bulkProgress && (
+                            <div style={{ marginTop: 12, fontSize: 10.5, color: C.blue, fontWeight: 600 }}>
+                                Saving {bulkProgress.done}/{bulkProgress.total}...
+                            </div>
+                        )}
+
+                        <button
+                            type="button"
+                            onClick={handleBulkSaveAll}
+                            disabled={bulkSaving || bulkPendingChanges.length === 0}
+                            style={{
+                                marginTop: 12,
+                                width: '100%',
+                                padding: '12px 16px',
+                                borderRadius: 10,
+                                border: 'none',
+                                background: bulkSaving || bulkPendingChanges.length === 0 ? 'rgba(255,153,0,.35)' : C.orange,
+                                color: '#fff',
+                                fontWeight: 700,
+                                fontSize: 12,
+                                cursor: bulkSaving || bulkPendingChanges.length === 0 ? 'not-allowed' : 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 8,
+                                fontFamily: 'inherit',
+                            }}
+                        >
+                            {bulkSaving ? (
+                                <>
+                                    <RefreshCw size={16} className="animate-spin" /> Saving...
+                                </>
+                            ) : (
+                                <>
+                                    <Save size={16} /> Save all ({bulkPendingChanges.length})
+                                </>
+                            )}
+                        </button>
+                    </div>
+                </div>
+            ) : (
             <div
                 style={{
                     display: 'grid',
@@ -1200,6 +1557,7 @@ export default function InventoryAdjustment() {
                     </div>
                 </div>
             </div>
+            )}
         </div>
     );
 }
