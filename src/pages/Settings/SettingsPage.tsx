@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
     Shield,
     Bell,
@@ -8,6 +9,7 @@ import {
     Lock,
     Building2,
     PenTool,
+    CreditCard,
     Image as ImageIcon,
     Save,
     Trash2,
@@ -15,6 +17,7 @@ import {
     CheckCircle,
     Zap
 } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 import {
     getCompanyProfile,
     saveCompanyProfile,
@@ -31,7 +34,16 @@ import {
 
 type TabType = 'security' | 'company' | 'currency' | 'signature' | 'data' | 'notifications';
 
+type SettingsNavItem = {
+    id: string;
+    label: string;
+    icon: typeof Building2;
+    to?: string;
+};
+
 export default function SettingsPage() {
+    const { hasRole } = useAuth();
+    const canSeeBilling = hasRole('admin');
     const [activeTab, setActiveTab] = useState<TabType>('company');
     const [profile, setProfile] = useState<CompanyProfile>(getCompanyProfile());
     const [signature, setSignature] = useState<DocumentSignature>(getDocumentSignature());
@@ -80,6 +92,19 @@ export default function SettingsPage() {
         }
     };
 
+    const navItems: SettingsNavItem[] = [
+        { id: 'company', label: 'Company Profile', icon: Building2 },
+        { id: 'currency', label: 'Currency Config', icon: Database },
+        { id: 'signature', label: 'Document Signature', icon: PenTool },
+        { id: 'security', label: 'Security & Auth', icon: Shield },
+        ...(canSeeBilling ? [{ id: 'billing', label: 'Billing', icon: CreditCard, to: '/settings/billing' }] : []),
+        { id: 'data', label: '📥 Data Migration', icon: Database },
+        { id: 'notifications', label: 'Global Notifications', icon: Bell },
+    ];
+
+    const navItemClass = (isActive: boolean) =>
+        `w-full flex items-center gap-4 px-5 py-4 rounded-sm text-[12px] font-black transition-all group ${isActive ? 'bg-redwood-bg-light border-l-4 border-redwood-brand text-redwood-text-main shadow-sm' : 'text-redwood-text-muted hover:bg-redwood-bg-light border-l-4 border-transparent'}`;
+
     return (
         <div className="max-w-[1500px] mx-auto space-y-8 animate-in fade-in duration-700 pb-20">
             {/* Global Configuration Header */}
@@ -103,24 +128,35 @@ export default function SettingsPage() {
                 {/* Authority Navigation */}
                 <div className="lg:col-span-3 space-y-1">
                     <h3 className="text-[10px] font-black text-redwood-text-muted uppercase tracking-[0.3em] px-4 mb-4">Control Domains</h3>
-                    {[
-                        { id: 'company', label: 'Company Profile', icon: Building2 },
-                        { id: 'currency', label: 'Currency Config', icon: Database },
-                        { id: 'signature', label: 'Document Signature', icon: PenTool },
-                        { id: 'security', label: 'Security & Auth', icon: Shield },
-                        { id: 'data', label: '📥 Data Migration', icon: Database },
-                        { id: 'notifications', label: 'Global Notifications', icon: Bell },
-                    ].map((tab) => (
-                        <button
-                            key={tab.id}
-                            onClick={() => setActiveTab(tab.id as TabType)}
-                            className={`w-full flex items-center gap-4 px-5 py-4 rounded-sm text-[12px] font-black transition-all group ${activeTab === tab.id ? 'bg-redwood-bg-light border-l-4 border-redwood-brand text-redwood-text-main shadow-sm' : 'text-redwood-text-muted hover:bg-redwood-bg-light border-l-4 border-transparent'}`}
-                        >
-                            <tab.icon size={18} className={`${activeTab === tab.id ? 'text-redwood-brand' : 'group-hover:text-redwood-brand'}`} />
-                            <span className="uppercase tracking-widest">{tab.label}</span>
-                            <ChevronRight size={14} className={`ml-auto ${activeTab === tab.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`} />
-                        </button>
-                    ))}
+                    {navItems.map((tab) => {
+                        const isActive = tab.to ? false : activeTab === tab.id;
+                        const content = (
+                            <>
+                                <tab.icon size={18} className={`${isActive ? 'text-redwood-brand' : 'group-hover:text-redwood-brand'}`} />
+                                <span className="uppercase tracking-widest">{tab.label}</span>
+                                <ChevronRight size={14} className={`ml-auto ${isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`} />
+                            </>
+                        );
+
+                        if (tab.to) {
+                            return (
+                                <Link key={tab.id} to={tab.to} className={navItemClass(isActive)}>
+                                    {content}
+                                </Link>
+                            );
+                        }
+
+                        return (
+                            <button
+                                key={tab.id}
+                                type="button"
+                                onClick={() => setActiveTab(tab.id as TabType)}
+                                className={navItemClass(isActive)}
+                            >
+                                {content}
+                            </button>
+                        );
+                    })}
                 </div>
 
                 {/* Content Execution Area */}

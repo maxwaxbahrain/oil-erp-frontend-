@@ -9,6 +9,8 @@ import ForgotPasswordPage from '../pages/ForgotPasswordPage';
 import ResetPasswordPage from '../pages/ResetPasswordPage';
 import LandingPage from '../pages/LandingPage';
 import BillingPage from '../pages/BillingPage';
+import BillingCheckoutSuccess from '../pages/Billing/BillingCheckoutSuccess';
+import BillingCheckoutCancel from '../pages/Billing/BillingCheckoutCancel';
 import SuperAdminPage from '../pages/SuperAdminPage';
 import TenantProfilePage from '../pages/TenantProfilePage';
 
@@ -356,6 +358,8 @@ export const AppRoutes = () => {
                 <Route path="/users/partners" element={<PartnerDirectory />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/settings/billing" element={<BillingPage />} />
+                <Route path="/billing/success" element={<BillingCheckoutSuccess />} />
+                <Route path="/billing/cancel" element={<BillingCheckoutCancel />} />
                 <Route path="/settings/users" element={<UserManagement />} />
             </Route>
 
