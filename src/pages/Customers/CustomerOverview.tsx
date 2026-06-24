@@ -36,7 +36,9 @@ import {
     getCustomerLedger,
     compareLedgerByDateAsc,
     compareLedgerByDateDesc,
+    listCustomerDocuments,
     type Customer,
+    type CustomerDocument,
     type Payment
 } from '../../services/customerService';
 import { getCustomerCreditNotes, updateCreditNote, type CreditNote } from '../../services/creditNoteService';
@@ -159,37 +161,46 @@ const generateCustomerLedgerExcel = (customer: Customer, ledger: LedgerEntry[]) 
     document.body.removeChild(link);
 };
 
-// ─── Document vault constants (visual-only, outside component) ──────────
-// Part of the Customer Overview V3 spec. Pure UI mockup — no service
-// calls, just renders inside the new vault panel.
-
-const DOC_FILTER_OPTIONS = ['All', 'Tax forms', 'Agreements', 'ID & compliance'] as const;
+// ─── Document vault — category labels + filter tabs ──────────
+const DOC_FILTER_OPTIONS = ['All', 'Cheque', 'Tax forms', 'Agreements', 'ID & compliance', 'Other'] as const;
 type DocFilter = typeof DOC_FILTER_OPTIONS[number];
 
-interface CustomerDoc {
-  id: string;
-  name: string;
-  docType: string;
-  status: 'ok' | 'missing' | 'expiring';
-  uploadDate: string;
-  note: string;
-}
-
-const CUSTOMER_DOCS: CustomerDoc[] = [
-  { id: 'd1', name: 'W-9 Form',         docType: 'Tax forms',       status: 'ok',       uploadDate: '14 Jan 2024', note: 'Tax ID declaration' },
-  { id: 'd2', name: '1120 — Corp tax',  docType: 'Tax forms',       status: 'missing',  uploadDate: '',            note: 'Required for credit limit' },
-  { id: 'd3', name: 'Trade licence',    docType: 'ID & compliance', status: 'expiring', uploadDate: '3 Mar 2024',  note: 'Expires Aug 2026' },
-  { id: 'd4', name: 'Credit agreement', docType: 'Agreements',      status: 'ok',       uploadDate: '22 Jan 2024', note: 'Signed credit terms' },
-  { id: 'd5', name: 'Passport copy',    docType: 'ID & compliance', status: 'ok',       uploadDate: '14 Jan 2024', note: 'Owner ID on file' },
-  { id: 'd6', name: 'Bank letter',      docType: 'Agreements',      status: 'ok',       uploadDate: '5 Feb 2024',  note: 'Account confirmation' },
-];
-
-// Computed once — outside component, never re-runs on render.
-const DOCS_MISSING_COUNT: number = CUSTOMER_DOCS.filter(d => d.status === 'missing').length;
-
-const DOC_ICONS: Record<string, string> = {
-  d1: '📋', d2: '📄', d3: '🏢', d4: '🤝', d5: '🪪', d6: '🏦',
+const CATEGORY_LABELS: Record<string, string> = {
+    cheque: 'Cheque',
+    tax_form: 'Tax forms',
+    agreement: 'Agreements',
+    id_compliance: 'ID & compliance',
+    other: 'Other',
 };
+
+const LABEL_TO_CATEGORY: Record<string, string> = {
+    Cheque: 'cheque',
+    'Tax forms': 'tax_form',
+    Agreements: 'agreement',
+    'ID & compliance': 'id_compliance',
+    Other: 'other',
+};
+
+const CATEGORY_ICONS: Record<string, string> = {
+    cheque: '📋',
+    tax_form: '📄',
+    agreement: '🤝',
+    id_compliance: '🪪',
+    other: '📎',
+};
+
+function formatDocUploadedAt(iso: string | null | undefined): string {
+    if (!iso) return '—';
+    try {
+        return new Date(iso).toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+        });
+    } catch {
+        return iso;
+    }
+}
 
 // Visual-only date helper (Month YYYY). Project has no equivalent.
 function _fmtMonthYear(dateStr: string | undefined | null): string {
@@ -282,9 +293,28 @@ export default function CustomerOverview() {
     } | null>(null);
     const [selectedCurrency, setSelectedCurrency] = useState(WORLD_CURRENCIES[0]); // Default to USD
 
-    // V3 spec — document vault toggle + filter (visual-only).
+    // V3 spec — document vault toggle + filter.
     const [showDocVault, setShowDocVault] = useState<boolean>(false);
     const [docFilter, setDocFilter] = useState<DocFilter>('All');
+    const [docs, setDocs] = useState<CustomerDocument[]>([]);
+    const [docsLoading, setDocsLoading] = useState(false);
+    const [docsError, setDocsError] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!showDocVault || !id) return;
+        let cancelled = false;
+        setDocsLoading(true);
+        setDocsError(null);
+        listCustomerDocuments(id)
+            .then((rows) => { if (!cancelled) setDocs(rows); })
+            .catch((e) => {
+                if (!cancelled) {
+                    setDocsError(e instanceof Error ? e.message : 'Failed to load documents');
+                }
+            })
+            .finally(() => { if (!cancelled) setDocsLoading(false); });
+        return () => { cancelled = true; };
+    }, [showDocVault, id]);
 
     // Check for tab parameter in URL
     useEffect(() => {
@@ -875,14 +905,6 @@ export default function CustomerOverview() {
                         }}
                     >
                         📁 Documents
-                        {DOCS_MISSING_COUNT > 0 && (
-                            <span style={{
-                                background: 'rgba(239,68,68,.2)', color: '#B91C1C',
-                                fontSize: 9, padding: '1px 5px', borderRadius: 6, fontWeight: 700,
-                            }}>
-                                {DOCS_MISSING_COUNT} missing
-                            </span>
-                        )}
                     </button>
                 </div>
             </div>
@@ -986,7 +1008,7 @@ export default function CustomerOverview() {
                                         background: '#FEF9C3', color: '#713F12', fontSize: 9,
                                         fontWeight: 700, padding: '2px 7px', borderRadius: 8,
                                     }}>
-                                        {CUSTOMER_DOCS.length} docs · {DOCS_MISSING_COUNT} missing
+                                        {docs.length} docs
                                     </span>
                                 </div>
                                 <div style={{ fontSize: 10, color: 'var(--t3,#3E5678)' }}>
@@ -1017,7 +1039,7 @@ export default function CustomerOverview() {
                                         color: docFilter === tag ? '#713F12' : 'var(--t2,#8BA3C7)',
                                     }}
                                 >
-                                    {tag}{tag === 'All' ? ` (${CUSTOMER_DOCS.length})` : ''}
+                                    {tag}{tag === 'All' ? ` (${docs.length})` : ''}
                                 </span>
                             ))}
                         </div>
@@ -1026,17 +1048,28 @@ export default function CustomerOverview() {
                             display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(158px,1fr))',
                             gap: 8, padding: '8px 12px 14px',
                         }}>
-                            {CUSTOMER_DOCS
-                                .filter(doc => docFilter === 'All' || doc.docType === docFilter)
-                                .map(doc => {
-                                    const normalBorder = doc.status === 'missing'
-                                        ? 'rgba(239,68,68,.3)' : 'rgba(255,255,255,.07)';
-                                    const badgeBg = doc.status === 'ok' ? 'rgba(34,197,94,.12)'
-                                        : doc.status === 'missing' ? 'rgba(239,68,68,.12)' : '#FEF9C3';
-                                    const badgeColor = doc.status === 'ok' ? '#16A34A'
-                                        : doc.status === 'missing' ? '#B91C1C' : '#92400E';
-                                    const badgeLabel = doc.status === 'ok' ? '✓ On file'
-                                        : doc.status === 'missing' ? '⚠ Missing' : '↻ Expiring';
+                            {docsLoading ? (
+                                <div style={{ gridColumn: '1 / -1', fontSize: 11, color: 'var(--t2,#8BA3C7)', padding: '8px 4px' }}>
+                                    Loading documents…
+                                </div>
+                            ) : docsError ? (
+                                <div style={{ gridColumn: '1 / -1', fontSize: 11, color: '#B91C1C', padding: '8px 4px' }}>
+                                    {docsError}
+                                </div>
+                            ) : (() => {
+                                const visible = docFilter === 'All'
+                                    ? docs
+                                    : docs.filter((d) => d.category === LABEL_TO_CATEGORY[docFilter]);
+                                if (visible.length === 0) {
+                                    return (
+                                        <div style={{ gridColumn: '1 / -1', fontSize: 11, color: 'var(--t2,#8BA3C7)', padding: '8px 4px' }}>
+                                            No documents yet
+                                        </div>
+                                    );
+                                }
+                                return visible.map((doc) => {
+                                    const categoryLabel = CATEGORY_LABELS[doc.category] ?? doc.category;
+                                    const normalBorder = 'rgba(255,255,255,.07)';
                                     return (
                                         <div
                                             key={doc.id}
@@ -1053,27 +1086,19 @@ export default function CustomerOverview() {
                                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                                                 fontSize: 17, marginBottom: 7,
                                             }}>
-                                                {DOC_ICONS[doc.id] ?? '📄'}
+                                                {CATEGORY_ICONS[doc.category] ?? '📄'}
                                             </div>
                                             <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--t,#EEF2FF)', marginBottom: 2 }}>
-                                                {doc.name}
+                                                {doc.file_name}
                                             </div>
-                                            <div style={{ fontSize: 10, color: 'var(--t2,#8BA3C7)' }}>{doc.note}</div>
-                                            <div style={{
-                                                fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 8,
-                                                display: 'inline-block', marginTop: 4,
-                                                background: badgeBg, color: badgeColor,
-                                            }}>
-                                                {badgeLabel}
+                                            <div style={{ fontSize: 10, color: 'var(--t2,#8BA3C7)' }}>{categoryLabel}</div>
+                                            <div style={{ fontSize: 10, color: 'var(--t3,#3E5678)', marginTop: 3 }}>
+                                                {formatDocUploadedAt(doc.uploaded_at)}
                                             </div>
-                                            {doc.uploadDate && (
-                                                <div style={{ fontSize: 10, color: 'var(--t3,#3E5678)', marginTop: 3 }}>
-                                                    {doc.uploadDate}
-                                                </div>
-                                            )}
                                         </div>
                                     );
-                                })}
+                                });
+                            })()}
 
                             <div
                                 style={{
