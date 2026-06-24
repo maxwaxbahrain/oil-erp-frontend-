@@ -687,6 +687,67 @@ export async function syncRoutePriorityToCustomers(): Promise<
 }
 
 // ============================================
+// CUSTOMER DOCUMENTS
+// ============================================
+
+export interface CustomerDocument {
+    id: number;
+    customer_id: number;
+    category: string;
+    file_name: string;
+    content_type: string | null;
+    file_size: number | null;
+    uploaded_by: number | null;
+    uploaded_at: string | null;
+}
+
+// Backend categories: cheque | tax_form | agreement | id_compliance | other
+export async function listCustomerDocuments(
+    customerId: string | number,
+    category?: string,
+): Promise<CustomerDocument[]> {
+    const q = category ? `?category=${encodeURIComponent(category)}` : '';
+    const response = await authFetch(apiUrl(`customers/${customerId}/documents${q}`));
+    if (!response.ok) throw new Error(`Failed to fetch documents: ${response.status}`);
+    return (await response.json()) as CustomerDocument[];
+}
+
+export async function uploadCustomerDocument(
+    customerId: string | number,
+    file: File,
+    category: string,
+): Promise<CustomerDocument> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    const response = await authFetch(
+        apiUrl(`customers/${customerId}/documents?category=${encodeURIComponent(category)}`),
+        { method: 'POST', body: form },
+    );
+    if (!response.ok) {
+        let detail = `Upload failed: ${response.status}`;
+        try {
+            const e = await response.json();
+            if (e?.detail) detail = e.detail;
+        } catch {
+            /* ignore */
+        }
+        throw new Error(detail);
+    }
+    return (await response.json()) as CustomerDocument;
+}
+
+export async function getCustomerDocumentDownloadUrl(
+    customerId: string | number,
+    docId: number,
+): Promise<{ download_url: string; file_name: string; content_type: string | null }> {
+    const response = await authFetch(
+        apiUrl(`customers/${customerId}/documents/${docId}/download`),
+    );
+    if (!response.ok) throw new Error(`Failed to get download URL: ${response.status}`);
+    return await response.json();
+}
+
+// ============================================
 // EXPORTS
 // ============================================
 
@@ -712,4 +773,8 @@ export default {
     searchCustomers,
 
     syncRoutePriorityToCustomers,
+
+    listCustomerDocuments,
+    uploadCustomerDocument,
+    getCustomerDocumentDownloadUrl,
 };
