@@ -322,6 +322,7 @@ export default function CustomerOverview() {
     const [uploading, setUploading] = useState(false);
     const [uploadError, setUploadError] = useState<string | null>(null);
     const [downloadingId, setDownloadingId] = useState<number | null>(null);
+    const [showChequeModal, setShowChequeModal] = useState(false);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
 
     const loadDocs = useCallback(async () => {
@@ -380,6 +381,13 @@ export default function CustomerOverview() {
         });
     }, [docs]);
 
+    const chequeDocs = useMemo(
+        () => docs
+            .filter((d) => d.category === 'cheque')
+            .sort((a, b) => (b.uploaded_at || '').localeCompare(a.uploaded_at || '')),
+        [docs],
+    );
+
     const docsOnFileCount = slotRows.filter((row) => row.status === 'ok').length;
     const docsMissingCount = DOC_SLOTS.length - docsOnFileCount;
 
@@ -391,6 +399,14 @@ export default function CustomerOverview() {
 
     const handleSlotClick = (slot: DocSlot, matchedDoc: CustomerDocument | null) => {
         if (uploading) return;
+        if (slot.key === 'cheque') {
+            if (chequeDocs.length > 0) {
+                setShowChequeModal(true);
+            } else {
+                openUploadPicker('cheque');
+            }
+            return;
+        }
         if (matchedDoc) {
             void handleDownload(matchedDoc.id);
         } else {
@@ -1193,16 +1209,27 @@ export default function CustomerOverview() {
                             ) : slotRows
                                 .filter(({ slot }) => docFilter === 'All' || slot.docType === docFilter)
                                 .map(({ slot, matchedDoc, status }) => {
-                                    const normalBorder = status === 'missing'
+                                    const isCheque = slot.key === 'cheque';
+                                    const chequeHasDocs = chequeDocs.length > 0;
+                                    const effectiveStatus: DocSlotStatus = isCheque
+                                        ? (chequeHasDocs ? 'ok' : 'missing')
+                                        : status;
+                                    const normalBorder = effectiveStatus === 'missing'
                                         ? 'rgba(239,68,68,.3)' : 'rgba(255,255,255,.07)';
-                                    const badgeBg = status === 'ok' ? 'rgba(34,197,94,.12)'
-                                        : status === 'missing' ? 'rgba(239,68,68,.12)' : '#FEF9C3';
-                                    const badgeColor = status === 'ok' ? '#16A34A'
-                                        : status === 'missing' ? '#B91C1C' : '#92400E';
-                                    const badgeLabel = status === 'ok' ? '✓ On file'
-                                        : status === 'missing' ? '⚠ Missing' : '↻ Expiring';
-                                    const isOpening = matchedDoc != null && downloadingId === matchedDoc.id;
-                                    const uploadDate = matchedDoc ? formatDocUploadedAt(matchedDoc.uploaded_at) : '';
+                                    const badgeBg = effectiveStatus === 'ok' ? 'rgba(34,197,94,.12)'
+                                        : effectiveStatus === 'missing' ? 'rgba(239,68,68,.12)' : '#FEF9C3';
+                                    const badgeColor = effectiveStatus === 'ok' ? '#16A34A'
+                                        : effectiveStatus === 'missing' ? '#B91C1C' : '#92400E';
+                                    const badgeLabel = isCheque
+                                        ? (chequeHasDocs
+                                            ? `${chequeDocs.length} cheque(s) on file`
+                                            : 'No cheques yet')
+                                        : effectiveStatus === 'ok' ? '✓ On file'
+                                            : effectiveStatus === 'missing' ? '⚠ Missing' : '↻ Expiring';
+                                    const isOpening = !isCheque && matchedDoc != null && downloadingId === matchedDoc.id;
+                                    const uploadDate = !isCheque && matchedDoc
+                                        ? formatDocUploadedAt(matchedDoc.uploaded_at)
+                                        : '';
                                     return (
                                         <div
                                             key={slot.key}
@@ -1248,7 +1275,7 @@ export default function CustomerOverview() {
                                             }}>
                                                 {isOpening ? 'Opening…' : badgeLabel}
                                             </div>
-                                            {status === 'ok' && uploadDate && (
+                                            {effectiveStatus === 'ok' && uploadDate && (
                                                 <div style={{ fontSize: 10, color: 'var(--t3,#3E5678)', marginTop: 3 }}>
                                                     {uploadDate}
                                                 </div>
@@ -1294,6 +1321,185 @@ export default function CustomerOverview() {
                             </div>
                         </div>
                     </div>
+
+                    {showChequeModal && (
+                        <div
+                            role="presentation"
+                            onClick={() => setShowChequeModal(false)}
+                            style={{
+                                position: 'fixed',
+                                inset: 0,
+                                zIndex: 1000,
+                                background: 'rgba(0,0,0,.65)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                padding: 16,
+                            }}
+                        >
+                            <div
+                                role="dialog"
+                                aria-modal="true"
+                                aria-labelledby="cheque-modal-title"
+                                onClick={(e) => e.stopPropagation()}
+                                style={{
+                                    width: '100%',
+                                    maxWidth: 560,
+                                    maxHeight: '70vh',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    background: 'var(--bg2,#0a1726)',
+                                    border: '1px solid rgba(250,204,21,.35)',
+                                    borderRadius: 12,
+                                    overflow: 'hidden',
+                                    boxShadow: '0 20px 50px rgba(0,0,0,.45)',
+                                }}
+                            >
+                                <div style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: 10,
+                                    padding: '12px 14px',
+                                    borderBottom: '1px solid rgba(250,204,21,.2)',
+                                }}>
+                                    <div
+                                        id="cheque-modal-title"
+                                        style={{ fontSize: 13, fontWeight: 700, color: 'var(--t,#EEF2FF)' }}
+                                    >
+                                        Cheques — {customer.name}
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <button
+                                            type="button"
+                                            disabled={uploading}
+                                            onClick={() => openUploadPicker('cheque')}
+                                            style={{
+                                                background: '#FEF08A',
+                                                color: '#713F12',
+                                                border: '1px solid #FACC15',
+                                                borderRadius: 8,
+                                                padding: '5px 10px',
+                                                fontSize: 10,
+                                                fontWeight: 600,
+                                                cursor: uploading ? 'not-allowed' : 'pointer',
+                                                opacity: uploading ? 0.6 : 1,
+                                            }}
+                                        >
+                                            + Add cheque
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowChequeModal(false)}
+                                            aria-label="Close"
+                                            style={{
+                                                background: 'transparent',
+                                                border: '1px solid rgba(255,255,255,.15)',
+                                                borderRadius: 8,
+                                                width: 28,
+                                                height: 28,
+                                                color: 'var(--t2,#8BA3C7)',
+                                                fontSize: 16,
+                                                lineHeight: 1,
+                                                cursor: 'pointer',
+                                            }}
+                                        >
+                                            ×
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div style={{ overflowY: 'auto', padding: '10px 14px 14px' }}>
+                                    {chequeDocs.length === 0 ? (
+                                        <div style={{
+                                            textAlign: 'center',
+                                            padding: '24px 12px',
+                                            color: 'var(--t2,#8BA3C7)',
+                                            fontSize: 12,
+                                        }}>
+                                            <div style={{ marginBottom: 12 }}>No cheques yet</div>
+                                            <button
+                                                type="button"
+                                                disabled={uploading}
+                                                onClick={() => openUploadPicker('cheque')}
+                                                style={{
+                                                    background: '#FEF08A',
+                                                    color: '#713F12',
+                                                    border: '1px solid #FACC15',
+                                                    borderRadius: 8,
+                                                    padding: '6px 12px',
+                                                    fontSize: 11,
+                                                    fontWeight: 600,
+                                                    cursor: uploading ? 'not-allowed' : 'pointer',
+                                                }}
+                                            >
+                                                Add cheque
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                            {chequeDocs.map((d) => {
+                                                const isOpening = downloadingId === d.id;
+                                                return (
+                                                    <div
+                                                        key={d.id}
+                                                        style={{
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: 10,
+                                                            padding: '10px 12px',
+                                                            background: 'var(--bg3,#0f1f33)',
+                                                            border: '1px solid rgba(255,255,255,.08)',
+                                                            borderRadius: 10,
+                                                        }}
+                                                    >
+                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                            <div style={{
+                                                                fontSize: 12,
+                                                                fontWeight: 600,
+                                                                color: 'var(--t,#EEF2FF)',
+                                                                marginBottom: 2,
+                                                            }}>
+                                                                {formatDocUploadedAt(d.uploaded_at)}
+                                                            </div>
+                                                            <div style={{
+                                                                fontSize: 10,
+                                                                color: 'var(--t2,#8BA3C7)',
+                                                                overflow: 'hidden',
+                                                                textOverflow: 'ellipsis',
+                                                                whiteSpace: 'nowrap',
+                                                            }}>
+                                                                {d.file_name}
+                                                            </div>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            disabled={isOpening}
+                                                            onClick={() => void handleDownload(d.id)}
+                                                            style={{
+                                                                flexShrink: 0,
+                                                                background: 'rgba(250,204,21,.12)',
+                                                                color: '#713F12',
+                                                                border: '1px solid rgba(250,204,21,.35)',
+                                                                borderRadius: 8,
+                                                                padding: '5px 10px',
+                                                                fontSize: 10,
+                                                                fontWeight: 600,
+                                                                cursor: isOpening ? 'not-allowed' : 'pointer',
+                                                                opacity: isOpening ? 0.6 : 1,
+                                                            }}
+                                                        >
+                                                            {isOpening ? 'Opening…' : 'Open'}
+                                                        </button>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 
