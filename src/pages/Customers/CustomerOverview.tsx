@@ -38,6 +38,7 @@ import {
     compareLedgerByDateDesc,
     listCustomerDocuments,
     uploadCustomerDocument,
+    getCustomerDocumentDownloadUrl,
     type Customer,
     type CustomerDocument,
     type Payment
@@ -303,6 +304,7 @@ export default function CustomerOverview() {
     const [uploadCategory, setUploadCategory] = useState<string>('cheque');
     const [uploading, setUploading] = useState(false);
     const [uploadError, setUploadError] = useState<string | null>(null);
+    const [downloadingId, setDownloadingId] = useState<number | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
 
     const loadDocs = useCallback(async () => {
@@ -337,6 +339,19 @@ export default function CustomerOverview() {
             setUploadError(err instanceof Error ? err.message : 'Upload failed');
         } finally {
             setUploading(false);
+        }
+    };
+
+    const handleDownload = async (docId: number) => {
+        if (!id) return;
+        setDownloadingId(docId);
+        try {
+            const { download_url } = await getCustomerDocumentDownloadUrl(id, docId);
+            window.open(download_url, '_blank', 'noopener,noreferrer');
+        } catch (e) {
+            console.error('Download failed', e);
+        } finally {
+            setDownloadingId(null);
         }
     };
 
@@ -1138,13 +1153,24 @@ export default function CustomerOverview() {
                                 return visible.map((doc) => {
                                     const categoryLabel = CATEGORY_LABELS[doc.category] ?? doc.category;
                                     const normalBorder = 'rgba(255,255,255,.07)';
+                                    const isOpening = downloadingId === doc.id;
                                     return (
                                         <div
                                             key={doc.id}
+                                            role="button"
+                                            tabIndex={0}
+                                            onClick={() => handleDownload(doc.id)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter' || e.key === ' ') {
+                                                    e.preventDefault();
+                                                    handleDownload(doc.id);
+                                                }
+                                            }}
                                             style={{
                                                 background: 'var(--bg3,#0f1f33)', border: `1px solid ${normalBorder}`,
                                                 borderRadius: 10, padding: '10px 12px', cursor: 'pointer',
-                                                transition: 'border-color .15s',
+                                                transition: 'border-color .15s, opacity .15s',
+                                                opacity: isOpening ? 0.55 : 1,
                                             }}
                                             onMouseEnter={(e: React.MouseEvent<HTMLDivElement>) => { e.currentTarget.style.borderColor = '#FACC15'; }}
                                             onMouseLeave={(e: React.MouseEvent<HTMLDivElement>) => { e.currentTarget.style.borderColor = normalBorder; }}
@@ -1161,7 +1187,7 @@ export default function CustomerOverview() {
                                             </div>
                                             <div style={{ fontSize: 10, color: 'var(--t2,#8BA3C7)' }}>{categoryLabel}</div>
                                             <div style={{ fontSize: 10, color: 'var(--t3,#3E5678)', marginTop: 3 }}>
-                                                {formatDocUploadedAt(doc.uploaded_at)}
+                                                {isOpening ? 'Opening…' : formatDocUploadedAt(doc.uploaded_at)}
                                             </div>
                                         </div>
                                     );
