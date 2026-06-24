@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -37,6 +37,7 @@ import {
     compareLedgerByDateAsc,
     compareLedgerByDateDesc,
     listCustomerDocuments,
+    uploadCustomerDocument,
     type Customer,
     type CustomerDocument,
     type Payment
@@ -299,22 +300,45 @@ export default function CustomerOverview() {
     const [docs, setDocs] = useState<CustomerDocument[]>([]);
     const [docsLoading, setDocsLoading] = useState(false);
     const [docsError, setDocsError] = useState<string | null>(null);
+    const [uploadCategory, setUploadCategory] = useState<string>('cheque');
+    const [uploading, setUploading] = useState(false);
+    const [uploadError, setUploadError] = useState<string | null>(null);
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+    const loadDocs = useCallback(async () => {
+        if (!id) return;
+        setDocsLoading(true);
+        setDocsError(null);
+        try {
+            const rows = await listCustomerDocuments(id);
+            setDocs(rows);
+        } catch (e: unknown) {
+            setDocsError(e instanceof Error ? e.message : 'Failed to load documents');
+        } finally {
+            setDocsLoading(false);
+        }
+    }, [id]);
 
     useEffect(() => {
         if (!showDocVault || !id) return;
-        let cancelled = false;
-        setDocsLoading(true);
-        setDocsError(null);
-        listCustomerDocuments(id)
-            .then((rows) => { if (!cancelled) setDocs(rows); })
-            .catch((e) => {
-                if (!cancelled) {
-                    setDocsError(e instanceof Error ? e.message : 'Failed to load documents');
-                }
-            })
-            .finally(() => { if (!cancelled) setDocsLoading(false); });
-        return () => { cancelled = true; };
-    }, [showDocVault, id]);
+        loadDocs();
+    }, [showDocVault, id, loadDocs]);
+
+    const handleFileChosen = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file || !id) return;
+        setUploading(true);
+        setUploadError(null);
+        try {
+            await uploadCustomerDocument(id, file, uploadCategory);
+            await loadDocs();
+        } catch (err: unknown) {
+            setUploadError(err instanceof Error ? err.message : 'Upload failed');
+        } finally {
+            setUploading(false);
+        }
+    };
 
     // Check for tab parameter in URL
     useEffect(() => {
@@ -989,6 +1013,13 @@ export default function CustomerOverview() {
             {/* ── V3 Document vault — conditional, between stats and tabs ── */}
             {showDocVault && (
                 <div style={{ background: 'var(--bg0,#060f1c)' }}>
+                    <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,application/pdf"
+                        style={{ display: 'none' }}
+                        onChange={handleFileChosen}
+                    />
                     <div style={{
                         background: 'var(--bg2,#0a1726)',
                         border: '1px solid rgba(250,204,21,.25)', borderRadius: 12,
@@ -1015,17 +1046,54 @@ export default function CustomerOverview() {
                                     Click any document to view or replace
                                 </div>
                             </div>
-                            <button
-                                type="button"
-                                style={{
-                                    background: '#FEF08A', color: '#713F12', border: '1px solid #FACC15',
-                                    borderRadius: 8, padding: '5px 11px', fontSize: 10,
-                                    fontWeight: 600, cursor: 'pointer',
-                                }}
-                            >
-                                📤 Upload
-                            </button>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <select
+                                    value={uploadCategory}
+                                    onChange={(e) => setUploadCategory(e.target.value)}
+                                    disabled={uploading}
+                                    style={{
+                                        background: 'var(--bg3,#0f1f33)',
+                                        color: 'var(--t,#EEF2FF)',
+                                        border: '1px solid rgba(255,255,255,.12)',
+                                        borderRadius: 8,
+                                        padding: '5px 8px',
+                                        fontSize: 10,
+                                        fontWeight: 500,
+                                        cursor: uploading ? 'not-allowed' : 'pointer',
+                                        opacity: uploading ? 0.6 : 1,
+                                    }}
+                                >
+                                    {Object.entries(CATEGORY_LABELS).map(([value, label]) => (
+                                        <option key={value} value={value}>{label}</option>
+                                    ))}
+                                </select>
+                                <button
+                                    type="button"
+                                    disabled={uploading}
+                                    onClick={() => fileInputRef.current?.click()}
+                                    style={{
+                                        background: '#FEF08A', color: '#713F12', border: '1px solid #FACC15',
+                                        borderRadius: 8, padding: '5px 11px', fontSize: 10,
+                                        fontWeight: 600,
+                                        cursor: uploading ? 'not-allowed' : 'pointer',
+                                        opacity: uploading ? 0.6 : 1,
+                                    }}
+                                >
+                                    {uploading ? 'Uploading…' : '📤 Upload'}
+                                </button>
+                            </div>
                         </div>
+
+                        {uploadError && (
+                            <div style={{
+                                padding: '6px 14px',
+                                fontSize: 11,
+                                color: '#FCA5A5',
+                                borderBottom: '1px solid rgba(250,204,21,.15)',
+                            }}>
+                                {uploadError}
+                            </div>
+                        )}
 
                         <div style={{ display: 'flex', gap: 5, padding: '8px 12px 4px', flexWrap: 'wrap' }}>
                             {DOC_FILTER_OPTIONS.map(tag => (
@@ -1101,13 +1169,27 @@ export default function CustomerOverview() {
                             })()}
 
                             <div
+                                role="button"
+                                tabIndex={uploading ? -1 : 0}
+                                aria-disabled={uploading}
+                                onClick={() => { if (!uploading) fileInputRef.current?.click(); }}
+                                onKeyDown={(e) => {
+                                    if (!uploading && (e.key === 'Enter' || e.key === ' ')) {
+                                        e.preventDefault();
+                                        fileInputRef.current?.click();
+                                    }
+                                }}
                                 style={{
                                     background: 'rgba(250,204,21,.04)', border: '1px dashed rgba(250,204,21,.3)',
-                                    borderRadius: 10, padding: '10px 12px', cursor: 'pointer', display: 'flex',
+                                    borderRadius: 10, padding: '10px 12px',
+                                    cursor: uploading ? 'not-allowed' : 'pointer',
+                                    display: 'flex',
                                     flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                                     gap: 5, textAlign: 'center', minHeight: 92,
+                                    opacity: uploading ? 0.6 : 1,
                                 }}
                                 onMouseEnter={(e: React.MouseEvent<HTMLDivElement>) => {
+                                    if (uploading) return;
                                     e.currentTarget.style.borderColor = '#FACC15';
                                     e.currentTarget.style.background = 'rgba(250,204,21,.1)';
                                 }}
@@ -1116,8 +1198,10 @@ export default function CustomerOverview() {
                                     e.currentTarget.style.background = 'rgba(250,204,21,.04)';
                                 }}
                             >
-                                <span style={{ fontSize: 20 }}>☁</span>
-                                <div style={{ fontSize: 11, color: 'var(--t2,#8BA3C7)' }}>Upload new document</div>
+                                <span style={{ fontSize: 20 }}>{uploading ? '⏳' : '☁'}</span>
+                                <div style={{ fontSize: 11, color: 'var(--t2,#8BA3C7)' }}>
+                                    {uploading ? 'Uploading…' : 'Upload new document'}
+                                </div>
                             </div>
                         </div>
                     </div>
