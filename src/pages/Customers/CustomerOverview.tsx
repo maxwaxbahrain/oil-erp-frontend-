@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -163,33 +163,50 @@ const generateCustomerLedgerExcel = (customer: Customer, ledger: LedgerEntry[]) 
     document.body.removeChild(link);
 };
 
-// ─── Document vault — category labels + filter tabs ──────────
-const DOC_FILTER_OPTIONS = ['All', 'Cheque', 'Tax forms', 'Agreements', 'ID & compliance', 'Other'] as const;
+// ─── Document vault — fixed named slots + filter tabs ──────────
+const DOC_FILTER_OPTIONS = ['All', 'Cheque', 'Tax forms', 'Agreements', 'ID & compliance'] as const;
 type DocFilter = typeof DOC_FILTER_OPTIONS[number];
 
-const CATEGORY_LABELS: Record<string, string> = {
-    cheque: 'Cheque',
-    tax_form: 'Tax forms',
-    agreement: 'Agreements',
-    id_compliance: 'ID & compliance',
-    other: 'Other',
-};
+interface DocSlot {
+    key: string;
+    name: string;
+    category: string;
+    docType: string;
+    note: string;
+    icon: string;
+}
 
-const LABEL_TO_CATEGORY: Record<string, string> = {
-    Cheque: 'cheque',
-    'Tax forms': 'tax_form',
-    Agreements: 'agreement',
-    'ID & compliance': 'id_compliance',
-    Other: 'other',
-};
+const DOC_SLOTS: DocSlot[] = [
+    { key: 'cheque', name: 'Cheque', category: 'cheque', docType: 'Cheque', note: 'Customer cheque on file', icon: '💵' },
+    { key: 'w9', name: 'W-9 Form', category: 'tax_form', docType: 'Tax forms', note: 'Tax ID declaration', icon: '📋' },
+    { key: 'corp_tax', name: '1120 — Corp tax', category: 'tax_form', docType: 'Tax forms', note: 'Required for credit limit', icon: '📄' },
+    { key: 'trade_licence', name: 'Trade licence', category: 'id_compliance', docType: 'ID & compliance', note: 'Business licence', icon: '🏢' },
+    { key: 'credit_agmt', name: 'Credit agreement', category: 'agreement', docType: 'Agreements', note: 'Signed credit terms', icon: '🤝' },
+    { key: 'passport', name: 'Passport copy', category: 'id_compliance', docType: 'ID & compliance', note: 'Owner ID on file', icon: '🪪' },
+    { key: 'bank_letter', name: 'Bank letter', category: 'agreement', docType: 'Agreements', note: 'Account confirmation', icon: '🏦' },
+];
 
-const CATEGORY_ICONS: Record<string, string> = {
-    cheque: '📋',
-    tax_form: '📄',
-    agreement: '🤝',
-    id_compliance: '🪪',
-    other: '📎',
-};
+const UPLOAD_CATEGORY_OPTIONS = [
+    { value: 'cheque', label: 'Cheque' },
+    { value: 'tax_form', label: 'Tax forms' },
+    { value: 'agreement', label: 'Agreements' },
+    { value: 'id_compliance', label: 'ID & compliance' },
+    { value: 'other', label: 'Other' },
+] as const;
+
+type DocSlotStatus = 'ok' | 'missing' | 'expiring';
+
+// Backend stores category only (no slot_key). Any doc in a category marks every slot
+// of that category "On file" with the same most-recent doc. Future: add slot_key to customer_documents.
+function getMostRecentDocForCategory(docs: CustomerDocument[], category: string): CustomerDocument | null {
+    const inCategory = docs.filter((d) => d.category === category);
+    if (inCategory.length === 0) return null;
+    return [...inCategory].sort((a, b) => {
+        const ta = a.uploaded_at ? new Date(a.uploaded_at).getTime() : 0;
+        const tb = b.uploaded_at ? new Date(b.uploaded_at).getTime() : 0;
+        return tb - ta;
+    })[0];
+}
 
 function formatDocUploadedAt(iso: string | null | undefined): string {
     if (!iso) return '—';
@@ -352,6 +369,32 @@ export default function CustomerOverview() {
             console.error('Download failed', e);
         } finally {
             setDownloadingId(null);
+        }
+    };
+
+    const slotRows = useMemo(() => {
+        return DOC_SLOTS.map((slot) => {
+            const matchedDoc = getMostRecentDocForCategory(docs, slot.category);
+            const status: DocSlotStatus = matchedDoc ? 'ok' : 'missing';
+            return { slot, matchedDoc, status };
+        });
+    }, [docs]);
+
+    const docsOnFileCount = slotRows.filter((row) => row.status === 'ok').length;
+    const docsMissingCount = DOC_SLOTS.length - docsOnFileCount;
+
+    const openUploadPicker = (category?: string) => {
+        if (uploading) return;
+        if (category) setUploadCategory(category);
+        fileInputRef.current?.click();
+    };
+
+    const handleSlotClick = (slot: DocSlot, matchedDoc: CustomerDocument | null) => {
+        if (uploading) return;
+        if (matchedDoc) {
+            void handleDownload(matchedDoc.id);
+        } else {
+            openUploadPicker(slot.category);
         }
     };
 
@@ -944,6 +987,14 @@ export default function CustomerOverview() {
                         }}
                     >
                         📁 Documents
+                        {docsMissingCount > 0 && (
+                            <span style={{
+                                background: 'rgba(239,68,68,.2)', color: '#B91C1C',
+                                fontSize: 9, padding: '1px 5px', borderRadius: 6, fontWeight: 700,
+                            }}>
+                                {docsMissingCount} missing
+                            </span>
+                        )}
                     </button>
                 </div>
             </div>
@@ -1054,7 +1105,7 @@ export default function CustomerOverview() {
                                         background: '#FEF9C3', color: '#713F12', fontSize: 9,
                                         fontWeight: 700, padding: '2px 7px', borderRadius: 8,
                                     }}>
-                                        {docs.length} docs
+                                        {docsOnFileCount} on file · {docsMissingCount} missing
                                     </span>
                                 </div>
                                 <div style={{ fontSize: 10, color: 'var(--t3,#3E5678)' }}>
@@ -1078,14 +1129,14 @@ export default function CustomerOverview() {
                                         opacity: uploading ? 0.6 : 1,
                                     }}
                                 >
-                                    {Object.entries(CATEGORY_LABELS).map(([value, label]) => (
+                                    {UPLOAD_CATEGORY_OPTIONS.map(({ value, label }) => (
                                         <option key={value} value={value}>{label}</option>
                                     ))}
                                 </select>
                                 <button
                                     type="button"
                                     disabled={uploading}
-                                    onClick={() => fileInputRef.current?.click()}
+                                    onClick={() => openUploadPicker()}
                                     style={{
                                         background: '#FEF08A', color: '#713F12', border: '1px solid #FACC15',
                                         borderRadius: 8, padding: '5px 11px', fontSize: 10,
@@ -1122,7 +1173,7 @@ export default function CustomerOverview() {
                                         color: docFilter === tag ? '#713F12' : 'var(--t2,#8BA3C7)',
                                     }}
                                 >
-                                    {tag}{tag === 'All' ? ` (${docs.length})` : ''}
+                                    {tag}{tag === 'All' ? ` (${DOC_SLOTS.length})` : ''}
                                 </span>
                             ))}
                         </div>
@@ -1139,66 +1190,78 @@ export default function CustomerOverview() {
                                 <div style={{ gridColumn: '1 / -1', fontSize: 11, color: '#B91C1C', padding: '8px 4px' }}>
                                     {docsError}
                                 </div>
-                            ) : (() => {
-                                const visible = docFilter === 'All'
-                                    ? docs
-                                    : docs.filter((d) => d.category === LABEL_TO_CATEGORY[docFilter]);
-                                if (visible.length === 0) {
-                                    return (
-                                        <div style={{ gridColumn: '1 / -1', fontSize: 11, color: 'var(--t2,#8BA3C7)', padding: '8px 4px' }}>
-                                            No documents yet
-                                        </div>
-                                    );
-                                }
-                                return visible.map((doc) => {
-                                    const categoryLabel = CATEGORY_LABELS[doc.category] ?? doc.category;
-                                    const normalBorder = 'rgba(255,255,255,.07)';
-                                    const isOpening = downloadingId === doc.id;
+                            ) : slotRows
+                                .filter(({ slot }) => docFilter === 'All' || slot.docType === docFilter)
+                                .map(({ slot, matchedDoc, status }) => {
+                                    const normalBorder = status === 'missing'
+                                        ? 'rgba(239,68,68,.3)' : 'rgba(255,255,255,.07)';
+                                    const badgeBg = status === 'ok' ? 'rgba(34,197,94,.12)'
+                                        : status === 'missing' ? 'rgba(239,68,68,.12)' : '#FEF9C3';
+                                    const badgeColor = status === 'ok' ? '#16A34A'
+                                        : status === 'missing' ? '#B91C1C' : '#92400E';
+                                    const badgeLabel = status === 'ok' ? '✓ On file'
+                                        : status === 'missing' ? '⚠ Missing' : '↻ Expiring';
+                                    const isOpening = matchedDoc != null && downloadingId === matchedDoc.id;
+                                    const uploadDate = matchedDoc ? formatDocUploadedAt(matchedDoc.uploaded_at) : '';
                                     return (
                                         <div
-                                            key={doc.id}
+                                            key={slot.key}
                                             role="button"
-                                            tabIndex={0}
-                                            onClick={() => handleDownload(doc.id)}
+                                            tabIndex={uploading ? -1 : 0}
+                                            onClick={() => handleSlotClick(slot, matchedDoc)}
                                             onKeyDown={(e) => {
-                                                if (e.key === 'Enter' || e.key === ' ') {
+                                                if (!uploading && (e.key === 'Enter' || e.key === ' ')) {
                                                     e.preventDefault();
-                                                    handleDownload(doc.id);
+                                                    handleSlotClick(slot, matchedDoc);
                                                 }
                                             }}
                                             style={{
                                                 background: 'var(--bg3,#0f1f33)', border: `1px solid ${normalBorder}`,
-                                                borderRadius: 10, padding: '10px 12px', cursor: 'pointer',
+                                                borderRadius: 10, padding: '10px 12px',
+                                                cursor: uploading ? 'not-allowed' : 'pointer',
                                                 transition: 'border-color .15s, opacity .15s',
                                                 opacity: isOpening ? 0.55 : 1,
                                             }}
-                                            onMouseEnter={(e: React.MouseEvent<HTMLDivElement>) => { e.currentTarget.style.borderColor = '#FACC15'; }}
-                                            onMouseLeave={(e: React.MouseEvent<HTMLDivElement>) => { e.currentTarget.style.borderColor = normalBorder; }}
+                                            onMouseEnter={(e: React.MouseEvent<HTMLDivElement>) => {
+                                                if (uploading) return;
+                                                e.currentTarget.style.borderColor = '#FACC15';
+                                            }}
+                                            onMouseLeave={(e: React.MouseEvent<HTMLDivElement>) => {
+                                                e.currentTarget.style.borderColor = normalBorder;
+                                            }}
                                         >
                                             <div style={{
                                                 width: 36, height: 36, borderRadius: 8, background: '#FEF9C3',
                                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                                                 fontSize: 17, marginBottom: 7,
                                             }}>
-                                                {CATEGORY_ICONS[doc.category] ?? '📄'}
+                                                {slot.icon}
                                             </div>
                                             <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--t,#EEF2FF)', marginBottom: 2 }}>
-                                                {doc.file_name}
+                                                {slot.name}
                                             </div>
-                                            <div style={{ fontSize: 10, color: 'var(--t2,#8BA3C7)' }}>{categoryLabel}</div>
-                                            <div style={{ fontSize: 10, color: 'var(--t3,#3E5678)', marginTop: 3 }}>
-                                                {isOpening ? 'Opening…' : formatDocUploadedAt(doc.uploaded_at)}
+                                            <div style={{ fontSize: 10, color: 'var(--t2,#8BA3C7)' }}>{slot.note}</div>
+                                            <div style={{
+                                                fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 8,
+                                                display: 'inline-block', marginTop: 4,
+                                                background: badgeBg, color: badgeColor,
+                                            }}>
+                                                {isOpening ? 'Opening…' : badgeLabel}
                                             </div>
+                                            {status === 'ok' && uploadDate && (
+                                                <div style={{ fontSize: 10, color: 'var(--t3,#3E5678)', marginTop: 3 }}>
+                                                    {uploadDate}
+                                                </div>
+                                            )}
                                         </div>
                                     );
-                                });
-                            })()}
+                                })}
 
                             <div
                                 role="button"
                                 tabIndex={uploading ? -1 : 0}
                                 aria-disabled={uploading}
-                                onClick={() => { if (!uploading) fileInputRef.current?.click(); }}
+                                onClick={() => openUploadPicker()}
                                 onKeyDown={(e) => {
                                     if (!uploading && (e.key === 'Enter' || e.key === ' ')) {
                                         e.preventDefault();
