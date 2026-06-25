@@ -323,6 +323,7 @@ export default function CustomerOverview() {
     const [uploadError, setUploadError] = useState<string | null>(null);
     const [downloadingId, setDownloadingId] = useState<number | null>(null);
     const [showChequeModal, setShowChequeModal] = useState(false);
+    const [showOtherModal, setShowOtherModal] = useState(false);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
 
     const loadDocs = useCallback(async () => {
@@ -385,6 +386,13 @@ export default function CustomerOverview() {
         () => docs
             .filter((d) => d.category === 'cheque')
             .sort((a, b) => (b.uploaded_at || '').localeCompare(a.uploaded_at || '')),
+        [docs],
+    );
+
+    const otherDocs = useMemo(
+        () => docs
+            .filter((d) => d.category === 'other')
+            .sort((a, b) => String(b.uploaded_at || '').localeCompare(String(a.uploaded_at || ''))),
         [docs],
     );
 
@@ -1284,6 +1292,72 @@ export default function CustomerOverview() {
                                     );
                                 })}
 
+                            {docFilter === 'All' && (() => {
+                                const otherCount = otherDocs.length;
+                                const hasOther = otherCount > 0;
+                                const otherBorder = hasOther
+                                    ? 'rgba(34,197,94,.3)'
+                                    : 'rgba(79,113,255,.4)';
+                                const statusLabel = hasOther
+                                    ? `${otherCount} on file`
+                                    : '+ Upload';
+                                const statusColor = hasOther ? '#16A34A' : '#4f71ff';
+                                return (
+                                    <div
+                                        key="other-documents"
+                                        role="button"
+                                        tabIndex={uploading ? -1 : 0}
+                                        onClick={() => {
+                                            if (uploading) return;
+                                            if (otherDocs.length > 0) setShowOtherModal(true);
+                                            else openUploadPicker('other');
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (!uploading && (e.key === 'Enter' || e.key === ' ')) {
+                                                e.preventDefault();
+                                                if (otherDocs.length > 0) setShowOtherModal(true);
+                                                else openUploadPicker('other');
+                                            }
+                                        }}
+                                        style={{
+                                            background: 'var(--bg3,#0f1f33)',
+                                            border: `1px solid ${otherBorder}`,
+                                            borderRadius: 10,
+                                            padding: '10px 12px',
+                                            cursor: uploading ? 'not-allowed' : 'pointer',
+                                            transition: 'border-color .15s, opacity .15s',
+                                        }}
+                                        onMouseEnter={(e: React.MouseEvent<HTMLDivElement>) => {
+                                            if (uploading) return;
+                                            e.currentTarget.style.borderColor = '#FACC15';
+                                        }}
+                                        onMouseLeave={(e: React.MouseEvent<HTMLDivElement>) => {
+                                            e.currentTarget.style.borderColor = otherBorder;
+                                        }}
+                                    >
+                                        <div style={{
+                                            width: 36, height: 36, borderRadius: 8, background: '#FEF9C3',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            fontSize: 17, marginBottom: 7,
+                                        }}>
+                                            📎
+                                        </div>
+                                        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--t,#EEF2FF)', marginBottom: 2 }}>
+                                            Other documents
+                                        </div>
+                                        <div style={{ fontSize: 10, color: 'var(--t2,#8BA3C7)' }}>Anything else</div>
+                                        <div style={{
+                                            fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 8,
+                                            display: 'inline-block', marginTop: 4,
+                                            background: hasOther ? 'rgba(34,197,94,.12)' : 'rgba(79,113,255,.12)',
+                                            color: statusColor,
+                                        }}>
+                                            {statusLabel}
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+
                             <div
                                 role="button"
                                 tabIndex={uploading ? -1 : 0}
@@ -1439,6 +1513,185 @@ export default function CustomerOverview() {
                                     ) : (
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                                             {chequeDocs.map((d) => {
+                                                const isOpening = downloadingId === d.id;
+                                                return (
+                                                    <div
+                                                        key={d.id}
+                                                        style={{
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: 10,
+                                                            padding: '10px 12px',
+                                                            background: 'var(--bg3,#0f1f33)',
+                                                            border: '1px solid rgba(255,255,255,.08)',
+                                                            borderRadius: 10,
+                                                        }}
+                                                    >
+                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                            <div style={{
+                                                                fontSize: 12,
+                                                                fontWeight: 600,
+                                                                color: 'var(--t,#EEF2FF)',
+                                                                marginBottom: 2,
+                                                            }}>
+                                                                {formatDocUploadedAt(d.uploaded_at)}
+                                                            </div>
+                                                            <div style={{
+                                                                fontSize: 10,
+                                                                color: 'var(--t2,#8BA3C7)',
+                                                                overflow: 'hidden',
+                                                                textOverflow: 'ellipsis',
+                                                                whiteSpace: 'nowrap',
+                                                            }}>
+                                                                {d.file_name}
+                                                            </div>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            disabled={isOpening}
+                                                            onClick={() => void handleDownload(d.id)}
+                                                            style={{
+                                                                flexShrink: 0,
+                                                                background: 'rgba(250,204,21,.12)',
+                                                                color: '#713F12',
+                                                                border: '1px solid rgba(250,204,21,.35)',
+                                                                borderRadius: 8,
+                                                                padding: '5px 10px',
+                                                                fontSize: 10,
+                                                                fontWeight: 600,
+                                                                cursor: isOpening ? 'not-allowed' : 'pointer',
+                                                                opacity: isOpening ? 0.6 : 1,
+                                                            }}
+                                                        >
+                                                            {isOpening ? 'Opening…' : 'Open'}
+                                                        </button>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {showOtherModal && (
+                        <div
+                            role="presentation"
+                            onClick={() => setShowOtherModal(false)}
+                            style={{
+                                position: 'fixed',
+                                inset: 0,
+                                zIndex: 1000,
+                                background: 'rgba(0,0,0,.65)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                padding: 16,
+                            }}
+                        >
+                            <div
+                                role="dialog"
+                                aria-modal="true"
+                                aria-labelledby="other-modal-title"
+                                onClick={(e) => e.stopPropagation()}
+                                style={{
+                                    width: '100%',
+                                    maxWidth: 560,
+                                    maxHeight: '70vh',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    background: 'var(--bg2,#0a1726)',
+                                    border: '1px solid rgba(250,204,21,.35)',
+                                    borderRadius: 12,
+                                    overflow: 'hidden',
+                                    boxShadow: '0 20px 50px rgba(0,0,0,.45)',
+                                }}
+                            >
+                                <div style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: 10,
+                                    padding: '12px 14px',
+                                    borderBottom: '1px solid rgba(250,204,21,.2)',
+                                }}>
+                                    <div
+                                        id="other-modal-title"
+                                        style={{ fontSize: 13, fontWeight: 700, color: 'var(--t,#EEF2FF)' }}
+                                    >
+                                        Other documents — {customer.name}
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <button
+                                            type="button"
+                                            disabled={uploading}
+                                            onClick={() => openUploadPicker('other')}
+                                            style={{
+                                                background: '#FEF08A',
+                                                color: '#713F12',
+                                                border: '1px solid #FACC15',
+                                                borderRadius: 8,
+                                                padding: '5px 10px',
+                                                fontSize: 10,
+                                                fontWeight: 600,
+                                                cursor: uploading ? 'not-allowed' : 'pointer',
+                                                opacity: uploading ? 0.6 : 1,
+                                            }}
+                                        >
+                                            + Add document
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowOtherModal(false)}
+                                            aria-label="Close"
+                                            style={{
+                                                background: 'transparent',
+                                                border: '1px solid rgba(255,255,255,.15)',
+                                                borderRadius: 8,
+                                                width: 28,
+                                                height: 28,
+                                                color: 'var(--t2,#8BA3C7)',
+                                                fontSize: 16,
+                                                lineHeight: 1,
+                                                cursor: 'pointer',
+                                            }}
+                                        >
+                                            ×
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div style={{ overflowY: 'auto', padding: '10px 14px 14px' }}>
+                                    {otherDocs.length === 0 ? (
+                                        <div style={{
+                                            textAlign: 'center',
+                                            padding: '24px 12px',
+                                            color: 'var(--t2,#8BA3C7)',
+                                            fontSize: 12,
+                                        }}>
+                                            <div style={{ marginBottom: 12 }}>No documents yet</div>
+                                            <button
+                                                type="button"
+                                                disabled={uploading}
+                                                onClick={() => openUploadPicker('other')}
+                                                style={{
+                                                    background: '#FEF08A',
+                                                    color: '#713F12',
+                                                    border: '1px solid #FACC15',
+                                                    borderRadius: 8,
+                                                    padding: '6px 12px',
+                                                    fontSize: 11,
+                                                    fontWeight: 600,
+                                                    cursor: uploading ? 'not-allowed' : 'pointer',
+                                                }}
+                                            >
+                                                Add document
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                            {otherDocs.map((d) => {
                                                 const isOpening = downloadingId === d.id;
                                                 return (
                                                     <div
