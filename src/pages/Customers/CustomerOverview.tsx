@@ -2635,10 +2635,14 @@ export default function CustomerOverview() {
                                                         </td>
                                                         <td style={{ ...ledgerTdStyle, textAlign: 'center' }}>
                                                             {doc.docType === 'Invoice' ? (() => {
+                                                                // FIX #2B — badge reflects the API's DERIVED status
+                                                                // (mapApiInvoiceToInvoice → inv.status, from 2A
+                                                                // allocation rows), not a locally recomputed balance.
                                                                 const grand = Number((doc as any).grandTotal) || 0;
                                                                 const rb = Number((doc as any).remaining_balance ?? grand);
-                                                                const isPaid = rb <= 0.005;
-                                                                const isPartial = !isPaid && rb < grand;
+                                                                const status = String((doc as any).status ?? '').toLowerCase();
+                                                                const isPaid = status === 'paid';
+                                                                const isPartial = status === 'partial';
                                                                 const bg = isPaid ? 'rgba(34,197,94,.12)'
                                                                     : isPartial ? 'rgba(245,158,11,.12)'
                                                                     : 'rgba(239,68,68,.12)';
