@@ -4,7 +4,6 @@ import {
   type Customer,
   createPayment,
   getUnpaidInvoices,
-  updateInvoicePayment,
   getCustomerAdvanceBalance,
   type Invoice
 } from '../../services/api';
@@ -44,7 +43,12 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
 
   // Invoice linking
-  const [isAdvancePayment, setIsAdvancePayment] = useState(false);
+  // FIX #2B — opening balance is now an allocable LINE that coexists with
+  // invoice selections (was: an "advance mode" toggle that wiped the invoice
+  // selection). When checked, `openingBalanceAmount` is sent as an allocation
+  // line with invoice_id=null (backend applies_to='opening_balance').
+  const [includeOpeningBalance, setIncludeOpeningBalance] = useState(false);
+  const [openingBalanceAmount, setOpeningBalanceAmount] = useState<number>(0);
   // ITEM 5E — Multi-invoice support. Was: single selectedInvoiceId.
   // Now: an array of selected ids. Single-invoice flow still works
   // (just one item in the array); multi-invoice auto-sums amounts.
@@ -94,14 +98,12 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
     }
   }, [customer.id]);
 
-  // ITEM 5F — Defensive client-side filter: hide any invoice that has
-  // remaining_balance ≤ 0 even if the service layer somehow returns it.
-  // Prevents the bug where a just-paid invoice keeps appearing on the
-  // payment modal until the backend recomputes its status string.
-  const openInvoices = unpaidInvoices.filter(inv => {
-    const rb = Number(inv.remaining_balance ?? inv.grandTotal ?? 0);
-    return rb > 0.005;
-  });
+  // FIX #2B — the outstanding set is EXACTLY what the API returns via
+  // getUnpaidInvoices, which is derived from PaymentAllocation rows by the 2A
+  // backend. No client-side balance re-filter (the old `rb > 0.005` over a
+  // locally-held balance is exactly how a settled invoice used to "look"
+  // cleared while the ledger was wrong). Display each invoice's API balance.
+  const openInvoices = unpaidInvoices;
 
   // ITEM 5E — Auto-sum amount when invoices are selected. With 1 invoice,
   // amount stays editable so the user can partial-pay. With N>1, amount
@@ -114,6 +116,12 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
   );
   // For backward-compat with the existing details panel, expose the first selected.
   const selectedInvoice = selectedInvoices.length === 1 ? selectedInvoices[0] : null;
+
+  // FIX #2B — the invoice portion (single invoice = editable `amount` so partial
+  // pay still works; multiple = auto-sum of each invoice's API remaining) plus
+  // the optional opening-balance line. Used for the preview + submitted total.
+  const invoicesPortion = selectedInvoices.length === 1 ? amount : selectedInvoicesTotal;
+  const previewTotal = invoicesPortion + (includeOpeningBalance ? openingBalanceAmount : 0);
 
   useEffect(() => {
     if (selectedInvoiceIds.length === 0) return;
@@ -159,8 +167,9 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
       setInitialLoadDone(true);
       return;
     }
-    if (openInvoices.length === 0 && selectedInvoiceIds.length === 0 && !isAdvancePayment) {
-      setIsAdvancePayment(true);
+    if (openInvoices.length === 0 && selectedInvoiceIds.length === 0 && !includeOpeningBalance) {
+      // No open invoices → default to the opening-balance line so the form is usable.
+      setIncludeOpeningBalance(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openInvoices.length]);
@@ -168,155 +177,108 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (amount <= 0) {
+    // FIX #2B — validate against the combined total (invoices + opening line).
+    const hasInvoices = selectedInvoiceIds.length > 0;
+    const hasOpening = includeOpeningBalance && openingBalanceAmount > 0.005;
+    if (!hasInvoices && !hasOpening) {
+      alert('Select at least one invoice, or enter an opening-balance amount.');
+      return;
+    }
+    if (previewTotal <= 0.005) {
       alert('Please enter a valid payment amount');
       return;
     }
 
-    if (!isAdvancePayment && selectedInvoiceIds.length === 0) {
-      alert('Please select at least one invoice or mark as advance payment');
-      return;
-    }
-
-    // Single-invoice excess check (multi-invoice flow uses each
-    // invoice's full remaining_balance, so excess can't happen there).
-    if (!isAdvancePayment && selectedInvoices.length === 1 && selectedInvoice) {
-      const invoiceBalance = Number(selectedInvoice.remaining_balance ?? selectedInvoice.grandTotal ?? 0);
-      if (amount > invoiceBalance) {
+    // Single-invoice overpay (with no explicit opening line): the excess is
+    // posted as an opening-balance advance instead of over-allocating the invoice.
+    if (selectedInvoices.length === 1 && selectedInvoice && !includeOpeningBalance) {
+      const remaining = Number(selectedInvoice.remaining_balance ?? 0);
+      if (amount - remaining > 0.005) {
         const proceed = confirm(
-          `Payment amount (${amount}) exceeds invoice balance (${invoiceBalance}).\n\n` +
-          `The excess amount will be recorded as advance payment.\n\nContinue?`
+          `Payment amount (${amount.toFixed(2)}) exceeds the invoice balance (${remaining.toFixed(2)}).\n\n` +
+          `The excess ${(amount - remaining).toFixed(2)} will be recorded as an opening-balance (advance) line.\n\nContinue?`
         );
         if (!proceed) return;
       }
     }
 
+    // Convert a display amount to base currency for the ledger (backend has no
+    // currency column — same approach the rest of the form uses).
+    const toBase = (v: number) =>
+      isForeignCurrency ? Number((v * (exchangeRate || 1)).toFixed(2)) : Number(v);
+
+    // Build the allocation lines the 2A backend settles from. invoice_id=null is
+    // the opening-balance line. Settlement + derived status come back from the
+    // API afterwards — we never compute them here.
+    const allocations: Array<{ invoice_id: number | null; amount: number }> = [];
+    if (selectedInvoices.length === 1 && selectedInvoice) {
+      // Single invoice: honor the editable amount (partial pay), capped at the
+      // API remaining. Any excess becomes an explicit opening-balance line.
+      const remaining = Number(selectedInvoice.remaining_balance ?? 0);
+      const toInvoice = Math.min(amount, remaining);
+      if (toInvoice > 0.005) {
+        allocations.push({ invoice_id: Number(selectedInvoice.id), amount: toBase(toInvoice) });
+      }
+      const excess = amount - toInvoice;
+      if (!includeOpeningBalance && excess > 0.005) {
+        allocations.push({ invoice_id: null, amount: toBase(excess) });
+      }
+    } else {
+      // Multiple invoices: each gets its full API remaining balance.
+      for (const inv of selectedInvoices) {
+        const remaining = Number(inv.remaining_balance ?? 0);
+        if (remaining > 0.005) {
+          allocations.push({ invoice_id: Number(inv.id), amount: toBase(remaining) });
+        }
+      }
+    }
+    // Opening balance is one more line ALONGSIDE the invoices (never a wipe).
+    if (hasOpening) {
+      allocations.push({ invoice_id: null, amount: toBase(openingBalanceAmount) });
+    }
+    if (allocations.length === 0) {
+      alert('Nothing to allocate — check the amounts.');
+      return;
+    }
+
+    const totalBase = Number(allocations.reduce((s, a) => s + a.amount, 0).toFixed(2));
+
     try {
       setLoading(true);
 
-      // ITEM 5E — Multi-invoice payment fan-out. Backend's
-      // /ledger/payment takes ONE invoice_id per POST, so we do N
-      // sequential requests when multiple invoices are selected. Each
-      // invoice gets its full remaining_balance applied. Tracks
-      // failures so partial success surfaces honestly.
-      const succeeded: string[] = [];
-      const failures: Array<{ invoiceNumber?: string; reason: string }> = [];
+      // FIX #2B — ONE payment with an allocations array (was: N fan-out POSTs +
+      // a no-op updateInvoicePayment). The backend writes PaymentAllocation rows
+      // and derives invoice status/outstanding; the outstanding list refetches
+      // from the API when the screen reopens.
+      await createPayment({
+        customer_id: customer.id,
+        amount: totalBase,
+        allocations,
+        payment_method: paymentMethod,
+        reference, notes, payment_date: paymentDate,
+        currency, exchange_rate: exchangeRate, amount_in_base_currency: totalBase,
+        // ITEM 5H — Bank/Cash COA account that received this payment.
+        deposit_account_id: depositAccountId || undefined,
+      });
 
-      if (isAdvancePayment) {
-        const baseAmount = isForeignCurrency ? amountInBase : amount;
-        try {
-          await createPayment({
-            customer_id: customer.id,
-            amount: baseAmount,
-            payment_method: paymentMethod,
-            reference, notes, payment_date: paymentDate,
-            invoice_id: undefined,
-            is_advance: true,
-            currency, exchange_rate: exchangeRate, amount_in_base_currency: baseAmount,
-            // ITEM 5H — Bank/Cash COA account that received this payment.
-            deposit_account_id: depositAccountId || undefined,
-          });
-          succeeded.push('(advance)');
-        } catch (err) {
-          failures.push({ reason: err instanceof Error ? err.message : String(err) });
-        }
-      } else if (selectedInvoices.length === 1 && selectedInvoice) {
-        // Single-invoice path: user-entered amount goes to that invoice
-        // (preserves partial-pay UX). Backward-compatible with prior flow.
-        const baseAmount = isForeignCurrency ? amountInBase : amount;
-        try {
-          await createPayment({
-            customer_id: customer.id,
-            amount: baseAmount,
-            payment_method: paymentMethod,
-            reference, notes, payment_date: paymentDate,
-            invoice_id: selectedInvoiceIds[0],
-            is_advance: false,
-            currency, exchange_rate: exchangeRate, amount_in_base_currency: baseAmount,
-            // ITEM 5H — Bank/Cash COA account that received this payment.
-            deposit_account_id: depositAccountId || undefined,
-          });
-          await updateInvoicePayment(selectedInvoiceIds[0], baseAmount);
-          succeeded.push(selectedInvoice.invoiceNumber || `#${selectedInvoiceIds[0]}`);
-        } catch (err) {
-          failures.push({
-            invoiceNumber: selectedInvoice.invoiceNumber,
-            reason: err instanceof Error ? err.message : String(err),
-          });
-        }
-      } else {
-        // Multi-invoice path: one POST per invoice with its full balance.
-        for (const inv of selectedInvoices) {
-          const invOriginal = Number(inv.remaining_balance ?? inv.grandTotal ?? 0);
-          const invBase = isForeignCurrency
-            ? Number((invOriginal * (exchangeRate || 1)).toFixed(2))
-            : invOriginal;
-          try {
-            await createPayment({
-              customer_id: customer.id,
-              amount: invBase,
-              payment_method: paymentMethod,
-              reference, notes, payment_date: paymentDate,
-              invoice_id: String(inv.id),
-              is_advance: false,
-              currency, exchange_rate: exchangeRate, amount_in_base_currency: invBase,
-              // ITEM 5H — Same deposit account applies to every invoice in the batch.
-              deposit_account_id: depositAccountId || undefined,
-            });
-            await updateInvoicePayment(String(inv.id), invBase);
-            succeeded.push(inv.invoiceNumber || `#${inv.id}`);
-          } catch (err) {
-            failures.push({
-              invoiceNumber: inv.invoiceNumber,
-              reason: err instanceof Error ? err.message : String(err),
-            });
-          }
-        }
-      }
-
-      if (failures.length > 0) {
-        const failList = failures.map(f => `• ${f.invoiceNumber || '?'}: ${f.reason}`).join('\n');
-        alert(
-          `Recorded ${succeeded.length} of ${succeeded.length + failures.length} payments.\n\n` +
-          `Failed:\n${failList}`
-        );
-        if (succeeded.length === 0) {
-          setLoading(false);
-          return; // total failure — don't show success screen
-        }
-      }
-
-      // TASK 4 — Capture a snapshot of the just-submitted payment so the
-      // success screen's Download Receipt button has stable, post-submit
-      // data to render. Includes the linked invoice number (if any) and
-      // any customer code/currency for cleaner PDF metadata.
-      // TASK 9 — Receipt shows the ORIGINAL currency + amount the
-      // customer paid in (not the converted base value) so they get
-      // an accurate record. The backend stores the base amount for
-      // ledger correctness.
-      // ITEM 5E — Receipt invoice list reflects everything that
-      // actually posted (may be a comma-joined list for multi-invoice).
-      const recordedInvoiceNumbers = succeeded
-        .filter(s => s !== '(advance)')
+      // TASK 4/9 — Receipt snapshot. Shows the ORIGINAL currency + total the
+      // customer paid; the backend stored the base amount for ledger correctness.
+      const recordedInvoiceNumbers = selectedInvoices
+        .map(i => i.invoiceNumber || `#${i.id}`)
         .join(', ');
       setReceiptSnapshot({
         customerName: customer.name,
         customerCode: (customer as Customer & { code?: string }).code,
-        amount,
+        amount: previewTotal,
         currency,
         paymentDate,
         paymentMethod,
         reference,
         notes,
-        invoiceNumber: !isAdvancePayment && recordedInvoiceNumbers
-          ? recordedInvoiceNumbers
-          : undefined,
-        isAdvance: isAdvancePayment,
+        invoiceNumber: recordedInvoiceNumbers || undefined,
+        isAdvance: hasOpening && !hasInvoices,
       });
 
-      // TASK 4 — Removed the 2s auto-back. User now actively dismisses
-      // the success screen via the Done button, giving them time to
-      // download the receipt PDF. Resolves ISSUE-U from the W6 trace.
       setSuccess(true);
     } catch (error) {
       console.error('Failed to record payment:', error);
@@ -337,7 +299,7 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
           </div>
           <h2 className="text-2xl font-black text-gray-900 mb-2">Payment Recorded!</h2>
           <p className="text-gray-600 font-medium mb-8">
-            Payment of <span className="font-black text-green-600">${amount.toLocaleString()}</span> has been successfully recorded.
+            Payment of <span className="font-black text-green-600">${(receiptSnapshot?.amount ?? amount).toLocaleString()}</span> has been successfully recorded.
           </p>
 
           {/* TASK 4 — Download Receipt + Done buttons. No more auto-back
@@ -483,47 +445,55 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
 
       {/* Payment Form */}
       <form id="payment-form" onSubmit={handleSubmit} className="bg-white rounded-xl shadow-md border-2 border-gray-200 p-8 space-y-8">
-        {/* Payment Type Toggle */}
-        <div className="bg-gray-50 border-2 border-gray-200 rounded-xl p-6">
+        {/* FIX #2B — Opening-balance line toggle. Does NOT wipe the invoice
+            selection: when on, an amount input appears and an opening-balance
+            allocation (invoice_id=null) is sent ALONGSIDE any selected invoices
+            in the same receipt. */}
+        <div className="bg-gray-50 border-2 border-gray-200 rounded-xl p-6 space-y-4">
           <label className="flex items-center gap-3 cursor-pointer group">
             <input
               type="checkbox"
-              checked={isAdvancePayment}
-              onChange={(e) => {
-                setIsAdvancePayment(e.target.checked);
-                if (e.target.checked) {
-                  // ITEM 5E — Advance mode clears the multi-invoice selection.
-                  setSelectedInvoiceIds([]);
-                  setAmount(0);
-                }
-              }}
+              checked={includeOpeningBalance}
+              onChange={(e) => setIncludeOpeningBalance(e.target.checked)}
               className="w-5 h-5 rounded border-2 border-gray-300 text-[#4F8EF7] focus:ring-2 focus:ring-[#4F8EF7] focus:ring-offset-2"
             />
             <div>
-              {/* ITEM 5G — Relabeled to cover opening-balance-only customers. */}
               <span className="text-sm font-black text-gray-900 group-hover:text-[#4F8EF7] transition-colors">
-                Advance / Opening Balance Payment (no invoice link)
+                Also allocate to Opening Balance / Advance
               </span>
               <p className="text-xs text-gray-500 font-medium mt-1">
-                Record payment without linking to a specific invoice — applies directly to the customer's outstanding balance.
+                Applies part of this payment to the customer's opening balance (no invoice link). Can be combined with the invoices selected below in the same receipt.
               </p>
-              {/* ITEM 5G — Inline note when the customer has no open invoices.
-                  The auto-enable above also flips the checkbox on, but this
-                  explains WHY the form is in advance mode. */}
               {openInvoices.length === 0 && (
                 <p className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 mt-2">
-                  ℹ️ This customer has no open invoices — payment will reduce their outstanding (opening) balance directly.
+                  ℹ️ This customer has no open invoices — record the payment against their opening balance below.
                 </p>
               )}
             </div>
           </label>
+
+          {includeOpeningBalance && (
+            <div className="space-y-2">
+              <label className="block text-xs font-black text-gray-600">
+                Opening Balance Amount <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="number"
+                value={openingBalanceAmount || ''}
+                onChange={(e) => setOpeningBalanceAmount(parseFloat(e.target.value) || 0)}
+                min="0.01"
+                step="0.01"
+                placeholder="0.00"
+                className="w-full pl-4 pr-4 py-3 border-2 border-gray-300 rounded-lg text-base font-mono font-black outline-none focus:border-[#4F8EF7] focus:ring-4 focus:ring-[#4F8EF7]/10 transition-all"
+              />
+            </div>
+          )}
         </div>
 
-        {/* ITEM 5E — Multi-invoice checklist. Replaced single SearchableSelect.
-            Users tick one or many invoices; total auto-sums into the Amount
-            field. Empty state when no unpaid invoices exist tells the user
-            to use the Advance Payment toggle. */}
-        {!isAdvancePayment && (
+        {/* FIX #2B — Multi-invoice checklist, always visible (opening balance no
+            longer hides it). Tick one or many invoices; each posts an allocation
+            line. The outstanding set is the API's allocation-derived list. */}
+        {(
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <label className="block text-xs font-black text-gray-600 ">
@@ -554,7 +524,7 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
               <div className="bg-gray-50 border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
                 <FileText size={24} className="mx-auto text-gray-300 mb-2" />
                 <p className="text-sm font-bold text-gray-500">No unpaid invoices for this customer</p>
-                <p className="text-xs text-gray-400 mt-1">Use "Advance Payment" above to record an unallocated payment.</p>
+                <p className="text-xs text-gray-400 mt-1">Tick "Also allocate to Opening Balance / Advance" above to record an unallocated payment.</p>
               </div>
             ) : (
               <div className="border-2 border-gray-200 rounded-lg max-h-72 overflow-y-auto divide-y divide-gray-100">
@@ -772,14 +742,15 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
           />
         </div>
 
-        {/* Validation Warning */}
-        {!isAdvancePayment && selectedInvoice && amount > (selectedInvoice.remaining_balance || selectedInvoice.grandTotal) && (
+        {/* Validation Warning — single-invoice overpay without an explicit
+            opening line (the excess posts as an opening-balance advance). */}
+        {!includeOpeningBalance && selectedInvoice && amount > Number(selectedInvoice.remaining_balance ?? 0) && (
           <div className="bg-amber-50 border-2 border-amber-300 rounded-lg p-4 flex items-start gap-3">
             <AlertCircle size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
             <div>
               <p className="text-sm font-black text-amber-900">Payment exceeds invoice balance</p>
               <p className="text-xs text-amber-700 font-medium mt-1">
-                The excess amount of ${(amount - (selectedInvoice.remaining_balance || selectedInvoice.grandTotal)).toLocaleString()} will be recorded as advance payment.
+                The excess amount of ${(amount - Number(selectedInvoice.remaining_balance ?? 0)).toLocaleString()} will be recorded as an opening-balance (advance) line.
               </p>
             </div>
           </div>
@@ -864,9 +835,15 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
               </div>
             ))}
 
-          {isAdvancePayment && (
-            <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', padding: '5px 0' }}>
-              Advance payment (no invoice)
+          {includeOpeningBalance && openingBalanceAmount > 0.005 && (
+            <div style={{
+                display: 'flex', justifyContent: 'space-between',
+                padding: '5px 0', borderBottom: '1px solid rgba(255,255,255,.04)', fontSize: 11,
+            }}>
+              <span style={{ color: 'var(--color-text-secondary)' }}>Opening balance (advance)</span>
+              <span style={{ color: 'var(--color-text-danger)', fontWeight: 500 }}>
+                ${Number(openingBalanceAmount).toFixed(2)}
+              </span>
             </div>
           )}
 
@@ -889,7 +866,7 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
             },
             {
               label: 'This payment',
-              value: `− $${Number(amount).toFixed(2)}`,
+              value: `− $${Number(previewTotal).toFixed(2)}`,
               color: 'var(--color-text-success)',
             },
           ].map(row => (
@@ -907,9 +884,10 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
             </div>
           ))}
 
-          {/* After-payment box */}
+          {/* After-payment box — a pre-submit ESTIMATE only (labelled below).
+              The authoritative outstanding state comes from the API refetch. */}
           {(() => {
-            const after = Number((customer as any).balance ?? 0) - Number(amount ?? 0);
+            const after = Number((customer as any).balance ?? 0) - Number(previewTotal ?? 0);
             const isCleared = after <= 0;
             const display = Math.max(0, after);
             return (

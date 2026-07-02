@@ -516,7 +516,21 @@ export const createPayment = (data: any): Promise<any> => {
     date: data.payment_date ?? null,
   };
   if (data.notes) body.notes = data.notes;
-  if (data.invoice_id != null && String(data.invoice_id) !== '') {
+  // FIX #2B — forward per-line allocations to the 2A backend. Each line is
+  // { invoice_id | null, amount, discount }; invoice_id === null means the
+  // opening-balance / advance line (backend applies_to='opening_balance').
+  // The backend derives invoice/PO settlement from these rows — the UI sends
+  // them and then re-reads the API; it never computes settlement locally.
+  if (Array.isArray(data.allocations) && data.allocations.length > 0) {
+    body.allocations = (data.allocations as Array<Record<string, unknown>>).map((a) => ({
+      invoice_id:
+        a.invoice_id == null || String(a.invoice_id) === ''
+          ? null
+          : parseInt(String(a.invoice_id), 10),
+      amount: Number(a.amount),
+      discount: Number(a.discount ?? 0),
+    }));
+  } else if (data.invoice_id != null && String(data.invoice_id) !== '') {
     const iid = parseInt(String(data.invoice_id), 10);
     if (!Number.isNaN(iid)) body.invoice_id = iid;
   }
@@ -996,16 +1010,14 @@ export async function getUnpaidInvoices(customerId: string): Promise<Invoice[]> 
     const allInvoices = await getInvoices();
     return allInvoices.filter(inv => {
       if (inv.customerId !== customerId) return false;
-      // ITEM 5F — Was: `(inv.remaining_balance || inv.grandTotal) > 0`.
-      // The `||` short-circuit: when remaining_balance === 0 (genuinely
-      // paid), it fell through to grandTotal (always > 0), defeating
-      // the filter. Use `??` so 0 is preserved, with a half-cent
-      // tolerance against floating-point dust.
-      const rb = Number(inv.remaining_balance ?? inv.grandTotal ?? 0);
-      if (rb <= 0.005) return false;
-      // Status check is now defensive — rb > 0 is the real signal
-      // (backend's status string may lag after a payment posts).
-      return inv.status === 'Unpaid' || inv.status === 'Partial' || rb > 0.005;
+      // FIX #2B — settlement is the BACKEND's call. `inv.status` and
+      // `inv.remaining_balance` come straight from GET /api/invoices/, which
+      // the 2A layer derives from PaymentAllocation rows (mapApiInvoiceToInvoice
+      // reads inv.status + inv.balance). We DO NOT fall back to grandTotal or
+      // recompute anything — a 'Paid' invoice (outstanding 0) is excluded, full
+      // stop. No stale local balance can resurrect it.
+      if (inv.status === 'Paid') return false;
+      return Number(inv.remaining_balance ?? 0) > 0.005;
     });
   } catch (error) {
     console.error('Failed to get unpaid invoices:', error);
@@ -1013,13 +1025,10 @@ export async function getUnpaidInvoices(customerId: string): Promise<Invoice[]> 
   }
 }
 
-// Update invoice payment status (legacy localStorage path removed; invoices load from GET /api/invoices/)
-export async function updateInvoicePayment(
-  _invoiceId: string,
-  _paymentAmount: number
-): Promise<Invoice | null> {
-  return null;
-}
+// FIX #2B — updateInvoicePayment removed. It was a `return null` no-op that
+// pretended to update invoice settlement client-side. Settlement is now written
+// by the 2A backend when /ledger/payment records PaymentAllocation rows; the UI
+// re-reads GET /api/invoices/ (allocation-derived status/balance) instead.
 
 // Get customer's advance payment balance
 export async function getCustomerAdvanceBalance(customerId: string): Promise<number> {
