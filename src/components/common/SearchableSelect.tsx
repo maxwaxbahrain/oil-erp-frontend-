@@ -84,10 +84,16 @@ export default function SearchableSelect({
         ? 'rounded-lg shadow-xl max-h-80 overflow-hidden'
         : 'bg-white border-2 border-gray-300 rounded-lg shadow-xl max-h-80 overflow-hidden';
 
+    // The panel is portaled to document.body (outside any theme-scoped wrapper),
+    // so it must use globally-defined tokens. The previous --color-background-*
+    // / --color-text-* / --color-border-tertiary vars were never defined anywhere,
+    // so `background` fell back to transparent and `color` inherited the light body
+    // text — hence the unreadable, see-through option list. Use the real redwood
+    // dark tokens (emitted to :root by Tailwind @theme) with opaque hex fallbacks.
     const panelStyle = isDark
         ? {
-              background: 'var(--color-background-secondary)',
-              border: '0.5px solid var(--color-border-tertiary)',
+              background: 'var(--color-redwood-bg-surface, #0f1f33)',
+              border: '0.5px solid var(--color-redwood-border, rgba(255,255,255,0.12))',
           }
         : undefined;
 
@@ -96,7 +102,7 @@ export default function SearchableSelect({
         : 'p-3 border-b border-gray-200 bg-gray-50';
 
     const searchWrapStyle = isDark
-        ? { borderBottom: '0.5px solid var(--color-border-tertiary)' }
+        ? { borderBottom: '0.5px solid var(--color-redwood-border, rgba(255,255,255,0.12))' }
         : undefined;
 
     const searchInputClass = isDark
@@ -105,9 +111,9 @@ export default function SearchableSelect({
 
     const searchInputStyle = isDark
         ? {
-              border: '0.5px solid var(--color-border-tertiary)',
-              background: 'var(--color-background-primary)',
-              color: 'var(--color-text-primary)',
+              border: '0.5px solid var(--color-redwood-border, rgba(255,255,255,0.12))',
+              background: 'var(--color-redwood-midnight, #0a1726)',
+              color: 'var(--color-redwood-text-main, #EEF2FF)',
           }
         : undefined;
 
@@ -115,17 +121,19 @@ export default function SearchableSelect({
         ? 'px-4 py-8 text-sm text-center'
         : 'px-4 py-8 text-sm text-gray-500 text-center';
 
-    const emptyStyle = isDark ? { color: 'var(--color-text-secondary)' } : undefined;
+    const emptyStyle = isDark ? { color: 'var(--color-redwood-text-muted, #8BA3C7)' } : undefined;
 
     const optionClass = isDark
         ? 'w-full px-4 py-3 text-left transition-colors'
         : 'w-full px-4 py-3 text-left hover:bg-blue-50 transition-colors border-b border-gray-100';
 
-    const optionStyle = (isLast: boolean): CSSProperties | undefined =>
+    const optionStyle = (isLast: boolean, isSelected: boolean): CSSProperties | undefined =>
         isDark
             ? {
-                  borderBottom: isLast ? 'none' : '0.5px solid var(--color-border-tertiary)',
-                  color: 'var(--color-text-primary)',
+                  borderBottom: isLast ? 'none' : '0.5px solid var(--color-redwood-border, rgba(255,255,255,0.12))',
+                  color: 'var(--color-redwood-text-main, #EEF2FF)',
+                  // Selected row gets a persistent blue tint so the current choice is visible.
+                  background: isSelected ? 'rgba(79,142,247,.16)' : 'transparent',
               }
             : undefined;
 
@@ -173,7 +181,9 @@ export default function SearchableSelect({
                                     No results found
                                 </div>
                             ) : (
-                                filteredOptions.map((option, index) => (
+                                filteredOptions.map((option, index) => {
+                                    const isSelected = String(option.id) === String(value);
+                                    return (
                                     <button
                                         key={option.id}
                                         type="button"
@@ -182,34 +192,39 @@ export default function SearchableSelect({
                                             handleSelect(String(option.id));
                                         }}
                                         className={optionClass}
-                                        style={optionStyle(index === filteredOptions.length - 1)}
+                                        style={optionStyle(index === filteredOptions.length - 1, isSelected)}
                                         onMouseEnter={(e) => {
                                             if (isDark) {
-                                                e.currentTarget.style.background = 'rgba(79,142,247,.12)';
+                                                e.currentTarget.style.background = 'rgba(79,142,247,.24)';
                                             }
                                         }}
                                         onMouseLeave={(e) => {
                                             if (isDark) {
-                                                e.currentTarget.style.background = 'transparent';
+                                                // Restore to the selected tint (not transparent) so the
+                                                // current choice stays highlighted after hover.
+                                                e.currentTarget.style.background = isSelected
+                                                    ? 'rgba(79,142,247,.16)'
+                                                    : 'transparent';
                                             }
                                         }}
                                     >
                                         <div
                                             className={isDark ? 'font-bold' : 'font-bold text-gray-900'}
-                                            style={isDark ? { color: 'var(--color-text-primary)' } : undefined}
+                                            style={isDark ? { color: 'var(--color-redwood-text-main, #EEF2FF)' } : undefined}
                                         >
                                             {option[displayKey]}
                                         </div>
                                         {option.sku && (
                                             <div
                                                 className={isDark ? 'text-xs mt-1' : 'text-xs text-gray-500 mt-1'}
-                                                style={isDark ? { color: '#8BA3C7' } : undefined}
+                                                style={isDark ? { color: 'var(--color-redwood-text-muted, #8BA3C7)' } : undefined}
                                             >
                                                 SKU: {option.sku}
                                             </div>
                                         )}
                                     </button>
-                                ))
+                                    );
+                                })
                             )}
                         </div>
                     </div>
