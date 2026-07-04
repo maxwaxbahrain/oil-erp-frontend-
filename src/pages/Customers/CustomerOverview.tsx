@@ -269,6 +269,8 @@ export default function CustomerOverview() {
     const [ledgerDateFrom, setLedgerDateFrom] = useState('');
     const [ledgerDateTo, setLedgerDateTo] = useState('');
     const [loadingLedger, setLoadingLedger] = useState(false);
+    const [ledgerError, setLedgerError] = useState<string | null>(null);
+    const ledgerRequestRef = useRef(0);
 
     // Stats state
     const [stats, setStats] = useState<CustomerStats>({
@@ -357,17 +359,29 @@ export default function CustomerOverview() {
     // balances are backend-computed; the UI never recomputes them).
     const loadLedger = async (from?: string, to?: string) => {
         if (!id) return;
+        const reqId = ++ledgerRequestRef.current;
         setLoadingLedger(true);
+        setLedgerError(null);
         try {
             const data = await getCustomerLedger(id, from || undefined, to || undefined);
+            if (reqId !== ledgerRequestRef.current) return;
+            if (!data || !Array.isArray(data.rows)) {
+                throw new Error('Invalid ledger response (expected opening_balance, rows, closing_balance)');
+            }
             const rows = data.rows.map(mapPartyRowToDisplay);
             setLedger([...rows].sort(compareLedgerByDateDesc));
             setLedgerOpeningBalance(data.opening_balance);
             setLedgerClosingBalance(data.closing_balance);
         } catch (error) {
+            if (reqId !== ledgerRequestRef.current) return;
+            setLedger([]);
+            setLedgerOpeningBalance(null);
+            setLedgerClosingBalance(null);
+            const msg = error instanceof Error ? error.message : 'Failed to load customer ledger';
+            setLedgerError(msg);
             console.error('Failed to load customer ledger:', error);
         } finally {
-            setLoadingLedger(false);
+            if (reqId === ledgerRequestRef.current) setLoadingLedger(false);
         }
     };
 

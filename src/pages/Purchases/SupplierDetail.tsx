@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
     ArrowLeft,
@@ -52,6 +52,15 @@ const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
     .trim()
     .replace(/\/+$/, '');
 const SUPPLIERS_API = `${API_HOST}/api/suppliers`;
+
+/** Calendar date in the user's local timezone as ``YYYY-MM-DD`` (for ``type="date"`` inputs). */
+function todayIsoLocal(): string {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
 
 /** Map backend PartyLedgerRow → display row; running_balance from API only. */
 function mapSupplierPartyRow(row: PartyLedgerRow): SupplierLedgerEntry {
@@ -140,6 +149,9 @@ export default function SupplierDetail() {
     const [ledger, setLedger] = useState<SupplierLedgerEntry[]>([]);
     const [ledgerOpeningBalance, setLedgerOpeningBalance] = useState<number | null>(null);
     const [ledgerClosingBalance, setLedgerClosingBalance] = useState<number | null>(null);
+    const [ledgerError, setLedgerError] = useState<string | null>(null);
+    const [loadingLedger, setLoadingLedger] = useState(false);
+    const ledgerRequestRef = useRef(0);
     const [fromDate, setFromDate] = useState('');
     const [toDate, setToDate] = useState('');
     const [purchases, setPurchases] = useState<PurchaseOrder[]>([]);
@@ -163,7 +175,7 @@ export default function SupplierDetail() {
     // Payment Form state
     const [paymentForm, setPaymentForm] = useState({
         amount: 0,
-        date: new Date().toISOString().split('T')[0],
+        date: todayIsoLocal(),
         paymentMethod: 'Cash',
         reference: '',
         notes: '',
@@ -251,16 +263,28 @@ export default function SupplierDetail() {
     // Root B — ledger display from API (opening/closing/running from backend).
     const loadLedger = async (start?: string, end?: string) => {
         if (!id) return;
-        setLoadingDetails(true);
+        const reqId = ++ledgerRequestRef.current;
+        setLoadingLedger(true);
+        setLedgerError(null);
         try {
             const data = await getSupplierLedger(id, start || undefined, end || undefined);
+            if (reqId !== ledgerRequestRef.current) return;
+            if (!data || !Array.isArray(data.rows)) {
+                throw new Error('Invalid ledger response (expected opening_balance, rows, closing_balance)');
+            }
             setLedger(data.rows.map(mapSupplierPartyRow));
             setLedgerOpeningBalance(data.opening_balance);
             setLedgerClosingBalance(data.closing_balance);
         } catch (error) {
+            if (reqId !== ledgerRequestRef.current) return;
+            setLedger([]);
+            setLedgerOpeningBalance(null);
+            setLedgerClosingBalance(null);
+            const msg = error instanceof Error ? error.message : 'Failed to load supplier ledger';
+            setLedgerError(msg);
             console.error('Failed to load supplier ledger:', error);
         } finally {
-            setLoadingDetails(false);
+            if (reqId === ledgerRequestRef.current) setLoadingLedger(false);
         }
     };
 
@@ -378,7 +402,7 @@ export default function SupplierDetail() {
             setSelectedPOIds([]);
             setPaymentForm({
                 amount: 0,
-                date: new Date().toISOString().split('T')[0],
+                date: todayIsoLocal(),
                 paymentMethod: 'Cash',
                 reference: '',
                 notes: '',
@@ -923,6 +947,9 @@ export default function SupplierDetail() {
                                     <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none" placeholder="To" />
                                     {(fromDate || toDate) && <button onClick={() => { setFromDate(''); setToDate(''); }} className="text-xs text-red-400 font-bold px-2 py-1 border border-red-200 rounded-lg hover:text-red-600">✕ Clear</button>}
                                 </div>
+                                {ledgerError && (
+                                    <p className="text-xs font-bold text-red-600 mt-2">{ledgerError}</p>
+                                )}
                                 <div className="relative">
                                         <button
                                             onClick={() => setShowShareMenu(!showShareMenu)}
@@ -963,7 +990,7 @@ export default function SupplierDetail() {
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-50">
-                                        {loadingDetails ? (
+                                        {loadingLedger ? (
                                             <tr>
                                                 <td colSpan={8} className="px-6 py-12 text-center">
                                                     <div className="animate-pulse flex flex-col items-center">
