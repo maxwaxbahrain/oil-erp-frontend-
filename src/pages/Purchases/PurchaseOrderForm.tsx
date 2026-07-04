@@ -206,6 +206,62 @@ function userInitials(name: string): string {
 
 const WORKFLOW_STEPS = ['Draft', 'Pending', 'Approved', 'Received', 'Paid'] as const;
 
+/** Trailing blank row the form auto-appends — not a line the user intends to submit. */
+function isPoLineBlank(item: POLineItem): boolean {
+    return (
+        !item.productId &&
+        !item.product?.trim() &&
+        !item.description?.trim() &&
+        item.rate <= 0
+    );
+}
+
+/** Lines the user actually filled in (excludes the auto trailing blank). */
+function substantivePoLines(lineItems: POLineItem[]): POLineItem[] {
+    return lineItems.filter((item) => !isPoLineBlank(item));
+}
+
+type PoLineFieldErrors = { sku?: string; quantity?: string; rate?: string };
+
+function validatePoLineItems(lineItems: POLineItem[]): {
+    ok: boolean;
+    byLineId: Record<string, PoLineFieldErrors>;
+    messages: string[];
+} {
+    const substantive = substantivePoLines(lineItems);
+    const byLineId: Record<string, PoLineFieldErrors> = {};
+    const messages: string[] = [];
+
+    if (substantive.length === 0) {
+        return { ok: false, byLineId, messages: ['Add at least one product line item'] };
+    }
+
+    lineItems.forEach((item, index) => {
+        if (isPoLineBlank(item)) return;
+        const lineNum = index + 1;
+        const fieldErrors: PoLineFieldErrors = {};
+
+        if (!item.productId) {
+            fieldErrors.sku = 'Select a product (SKU)';
+            messages.push(`Line ${lineNum}: select a product`);
+        }
+        if (item.quantity <= 0) {
+            fieldErrors.quantity = 'Enter a valid quantity';
+            messages.push(`Line ${lineNum}: enter a valid quantity`);
+        }
+        if (item.rate <= 0) {
+            fieldErrors.rate = 'Enter a valid unit cost';
+            messages.push(`Line ${lineNum}: enter a valid unit cost`);
+        }
+
+        if (Object.keys(fieldErrors).length > 0) {
+            byLineId[item.id] = fieldErrors;
+        }
+    });
+
+    return { ok: messages.length === 0, byLineId, messages };
+}
+
 export default function PurchaseOrderForm() {
     const navigate = useNavigate();
     const location = useLocation();
@@ -218,6 +274,7 @@ export default function PurchaseOrderForm() {
     const [newSupPhone, setNewSupPhone] = useState('');
     const [newSupAddress, setNewSupAddress] = useState('');
     const [savingSup, setSavingSup] = useState(false);
+    const [lineItemErrors, setLineItemErrors] = useState<Record<string, PoLineFieldErrors>>({});
 
     const prefilledSupplier = location.state as { supplierId?: string; supplierName?: string; isPending?: boolean } | null;
 
@@ -393,6 +450,12 @@ export default function PurchaseOrderForm() {
     };
 
     const handleProductSelect = (lineId: string, productId: string) => {
+        setLineItemErrors((prev) => {
+            if (!prev[lineId]?.sku) return prev;
+            const next = { ...prev };
+            delete next[lineId];
+            return next;
+        });
         const selectedProduct = products.find(p => p.id === productId);
 
         if (!selectedProduct) return;
@@ -416,6 +479,18 @@ export default function PurchaseOrderForm() {
     };
 
     const handleLineItemChange = (id: string, field: keyof POLineItem, value: string | number) => {
+        if (field === 'quantity' || field === 'rate') {
+            setLineItemErrors((prev) => {
+                const key = field === 'quantity' ? 'quantity' : 'rate';
+                if (!prev[id]?.[key]) return prev;
+                const next = { ...prev };
+                const row = { ...next[id] };
+                delete row[key];
+                if (Object.keys(row).length === 0) delete next[id];
+                else next[id] = row;
+                return next;
+            });
+        }
         ensureTrailingBlankRow(id);
         setFormData(prev => ({
             ...prev,
@@ -461,10 +536,15 @@ export default function PurchaseOrderForm() {
             return;
         }
 
-        if (formData.lineItems.some(item => !item.product || item.quantity <= 0 || item.rate <= 0)) {
-            alert('Please fill in all line items with valid quantities and rates');
+        const validation = validatePoLineItems(formData.lineItems);
+        if (!validation.ok) {
+            setLineItemErrors(validation.byLineId);
+            alert(validation.messages.join('\n'));
             return;
         }
+        setLineItemErrors({});
+
+        const linesToSubmit = substantivePoLines(formData.lineItems);
 
         if (formData.grandTotal <= 0) {
             alert('Order total must be greater than 0');
@@ -480,7 +560,7 @@ export default function PurchaseOrderForm() {
                 supplierName: formData.supplierName,
                 date: formData.date,
                 expectedDate: formData.expectedDate,
-                items: formData.lineItems.map(item => ({
+                items: linesToSubmit.map(item => ({
                     productId: item.productId,
                     productName: item.product,
                     uom: 'Units',
@@ -865,16 +945,34 @@ export default function PurchaseOrderForm() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {formData.lineItems.map((item) => (
+                                    {formData.lineItems.map((item, lineIndex) => {
+                                        const rowErrors = lineItemErrors[item.id];
+                                        const skuErrorStyle = rowErrors?.sku
+                                            ? { boxShadow: '0 0 0 1px #EF4444', borderRadius: 8 }
+                                            : undefined;
+                                        const qtyErrorStyle = rowErrors?.quantity
+                                            ? { borderColor: '#EF4444', boxShadow: '0 0 0 1px rgba(239,68,68,.35)' }
+                                            : undefined;
+                                        const rateErrorStyle = rowErrors?.rate
+                                            ? { borderColor: '#EF4444', boxShadow: '0 0 0 1px rgba(239,68,68,.35)' }
+                                            : undefined;
+                                        return (
                                         <tr key={item.id}>
                                             <td style={tdStyle}>
-                                                <SearchableSelect
-                                                    options={products}
-                                                    value={item.productId}
-                                                    onChange={(productId) => handleProductSelect(item.id, productId)}
-                                                    placeholder="Select SKU"
-                                                    displayKey="name"
-                                                />
+                                                <div style={skuErrorStyle}>
+                                                    <SearchableSelect
+                                                        options={products}
+                                                        value={item.productId}
+                                                        onChange={(productId) => handleProductSelect(item.id, productId)}
+                                                        placeholder="Select SKU"
+                                                        displayKey="name"
+                                                    />
+                                                </div>
+                                                {rowErrors?.sku && (
+                                                    <div style={{ fontSize: 9, color: '#EF4444', fontWeight: 600, marginTop: 4 }}>
+                                                        Line {lineIndex + 1}: {rowErrors.sku}
+                                                    </div>
+                                                )}
                                             </td>
                                             <td style={tdStyle}>
                                                 <input
@@ -890,18 +988,28 @@ export default function PurchaseOrderForm() {
                                                     type="number"
                                                     value={item.quantity || ''}
                                                     onChange={(e) => handleLineItemChange(item.id, 'quantity', parseFloat(e.target.value) || 0)}
-                                                    style={{ ...inputStyle, textAlign: 'center', fontFamily: 'monospace' }}
+                                                    style={{ ...inputStyle, textAlign: 'center', fontFamily: 'monospace', ...qtyErrorStyle }}
                                                     placeholder="0"
                                                 />
+                                                {rowErrors?.quantity && (
+                                                    <div style={{ fontSize: 9, color: '#EF4444', fontWeight: 600, marginTop: 4 }}>
+                                                        {rowErrors.quantity}
+                                                    </div>
+                                                )}
                                             </td>
                                             <td style={{ ...tdStyle, textAlign: 'center' }}>
                                                 <input
                                                     type="number"
                                                     value={item.rate || ''}
                                                     onChange={(e) => handleLineItemChange(item.id, 'rate', parseFloat(e.target.value) || 0)}
-                                                    style={{ ...inputStyle, textAlign: 'center', fontFamily: 'monospace' }}
+                                                    style={{ ...inputStyle, textAlign: 'center', fontFamily: 'monospace', ...rateErrorStyle }}
                                                     placeholder="0.00"
                                                 />
+                                                {rowErrors?.rate && (
+                                                    <div style={{ fontSize: 9, color: '#EF4444', fontWeight: 600, marginTop: 4 }}>
+                                                        {rowErrors.rate}
+                                                    </div>
+                                                )}
                                             </td>
                                             <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: C.green }}>
                                                 {formatUsd(item.amount)}
@@ -916,7 +1024,8 @@ export default function PurchaseOrderForm() {
                                                 </button>
                                             </td>
                                         </tr>
-                                    ))}
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>
