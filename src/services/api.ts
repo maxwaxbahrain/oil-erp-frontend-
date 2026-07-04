@@ -554,6 +554,11 @@ export const createPayment = (data: any): Promise<any> => {
     date: data.payment_date ?? null,
   };
   if (data.notes) body.notes = data.notes;
+  const depositId = data.deposit_account_id ?? data.account_id;
+  if (depositId != null && String(depositId) !== '') {
+    body.deposit_account_id = parseInt(String(depositId), 10);
+    body.account_id = body.deposit_account_id;
+  }
   // FIX #2B — forward per-line allocations to the 2A backend. Each line is
   // { invoice_id | null, amount, discount }; invoice_id === null means the
   // opening-balance / advance line (backend applies_to='opening_balance').

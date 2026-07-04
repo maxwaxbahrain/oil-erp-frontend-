@@ -31,6 +31,9 @@ import {
 import { getCustomers as loadCustomerList } from '../../services/customerService';
 // ITEM 16 — Escape closes the manual entry modal and the category dropdown.
 import { useEscape } from '../../hooks/useEscape';
+import SearchableSelect from '../../components/common/SearchableSelect';
+import { authFetch } from '../../api/axios';
+import { getOilErpApiBase } from '../../config/apiBase';
 
 const panelStyle: CSSProperties = {
     background: 'var(--color-redwood-bg-surface)',
@@ -245,6 +248,8 @@ export default function ExpenseManagement() {
     const isBillableRef = useRef<HTMLInputElement>(null);
     const clientIdRef = useRef<HTMLSelectElement>(null);
     const isReimbursableRef = useRef<HTMLInputElement>(null);
+    const [expenseAccounts, setExpenseAccounts] = useState<Array<{ id: string; name: string; code: string }>>([]);
+    const [selectedAccountId, setSelectedAccountId] = useState('');
 
     useEffect(() => {
         loadData();
@@ -264,6 +269,21 @@ export default function ExpenseManagement() {
                 const list = await loadCustomerList();
                 setCustomers((list as any[]).map(c => ({ id: c.id, name: c.name })));
             } catch { /* customer list is optional for the form */ }
+            try {
+                const ar = await authFetch(`${getOilErpApiBase()}/accounts/`);
+                if (ar.ok) {
+                    const rows = await ar.json();
+                    setExpenseAccounts(
+                        (Array.isArray(rows) ? rows : [])
+                            .filter((a: { type?: string }) => String(a.type || '').toLowerCase() === 'expense')
+                            .map((a: { id: number; name: string; code: string }) => ({
+                                id: String(a.id),
+                                name: a.name,
+                                code: a.code,
+                            }))
+                    );
+                }
+            } catch { /* expense accounts optional */ }
             try {
                 const orders = await getSalesOrders();
                 const now = new Date();
@@ -342,10 +362,12 @@ export default function ExpenseManagement() {
                 is_billable: isBillable,
                 client_id: isBillable && clientIdValue ? clientIdValue : null,
                 is_reimbursable: isReimbursable,
+                account_id: selectedAccountId ? Number(selectedAccountId) : undefined,
             });
             await loadData();
             setShowManualForm(false);
             setEditingExpense(null);
+            setSelectedAccountId('');
         } catch (error) {
             console.error('Failed to save expense:', error);
             alert('Failed to save expense');
@@ -1038,6 +1060,11 @@ export default function ExpenseManagement() {
                                             </div>
                                             <div style={{ fontSize: 12, color: 'var(--color-redwood-text-muted)', marginBottom: 4 }}>
                                                 {expense.vendor || '—'} · {expense.description || '—'} · {formatExpenseDate(expense.date)} · {expense.paymentMethod}
+                                                {(expense.account_id ?? expense.accountId) ? (
+                                                    <span style={{ marginLeft: 6, color: 'var(--color-brand-blue-tint)' }}>
+                                                        · Acct #{expense.account_id ?? expense.accountId}
+                                                    </span>
+                                                ) : null}
                                             </div>
                                             {expense.currency && expense.currency !== 'USD' && (
                                                 <div style={{ fontSize: 10, color: 'var(--color-brand-amber)', fontWeight: 500 }}>
@@ -1374,6 +1401,18 @@ export default function ExpenseManagement() {
                                             defaultValue={editingExpense?.description}
                                             placeholder="Brief description"
                                             className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-2xl px-6 py-4 text-sm font-bold outline-none h-24 resize-none"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest block mb-3">Expense account (GL)</label>
+                                        <SearchableSelect
+                                            options={expenseAccounts}
+                                            value={selectedAccountId || String(editingExpense?.account_id ?? editingExpense?.accountId ?? '')}
+                                            onChange={setSelectedAccountId}
+                                            placeholder="Select expense account..."
+                                            displayKey="name"
+                                            theme="dark"
                                         />
                                     </div>
 

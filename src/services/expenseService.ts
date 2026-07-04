@@ -88,6 +88,10 @@ export interface Expense {
     // STEP 11C — Payroll reimbursable
     is_reimbursable?: boolean;
     payroll_reimbursed_in?: string | null;  // period label e.g. "2026-05"
+
+    // Root C — GL expense account
+    account_id?: number | null;
+    accountId?: number | null;
 }
 
 export interface AIExtractedData {
@@ -160,6 +164,8 @@ function _expenseFromApi(raw: any): Expense {
         invoiced_to: raw.invoiced_to ?? null,
         is_reimbursable: raw.is_reimbursable ?? undefined,
         payroll_reimbursed_in: raw.payroll_reimbursed_in ?? null,
+        account_id: raw.account_id ?? null,
+        accountId: raw.account_id ?? null,
     };
 }
 
@@ -200,6 +206,10 @@ function _expenseToApi(e: Partial<Expense>): Record<string, unknown> {
     if (e.invoiced_to !== undefined) out.invoiced_to = e.invoiced_to;
     if (e.is_reimbursable !== undefined) out.is_reimbursable = e.is_reimbursable;
     if (e.payroll_reimbursed_in !== undefined) out.payroll_reimbursed_in = e.payroll_reimbursed_in;
+    const acctId = e.account_id ?? e.accountId;
+    if (acctId != null) {
+        out.account_id = Number(acctId);
+    }
     return out;
 }
 

@@ -64,6 +64,8 @@ export interface SupplierPayment {
     paymentMethod: string;
     reference?: string;
     notes?: string;
+    pay_from_account_id?: number | null;
+    accountId?: number | null;
 }
 
 export interface SupplierLedgerEntry {
@@ -424,6 +426,16 @@ export const createSupplierPayment = async (payment: Omit<SupplierPayment, 'id'>
             paymentMethod: payment.paymentMethod,
             reference: payment.reference,
             notes: payment.notes,
+            ...(payment.pay_from_account_id != null || (payment as { accountId?: number }).accountId != null
+                ? {
+                    pay_from_account_id: Number(
+                        payment.pay_from_account_id ?? (payment as { accountId?: number }).accountId
+                    ),
+                    account_id: Number(
+                        payment.pay_from_account_id ?? (payment as { accountId?: number }).accountId
+                    ),
+                }
+                : {}),
         }),
     });
     if (!r.ok) {

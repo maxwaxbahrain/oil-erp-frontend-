@@ -30,6 +30,8 @@ import { getCompanyProfile } from '../../services/settingsService';
 import { getExpensesSnapshot, type Expense } from '../../services/expenseService';
 import { calculateReceivables } from '../../utils/arMetrics';
 import { authFetch } from '../../api/axios';
+import { formatDateOnly } from '../../utils/formatters';
+import { getOilErpApiBase } from '../../config/apiBase';
 
 const panelStyle: CSSProperties = {
     background: 'var(--color-redwood-bg-surface)',
@@ -68,6 +70,7 @@ const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
     .trim().replace(/\/+$/, '');
 const PDC_API = `${API_HOST}/api/pdc`;
 const BANK_TX_API = `${API_HOST}/api/bank-transactions`;
+const BANKING_API = `${getOilErpApiBase()}/banking`;
 
 // Manual bank transactions (rent, salary, deposit, etc.) — backend persisted.
 async function getBankTxsApi(): Promise<any[]> {
@@ -263,6 +266,15 @@ export default function Banking() {
     const [aiQuestion, setAiQuestion] = useState('');
     const [aiResponse, setAiResponse] = useState('');
     const [aiThinking, setAiThinking] = useState(false);
+    // Root C — per-bank-account ledger from API
+    const [bankAccounts, setBankAccounts] = useState<Array<{ id: number; code: string; name: string; role?: string }>>([]);
+    const [selectedBankAccountId, setSelectedBankAccountId] = useState<number | null>(null);
+    const [accountLedger, setAccountLedger] = useState<{
+        opening_balance: number;
+        closing_balance: number;
+        rows: Array<{ id: string; date: string | null; type: string; reference: string | null; description: string; debit: number; credit: number; running_balance: number }>;
+    } | null>(null);
+    const [accountLedgerLoading, setAccountLedgerLoading] = useState(false);
 
     const ghostBtn: CSSProperties = {
         display: 'flex',
@@ -319,13 +331,50 @@ export default function Banking() {
                 }),
             );
             setSupplierPayments(supPayLists.flat());
+            try {
+                const br = await authFetch(`${BANKING_API}/accounts?role=bank`);
+                if (br.ok) {
+                    const rows = await br.json();
+                    const list = Array.isArray(rows) ? rows : [];
+                    setBankAccounts(list);
+                    if (!selectedBankAccountId && list.length > 0) {
+                        setSelectedBankAccountId(Number(list[0].id));
+                    }
+                }
+            } catch { /* bank accounts optional */ }
         } finally {
             setLoading(false);
             setRefreshing(false);
         }
         getPDC().then(setPdcList);
         getBankTxsApi().then(setManualTxs);
-    }, []);
+    }, [selectedBankAccountId]);
+
+    useEffect(() => {
+        if (!selectedBankAccountId) {
+            setAccountLedger(null);
+            return;
+        }
+        let cancelled = false;
+        (async () => {
+            setAccountLedgerLoading(true);
+            try {
+                const params = new URLSearchParams();
+                if (dateFrom) params.set('start_date', dateFrom);
+                if (dateTo) params.set('end_date', dateTo);
+                const qs = params.toString();
+                const r = await authFetch(`${BANKING_API}/accounts/${selectedBankAccountId}/ledger${qs ? `?${qs}` : ''}`);
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                const data = await r.json();
+                if (!cancelled) setAccountLedger(data);
+            } catch {
+                if (!cancelled) setAccountLedger(null);
+            } finally {
+                if (!cancelled) setAccountLedgerLoading(false);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [selectedBankAccountId, dateFrom, dateTo]);
 
     // FIX W6-1 — Void a customer payment by posting a reversing contra-
     // entry through the same /ledger/payment endpoint. Original stays
@@ -887,6 +936,46 @@ export default function Banking() {
                     ))}
                 </div>
 
+                {/* Root C — Bank accounts list */}
+                {bankAccounts.length > 0 && (
+                    <div style={{ ...panelStyle }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: 10 }}>Bank accounts</div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3" style={{ gap: 8 }}>
+                            {bankAccounts.map(acct => (
+                                <button
+                                    key={acct.id}
+                                    type="button"
+                                    onClick={() => setSelectedBankAccountId(acct.id)}
+                                    style={{
+                                        textAlign: 'left',
+                                        padding: '10px 12px',
+                                        borderRadius: 10,
+                                        cursor: 'pointer',
+                                        border: selectedBankAccountId === acct.id
+                                            ? '1px solid rgba(79,142,247,.45)'
+                                            : '1px solid var(--color-redwood-border)',
+                                        background: selectedBankAccountId === acct.id
+                                            ? 'var(--color-badge-blue-bg)'
+                                            : 'var(--color-redwood-row-bg)',
+                                    }}
+                                >
+                                    <div style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>{acct.code}</div>
+                                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>{acct.name}</div>
+                                </button>
+                            ))}
+                        </div>
+                        {selectedBankAccountId && accountLedger && (
+                            <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, background: 'var(--color-redwood-row-bg)', border: '1px solid var(--color-redwood-border)', fontSize: 11 }}>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+                                    <span>Opening: <strong>{formatUsd(accountLedger.opening_balance)}</strong></span>
+                                    <span>Closing: <strong style={{ color: 'var(--color-brand-blue-tint)' }}>{formatUsd(accountLedger.closing_balance)}</strong></span>
+                                    {accountLedgerLoading && <span style={{ color: 'var(--color-redwood-text-muted)' }}>Loading…</span>}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+
                 {/* Main Operating Account */}
                 <div style={{ ...panelStyle, background: 'linear-gradient(135deg, rgba(251,146,60,.18) 0%, rgba(245,158,11,.08) 100%)', borderColor: 'rgba(251,146,60,.35)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
@@ -968,7 +1057,34 @@ export default function Banking() {
                                             <button key={`ch-${f}`} type="button" onClick={() => setChannelFilter(f)} style={{ padding: '5px 12px', fontSize: 10, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: channelFilter === f ? '1px solid rgba(79,142,247,.28)' : '1px solid var(--color-redwood-border)', background: channelFilter === f ? 'var(--color-badge-blue-bg)' : 'transparent', color: channelFilter === f ? 'var(--color-brand-blue-tint)' : 'var(--color-redwood-text-muted)' }}>{f === 'all' ? 'All channels' : f}</button>
                                         ))}
                                     </div>
-                                    {filtered.length === 0 ? (
+                                    {selectedBankAccountId && accountLedger ? (
+                                        <div style={{ overflowX: 'auto' }}>
+                                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                                <thead><tr style={{ background: 'var(--color-redwood-row-bg)', borderBottom: '1px solid var(--color-redwood-border)' }}>{['Date', 'Type', 'Reference', 'Description', 'Debit', 'Credit', 'Balance'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+                                                <tbody>
+                                                    {accountLedger.rows.length === 0 ? (
+                                                        <tr><td colSpan={7} style={{ ...tdStyle, textAlign: 'center', color: 'var(--color-redwood-text-muted)' }}>No movements in this period</td></tr>
+                                                    ) : accountLedger.rows.map(row => (
+                                                        <tr key={row.id} style={{ borderBottom: '1px solid var(--color-redwood-border)' }}>
+                                                            <td style={{ ...tdStyle, fontFamily: 'ui-monospace,monospace', fontSize: 11, color: 'var(--color-redwood-text-muted)' }}>{row.date ? formatDateOnly(row.date) : '—'}</td>
+                                                            <td style={tdStyle}>{row.type}</td>
+                                                            <td style={{ ...tdStyle, fontFamily: 'ui-monospace,monospace', fontSize: 11 }}>{row.reference || '—'}</td>
+                                                            <td style={{ ...tdStyle, fontWeight: 600 }}>{row.description || '—'}</td>
+                                                            <td style={{ ...tdStyle, fontFamily: 'ui-monospace,monospace' }}>{row.debit ? formatUsd(row.debit) : '—'}</td>
+                                                            <td style={{ ...tdStyle, fontFamily: 'ui-monospace,monospace' }}>{row.credit ? formatUsd(row.credit) : '—'}</td>
+                                                            <td style={{ ...tdStyle, fontFamily: 'ui-monospace,monospace', fontWeight: 700 }}>{formatUsd(row.running_balance)}</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                                <tfoot>
+                                                    <tr style={{ background: 'var(--color-redwood-row-bg)', borderTop: '2px solid var(--color-redwood-border)' }}>
+                                                        <td colSpan={6} style={{ ...tdStyle, fontWeight: 700, fontSize: 10, textTransform: 'uppercase', color: 'var(--color-redwood-text-muted)' }}>Closing balance (API)</td>
+                                                        <td style={{ ...tdStyle, fontWeight: 700, fontFamily: 'ui-monospace,monospace', color: 'var(--color-brand-blue-tint)' }}>{formatUsd(accountLedger.closing_balance)}</td>
+                                                    </tr>
+                                                </tfoot>
+                                            </table>
+                                        </div>
+                                    ) : filtered.length === 0 ? (
                                         <div style={{ padding: 48, textAlign: 'center', color: 'var(--color-redwood-text-muted)' }}>
                                             <Landmark size={40} style={{ margin: '0 auto 12px', opacity: 0.3 }} />
                                             <p style={{ fontSize: 12, fontWeight: 600 }}>No transactions found</p>
