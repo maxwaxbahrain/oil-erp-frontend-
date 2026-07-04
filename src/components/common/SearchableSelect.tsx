@@ -3,6 +3,9 @@ import { createPortal } from 'react-dom';
 
 type SearchableSelectTheme = 'light' | 'dark';
 
+const MAX_VISIBLE_OPTIONS = 50;
+const SEARCH_DEBOUNCE_MS = 150;
+
 export default function SearchableSelect({
     options,
     value,
@@ -22,22 +25,33 @@ export default function SearchableSelect({
 }) {
     const [isOpen, setIsOpen] = useState(false);
     const [search, setSearch] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
     const [dropdownStyle, setDropdownStyle] = useState({});
     const buttonRef = useRef<HTMLButtonElement>(null);
     const isDark = theme === 'dark';
+
+    useEffect(() => {
+        const timer = window.setTimeout(() => setDebouncedSearch(search), SEARCH_DEBOUNCE_MS);
+        return () => window.clearTimeout(timer);
+    }, [search]);
 
     const selectedOption = options.find(
         opt => String(opt.id) === String(value)
     );
 
     const filteredOptions = useMemo(() => {
-        if (!search) return options;
+        if (!debouncedSearch) return options;
+        const q = debouncedSearch.toLowerCase();
         return options.filter(opt =>
-            opt[displayKey]?.toLowerCase().includes(search.toLowerCase()) ||
-            opt.code?.toLowerCase().includes(search.toLowerCase()) ||
-            opt.sku?.toLowerCase().includes(search.toLowerCase())
+            opt[displayKey]?.toLowerCase().includes(q) ||
+            opt.code?.toLowerCase().includes(q) ||
+            opt.sku?.toLowerCase().includes(q)
         );
-    }, [options, search, displayKey]);
+    }, [options, debouncedSearch, displayKey]);
+
+    const totalMatches = filteredOptions.length;
+    const visibleOptions = filteredOptions.slice(0, MAX_VISIBLE_OPTIONS);
+    const isTruncated = totalMatches > MAX_VISIBLE_OPTIONS;
 
     useEffect(() => {
         if (isOpen && buttonRef.current) {
@@ -64,14 +78,14 @@ export default function SearchableSelect({
 
     const buttonStyle = isDark
         ? {
-              border: '0.5px solid var(--color-border-tertiary)',
-              background: 'var(--color-background-primary)',
-              color: 'var(--color-text-primary)',
+              border: '0.5px solid var(--color-redwood-border, rgba(255,255,255,0.12))',
+              background: 'var(--color-redwood-midnight, #0a1726)',
+              color: 'var(--color-redwood-text-main, #EEF2FF)',
           }
         : undefined;
 
     const selectedTextStyle = isDark
-        ? { color: selectedOption ? 'var(--color-text-primary)' : '#8BA3C7' }
+        ? { color: selectedOption ? 'var(--color-redwood-text-main, #EEF2FF)' : '#8BA3C7' }
         : undefined;
 
     const selectedTextClass = isDark
@@ -176,13 +190,15 @@ export default function SearchableSelect({
                             />
                         </div>
                         <div className="max-h-60 overflow-y-auto">
-                            {filteredOptions.length === 0 ? (
+                            {totalMatches === 0 ? (
                                 <div className={emptyClass} style={emptyStyle}>
                                     No results found
                                 </div>
                             ) : (
-                                filteredOptions.map((option, index) => {
+                                <>
+                                {visibleOptions.map((option, index) => {
                                     const isSelected = String(option.id) === String(value);
+                                    const isLastVisible = index === visibleOptions.length - 1;
                                     return (
                                     <button
                                         key={option.id}
@@ -192,7 +208,7 @@ export default function SearchableSelect({
                                             handleSelect(String(option.id));
                                         }}
                                         className={optionClass}
-                                        style={optionStyle(index === filteredOptions.length - 1, isSelected)}
+                                        style={optionStyle(isLastVisible && !isTruncated, isSelected)}
                                         onMouseEnter={(e) => {
                                             if (isDark) {
                                                 e.currentTarget.style.background = 'rgba(79,142,247,.24)';
@@ -224,7 +240,19 @@ export default function SearchableSelect({
                                         )}
                                     </button>
                                     );
-                                })
+                                })}
+                                {isTruncated && (
+                                    <div
+                                        className={isDark ? 'px-4 py-2 text-xs text-center' : 'px-4 py-2 text-xs text-gray-500 text-center border-t border-gray-100'}
+                                        style={isDark ? {
+                                            color: 'var(--color-redwood-text-muted, #8BA3C7)',
+                                            borderTop: '0.5px solid var(--color-redwood-border, rgba(255,255,255,0.12))',
+                                        } : undefined}
+                                    >
+                                        Showing {MAX_VISIBLE_OPTIONS} of {totalMatches} — keep typing to narrow
+                                    </div>
+                                )}
+                                </>
                             )}
                         </div>
                     </div>

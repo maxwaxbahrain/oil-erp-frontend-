@@ -1067,7 +1067,7 @@ export default function InvoiceFormPage() {
             {/* Form */}
             <div
                 className="bg-white rounded-xl shadow-md p-8 space-y-8"
-                style={{ border: '0.5px solid var(--color-border-tertiary)' }}
+                style={{ border: '0.5px solid var(--color-redwood-border, rgba(255,255,255,0.12))' }}
             >
                 {/* New: Salesman and Van Fields */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-6 border-b-2 border-gray-200">
@@ -1094,14 +1094,14 @@ export default function InvoiceFormPage() {
                             <div
                                 className="mt-2 p-3 rounded-xl space-y-2"
                                 style={{
-                                    background: 'var(--color-background-secondary)',
-                                    border: '0.5px solid var(--color-border-tertiary)',
+                                    background: 'var(--color-redwood-bg-surface, #0f1f33)',
+                                    border: '0.5px solid var(--color-redwood-border, rgba(255,255,255,0.12))',
                                 }}
                             >
                                 <div className="flex items-center justify-between">
                                     <p
                                         className="text-xs font-black uppercase"
-                                        style={{ color: 'var(--color-text-primary)' }}
+                                        style={{ color: 'var(--color-redwood-text-main, #EEF2FF)' }}
                                     >
                                         New Salesman
                                     </p>
@@ -1109,7 +1109,7 @@ export default function InvoiceFormPage() {
                                         type="button"
                                         onClick={() => setShowNewSalesman(false)}
                                         className="hover:opacity-80 transition-opacity"
-                                        style={{ color: 'var(--color-text-secondary)' }}
+                                        style={{ color: 'var(--color-redwood-text-muted, #8BA3C7)' }}
                                     >
                                         <X size={14} />
                                     </button>
@@ -1121,9 +1121,9 @@ export default function InvoiceFormPage() {
                                     onChange={e => setNewSalesmanName(e.target.value)}
                                     className="w-full rounded-lg px-3 py-2 text-sm focus:outline-none placeholder:text-[#8BA3C7]"
                                     style={{
-                                        border: '0.5px solid var(--color-border-tertiary)',
-                                        background: 'var(--color-background-primary)',
-                                        color: 'var(--color-text-primary)',
+                                        border: '0.5px solid var(--color-redwood-border, rgba(255,255,255,0.12))',
+                                        background: 'var(--color-redwood-midnight, #0a1726)',
+                                        color: 'var(--color-redwood-text-main, #EEF2FF)',
                                     }}
                                 />
                                 <input
@@ -1133,9 +1133,9 @@ export default function InvoiceFormPage() {
                                     onChange={e => setNewSalesmanPhone(e.target.value)}
                                     className="w-full rounded-lg px-3 py-2 text-sm focus:outline-none placeholder:text-[#8BA3C7]"
                                     style={{
-                                        border: '0.5px solid var(--color-border-tertiary)',
-                                        background: 'var(--color-background-primary)',
-                                        color: 'var(--color-text-primary)',
+                                        border: '0.5px solid var(--color-redwood-border, rgba(255,255,255,0.12))',
+                                        background: 'var(--color-redwood-midnight, #0a1726)',
+                                        color: 'var(--color-redwood-text-main, #EEF2FF)',
                                     }}
                                 />
                                 <button
@@ -1250,39 +1250,39 @@ export default function InvoiceFormPage() {
                             {showNewCustomer && (
                                 <div
                                     className="mt-2 p-3 rounded-xl space-y-2"
+                                style={{
+                                    background: 'var(--color-redwood-bg-surface, #0f1f33)',
+                                    border: '0.5px solid var(--color-redwood-border, rgba(255,255,255,0.12))',
+                                }}
+                            >
+                                <div className="flex items-center justify-between">
+                                    <p
+                                        className="text-xs font-black uppercase"
+                                        style={{ color: 'var(--color-redwood-text-main, #EEF2FF)' }}
+                                    >
+                                        New Customer
+                                    </p>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowNewCustomer(false)}
+                                        className="hover:opacity-80 transition-opacity"
+                                        style={{ color: 'var(--color-redwood-text-muted, #8BA3C7)' }}
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                </div>
+                                <input
+                                    type="text"
+                                    placeholder="Customer Name *"
+                                    value={newCustName}
+                                    onChange={e => setNewCustName(e.target.value)}
+                                    className="w-full rounded-lg px-3 py-2 text-sm focus:outline-none placeholder:text-[#8BA3C7]"
                                     style={{
-                                        background: 'var(--color-background-secondary)',
-                                        border: '0.5px solid var(--color-border-tertiary)',
+                                        border: '0.5px solid var(--color-redwood-border, rgba(255,255,255,0.12))',
+                                        background: 'var(--color-redwood-midnight, #0a1726)',
+                                        color: 'var(--color-redwood-text-main, #EEF2FF)',
                                     }}
-                                >
-                                    <div className="flex items-center justify-between">
-                                        <p
-                                            className="text-xs font-black uppercase"
-                                            style={{ color: 'var(--color-text-primary)' }}
-                                        >
-                                            New Customer
-                                        </p>
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowNewCustomer(false)}
-                                            className="hover:opacity-80 transition-opacity"
-                                            style={{ color: 'var(--color-text-secondary)' }}
-                                        >
-                                            <X size={14} />
-                                        </button>
-                                    </div>
-                                    <input
-                                        type="text"
-                                        placeholder="Customer Name *"
-                                        value={newCustName}
-                                        onChange={e => setNewCustName(e.target.value)}
-                                        className="w-full rounded-lg px-3 py-2 text-sm focus:outline-none placeholder:text-[#8BA3C7]"
-                                        style={{
-                                            border: '0.5px solid var(--color-border-tertiary)',
-                                            background: 'var(--color-background-primary)',
-                                            color: 'var(--color-text-primary)',
-                                        }}
-                                    />
+                                />
                                     <input
                                         type="text"
                                         placeholder="Phone"
@@ -1290,9 +1290,9 @@ export default function InvoiceFormPage() {
                                         onChange={e => setNewCustPhone(e.target.value)}
                                         className="w-full rounded-lg px-3 py-2 text-sm focus:outline-none placeholder:text-[#8BA3C7]"
                                         style={{
-                                            border: '0.5px solid var(--color-border-tertiary)',
-                                            background: 'var(--color-background-primary)',
-                                            color: 'var(--color-text-primary)',
+                                            border: '0.5px solid var(--color-redwood-border, rgba(255,255,255,0.12))',
+                                            background: 'var(--color-redwood-midnight, #0a1726)',
+                                            color: 'var(--color-redwood-text-main, #EEF2FF)',
                                         }}
                                     />
                                     <input
@@ -1302,9 +1302,9 @@ export default function InvoiceFormPage() {
                                         onChange={e => setNewCustAddress(e.target.value)}
                                         className="w-full rounded-lg px-3 py-2 text-sm focus:outline-none placeholder:text-[#8BA3C7]"
                                         style={{
-                                            border: '0.5px solid var(--color-border-tertiary)',
-                                            background: 'var(--color-background-primary)',
-                                            color: 'var(--color-text-primary)',
+                                            border: '0.5px solid var(--color-redwood-border, rgba(255,255,255,0.12))',
+                                            background: 'var(--color-redwood-midnight, #0a1726)',
+                                            color: 'var(--color-redwood-text-main, #EEF2FF)',
                                         }}
                                     />
                                     <button
