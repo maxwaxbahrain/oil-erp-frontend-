@@ -1732,6 +1732,11 @@ export default function CustomerOverview() {
                                         Showing entries from {ledgerDateFrom || '∞'} to {ledgerDateTo || 'today'}
                                     </span>
                                 )}
+                                {ledgerError && (
+                                    <p className="text-xs font-bold text-red-600 mt-2" style={{ width: '100%', color: '#EF4444' }}>
+                                        {ledgerError}
+                                    </p>
+                                )}
                             </div>
 
                             <div className="overflow-x-auto overflow-y-visible" style={{ background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 10 }}>
