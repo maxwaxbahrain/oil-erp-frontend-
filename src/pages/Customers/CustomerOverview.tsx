@@ -45,6 +45,7 @@ import { getCustomerCreditNotes, updateCreditNote, type CreditNote } from '../..
 // STEP 11B — load customer billable expenses for the Unbilled tab.
 import { saveExpense, type Expense } from '../../services/expenseService';
 import { getCompanySettings , getSystemSettings } from '../../services/settingsService';
+import { formatDateOnly } from '../../utils/formatters';
 import {
     downloadInvoicePDF,
     downloadInvoiceWord,
@@ -118,7 +119,7 @@ const generateCustomerLedgerPDF = (customer: Customer, ledger: LedgerEntry[]) =>
                 <tbody>
                     ${ledger.map(entry => `
                         <tr>
-                            <td>${new Date(entry.date).toLocaleDateString()}</td>
+                            <td>${formatDateOnly(entry.date)}</td>
                             <td>${entry.type}</td>
                             <td>${entry.referenceNumber}</td>
                             <td>${entry.debit > 0 ? '' + entry.debit.toLocaleString() : '-'}</td>
@@ -147,7 +148,7 @@ const generateCustomerLedgerExcel = (customer: Customer, ledger: LedgerEntry[]) 
     csvContent += "Date,Type,Reference,Debit,Credit,Balance\n";
 
     ledger.forEach(entry => {
-        csvContent += `${new Date(entry.date).toLocaleDateString()},`;
+        csvContent += `${formatDateOnly(entry.date)},`;
         csvContent += `${entry.type},${entry.referenceNumber},`;
         csvContent += `${entry.debit},${entry.credit},${entry.balance}\n`;
     });
@@ -219,14 +220,11 @@ const DOC_ICONS: Record<string, string> = {
   d1: '📋', d2: '📄', d3: '🏢', d4: '🤝', d5: '🪪', d6: '🏦',
 };
 
-// Visual-only date helper (Month YYYY). Project has no equivalent.
+// Visual-only date helper (Month YYYY).
 function _fmtMonthYear(dateStr: string | undefined | null): string {
   if (!dateStr) return '—';
-  try {
-    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-  } catch {
-    return dateStr;
-  }
+  const formatted = formatDateOnly(dateStr, 'en-US', { month: 'short', year: 'numeric' });
+  return formatted || dateStr;
 }
 
 // ─── Shared dark-theme table styles (used by Ledger/Sales/Payments/Credits/Unbilled) ──
@@ -931,7 +929,7 @@ export default function CustomerOverview() {
                         value: _lastPayment ? `$${Number(_lastPayment.amount).toFixed(2)}` : '—',
                         color: '#4F8EF7',
                         sub: _lastPayment
-                            ? new Date(_lastPayment.payment_date ?? _lastPayment.date ?? _lastPayment.createdAt ?? '').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                            ? formatDateOnly(_lastPayment.payment_date ?? _lastPayment.date ?? _lastPayment.createdAt ?? '', 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                             : '—',
                     },
                     {
@@ -1461,7 +1459,7 @@ export default function CustomerOverview() {
                                                         || String(inv.status ?? '').toLowerCase() === 'overdue';
                                                     const dueDateStr = inv.dueDate ?? inv.due_date ?? inv.invoiceDate ?? '';
                                                     const dueFmt = dueDateStr
-                                                        ? new Date(dueDateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                                                        ? formatDateOnly(dueDateStr, 'en-US', { month: 'short', day: 'numeric' })
                                                         : '—';
                                                     return (
                                                         <tr
@@ -1479,7 +1477,7 @@ export default function CustomerOverview() {
                                                             </td>
                                                             <td style={{ fontSize: 11, color: 'var(--t2,#8BA3C7)', padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,.04)' }}>
                                                                 {inv.invoiceDate
-                                                                    ? new Date(inv.invoiceDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                                                                    ? formatDateOnly(inv.invoiceDate, 'en-US', { month: 'short', day: 'numeric' })
                                                                     : '—'}
                                                             </td>
                                                             <td style={{ fontSize: 11, color: 'var(--t,#EEF2FF)', padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,.04)' }}>
@@ -1524,7 +1522,7 @@ export default function CustomerOverview() {
                                         const pct = _paymentMaxAmt > 0 ? Math.round((amt / _paymentMaxAmt) * 100) : 0;
                                         const dateStr = p.payment_date ?? p.date ?? p.createdAt;
                                         const label = dateStr
-                                            ? new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                                            ? formatDateOnly(dateStr, 'en-US', { month: 'short', day: 'numeric' })
                                             : '—';
                                         return (
                                             <div
@@ -1792,7 +1790,7 @@ export default function CustomerOverview() {
                                                     style={{ transition: 'background .15s' }}
                                                 >
                                                     <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>
-                                                        {new Date(entry.date).toLocaleDateString()}
+                                                        {formatDateOnly(entry.date)}
                                                     </td>
                                                     <td style={ledgerTdStyle}>
                                                         <span style={{
@@ -1984,7 +1982,7 @@ export default function CustomerOverview() {
                                                             {doc.docType === 'Invoice' ? doc.invoiceNumber : doc.orderNumber}
                                                         </td>
                                                         <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>
-                                                            {new Date(doc.docType === 'Invoice' ? doc.invoiceDate : doc.orderDate).toLocaleDateString()}
+                                                            {formatDateOnly(doc.docType === 'Invoice' ? doc.invoiceDate : doc.orderDate)}
                                                         </td>
                                                         <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>
                                                             {doc.lineItems.length} {doc.lineItems.length === 1 ? 'Item' : 'Items'}
@@ -2158,7 +2156,7 @@ export default function CustomerOverview() {
                                                         onMouseLeave={_tableRowHoverLeave}
                                                         style={{ transition: 'background .15s', background: isReversal ? 'rgba(239,68,68,.04)' : 'transparent' }}
                                                     >
-                                                        <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{new Date(pay.payment_date).toLocaleDateString()}</td>
+                                                        <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{formatDateOnly(pay.payment_date)}</td>
                                                         <td style={{ ...ledgerTdStyle, fontFamily: 'monospace', fontWeight: 700 }}>{pay.reference || `PAY-${String(pay.id).slice(-4)}`}</td>
                                                         <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{pay.payment_method}</td>
                                                         <td style={{ ...ledgerTdStyle, textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: isReversal ? '#EF4444' : '#22C55E' }}>
@@ -2368,7 +2366,7 @@ export default function CustomerOverview() {
                                                         onMouseLeave={_tableRowHoverLeave}
                                                         style={{ transition: 'background .15s' }}
                                                     >
-                                                        <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{new Date(exp.date).toLocaleDateString()}</td>
+                                                        <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{formatDateOnly(exp.date)}</td>
                                                         <td style={{ ...ledgerTdStyle, fontWeight: 700 }}>{exp.vendor}</td>
                                                         <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{exp.category}</td>
                                                         <td style={{ ...ledgerTdStyle, textAlign: 'right', fontFamily: 'monospace' }}>{exp.currency} ${exp.amount.toFixed(2)}</td>
@@ -2467,11 +2465,11 @@ export default function CustomerOverview() {
                                     <div className="grid grid-cols-2 gap-8 pt-2">
                                         <div>
                                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Instrument Date</p>
-                                            <p className="text-xs font-black text-gray-700">{new Date(selectedInvoice.invoiceDate || selectedInvoice.orderDate).toLocaleDateString()}</p>
+                                            <p className="text-xs font-black text-gray-700">{formatDateOnly(selectedInvoice.invoiceDate || selectedInvoice.orderDate)}</p>
                                         </div>
                                         <div>
                                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Maturity Date</p>
-                                            <p className="text-xs font-black text-gray-700">{selectedInvoice.dueDate ? new Date(selectedInvoice.dueDate).toLocaleDateString() : 'N/A'}</p>
+                                            <p className="text-xs font-black text-gray-700">{selectedInvoice.dueDate ? formatDateOnly(selectedInvoice.dueDate) : 'N/A'}</p>
                                         </div>
                                     </div>
                                     <div className="grid grid-cols-2 gap-8 pt-2">
