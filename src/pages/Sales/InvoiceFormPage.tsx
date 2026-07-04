@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
-import { ArrowLeft, Plus, Trash2, Save, FileText, UserPlus, X, Download } from 'lucide-react';
+import { ArrowLeft, Plus, Save, FileText, UserPlus, X, Download } from 'lucide-react';
 import { getCustomers, getInvoices, createInvoice, updateInvoice, getProducts, createCustomer, type Customer, type Product } from '../../services/api';
 import { getCustomerPrice } from '../../services/api';
 // ITEM 7A — Pull salesmen via getSalesmen() so newly-added entries
 // from the quick-add UI show up without a page reload.
 import { getSalesmen, addSalesman, VANS, PAYMENT_METHODS, type Salesman } from '../../constants/data';
 import SearchableSelect from '../../components/common/SearchableSelect';
+import InvoiceLineRow, { type InvoiceLineItem } from './InvoiceLineRow';
 // ITEM 7F — Deposit (bank/cash) account picker for inline Record Payment.
 import { getAccounts, type Account } from '../Accounts/ChartOfAccounts';
 // ITEM 7G — Real PDF download (mirrors payslip/receipt PDFs).
@@ -18,24 +19,6 @@ import { useEscape } from '../../hooks/useEscape';
 // the bundle cost (~12 KB gz) is trivial vs. preventing the page-load
 // flicker that a dynamic import would introduce on first voice command.
 import Fuse from 'fuse.js';
-
-interface InvoiceLineItem {
-    id: string;
-    productId: string;
-    product: string;
-    description: string;
-    quantity: number;
-    rate: number;
-    amount: number;
-    isService?: boolean;
-    // ITEM 7D — Per-line discount % and tax %. Default to 0 — when both
-    // are 0 across all lines, the header-level Tax Rate + Discount still
-    // drive the totals (backward-compat). When any line has a non-zero
-    // value, that line contributes to the tax / discount aggregates and
-    // overrides the header default for that line.
-    lineDiscount?: number;
-    lineTaxRate?: number;
-}
 
 interface InvoiceFormData {
     customerId: string;
@@ -507,14 +490,25 @@ export default function InvoiceFormPage() {
             formData.paymentStatus === 'Advance Paid' ? grandTotal - formData.amountPaid :
                 grandTotal;
 
-        setFormData(prev => ({
-            ...prev,
-            subtotal,
-            taxAmount,
-            roundOff,
-            grandTotal,
-            remainingBalance
-        }));
+        setFormData(prev => {
+            if (
+                prev.subtotal === subtotal &&
+                prev.taxAmount === taxAmount &&
+                prev.roundOff === roundOff &&
+                prev.grandTotal === grandTotal &&
+                prev.remainingBalance === remainingBalance
+            ) {
+                return prev;
+            }
+            return {
+                ...prev,
+                subtotal,
+                taxAmount,
+                roundOff,
+                grandTotal,
+                remainingBalance
+            };
+        });
     }, [formData.lineItems, formData.taxRate, formData.discount, formData.paymentStatus, formData.amountPaid, formData.roundOff, roundOffManual]);
 
     const handleAddLineItem = () => {
@@ -537,17 +531,18 @@ export default function InvoiceFormPage() {
         }));
     };
 
-    const handleRemoveLineItem = (id: string) => {
-        if (formData.lineItems.length === 1) {
-            alert('Invoice must have at least one line item');
-            return;
-        }
-
-        setFormData(prev => ({
-            ...prev,
-            lineItems: prev.lineItems.filter(item => item.id !== id)
-        }));
-    };
+    const handleRemoveLineItem = useCallback((id: string) => {
+        setFormData(prev => {
+            if (prev.lineItems.length === 1) {
+                alert('Invoice must have at least one line item');
+                return prev;
+            }
+            return {
+                ...prev,
+                lineItems: prev.lineItems.filter(item => item.id !== id)
+            };
+        });
+    }, []);
 
     // ITEM 7A — Quick-add salesman handler. Saves to localStorage
     // (via addSalesman) and auto-selects the new salesman in the form.
@@ -595,32 +590,34 @@ export default function InvoiceFormPage() {
         }));
     };
 
-    const handleProductSelect = (lineId: string, productId: string) => {
+    const handleProductSelect = useCallback((lineId: string, productId: string) => {
         const selectedProduct = products.find(p => String(p.id) === String(productId));
 
         if (!selectedProduct) return;
 
-        const rate = getCustomerPrice(formData.customerId, String(selectedProduct.id), selectedProduct.unit_price);
-        const unitSuffix = selectedProduct.unit ? ` (${selectedProduct.unit})` : '';
+        setFormData(prev => {
+            const rate = getCustomerPrice(prev.customerId, String(selectedProduct.id), selectedProduct.unit_price);
+            const unitSuffix = selectedProduct.unit ? ` (${selectedProduct.unit})` : '';
 
-        setFormData(prev => ({
-            ...prev,
-            lineItems: prev.lineItems.map(item => {
-                if (item.id !== lineId) return item;
+            return {
+                ...prev,
+                lineItems: prev.lineItems.map(item => {
+                    if (item.id !== lineId) return item;
 
-                return {
-                    ...item,
-                    productId: selectedProduct.id,
-                    product: selectedProduct.name,
-                    description: `${selectedProduct.name}${unitSuffix}`,
-                    rate,
-                    amount: item.quantity * rate
-                };
-            })
-        }));
-    };
+                    return {
+                        ...item,
+                        productId: selectedProduct.id,
+                        product: selectedProduct.name,
+                        description: `${selectedProduct.name}${unitSuffix}`,
+                        rate,
+                        amount: item.quantity * rate
+                    };
+                })
+            };
+        });
+    }, [products]);
 
-    const handleLineItemChange = (id: string, field: keyof InvoiceLineItem, value: string | number) => {
+    const handleLineItemChange = useCallback((id: string, field: keyof InvoiceLineItem, value: string | number) => {
         setFormData(prev => ({
             ...prev,
             lineItems: prev.lineItems.map(item => {
@@ -635,7 +632,7 @@ export default function InvoiceFormPage() {
                 return updatedItem;
             })
         }));
-    };
+    }, []);
 
     const handleCustomerChange = (customerId: string) => {
         const customer = customers.find(c => c.id === customerId);
@@ -1379,147 +1376,16 @@ export default function InvoiceFormPage() {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200">
-                                {formData.lineItems.map((item) => {
-                                    // ITEM 7E — Look up the selected product to surface its
-                                    // available stock right next to the row. Warn (rose) when
-                                    // the quantity entered exceeds stock so the user spots it
-                                    // before submitting.
-                                    const isServiceLine = !!item.isService;
-                                    const selectedProd = !isServiceLine
-                                        ? products.find(p => String(p.id) === String(item.productId))
-                                        : undefined;
-                                    const availableStock = selectedProd
-                                        ? Number((selectedProd as any).stock ?? (selectedProd as any).current_stock ?? 0)
-                                        : null;
-                                    const qty = Number(item.quantity) || 0;
-                                    const overStock = !isServiceLine && availableStock !== null && qty > availableStock;
-                                    return (
-                                    <tr key={item.id} className="hover:bg-gray-50">
-                                        <td className="px-4 py-3">
-                                            {isServiceLine ? (
-                                                <input
-                                                    type="text"
-                                                    value={item.product}
-                                                    onChange={(e) => handleLineItemChange(item.id, 'product', e.target.value)}
-                                                    placeholder="Service or cargo charge name..."
-                                                    className="w-full rounded-lg px-3 py-2 text-sm font-bold focus:outline-none placeholder:text-[#8BA3C7]"
-                                                    style={{
-                                                        border: '0.5px solid var(--color-border-tertiary)',
-                                                        background: 'var(--color-background-primary)',
-                                                        color: 'var(--color-text-primary)',
-                                                    }}
-                                                />
-                                            ) : (
-                                            <SearchableSelect
-                                                options={products}
-                                                value={item.productId}
-                                                onChange={(productId) => handleProductSelect(item.id, productId)}
-                                                placeholder="Search product..."
-                                                displayKey="name"
-                                                theme="dark"
-                                            />
-                                            )}
-                                            {/* ITEM 7E — Stock badge under the product selector. */}
-                                            {!isServiceLine && selectedProd && availableStock !== null && (
-                                                <div className={`mt-1 inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full ${
-                                                    availableStock === 0
-                                                        ? 'bg-rose-100 text-rose-700'
-                                                        : availableStock < 10
-                                                            ? 'bg-amber-100 text-amber-700'
-                                                            : 'bg-emerald-100 text-emerald-700'
-                                                }`}>
-                                                    In stock: {availableStock} {(selectedProd as any).unit || 'units'}
-                                                </div>
-                                            )}
-                                        </td>
-
-                                        <td className="px-4 py-3">
-                                            <textarea
-                                                value={item.description}
-                                                onChange={(e) => handleLineItemChange(item.id, 'description', e.target.value)}
-                                                placeholder="Item description..."
-                                                rows={2}
-                                                className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-[#4F8EF7] focus:outline-none resize-none"
-                                            />
-                                        </td>
-
-                                        <td className="px-4 py-3">
-                                            <input
-                                                type="number"
-                                                value={item.quantity || ''}
-                                                onChange={(e) => handleLineItemChange(item.id, 'quantity', parseFloat(e.target.value) || 0)}
-                                                min="1"
-                                                placeholder="Enter quantity"
-                                                className={`w-full border-2 rounded-lg px-3 py-2 text-sm text-center font-mono font-bold focus:outline-none ${
-                                                    overStock
-                                                        ? 'border-rose-400 bg-rose-50 text-rose-700 focus:border-rose-500'
-                                                        : 'border-gray-300 focus:border-[#4F8EF7]'
-                                                }`}
-                                            />
-                                            {/* ITEM 7E — Over-stock warning. */}
-                                            {overStock && (
-                                                <p className="text-[10px] font-bold text-rose-600 mt-1 text-center">
-                                                    Only {availableStock} in stock
-                                                </p>
-                                            )}
-                                        </td>
-
-                                        <td className="px-3 py-3">
-                                            <input
-                                                type="number"
-                                                value={item.rate || ''}
-                                                onChange={(e) => handleLineItemChange(item.id, 'rate', parseFloat(e.target.value) || 0)}
-                                                min="0"
-                                                step="0.01"
-                                                placeholder="Enter rate"
-                                                className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm text-center font-mono font-bold focus:border-[#4F8EF7] focus:outline-none"
-                                            />
-                                        </td>
-
-                                        {/* ITEM 7D — per-line Discount % */}
-                                        <td className="px-2 py-3">
-                                            <input
-                                                type="number"
-                                                value={item.lineDiscount || ''}
-                                                onChange={(e) => handleLineItemChange(item.id, 'lineDiscount', parseFloat(e.target.value) || 0)}
-                                                min="0"
-                                                max="100"
-                                                step="0.01"
-                                                placeholder="0"
-                                                className="w-full border-2 border-gray-300 rounded-lg px-2 py-2 text-sm text-center font-mono font-bold focus:border-[#4F8EF7] focus:outline-none"
-                                            />
-                                        </td>
-
-                                        {/* ITEM 7D — per-line Tax % */}
-                                        <td className="px-2 py-3">
-                                            <input
-                                                type="number"
-                                                value={item.lineTaxRate || ''}
-                                                onChange={(e) => handleLineItemChange(item.id, 'lineTaxRate', parseFloat(e.target.value) || 0)}
-                                                min="0"
-                                                max="100"
-                                                step="0.01"
-                                                placeholder="0"
-                                                className="w-full border-2 border-gray-300 rounded-lg px-2 py-2 text-sm text-center font-mono font-bold focus:border-[#4F8EF7] focus:outline-none"
-                                            />
-                                        </td>
-
-                                        <td className="px-4 py-3 text-right font-mono font-black text-base text-gray-900">
-                                            {item.amount.toLocaleString()}
-                                        </td>
-
-                                        <td className="px-4 py-3 text-center">
-                                            <button
-                                                onClick={() => handleRemoveLineItem(item.id)}
-                                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                                title="Remove item"
-                                            >
-                                                <Trash2 size={18} />
-                                            </button>
-                                        </td>
-                                    </tr>
-                                    );
-                                })}
+                                {formData.lineItems.map((item) => (
+                                    <InvoiceLineRow
+                                        key={item.id}
+                                        item={item}
+                                        products={products}
+                                        onProductSelect={handleProductSelect}
+                                        onLineItemChange={handleLineItemChange}
+                                        onRemove={handleRemoveLineItem}
+                                    />
+                                ))}
                             </tbody>
                         </table>
                     </div>

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, type CSSProperties } from 'react';
+import { useState, useMemo, useEffect, useRef, memo, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 
 type SearchableSelectTheme = 'light' | 'dark';
@@ -6,7 +6,7 @@ type SearchableSelectTheme = 'light' | 'dark';
 const MAX_VISIBLE_OPTIONS = 50;
 const SEARCH_DEBOUNCE_MS = 150;
 
-export default function SearchableSelect({
+function SearchableSelect({
     options,
     value,
     onChange,
@@ -35,8 +35,9 @@ export default function SearchableSelect({
         return () => window.clearTimeout(timer);
     }, [search]);
 
-    const selectedOption = options.find(
-        opt => String(opt.id) === String(value)
+    const selectedOption = useMemo(
+        () => options.find(opt => String(opt.id) === String(value)),
+        [options, value]
     );
 
     const filteredOptions = useMemo(() => {
@@ -262,3 +263,5 @@ export default function SearchableSelect({
         </div>
     );
 }
+
+export default memo(SearchableSelect);
