@@ -2,8 +2,8 @@
 // Frontend client for the Soltol Voice AI backend module
 // (app/voice/* on bettano-erp-backend).
 //
-// Endpoint surface lives at <VITE_API_URL>/api/voice/* (REST) and
-// <VITE_API_URL>/ws/voice/... + /voice/stream/... (WebSockets).
+// Endpoint surface lives at <apiBase>/voice/* (REST) and
+// <apiHost>/ws/voice/... + /voice/stream/... (WebSockets).
 // All REST calls require the X-Tenant-Api-Key header, stored in
 // localStorage under "voice_tenant_api_key".
 //
@@ -16,13 +16,12 @@
 // ============================================
 
 import { ACCESS_TOKEN_KEY } from '../api/axios';
+import { getOilErpApiBase, getOilErpApiHost } from '../config/apiBase';
 
-const RAW_BASE = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
-    .trim()
-    .replace(/\/+$/, '');
-export const VOICE_API_BASE = `${RAW_BASE}/api/voice`;
-export const VOICE_API_TENANTS = `${RAW_BASE}/api/tenants`;
-export const VOICE_WS_BASE = RAW_BASE.replace(/^http/, 'ws');
+const API_HOST = getOilErpApiHost();
+export const VOICE_API_BASE = `${getOilErpApiBase()}/voice`;
+export const VOICE_API_TENANTS = `${getOilErpApiBase()}/tenants`;
+export const VOICE_WS_BASE = API_HOST.replace(/^http/, 'ws');
 
 // ── localStorage keys (single place to rotate them later) ──
 const STORAGE_KEYS = {

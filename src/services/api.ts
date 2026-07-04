@@ -1,9 +1,7 @@
 import { ACCESS_TOKEN_KEY } from '../api/axios';
+import { getOilErpApiBase } from '../config/apiBase';
 
-const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
-  .trim()
-  .replace(/\/+$/, '');
-export const API_BASE_URL = `${API_HOST}/api`;
+export const API_BASE_URL = getOilErpApiBase();
 const USE_MOCK = false;
 
 export interface Customer {
@@ -821,7 +819,7 @@ export async function updatePayment(id: string, data: Partial<Payment>): Promise
   return raw as Payment;
 }
 
-/** Public invoice by share token — no auth; uses configured API host (VITE_API_URL). */
+/** Public invoice by share token — no auth; uses configured API base. */
 export async function fetchPublicInvoiceByToken(token: string): Promise<PublicInvoicePayload> {
   const url = `${API_BASE_URL}/invoices/view/${encodeURIComponent(token)}`;
   const res = await fetch(url, {

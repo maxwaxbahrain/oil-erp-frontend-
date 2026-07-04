@@ -1,5 +1,6 @@
 // Expense Management Service
 import { authFetch } from '../api/axios';
+import { getOilErpApiBase, getOilErpApiHost } from '../config/apiBase';
 
 export interface ExpenseCategory {
     id: string;
@@ -115,10 +116,7 @@ export interface AIExtractedData {
 // exportExpensesAsCSV) keep working without becoming async — they read
 // the cache, which is refreshed every time the list page mounts.
 const EXPENSE_CATEGORIES_KEY = 'zavi_expense_categories';
-const EXPENSES_API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
-    .trim()
-    .replace(/\/+$/, '');
-const EXPENSES_API = `${EXPENSES_API_HOST}/api/expenses`;
+const EXPENSES_API = `${getOilErpApiBase()}/expenses`;
 
 let _expensesCache: Expense[] = [];
 let _expensesCacheLoaded = false;
@@ -467,8 +465,7 @@ export async function deleteExpense(id: string, opts?: { force?: boolean }): Pro
 // unchanged so the callsite in ExpenseManagement.tsx needs no change.
 // Throws on every real failure path instead of resolving to fake data.
 
-const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
-    .trim().replace(/\/+$/, '');
+const API_HOST = getOilErpApiHost();
 
 const RECEIPT_OCR_PROMPT =
     "You are a receipt reading assistant for an ERP system. " +
@@ -1566,7 +1563,7 @@ export async function pushExpenseToAccounting(expense: Expense): Promise<{ jvNum
         ],
     };
 
-    const res = await authFetch(API_HOST + '/api/journal-vouchers/', {
+    const res = await authFetch(`${getOilErpApiBase()}/journal-vouchers/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(jv),

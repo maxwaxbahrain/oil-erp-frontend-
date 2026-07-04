@@ -1,5 +1,6 @@
 // AI Types & Interfaces
 import { authFetch } from '../api/axios';
+import { getOilErpApiBase } from '../config/apiBase';
 export type AdjustmentType = 'auto' | 'approval_required' | 'investigation_required';
 export type AdjustmentReason = 'shrinkage' | 'demand_reorder' | 'sales_reconciliation' | 'damage' | 'expiry' | 'location_balance';
 
@@ -30,33 +31,12 @@ export interface AIInsight {
     metric?: string;
 }
 
-/** Shared API prefix (host + `/api`) for fallback fetches. */
-function defaultApiPrefix(): string {
-    const viteHost = String(import.meta.env.VITE_API_URL || '')
-        .trim()
-        .replace(/\/+$/, '');
-    if (viteHost) return `${viteHost}/api`;
-    const base = String(import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
-    if (base) return base;
-    return 'http://localhost:8000/api';
-}
-
 // Stock-control suggestions derived from live product catalog values.
 class AIStockService {
     private lastAdjustments: Record<string, AIStockAdjustment> = {};
 
     private getProductApiBases(): string[] {
-        const envBase = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
-        const envApiUrl = import.meta.env.VITE_API_URL
-            ? `${String(import.meta.env.VITE_API_URL).trim().replace(/\/+$/, '')}/api`
-            : 'http://localhost:8000/api';
-        const candidates = [
-            defaultApiPrefix(),
-            envBase,
-            '/api',
-            envApiUrl,
-        ].filter(Boolean);
-        return Array.from(new Set(candidates));
+        return Array.from(new Set([getOilErpApiBase(), '/api']));
     }
 
     private async fetchProductsFromDatabase(): Promise<any[]> {

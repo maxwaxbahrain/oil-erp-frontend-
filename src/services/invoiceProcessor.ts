@@ -5,6 +5,7 @@
 
 import { createWorker } from 'tesseract.js';
 import { authFetch } from '../api/axios';
+import { getOilErpApiHost } from '../config/apiBase';
 
 export interface SupplierInfo {
     name: string;
@@ -180,7 +181,7 @@ export class FreeInvoiceProcessor {
      */
     private async processWithClaude(file: File, onProgress?: (progress: number, status: string) => void): Promise<InvoiceData> {
         onProgress?.(10, 'Reading file...');
-        const API_HOST = String((import.meta as any).env?.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+        const API_HOST = getOilErpApiHost();
 
         const isExcelFile = file.type.includes('spreadsheet') || file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
         const isCsvFile = file.type === 'text/csv' || file.name.endsWith('.csv');

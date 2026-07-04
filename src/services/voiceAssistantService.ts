@@ -6,9 +6,9 @@
 // exposed to the browser.  Same pattern the existing AI Business
 // Advisor uses (src/components/AIAssistant.tsx).
 //
-// ISOLATION: imports nothing.  Uses plain fetch() and inlines the
+// ISOLATION: imports nothing from src/services/api.ts — uses shared apiBase helper.
 import { authFetch } from '../api/axios';
-// API_HOST lookup.  Does NOT import from src/services/api.ts.
+import { getOilErpApiHost } from '../config/apiBase';
 // ============================================
 
 export type VoiceActionType =
@@ -25,12 +25,7 @@ export interface VoiceAction {
 }
 
 // ── Backend endpoint ──────────────────────────────────────────────
-// Same VITE_API_URL convention as api.ts, just inlined so this file
-// stays isolated.  No import from api.ts.
-const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
-    .trim()
-    .replace(/\/+$/, '');
-const CHAT_ENDPOINT = `${API_HOST}/ai/chat`;
+const CHAT_ENDPOINT = `${getOilErpApiHost()}/ai/chat`;
 
 // Per spec — use claude-haiku-4-5-20251001 exactly as written.  The
 // backend may or may not respect this field; if it ignores it, the
