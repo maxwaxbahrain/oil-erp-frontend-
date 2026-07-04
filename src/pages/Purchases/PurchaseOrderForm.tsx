@@ -127,6 +127,12 @@ const inputStyle: CSSProperties = {
     boxSizing: 'border-box',
 };
 
+const lineNumberInputStyle: CSSProperties = {
+    ...inputStyle,
+    minWidth: 72,
+    padding: '8px 6px',
+};
+
 const labelStyle: CSSProperties = {
     display: 'block',
     fontSize: 9,
@@ -536,6 +542,11 @@ export default function PurchaseOrderForm() {
             return;
         }
 
+        if (!suppliers.some((s) => s.id === formData.supplierId)) {
+            alert('Selected supplier is not on the server. Pick a supplier from the list or create a new one.');
+            return;
+        }
+
         const validation = validatePoLineItems(formData.lineItems);
         if (!validation.ok) {
             setLineItemErrors(validation.byLineId);
@@ -562,7 +573,7 @@ export default function PurchaseOrderForm() {
                 expectedDate: formData.expectedDate,
                 items: linesToSubmit.map(item => ({
                     productId: item.productId,
-                    productName: item.product,
+                    productName: item.product?.trim() || item.description?.trim() || 'Item',
                     uom: 'Units',
                     quantity: item.quantity,
                     unitPrice: item.rate,
@@ -936,10 +947,10 @@ export default function PurchaseOrderForm() {
                             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                 <thead>
                                     <tr style={{ background: C.bg3 }}>
-                                        <th style={{ ...thStyle, width: '22%' }}>Product / SKU</th>
-                                        <th style={{ ...thStyle, width: '28%' }}>Description</th>
-                                        <th style={{ ...thStyle, width: '12%', textAlign: 'center' }}>Qty</th>
-                                        <th style={{ ...thStyle, width: '16%', textAlign: 'center' }}>Unit cost</th>
+                                        <th style={{ ...thStyle, width: '20%' }}>Product / SKU</th>
+                                        <th style={{ ...thStyle, width: '24%' }}>Description</th>
+                                        <th style={{ ...thStyle, width: '14%', textAlign: 'center' }}>Qty</th>
+                                        <th style={{ ...thStyle, width: '14%', textAlign: 'center' }}>Unit cost</th>
                                         <th style={{ ...thStyle, width: '16%', textAlign: 'right' }}>Line total</th>
                                         <th style={{ ...thStyle, width: '6%', textAlign: 'center' }} />
                                     </tr>
@@ -983,12 +994,12 @@ export default function PurchaseOrderForm() {
                                                     style={inputStyle}
                                                 />
                                             </td>
-                                            <td style={{ ...tdStyle, textAlign: 'center' }}>
+                                            <td style={{ ...tdStyle, textAlign: 'center', minWidth: 80 }}>
                                                 <input
                                                     type="number"
                                                     value={item.quantity || ''}
                                                     onChange={(e) => handleLineItemChange(item.id, 'quantity', parseFloat(e.target.value) || 0)}
-                                                    style={{ ...inputStyle, textAlign: 'center', fontFamily: 'monospace', ...qtyErrorStyle }}
+                                                    style={{ ...lineNumberInputStyle, textAlign: 'center', fontFamily: 'monospace', ...qtyErrorStyle }}
                                                     placeholder="0"
                                                 />
                                                 {rowErrors?.quantity && (
@@ -997,12 +1008,12 @@ export default function PurchaseOrderForm() {
                                                     </div>
                                                 )}
                                             </td>
-                                            <td style={{ ...tdStyle, textAlign: 'center' }}>
+                                            <td style={{ ...tdStyle, textAlign: 'center', minWidth: 88 }}>
                                                 <input
                                                     type="number"
                                                     value={item.rate || ''}
                                                     onChange={(e) => handleLineItemChange(item.id, 'rate', parseFloat(e.target.value) || 0)}
-                                                    style={{ ...inputStyle, textAlign: 'center', fontFamily: 'monospace', ...rateErrorStyle }}
+                                                    style={{ ...lineNumberInputStyle, textAlign: 'center', fontFamily: 'monospace', ...rateErrorStyle }}
                                                     placeholder="0.00"
                                                 />
                                                 {rowErrors?.rate && (

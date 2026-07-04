@@ -107,10 +107,9 @@ const getStorage = <T>(key: string): T[] => {
 // localStorage acts only as an offline fallback when the API is unreachable.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
-    .trim()
-    .replace(/\/+$/, '');
-const SUPPLIERS_API = `${API_HOST}/api/suppliers`;
+// Prefer getOilErpApiBase() (VITE_API_BASE_URL, then VITE_API_URL/api) so PO
+// writes hit the same host as other /api services even when only one env var is set.
+const SUPPLIERS_API = `${getOilErpApiBase()}/suppliers`;
 const MIGRATION_FLAG = 'suppliers_migrated_to_api';
 
 function apiUrl(path: string): string {
@@ -299,36 +298,59 @@ export const getSupplierPurchases = async (supplierId: string): Promise<Purchase
     }
 };
 
+function finiteNum(value: unknown, fallback = 0): number {
+    const n = typeof value === 'number' ? value : parseFloat(String(value ?? ''));
+    return Number.isFinite(n) ? n : fallback;
+}
+
 export const createPurchaseOrder = async (po: Omit<PurchaseOrder, 'id'>): Promise<PurchaseOrder> => {
     const supplierId = String(po.supplierId || '');
     if (!supplierId) throw new Error('createPurchaseOrder: supplierId is required');
-    const r = await authFetch(`${SUPPLIERS_API}/${encodeURIComponent(supplierId)}/purchases`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            poNumber: po.poNumber,
-            date: po.date,
-            expectedDate: po.expectedDate,
-            status: po.status,
-            payment_status: po.payment_status,
-            payment_method: po.payment_method,
-            subtotal: po.subtotal,
-            taxTotal: po.taxTotal,
-            grandTotal: po.grandTotal,
-            amount_paid: po.amount_paid,
-            notes: po.notes,
-            items: (po.items || []).map(it => ({
-                productId: it.productId,
-                productName: it.productName,
-                uom: it.uom,
-                quantity: it.quantity,
-                unitPrice: it.unitPrice,
-                taxRate: it.taxRate,
-                discount: it.discount,
-                total: it.total,
-            })),
-        }),
-    });
+    if (!/^\d+$/.test(supplierId)) {
+        throw new Error(
+            `Invalid supplier id "${supplierId}". Select a supplier from the list (offline/local ids cannot be saved).`,
+        );
+    }
+
+    const url = `${SUPPLIERS_API}/${encodeURIComponent(supplierId)}/purchases`;
+    const payload = {
+        poNumber: po.poNumber,
+        date: po.date,
+        expectedDate: po.expectedDate,
+        status: po.status,
+        payment_status: po.payment_status,
+        payment_method: po.payment_method ?? '',
+        subtotal: finiteNum(po.subtotal),
+        taxTotal: finiteNum(po.taxTotal),
+        grandTotal: finiteNum(po.grandTotal),
+        amount_paid: finiteNum(po.amount_paid),
+        notes: po.notes ?? '',
+        items: (po.items || []).map((it) => ({
+            productId: String(it.productId ?? ''),
+            productName: String(it.productName || it.productId || 'Item'),
+            uom: it.uom || 'Units',
+            quantity: finiteNum(it.quantity),
+            unitPrice: finiteNum(it.unitPrice),
+            taxRate: finiteNum(it.taxRate),
+            discount: finiteNum(it.discount),
+            total: finiteNum(it.total),
+        })),
+    };
+
+    let r: Response;
+    try {
+        r = await authFetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify(payload),
+        });
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+            throw new Error(`Cannot reach ${url}. Check VITE_API_URL / network and try again.`);
+        }
+        throw err;
+    }
     if (!r.ok) {
         const text = await r.text().catch(() => '');
         throw new Error(`Failed to create PO: ${r.status} ${text}`);
@@ -340,7 +362,7 @@ export const updatePurchaseOrder = async (id: string, data: Partial<PurchaseOrde
     // Calls the backend PATCH /api/purchase-orders/{id} so procurement-flow
     // transitions (approve, GRN, mark paid) actually persist instead of
     // silently writing to localStorage.
-    const res = await authFetch(`${API_HOST}/api/purchase-orders/${encodeURIComponent(id)}`, {
+    const res = await authFetch(`${getOilErpApiBase()}/purchase-orders/${encodeURIComponent(id)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -369,7 +391,7 @@ export const updatePurchaseOrder = async (id: string, data: Partial<PurchaseOrde
 // already hard-gates the button to Draft status, but we still surface
 // any backend rejection as a friendly error rather than swallowing it.
 export const deletePurchaseOrder = async (id: string): Promise<void> => {
-    const res = await authFetch(`${API_HOST}/api/purchase-orders/${encodeURIComponent(id)}`, {
+    const res = await authFetch(`${getOilErpApiBase()}/purchase-orders/${encodeURIComponent(id)}`, {
         method: 'DELETE',
     });
     if (!res.ok) {
@@ -431,7 +453,6 @@ export const getSupplierBalance = async (supplierId: string): Promise<number> =>
 };
 
 // ── Procurement Flow Actions ─────────────────────────────────────────────────
-// (API_HOST is already declared at the top of the file for SUPPLIERS_API.)
 
 export const approvePurchaseOrder = async (id: string): Promise<PurchaseOrder> => {
     return updatePurchaseOrder(id, {
