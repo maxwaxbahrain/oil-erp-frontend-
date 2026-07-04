@@ -33,12 +33,14 @@ import {
 import {
     getCustomers,
     getCustomerPayments,
-    getCustomerLedger,
-    compareLedgerByDateAsc,
     compareLedgerByDateDesc,
     type Customer,
     type Payment
 } from '../../services/customerService';
+import {
+    getCustomerLedger,
+    type PartyLedgerRow,
+} from '../../services/api';
 import { getCustomerCreditNotes, updateCreditNote, type CreditNote } from '../../services/creditNoteService';
 // STEP 11B — load customer billable expenses for the Unbilled tab.
 import { saveExpense, type Expense } from '../../services/expenseService';
@@ -159,6 +161,32 @@ const generateCustomerLedgerExcel = (customer: Customer, ledger: LedgerEntry[]) 
     document.body.removeChild(link);
 };
 
+/** Map a backend PartyLedgerRow to the display shape — running_balance comes
+ *  from the API; the UI never recomputes it. */
+function mapPartyRowToDisplay(row: PartyLedgerRow): LedgerEntry {
+    const rawType = (row.type || '').toLowerCase();
+    const displayType: LedgerEntry['type'] =
+        rawType === 'van_sale' ? 'Van Sale' :
+        rawType === 'credit' || rawType === 'credit_note' || rawType === 'return_credit' ||
+            rawType === 'credit_adjustment' || rawType === 'opening_balance'
+            ? 'Credit Note' :
+        rawType === 'debit' ? 'Debit Note' :
+        rawType === 'payment' ? 'Payment' :
+        'Invoice';
+
+    return {
+        id: String(row.id),
+        date: row.date ?? '',
+        type: displayType,
+        referenceNumber: row.reference || `${rawType.toUpperCase()}-${String(row.id).slice(-4)}`,
+        description: row.description || `${row.type} transaction`,
+        debit: Number(row.debit) || 0,
+        credit: Number(row.credit) || 0,
+        balance: Number(row.running_balance) || 0,
+        relatedId: row.invoice_id != null ? String(row.invoice_id) : String(row.id),
+    };
+}
+
 // ─── Document vault constants (visual-only, outside component) ──────────
 // Part of the Customer Overview V3 spec. Pure UI mockup — no service
 // calls, just renders inside the new vault panel.
@@ -234,8 +262,10 @@ export default function CustomerOverview() {
     const [customer, setCustomer] = useState<Customer | null>(null);
     const [loading, setLoading] = useState(true);
 
-    // Ledger state
+    // Ledger state — balances come from the API (Root B); never computed client-side.
     const [ledger, setLedger] = useState<LedgerEntry[]>([]);
+    const [ledgerOpeningBalance, setLedgerOpeningBalance] = useState<number | null>(null);
+    const [ledgerClosingBalance, setLedgerClosingBalance] = useState<number | null>(null);
     const [ledgerDateFrom, setLedgerDateFrom] = useState('');
     const [ledgerDateTo, setLedgerDateTo] = useState('');
     const [loadingLedger, setLoadingLedger] = useState(false);
@@ -323,15 +353,33 @@ export default function CustomerOverview() {
         fetchCustomer();
     }, [id, navigate]);
 
+    // Root B — fetch ledger for DISPLAY from the API (opening/closing/running
+    // balances are backend-computed; the UI never recomputes them).
+    const loadLedger = async (from?: string, to?: string) => {
+        if (!id) return;
+        setLoadingLedger(true);
+        try {
+            const data = await getCustomerLedger(id, from || undefined, to || undefined);
+            const rows = data.rows.map(mapPartyRowToDisplay);
+            setLedger([...rows].sort(compareLedgerByDateDesc));
+            setLedgerOpeningBalance(data.opening_balance);
+            setLedgerClosingBalance(data.closing_balance);
+        } catch (error) {
+            console.error('Failed to load customer ledger:', error);
+        } finally {
+            setLoadingLedger(false);
+        }
+    };
+
     // Load all customer data
     const loadAllData = async () => {
         if (!id) return;
 
         try {
-            setLoadingLedger(true);
-
-            // Fetch everything in parallel including ledger entries from customer_ledger
-            const [custInvoices, custOrders, custPayments, customerLedgerEntries, custCreditNotes] = await Promise.all([
+            // Fetch everything in parallel. Full-history ledger (no dates) feeds
+            // overview stats only; the ledger tab display is loaded separately via
+            // loadLedger so date filters hit the backend with start/end params.
+            const [custInvoices, custOrders, custPayments, fullLedger, custCreditNotes] = await Promise.all([
                 getCustomerInvoices(id),
                 getCustomerSalesOrders(id),
                 getCustomerPayments(id),
@@ -344,68 +392,7 @@ export default function CustomerOverview() {
             setPayments(custPayments);
             setCreditNotes(custCreditNotes);
 
-            // Build Ledger from the backend ledger endpoint ONLY. That endpoint already
-            // returns invoices (as synthetic rows) and payments (as Transaction rows),
-            // so we don't need to merge in custInvoices/custPayments — which would
-            // duplicate every row and, when two payments share an empty reference,
-            // get collapsed by the dedup filter (losing one). Stats and the Sales /
-            // Payments tabs still use custInvoices and custPayments separately below.
-            const allTransactions: any[] = customerLedgerEntries.map(entry => {
-                const invId =
-                    entry.invoice_id != null && entry.invoice_id !== ''
-                        ? String(entry.invoice_id)
-                        : entry.type === 'invoice'
-                          ? (() => {
-                              const n = Number(entry.id);
-                              return !Number.isNaN(n) && n >= 100000 ? String(n - 100000) : undefined;
-                            })()
-                          : undefined;
-                return {
-                    id: entry.id,
-                    relatedInvoiceId: invId,
-                    date: entry.date,
-                    type: entry.type === 'van_sale' ? 'Van Sale' as const :
-                        entry.type === 'opening_balance' ? 'Credit Note' as const :
-                            entry.type === 'credit' ? 'Credit Note' as const :
-                                entry.type === 'debit' ? 'Debit Note' as const :
-                                    entry.type === 'payment' ? 'Payment' as const :
-                                        'Invoice' as const,
-                    referenceNumber: entry.reference || entry.invoice_number || `${entry.type.toUpperCase()}-${String(entry.id).slice(-4)}`,
-                    description: entry.description || `${entry.type} transaction`,
-                    debit: entry.type === 'van_sale' || entry.type === 'invoice' || entry.type === 'debit' || entry.type === 'opening_balance' ? entry.amount : 0,
-                    credit:
-                        entry.type === 'payment' ||
-                        entry.type === 'credit' ||
-                        entry.type === 'credit_note' ||
-                        entry.type === 'return_credit' ||
-                        entry.type === 'credit_adjustment'
-                            ? entry.amount
-                            : 0,
-                    van_number: entry.van_number,
-                    salesman_name: entry.salesman_name
-                };
-            });
-
-            // Single source of truth — no dedup needed. Each backend ledger row is one
-            // unique entry. Keeping the variable name for downstream compatibility.
-            const uniqueTransactions = allTransactions;
-
-            // Running balance is computed oldest→newest; display newest first.
-            const chronological = [...uniqueTransactions].sort(compareLedgerByDateAsc);
-
-            let runningBalance = 0;
-            const ledgerEntries: LedgerEntry[] = chronological.map(tx => {
-                runningBalance += (tx.debit - tx.credit);
-                return {
-                    ...tx,
-                    balance: runningBalance,
-                    relatedId: tx.relatedInvoiceId != null ? String(tx.relatedInvoiceId) : String(tx.id),
-                    van_number: tx.van_number,
-                    salesman_name: tx.salesman_name
-                };
-            });
-
-            setLedger([...ledgerEntries].sort(compareLedgerByDateDesc));
+            const ledgerEntries: LedgerEntry[] = fullLedger.rows.map(mapPartyRowToDisplay);
 
             // Calculate real stats from actual data.
             // (1) Outstanding balance = the server-side customer.balance — same source
@@ -496,8 +483,6 @@ export default function CustomerOverview() {
 
         } catch (error) {
             console.error('Failed to load customer data:', error);
-        } finally {
-            setLoadingLedger(false);
         }
     };
 
@@ -508,6 +493,14 @@ export default function CustomerOverview() {
         if (!customer) return;
         loadAllData();
     }, [id, customer]);
+
+    // Re-fetch the ledger tab whenever the date filter changes (backend computes
+    // opening/closing for the window).
+    useEffect(() => {
+        if (!id || !customer) return;
+        loadLedger(ledgerDateFrom || undefined, ledgerDateTo || undefined);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [ledgerDateFrom, ledgerDateTo]);
 
     // TASK 5 — Silent refetch on tab return so a payment recorded in
     // another tab reflects immediately on this profile when the user
@@ -522,6 +515,7 @@ export default function CustomerOverview() {
             lastSilentLoadAtRef.current = now;
             // loadAllData already swallows errors; no need for our own try/catch.
             void loadAllData();
+            void loadLedger(ledgerDateFrom || undefined, ledgerDateTo || undefined);
         }
         function onVisibilityChange() {
             if (!document.hidden) silentRefresh();
@@ -570,6 +564,7 @@ export default function CustomerOverview() {
             });
             // Refetch via the existing loader so customer balance + ledger update too.
             await loadAllData();
+            await loadLedger(ledgerDateFrom || undefined, ledgerDateTo || undefined);
             alert('✅ Payment voided. Reversal entry created.');
         } catch (e) {
             alert('Could not void payment: ' + (e instanceof Error ? e.message : String(e)));
@@ -583,6 +578,7 @@ export default function CustomerOverview() {
             setConverting(orderId);
             await convertOrderToInvoice(orderId);
             await loadAllData();
+            await loadLedger(ledgerDateFrom || undefined, ledgerDateTo || undefined);
             alert('✅ Order converted to Invoice successfully!');
         } catch (error) {
             console.error('Failed to convert order:', error);
@@ -611,6 +607,7 @@ export default function CustomerOverview() {
         try {
             await updateCreditNote(cn.id, { status: 'cancelled' });
             await loadAllData();
+            await loadLedger(ledgerDateFrom || undefined, ledgerDateTo || undefined);
         } catch (err) {
             console.error('Failed to cancel credit note:', err);
             alert('Failed to cancel credit note');
@@ -1744,7 +1741,7 @@ export default function CustomerOverview() {
                                                     Loading ledger...
                                                 </td>
                                             </tr>
-                                        ) : ledger.length === 0 ? (
+                                        ) : ledger.length === 0 && !(ledgerDateFrom || ledgerDateTo) ? (
                                             <tr>
                                                 <td colSpan={8} style={{ padding: '40px 20px', textAlign: 'center' }}>
                                                     <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
@@ -1753,15 +1750,22 @@ export default function CustomerOverview() {
                                                 </td>
                                             </tr>
                                         ) : (
-                                            ledger
-                                            .filter(entry => {
-                                                // ITEM 5A — Filter logic; ITEM 5D — same filter
-                                                // feeds the tfoot totals below.
-                                                if (ledgerDateFrom && entry.date.slice(0,10) < ledgerDateFrom) return false;
-                                                if (ledgerDateTo && entry.date.slice(0,10) > ledgerDateTo) return false;
-                                                return true;
-                                            })
-                                            .map(entry => (
+                                            <>
+                                            {(ledgerDateFrom || ledgerDateTo) && ledgerOpeningBalance !== null && (
+                                                <tr style={{ background: 'rgba(79,142,247,.08)' }}>
+                                                    <td colSpan={6} style={{ ...ledgerTdStyle, fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>
+                                                        Opening balance
+                                                        <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 600, color: 'var(--t2,#8BA3C7)' }}>
+                                                            (as at {ledgerDateFrom || 'start'})
+                                                        </span>
+                                                    </td>
+                                                    <td style={{ ...ledgerTdStyle, textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>
+                                                        {ledgerOpeningBalance.toLocaleString()}
+                                                    </td>
+                                                    <td style={ledgerTdStyle}></td>
+                                                </tr>
+                                            )}
+                                            {ledger.map(entry => (
                                                 <tr
                                                     key={entry.id}
                                                     onMouseEnter={_tableRowHoverEnter}
@@ -1872,32 +1876,33 @@ export default function CustomerOverview() {
                                                         )}
                                                     </td>
                                                 </tr>
-                                            ))
+                                            ))}
+                                            {ledger.length === 0 && (ledgerDateFrom || ledgerDateTo) && (
+                                                <tr>
+                                                    <td colSpan={8} style={{ padding: '24px 16px', textAlign: 'center', color: 'var(--t2,#8BA3C7)', fontSize: 12 }}>
+                                                        No transactions in this date range.
+                                                    </td>
+                                                </tr>
+                                            )}
+                                            </>
                                         )}
                                     </tbody>
-                                    {/* ITEM 5D — Totals row. Sums the FILTERED ledger so the
-                                        totals always match what's visible on screen. */}
-                                    {ledger.length > 0 && (() => {
-                                        const visible = ledger.filter(entry => {
-                                            if (ledgerDateFrom && entry.date.slice(0,10) < ledgerDateFrom) return false;
-                                            if (ledgerDateTo && entry.date.slice(0,10) > ledgerDateTo) return false;
-                                            return true;
-                                        });
-                                        const totalDebit = visible.reduce((s, e) => s + (Number(e.debit) || 0), 0);
-                                        const totalCredit = visible.reduce((s, e) => s + (Number(e.credit) || 0), 0);
-                                        const net = totalDebit - totalCredit;
-                                        return (
-                                            <tfoot>
-                                                <tr style={{ fontWeight: 700 }}>
-                                                    <td colSpan={4} style={{ ...ledgerTfootStyle, textAlign: 'right', fontSize: 10, color: 'var(--t2,#8BA3C7)', textTransform: 'uppercase', letterSpacing: '.6px' }}>Totals</td>
-                                                    <td style={{ ...ledgerTfootStyle, textAlign: 'right', fontFamily: 'monospace', color: '#4F8EF7' }}>{totalDebit.toFixed(2)}</td>
-                                                    <td style={{ ...ledgerTfootStyle, textAlign: 'right', fontFamily: 'monospace', color: '#22C55E' }}>{totalCredit.toFixed(2)}</td>
-                                                    <td style={{ ...ledgerTfootStyle, textAlign: 'right', fontFamily: 'monospace', color: net >= 0 ? 'var(--t,#EEF2FF)' : '#EF4444' }}>{net.toFixed(2)}</td>
-                                                    <td style={ledgerTfootStyle}></td>
-                                                </tr>
-                                            </tfoot>
-                                        );
-                                    })()}
+                                    {(ledgerDateFrom || ledgerDateTo) && ledgerClosingBalance !== null && (
+                                        <tfoot>
+                                            <tr style={{ fontWeight: 700, background: 'rgba(79,142,247,.08)' }}>
+                                                <td colSpan={6} style={{ ...ledgerTfootStyle, textAlign: 'right', fontSize: 10, color: 'var(--t,#EEF2FF)', textTransform: 'uppercase', letterSpacing: '.6px' }}>
+                                                    Closing balance
+                                                    <span style={{ marginLeft: 8, fontWeight: 600, color: 'var(--t2,#8BA3C7)', textTransform: 'none' }}>
+                                                        (as at {ledgerDateTo || 'today'})
+                                                    </span>
+                                                </td>
+                                                <td style={{ ...ledgerTfootStyle, textAlign: 'right', fontFamily: 'monospace', color: 'var(--t,#EEF2FF)' }}>
+                                                    {ledgerClosingBalance.toLocaleString()}
+                                                </td>
+                                                <td style={ledgerTfootStyle}></td>
+                                            </tr>
+                                        </tfoot>
+                                    )}
                                 </table>
                             </div>
                         </div>

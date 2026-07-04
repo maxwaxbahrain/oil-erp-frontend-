@@ -35,6 +35,26 @@ export interface LedgerEntry {
   salesman_name?: string;
 }
 
+// Root B — date-range party ledger. The BACKEND computes opening/closing and a
+// per-row running balance; the UI only displays these values.
+export interface PartyLedgerRow {
+  id: string;
+  date: string | null;
+  type: string;
+  reference: string | null;
+  description?: string;
+  debit: number;
+  credit: number;
+  running_balance: number;
+  invoice_id?: number | null;
+  purchase_order_id?: number | null;
+}
+export interface PartyLedger {
+  opening_balance: number;
+  rows: PartyLedgerRow[];
+  closing_balance: number;
+}
+
 export interface Van {
   id: string;
   van_number: string;
@@ -287,10 +307,9 @@ async function mockHandler<T>(endpoint: string, options: RequestInit = {}): Prom
       return customer as any;
     }
 
-    // GET /customers/:id/ledger (Mock)
-    if (endpoint.match(/\/customers\/[\w-]+\/ledger$/)) {
-      // Return dummy ledger or empty for now
-      return [] as any;
+    // GET /customers/:id/ledger (Mock) — Root B object shape
+    if (endpoint.match(/\/customers\/[\w-]+\/ledger(\?.*)?$/)) {
+      return { opening_balance: 0, rows: [], closing_balance: 0 } as any;
     }
 
     // GET /customers
@@ -497,7 +516,28 @@ export const updateCustomer = (id: string, data: Partial<Customer>): Promise<Cus
 export const deleteCustomer = (id: string): Promise<void> => apiRequest<void>(`/customers/${id}`, { method: 'DELETE' });
 // FIX W2-1 — Invoice delete (paid-invoice guard lives at the call site).
 export const deleteInvoice = (id: string): Promise<void> => apiRequest<void>(`/invoices/${id}`, { method: 'DELETE' });
-export const getCustomerLedger = (id: string): Promise<LedgerEntry[]> => apiRequest<LedgerEntry[]>(`/customers/${id}/ledger`);
+/**
+ * Root B — customer receivable ledger. Returns backend-computed
+ * { opening_balance, rows[], closing_balance }. With start/end the backend
+ * seeds the opening balance from everything strictly before the window and
+ * returns only in-window rows (each with a server-computed running balance);
+ * with no dates it returns full history (opening = setup opening balance).
+ */
+export const getCustomerLedger = (id: string, startDate?: string, endDate?: string): Promise<PartyLedger> => {
+  const qs = new URLSearchParams();
+  if (startDate) qs.set('start_date', startDate);
+  if (endDate) qs.set('end_date', endDate);
+  const suffix = qs.toString() ? `?${qs.toString()}` : '';
+  return apiRequest<PartyLedger>(`/customers/${id}/ledger${suffix}`);
+};
+/** Root B — supplier payable ledger (same shape/params, same shared backend helper). */
+export const getSupplierLedger = (id: string, startDate?: string, endDate?: string): Promise<PartyLedger> => {
+  const qs = new URLSearchParams();
+  if (startDate) qs.set('start_date', startDate);
+  if (endDate) qs.set('end_date', endDate);
+  const suffix = qs.toString() ? `?${qs.toString()}` : '';
+  return apiRequest<PartyLedger>(`/suppliers/${id}/ledger${suffix}`);
+};
 export const getOverdueCustomers = (): Promise<Customer[]> => apiRequest<Customer[]>('/customers/overdue');
 
 // Payment APIs

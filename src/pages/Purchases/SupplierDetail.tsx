@@ -43,6 +43,7 @@ import {
     type SupplierLedgerEntry
 } from '../../services/purchasesService';
 import { authFetch } from '../../api/axios';
+import { getSupplierLedger, type PartyLedgerRow } from '../../services/api';
 
 // SupplierDetail v3 (direct API): bypasses the service layer for read paths
 // so cached old bundles can't show stale localStorage data. Writes still
@@ -51,6 +52,22 @@ const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
     .trim()
     .replace(/\/+$/, '');
 const SUPPLIERS_API = `${API_HOST}/api/suppliers`;
+
+/** Map backend PartyLedgerRow → display row; running_balance from API only. */
+function mapSupplierPartyRow(row: PartyLedgerRow): SupplierLedgerEntry {
+    const rawType = (row.type || '').toLowerCase();
+    return {
+        id: String(row.id),
+        date: row.date ?? '',
+        type: rawType === 'payment' ? 'Payment' : 'Purchase',
+        referenceNumber: row.reference || '',
+        description: row.description || '',
+        debit: Number(row.debit) || 0,
+        credit: Number(row.credit) || 0,
+        balance: Number(row.running_balance) || 0,
+        relatedId: row.purchase_order_id != null ? String(row.purchase_order_id) : String(row.id),
+    };
+}
 
 const fromApiSupplier = (r: any): Supplier => ({
     id: String(r.id),
@@ -121,6 +138,8 @@ export default function SupplierDetail() {
 
     // Data state
     const [ledger, setLedger] = useState<SupplierLedgerEntry[]>([]);
+    const [ledgerOpeningBalance, setLedgerOpeningBalance] = useState<number | null>(null);
+    const [ledgerClosingBalance, setLedgerClosingBalance] = useState<number | null>(null);
     const [fromDate, setFromDate] = useState('');
     const [toDate, setToDate] = useState('');
     const [purchases, setPurchases] = useState<PurchaseOrder[]>([]);
@@ -229,15 +248,30 @@ export default function SupplierDetail() {
         fetchSupplier();
     }, [id, navigate]);
 
-    // Load detailed data
+    // Root B — ledger display from API (opening/closing/running from backend).
+    const loadLedger = async (start?: string, end?: string) => {
+        if (!id) return;
+        setLoadingDetails(true);
+        try {
+            const data = await getSupplierLedger(id, start || undefined, end || undefined);
+            setLedger(data.rows.map(mapSupplierPartyRow));
+            setLedgerOpeningBalance(data.opening_balance);
+            setLedgerClosingBalance(data.closing_balance);
+        } catch (error) {
+            console.error('Failed to load supplier ledger:', error);
+        } finally {
+            setLoadingDetails(false);
+        }
+    };
+
+    // Load detailed data (purchases/payments — ledger loaded separately)
     const loadAllData = async () => {
         if (!id) return;
         try {
             setLoadingDetails(true);
-            const [suppPurchases, suppPayments, suppData] = await Promise.all([
+            const [suppPurchases, suppPayments] = await Promise.all([
                 fetchSupplierPurchasesFromApi(id),
                 fetchSupplierPaymentsFromApi(id),
-                fetchSupplierFromApi(id),
             ]);
 
             // eslint-disable-next-line no-console
@@ -245,48 +279,6 @@ export default function SupplierDetail() {
 
             setPurchases(suppPurchases);
             setPayments(suppPayments);
-
-            // Build Ledger. All field accesses below are defensive so a
-            // malformed row (missing items, missing id, etc.) doesn't throw
-            // and silently empty the page.
-            const allTransactions: any[] = [
-                ...suppPurchases.filter(p => p.status !== 'Draft' && p.status !== 'Pending').map(po => ({
-                    id: String(po.id || ''),
-                    date: po.date || '',
-                    type: 'Purchase' as const,
-                    referenceNumber: po.poNumber || '',
-                    description: `Purchase Order - ${(po.items?.length ?? 0)} item(s)`,
-                    debit: 0,
-                    credit: Number(po.grandTotal) || 0, // Increase Liability
-                    relatedId: String(po.id || ''),
-                })),
-                ...suppPayments.map(pay => {
-                    const payIdStr = String(pay.id || '');
-                    return {
-                        id: payIdStr,
-                        date: pay.date || '',
-                        type: 'Payment' as const,
-                        referenceNumber: pay.reference || `PAY-${payIdStr.slice(-4)}`,
-                        description: `Payment Sent - ${pay.paymentMethod || 'Bank Transfer'}`,
-                        debit: Number(pay.amount) || 0, // Decrease Liability
-                        credit: 0,
-                        relatedId: payIdStr,
-                    };
-                })
-            ];
-
-            // Sort by date
-            const sortedTransactions = allTransactions.sort((a, b) =>
-                new Date(a.date).getTime() - new Date(b.date).getTime()
-            );
-
-            let runningBalance = suppData?.openingBalance ?? 0;
-            const ledgerEntries: SupplierLedgerEntry[] = sortedTransactions.map(tx => {
-                runningBalance += (tx.credit - tx.debit); // Liability increases with credit (purchase), decreases with debit (payment)
-                return { ...tx, balance: runningBalance };
-            });
-
-            setLedger(ledgerEntries);
         } catch (error) {
             console.error('Failed to load supplier details:', error);
         } finally {
@@ -297,6 +289,12 @@ export default function SupplierDetail() {
     useEffect(() => {
         if (id) loadAllData();
     }, [id]);
+
+    useEffect(() => {
+        if (!id) return;
+        loadLedger(fromDate || undefined, toDate || undefined);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [id, fromDate, toDate]);
 
     const handleSendPayment = async () => {
         if (!id || paymentForm.amount <= 0) {
@@ -388,6 +386,7 @@ export default function SupplierDetail() {
             });
 
             await loadAllData();
+            await loadLedger(fromDate || undefined, toDate || undefined);
             const msg = succeeded.length === 1
                 ? '✅ Payment executed successfully! Ledger and balance have been updated.'
                 : `✅ ${succeeded.length} payments recorded. Ledger and balance have been updated.`;
@@ -405,6 +404,7 @@ export default function SupplierDetail() {
             setConverting(orderId);
             await updatePurchaseOrder(orderId, { status: 'Received' });
             await loadAllData();
+            await loadLedger(fromDate || undefined, toDate || undefined);
             alert('✅ Order converted to Purchase Order successfully!');
         } catch (error) {
             console.error('Failed to convert order:', error);
@@ -440,7 +440,7 @@ export default function SupplierDetail() {
         );
     }
 
-    const outstandingBalance = ledger.length > 0 ? ledger[ledger.length - 1].balance : 0;
+    const outstandingBalance = ledgerClosingBalance ?? (ledger.length > 0 ? ledger[ledger.length - 1].balance : supplier.openingBalance ?? 0);
     const totalPurchases = purchases.filter(p => p.status !== 'Draft' && p.status !== 'Pending').reduce((sum, p) => sum + p.grandTotal, 0);
 
     const handleExportPDF = () => {
@@ -467,7 +467,7 @@ export default function SupplierDetail() {
                 doc.setFont('helvetica', 'bold');
                 doc.text(`Outstanding Balance: ${outstandingBalance.toLocaleString()}`, 14, currentY + 35);
 
-                const tableData = filteredLedger.map((entry: any) => [
+                const tableData = ledger.map((entry: any) => [
                     new Date(entry.date).toLocaleDateString(),
                     entry.description,
                     entry.referenceNumber,
@@ -570,7 +570,7 @@ export default function SupplierDetail() {
             [`Generated: ${new Date().toLocaleString()}`],
             [],
             ["Date", "Type", "Reference", "Description", "Debit (-)", "Credit (+)", "Balance"],
-            ...filteredLedger.map(entry => [
+            ...ledger.map(entry => [
                 new Date(entry.date).toLocaleDateString(),
                 entry.type,
                 entry.referenceNumber,
@@ -614,13 +614,6 @@ export default function SupplierDetail() {
         const text = encodeURIComponent(`Ledger for ${supplier.name} from ${profile.name}. Balance: ${outstandingBalance.toLocaleString()}`);
         window.location.href = `sms:${supplier.phone.replace(/[^0-9]/g, '')}?body=${text}`;
     };
-
-    // Filter ledger by date range
-    const filteredLedger = ledger.filter((e: any) => {
-        if (fromDate && e.date && e.date < fromDate) return false;
-        if (toDate && e.date && e.date > toDate) return false;
-        return true;
-    });
 
     return (
         <div className="p-6 space-y-6">
@@ -979,7 +972,7 @@ export default function SupplierDetail() {
                                                     </div>
                                                 </td>
                                             </tr>
-                                        ) : ledger.length === 0 ? (
+                                        ) : ledger.length === 0 && !(fromDate || toDate) ? (
                                             <tr>
                                                 <td colSpan={8} className="px-6 py-20 text-center">
                                                     <div className="flex flex-col items-center gap-4">
@@ -991,12 +984,19 @@ export default function SupplierDetail() {
                                                 </td>
                                             </tr>
                                         ) : (
-                                            filteredLedger.map(entry => (
+                                            <>
+                                            {(fromDate || toDate) && ledgerOpeningBalance !== null && (
+                                                <tr className="bg-blue-50/60 font-black">
+                                                    <td colSpan={6} className="px-6 py-3 text-xs text-gray-800 uppercase tracking-widest">
+                                                        Opening balance
+                                                        <span className="ml-2 text-[10px] font-bold text-gray-500 normal-case">(as at {fromDate || 'start'})</span>
+                                                    </td>
+                                                    <td className="px-6 py-3 text-xs text-gray-900 text-right font-mono">{ledgerOpeningBalance.toLocaleString()}</td>
+                                                    <td></td>
+                                                </tr>
+                                            )}
+                                            {ledger.map(entry => (
                                                 <tr
-                                                    // Compound key — PO ids and supplier-payment ids both auto-increment
-                                                    // from 1, so a plain `key={entry.id}` collided (e.g. PO id=1 and
-                                                    // Payment id=1) and React silently dropped the duplicates,
-                                                    // hiding several purchases from the ledger.
                                                     key={`${entry.type}-${entry.id}`}
                                                     className="hover:bg-redwood-bg-light/20 transition-all group cursor-pointer"
                                                     onClick={() => {
@@ -1039,27 +1039,29 @@ export default function SupplierDetail() {
                                                         )}
                                                     </td>
                                                 </tr>
-                                            ))
+                                            ))}
+                                            {ledger.length === 0 && (fromDate || toDate) && (
+                                                <tr>
+                                                    <td colSpan={8} className="px-6 py-8 text-center text-xs font-bold text-gray-400 uppercase tracking-widest">
+                                                        No transactions in this date range.
+                                                    </td>
+                                                </tr>
+                                            )}
+                                            </>
                                         )}
                                     </tbody>
-                                    {/* ITEM 6D — Ledger totals from filteredLedger (respects date range). */}
-                                    {filteredLedger.length > 0 && (() => {
-                                        const totalDebit = filteredLedger.reduce((s, e: any) => s + (Number(e.debit) || 0), 0);
-                                        const totalCredit = filteredLedger.reduce((s, e: any) => s + (Number(e.credit) || 0), 0);
-                                        // Supplier ledger: credit (purchases) - debit (payments) = outstanding (owe more).
-                                        const net = totalCredit - totalDebit;
-                                        return (
-                                            <tfoot className="bg-gray-50 border-t-2 border-gray-300">
-                                                <tr className="font-black">
-                                                    <td colSpan={4} className="px-6 py-3 text-right text-[10px] text-gray-700 uppercase tracking-widest">Totals</td>
-                                                    <td className="px-6 py-3 text-right font-mono text-blue-700">{totalDebit.toFixed(2)}</td>
-                                                    <td className="px-6 py-3 text-right font-mono text-emerald-700">{totalCredit.toFixed(2)}</td>
-                                                    <td className={`px-6 py-3 text-right font-mono ${net >= 0 ? 'text-gray-900' : 'text-rose-600'}`}>{net.toFixed(2)}</td>
-                                                    <td></td>
-                                                </tr>
-                                            </tfoot>
-                                        );
-                                    })()}
+                                    {(fromDate || toDate) && ledgerClosingBalance !== null && (
+                                        <tfoot className="bg-blue-50/60 border-t-2 border-gray-300">
+                                            <tr className="font-black">
+                                                <td colSpan={6} className="px-6 py-3 text-right text-[10px] text-gray-800 uppercase tracking-widest">
+                                                    Closing balance
+                                                    <span className="ml-2 font-bold text-gray-500 normal-case">(as at {toDate || 'today'})</span>
+                                                </td>
+                                                <td className="px-6 py-3 text-right font-mono text-gray-900">{ledgerClosingBalance.toLocaleString()}</td>
+                                                <td></td>
+                                            </tr>
+                                        </tfoot>
+                                    )}
                                 </table>
                             </div>
                         </div>
