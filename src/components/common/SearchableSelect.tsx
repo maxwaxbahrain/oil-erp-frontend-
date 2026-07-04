@@ -28,6 +28,7 @@ function SearchableSelect({
     const [debouncedSearch, setDebouncedSearch] = useState('');
     const [dropdownStyle, setDropdownStyle] = useState({});
     const buttonRef = useRef<HTMLButtonElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
     const isDark = theme === 'dark';
 
     useEffect(() => {
@@ -65,6 +66,30 @@ function SearchableSelect({
                 zIndex: 99999,
             });
         }
+    }, [isOpen]);
+
+    // Lock page scroll while open without shifting layout (no position:fixed on body).
+    useEffect(() => {
+        if (!isOpen) return;
+
+        const prevOverflow = document.body.style.overflow;
+        const prevPaddingRight = document.body.style.paddingRight;
+        const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+
+        document.body.style.overflow = 'hidden';
+        if (scrollbarWidth > 0) {
+            document.body.style.paddingRight = `${scrollbarWidth}px`;
+        }
+
+        const focusFrame = requestAnimationFrame(() => {
+            inputRef.current?.focus({ preventScroll: true });
+        });
+
+        return () => {
+            cancelAnimationFrame(focusFrame);
+            document.body.style.overflow = prevOverflow;
+            document.body.style.paddingRight = prevPaddingRight;
+        };
     }, [isOpen]);
 
     const handleSelect = (optionId: string) => {
@@ -180,13 +205,13 @@ function SearchableSelect({
                     >
                         <div className={searchWrapClass} style={searchWrapStyle}>
                             <input
+                                ref={inputRef}
                                 type="text"
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
                                 placeholder="Type to search..."
                                 className={searchInputClass}
                                 style={searchInputStyle}
-                                autoFocus
                                 onClick={(e) => e.stopPropagation()}
                             />
                         </div>
