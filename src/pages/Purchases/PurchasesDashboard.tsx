@@ -18,6 +18,9 @@ import {
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { getPurchaseOrders, approvePurchaseOrder, rejectPurchaseOrder, confirmGRN, markPOPaid, deletePurchaseOrder, updatePurchaseOrder, type PurchaseOrder } from '../../services/purchasesService';
+import { formatDateOnly } from '../../utils/formatters';
+
+const PO_DATE_FMT = { day: 'numeric', month: 'short', year: 'numeric' } as const;
 
 const C = {
     bg: '#060f1c',
@@ -88,16 +91,6 @@ type FilterChip = 'all' | 'pending' | 'mark_paid' | 'settled';
 
 function formatUsd(n: number): string {
     return `$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function formatDate(raw: string): string {
-    try {
-        const d = new Date(raw.includes('T') ? raw : `${raw}T12:00:00`);
-        if (Number.isNaN(d.getTime())) return raw;
-        return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-    } catch {
-        return raw;
-    }
 }
 
 function isTestPO(po: PurchaseOrder): boolean {
@@ -570,7 +563,7 @@ const PurchasesDashboard = () => {
             <td style={tdStyle}>
                 <div style={{ fontFamily: 'monospace', fontWeight: 600 }}>{order.poNumber}</div>
             </td>
-            <td style={tdStyle}>{formatDate(order.date)}</td>
+            <td style={tdStyle}>{formatDateOnly(order.date, 'en-GB', PO_DATE_FMT)}</td>
             <td style={tdStyle}>
                 <span style={{ ...workflowBadgeStyle(order.status), padding: '3px 8px', borderRadius: 6, fontSize: 9, fontWeight: 700, display: 'inline-block' }}>
                     {getStatusLabel(order.status)}
@@ -894,7 +887,7 @@ const PurchasesDashboard = () => {
                                                     <td style={tdStyle}>
                                                         <div style={{ fontFamily: 'monospace', fontWeight: 600 }}>{order.poNumber}</div>
                                                     </td>
-                                                    <td style={tdStyle}>{formatDate(order.date)}</td>
+                                                    <td style={tdStyle}>{formatDateOnly(order.date, 'en-GB', PO_DATE_FMT)}</td>
                                                     <td style={tdStyle}>
                                                         <span style={{ ...workflowBadgeStyle(order.status), padding: '3px 8px', borderRadius: 6, fontSize: 9, fontWeight: 700 }}>
                                                             {getStatusLabel(order.status)}
@@ -1059,7 +1052,7 @@ const PurchasesDashboard = () => {
                                 <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: C.dim }}>Purchase Order Review</p>
                                 <h3 className="text-xl font-black mt-1" style={{ color: C.text }}>{reviewPO.poNumber}</h3>
                                 <p className="text-xs mt-0.5" style={{ color: C.muted }}>
-                                    {reviewPO.supplierName} · {formatDate(reviewPO.date)}
+                                    {reviewPO.supplierName} · {formatDateOnly(reviewPO.date, 'en-GB', PO_DATE_FMT)}
                                 </p>
                             </div>
                             <button

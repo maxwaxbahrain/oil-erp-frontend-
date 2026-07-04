@@ -13,6 +13,7 @@ import { generatePaymentReceiptPDF, type PaymentReceiptPDFInput } from '../../ut
 // TASK 9 — Currency selector + base-currency conversion preview.
 import { WORLD_CURRENCIES } from '../../constants/currencies';
 import { getSystemSettings } from '../../services/settingsService';
+import { formatDateOnly } from '../../utils/formatters';
 // ITEM 5H — Bank/Cash account dropdown sourced from Chart of Accounts.
 import { getAccounts, type Account } from '../Accounts/ChartOfAccounts';
 
@@ -552,8 +553,8 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
                       <div className="flex-1">
                         <div className="font-bold text-sm text-gray-900">{inv.invoiceNumber}</div>
                         <div className="text-[10px] text-gray-400 font-bold  mt-0.5">
-                          {inv.invoiceDate ? new Date(inv.invoiceDate).toLocaleDateString() : '—'}
-                          {inv.dueDate ? ` · Due ${new Date(inv.dueDate).toLocaleDateString()}` : ''}
+                          {inv.invoiceDate ? formatDateOnly(inv.invoiceDate) : '—'}
+                          {inv.dueDate ? ` · Due ${formatDateOnly(inv.dueDate)}` : ''}
                           {' · Total ' + Number(inv.grandTotal ?? 0).toFixed(2)}
                         </div>
                       </div>

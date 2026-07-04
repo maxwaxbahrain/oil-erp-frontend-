@@ -17,6 +17,7 @@ import { getProducts, type Product } from '../../services/api';
 import { PAYMENT_METHODS } from '../../constants/data';
 import SearchableSelect from '../../components/common/SearchableSelect';
 import { getCurrentUser } from '../../store/authStore';
+import { formatDateOnly } from '../../utils/formatters';
 
 interface POLineItem {
     id: string;
@@ -145,16 +146,6 @@ const labelStyle: CSSProperties = {
 
 function formatUsd(n: number): string {
     return `$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function formatDisplayDate(raw: string): string {
-    try {
-        const d = new Date(raw.includes('T') ? raw : `${raw}T12:00:00`);
-        if (Number.isNaN(d.getTime())) return raw;
-        return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-    } catch {
-        return raw;
-    }
 }
 
 function hashNum(seed: string, min: number, max: number): number {
@@ -740,7 +731,7 @@ export default function PurchaseOrderForm() {
                                 New purchase order
                             </h1>
                             <p style={{ margin: '4px 0 0', fontSize: 10.5, color: C.muted }}>
-                                {formData.poNumber} · created {formatDisplayDate(formData.date)} · {awaitingSubtitle}
+                                {formData.poNumber} · created {formatDateOnly(formData.date, 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} · {awaitingSubtitle}
                             </p>
                         </div>
                     </div>
