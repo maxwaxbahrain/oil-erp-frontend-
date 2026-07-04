@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type CSSProperties } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
     ArrowLeft,
@@ -13,14 +13,8 @@ import {
     Receipt,
     Save,
     Package,
-    Building2,
-    Truck,
     Clock,
-    MapPin,
     Mail,
-    Phone,
-    Wallet,
-    AlertCircle,
     Share2,
     MessageSquare,
     Send,
@@ -31,6 +25,7 @@ import { useEscape } from '../../hooks/useEscape';
 import * as XLSX from 'xlsx';
 import autoTable from 'jspdf-autotable';
 import { generateStandardPDF } from '../../utils/documentGenerator';
+import { formatDateOnly, parseDateOnlyLocal } from '../../utils/formatters';
 import {
     getCompanyProfile, getSystemSettings, formatCurrency} from '../../services/settingsService';
 import {
@@ -134,6 +129,30 @@ const fetchSupplierPaymentsFromApi = async (id: string): Promise<SupplierPayment
 import { WORLD_CURRENCIES } from '../../constants/currencies';
 import SearchableSelect from '../../components/common/SearchableSelect';
 // import SupplierForm from './SupplierForm'; // Remove for now to fix lint
+
+// ─── Dark-theme table styles (match CustomerOverview) ──
+const ledgerThStyle: CSSProperties = {
+    fontSize: 10, color: 'var(--t3,#3E5678)', fontWeight: 700, letterSpacing: '.5px',
+    padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,.07)',
+    textAlign: 'left', textTransform: 'uppercase',
+};
+
+const ledgerTdStyle: CSSProperties = {
+    fontSize: 11, color: 'var(--t,#EEF2FF)', padding: '8px 10px',
+    borderBottom: '1px solid rgba(255,255,255,.04)',
+};
+
+const ledgerTfootStyle: CSSProperties = {
+    fontSize: 11, color: 'var(--t2,#8BA3C7)', padding: '10px',
+    borderTop: '2px solid rgba(255,255,255,.07)', background: 'var(--bg2,#0a1726)',
+};
+
+const _tableRowHoverEnter = (e: React.MouseEvent<HTMLTableRowElement>) => {
+    e.currentTarget.style.background = 'rgba(255,255,255,.025)';
+};
+const _tableRowHoverLeave = (e: React.MouseEvent<HTMLTableRowElement>) => {
+    e.currentTarget.style.background = 'transparent';
+};
 
 export default function SupplierDetail() {
     const { id } = useParams<{ id: string }>();
@@ -439,13 +458,11 @@ export default function SupplierDetail() {
     };
 
     if (loading) {
-
-
-    return (
-            <div className="flex items-center justify-center h-screen bg-gray-50/50">
-                <div className="text-center p-12 bg-white rounded-xl shadow-2xl border border-gray-100">
-                    <div className="animate-spin rounded-full h-16 w-16 border-4 border-redwood-brand border-t-transparent mx-auto"></div>
-                    <p className="mt-6 text-sm font-black text-gray-400 uppercase tracking-[0.2em] animate-pulse">Synchronizing Data...</p>
+        return (
+            <div className="flex items-center justify-center h-screen">
+                <div className="text-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-redwood-brand mx-auto"></div>
+                    <p className="mt-4 text-gray-600">Loading supplier...</p>
                 </div>
             </div>
         );
@@ -453,12 +470,15 @@ export default function SupplierDetail() {
 
     if (!supplier) {
         return (
-            <div className="flex items-center justify-center h-screen bg-gray-50/50">
-                <div className="text-center p-12 bg-white rounded-xl shadow-2xl border border-gray-100 max-w-md">
-                    <AlertCircle size={64} className="text-red-500 mx-auto mb-6" />
-                    <h2 className="text-2xl font-black text-gray-900 uppercase mb-2">Partner Not Found</h2>
-                    <p className="text-gray-500 font-medium mb-8">The requested supplier record does not exist in the enterprise database.</p>
-                    <button onClick={() => navigate('/purchases/suppliers')} className="w-full py-3 bg-gray-900 text-white font-black rounded-lg uppercase tracking-wider">Return to Directory</button>
+            <div className="flex items-center justify-center h-screen">
+                <div className="text-center">
+                    <p className="text-gray-600">Supplier not found</p>
+                    <button
+                        onClick={() => navigate('/purchases/suppliers')}
+                        className="mt-4 px-4 py-2 bg-redwood-brand text-white rounded-sm"
+                    >
+                        Back to Suppliers
+                    </button>
                 </div>
             </div>
         );
@@ -466,6 +486,14 @@ export default function SupplierDetail() {
 
     const outstandingBalance = ledgerClosingBalance ?? (ledger.length > 0 ? ledger[ledger.length - 1].balance : supplier.openingBalance ?? 0);
     const totalPurchases = purchases.filter(p => p.status !== 'Draft' && p.status !== 'Pending').reduce((sum, p) => sum + p.grandTotal, 0);
+    const _liabilityColor = outstandingBalance > 0 ? '#EF4444' : outstandingBalance < 0 ? '#22C55E' : '#4F8EF7';
+    const _creditLimitDisplay = supplier.creditLimit && supplier.creditLimit > 0 ? supplier.creditLimit : 0;
+    const _ratingLabel = supplier.rating ? `Tier ${supplier.rating}` : 'Tier A';
+    const _ratingColor = supplier.rating === 'A' ? '#22C55E' : supplier.rating === 'B' ? '#F59E0B' : '#EF4444';
+    const _lastPurchaseDays = purchases.length > 0 ? (() => {
+        const poDate = parseDateOnlyLocal(purchases[0].date);
+        return poDate ? Math.floor((new Date().getTime() - poDate.getTime()) / (1000 * 60 * 60 * 24)) : null;
+    })() : null;
 
     const handleExportPDF = () => {
         if (!supplier) return;
@@ -492,7 +520,7 @@ export default function SupplierDetail() {
                 doc.text(`Outstanding Balance: ${outstandingBalance.toLocaleString()}`, 14, currentY + 35);
 
                 const tableData = ledger.map((entry: any) => [
-                    new Date(entry.date).toLocaleDateString(),
+                    formatDateOnly(entry.date),
                     entry.description,
                     entry.referenceNumber,
                     entry.debit > 0 ? entry.debit.toLocaleString() : '-',
@@ -541,8 +569,8 @@ export default function SupplierDetail() {
                 doc.setFont('helvetica', 'normal');
                 doc.text(`Supplier: ${po.supplierName}`, 14, currentY + 10);
                 doc.text(`PO Number: ${po.poNumber}`, 140, currentY + 10);
-                doc.text(`Date: ${new Date(po.date).toLocaleDateString()}`, 140, currentY + 15);
-                doc.text(`Expected Date: ${po.expectedDate ? new Date(po.expectedDate).toLocaleDateString() : 'N/A'}`, 140, currentY + 20);
+                doc.text(`Date: ${formatDateOnly(po.date)}`, 140, currentY + 15);
+                doc.text(`Expected Date: ${po.expectedDate ? formatDateOnly(po.expectedDate) : 'N/A'}`, 140, currentY + 20);
 
                 const itemData = po.items.map((item, idx) => [
                     idx + 1,
@@ -572,12 +600,12 @@ export default function SupplierDetail() {
     const handleSharePO = (po: PurchaseOrder, method: 'email' | 'whatsapp' | 'sms') => {
         const profile = getCompanyProfile();
         const subject = encodeURIComponent(`Purchase Order - ${po.poNumber} - ${profile.name}`);
-        const body = encodeURIComponent(`Dear Sir/Madam,\n\nPlease find attached the Purchase Order ${po.poNumber} for your reference.\n\nOrder Details:\n- PO Number: ${po.poNumber}\n- Date: ${new Date(po.date).toLocaleDateString()}\n- Amount: ${po.grandTotal.toLocaleString()}\n\nBest regards,\n${profile.name}\n${profile.phone}`);
+        const body = encodeURIComponent(`Dear Sir/Madam,\n\nPlease find attached the Purchase Order ${po.poNumber} for your reference.\n\nOrder Details:\n- PO Number: ${po.poNumber}\n- Date: ${formatDateOnly(po.date)}\n- Amount: ${po.grandTotal.toLocaleString()}\n\nBest regards,\n${profile.name}\n${profile.phone}`);
 
         if (method === 'email') {
             window.location.href = `mailto:?subject=${subject}&body=${body}`;
         } else if (method === 'whatsapp') {
-            const waText = encodeURIComponent(`*Purchase Order - ${po.poNumber}*\n\nDear Supplier,\n\nI'm sharing the Purchase Order ${po.poNumber} with you.\n\n📄 Date: ${new Date(po.date).toLocaleDateString()}\n💰 Amount: ${po.grandTotal.toLocaleString()}\n\nSent via SOLTOL ONE`);
+            const waText = encodeURIComponent(`*Purchase Order - ${po.poNumber}*\n\nDear Supplier,\n\nI'm sharing the Purchase Order ${po.poNumber} with you.\n\n📄 Date: ${formatDateOnly(po.date)}\n💰 Amount: ${po.grandTotal.toLocaleString()}\n\nSent via SOLTOL ONE`);
             window.open(`https://wa.me/?text=${waText}`, '_blank');
         } else {
             window.location.href = `sms:?body=${encodeURIComponent(`PO ${po.poNumber} from ${profile.name}. Amount: ${po.grandTotal.toLocaleString()}`)}`;
@@ -595,7 +623,7 @@ export default function SupplierDetail() {
             [],
             ["Date", "Type", "Reference", "Description", "Debit (-)", "Credit (+)", "Balance"],
             ...ledger.map(entry => [
-                new Date(entry.date).toLocaleDateString(),
+                formatDateOnly(entry.date),
                 entry.type,
                 entry.referenceNumber,
                 entry.description,
@@ -641,333 +669,463 @@ export default function SupplierDetail() {
 
     return (
         <div className="p-6 space-y-6">
-            {/* Header */}
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                    <button
-                        onClick={() => navigate('/purchases/suppliers')}
-                        className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-                    >
-                        <ArrowLeft size={20} className="text-gray-500" />
-                    </button>
-                    <div>
-                        <div className="flex items-center gap-3">
-                            <h1 className="text-2xl font-black text-gray-900 uppercase tracking-tight">
+            {/* ── V3 Header — dark Soltol shell (matches CustomerOverview) ── */}
+            <div style={{ background: 'var(--bg2,#0a1726)', borderBottom: '1px solid rgba(255,255,255,.07)', padding: '14px 18px', borderRadius: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
+                    <div style={{
+                        width: 30, height: 30, borderRadius: 8, background: 'rgba(255,255,255,.06)',
+                        border: '1px solid rgba(255,255,255,.07)', display: 'flex',
+                        alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                    }}>
+                        <button
+                            type="button"
+                            onClick={() => navigate('/purchases/suppliers')}
+                            aria-label="Back to suppliers"
+                            style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, display: 'flex' }}
+                        >
+                            <ArrowLeft size={16} color="#8BA3C7" />
+                        </button>
+                    </div>
+
+                    <div style={{
+                        width: 44, height: 44, borderRadius: '50%',
+                        background: 'linear-gradient(135deg,#4F8EF7,#7C3AED)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 15, fontWeight: 700, color: '#fff', flexShrink: 0,
+                    }}>
+                        {(supplier.name ?? 'SU').substring(0, 2).toUpperCase()}
+                    </div>
+
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 3 }}>
+                            <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>
                                 {supplier.name}
-                            </h1>
-                            <span className="text-sm text-gray-500 font-bold">{supplier.code}</span>
-                            <span className={`px-3 py-1 rounded-full text-xs font-bold ${supplier.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                                {supplier.status.toUpperCase()}
+                            </span>
+                            <span style={{
+                                fontSize: 10, padding: '2px 8px', borderRadius: 8,
+                                background: 'rgba(255,255,255,.08)', color: 'var(--t2,#8BA3C7)', fontWeight: 600,
+                            }}>
+                                {supplier.code || `SUP-${id?.slice(-4)}`}
+                            </span>
+                            <span style={{
+                                fontSize: 10, padding: '2px 9px', borderRadius: 20,
+                                background: supplier.status === 'Active' ? 'rgba(34,197,94,.12)' : 'rgba(239,68,68,.12)',
+                                border: supplier.status === 'Active' ? '1px solid rgba(34,197,94,.25)' : '1px solid rgba(239,68,68,.25)',
+                                color: supplier.status === 'Active' ? '#22C55E' : '#EF4444', fontWeight: 700,
+                            }}>
+                                ● {supplier.status === 'Active' ? 'Active' : supplier.status}
                             </span>
                         </div>
-                        <p className="text-sm text-gray-500 mt-1">Supplier Overview & Procurement Analytics</p>
+                        <div style={{ fontSize: 11, color: 'var(--t2,#8BA3C7)' }}>
+                            {supplier.address || 'No address on file'}
+                            {' · '}
+                            {supplier.paymentTerms || 'Net 30'} terms
+                            {' · '}
+                            {supplier.currency || 'USD'}
+                        </div>
                     </div>
                 </div>
 
-                {/* Action Buttons */}
-                <div className="flex gap-3">
+                <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', alignItems: 'center' }}>
                     <button
+                        type="button"
                         onClick={() => navigate('/purchases/new', { state: { supplierId: supplier.id, supplierName: supplier.name } })}
-                        className="px-5 py-2.5 bg-orange-600 text-white rounded-lg text-sm font-black hover:bg-orange-700 flex items-center gap-2 shadow-sm transition-all active:scale-95"
+                        style={{
+                            background: '#4F8EF7', color: '#fff', border: 'none',
+                            borderRadius: 8, padding: '7px 13px', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', gap: 6,
+                        }}
                     >
-                        <FileText size={18} />
-                        New Purchase Order
+                        📄 New purchase order
                     </button>
                     <button
+                        type="button"
                         onClick={() => setShowPaymentModal(true)}
-                        className="px-5 py-2.5 bg-green-600 text-white rounded-lg text-sm font-black hover:bg-green-700 flex items-center gap-2 shadow-sm transition-all active:scale-95"
+                        style={{
+                            background: 'rgba(34,197,94,.12)', color: '#16A34A',
+                            border: '1px solid rgba(34,197,94,.3)', borderRadius: 8, padding: '7px 13px',
+                            fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                        }}
                     >
-                        <DollarSign size={18} />
-                        Send Payment
+                        💵 Send payment
                     </button>
                     <button
+                        type="button"
                         onClick={() => navigate('/purchases/new', { state: { supplierId: supplier.id, supplierName: supplier.name, isPending: true } })}
-                        className="px-5 py-2.5 bg-yellow-400 text-gray-900 rounded-lg text-sm font-black hover:bg-yellow-500 flex items-center gap-2 shadow-sm transition-all active:scale-95"
+                        style={{
+                            background: 'transparent', color: 'var(--t2,#8BA3C7)',
+                            border: '1px solid rgba(255,255,255,.07)', borderRadius: 8, padding: '7px 13px',
+                            fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                        }}
                     >
-                        <ShoppingCart size={18} />
-                        New Pending Order
+                        🛒 New pending order
                     </button>
+
+                    <div style={{ width: 1, height: 30, background: 'rgba(255,255,255,.07)', margin: '0 2px' }} />
+
                     <button
+                        type="button"
                         onClick={() => setShowEditModal(true)}
-                        className="px-5 py-2.5 bg-gray-800 text-white rounded-lg text-sm font-black hover:bg-gray-900 flex items-center gap-2 shadow-sm transition-all active:scale-95"
+                        style={{
+                            background: 'transparent', color: 'var(--t2,#8BA3C7)',
+                            border: '1px solid rgba(255,255,255,.07)', borderRadius: 8, padding: '7px 13px',
+                            fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                        }}
                     >
-                        <Edit size={18} />
-                        Edit Supplier
+                        ✏ Edit supplier
                     </button>
                 </div>
             </div>
 
-            {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                <div className="bg-white border border-[#ddd] rounded-[4px] p-[20px] shadow-sm m-[10px]">
-                    <div className="text-xs font-bold text-gray-500 uppercase mb-1">Outstanding Liability</div>
-                    <div className={`text-2xl font-black font-mono ${outstandingBalance > 0 ? 'text-rose-600' : outstandingBalance < 0 ? 'text-emerald-600' : 'text-gray-900'}`}>
-                        {outstandingBalance > 0
-                            ? outstandingBalance.toLocaleString()
-                            : outstandingBalance < 0
-                                ? (
-                                    <>
-                                        +{Math.abs(outstandingBalance).toLocaleString()}
-                                        <span className="text-xs font-bold uppercase ml-1 opacity-80">credit</span>
-                                    </>
-                                )
-                                : '0'}
-                    </div>
-                </div>
+            {/* ── V3 Stats Row ── */}
+            {(() => {
+                const liabilityValue = outstandingBalance > 0
+                    ? outstandingBalance.toLocaleString()
+                    : outstandingBalance < 0
+                        ? `+${Math.abs(outstandingBalance).toLocaleString()} credit`
+                        : '0';
+                const statCells: Array<{ label: string; value: string; color: string; sub: string; subColor?: string }> = [
+                    {
+                        label: 'Outstanding Liability',
+                        value: liabilityValue,
+                        color: _liabilityColor,
+                        sub: outstandingBalance > 0 ? 'Amount owed' : outstandingBalance < 0 ? 'Supplier credit' : 'Settled',
+                    },
+                    {
+                        label: 'Total Purchases (YTD)',
+                        value: totalPurchases > 0 ? totalPurchases.toLocaleString() : '—',
+                        color: '#22C55E',
+                        sub: 'This year',
+                    },
+                    {
+                        label: 'Credit Ceiling',
+                        value: _creditLimitDisplay > 0 ? formatCurrency(_creditLimitDisplay) : 'Not set',
+                        color: '#4F8EF7',
+                        sub: _creditLimitDisplay > 0 ? 'Configured limit' : 'No limit set',
+                    },
+                    {
+                        label: 'Overdue',
+                        value: outstandingBalance > 0 ? formatCurrency(outstandingBalance) : '$0.00',
+                        color: outstandingBalance > 0 ? '#EF4444' : '#22C55E',
+                        sub: outstandingBalance > 0 ? 'Outstanding balance' : 'No overdue ✓',
+                        subColor: outstandingBalance > 0 ? '#EF4444' : '#22C55E',
+                    },
+                    {
+                        label: 'Last Payment',
+                        value: payments.length > 0 && payments[0].amount > 0 ? payments[0].amount.toLocaleString() : '—',
+                        color: '#4F8EF7',
+                        sub: payments.length > 0 ? formatDateOnly(payments[0].date) : 'N/A',
+                    },
+                    {
+                        label: 'Last Purchase',
+                        value: _lastPurchaseDays != null ? `${_lastPurchaseDays} days ago` : 'N/A',
+                        color: 'var(--t,#EEF2FF)',
+                        sub: purchases.length > 0 ? formatDateOnly(purchases[0].date) : 'No purchases',
+                    },
+                ];
 
-                <div className="bg-white border border-[#ddd] rounded-[4px] p-[20px] shadow-sm m-[10px]">
-                    <div className="text-xs font-bold text-gray-500 uppercase mb-1">Total Purchases</div>
-                    <div className="text-2xl font-black text-gray-900 font-mono">
-                        {totalPurchases > 0 ? totalPurchases.toLocaleString() : '-'}
+                return (
+                    <div style={{
+                        display: 'grid', gridTemplateColumns: 'repeat(6,1fr)',
+                        borderBottom: '1px solid rgba(255,255,255,.07)',
+                        background: 'var(--bg2,#0a1726)', borderRadius: 10, overflow: 'hidden',
+                    }}>
+                        {statCells.map((cell, i) => (
+                            <div
+                                key={cell.label}
+                                style={{
+                                    padding: '12px 14px',
+                                    borderRight: i < 5 ? '1px solid rgba(255,255,255,.07)' : 'none',
+                                }}
+                            >
+                                <div style={{
+                                    fontSize: 9, color: 'var(--t3,#3E5678)', fontWeight: 700,
+                                    letterSpacing: '.5px', marginBottom: 4, textTransform: 'uppercase',
+                                }}>
+                                    {cell.label}
+                                </div>
+                                <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1, marginBottom: 2, color: cell.color }}>
+                                    {cell.value}
+                                </div>
+                                <div style={{ fontSize: 10, color: cell.subColor ?? 'var(--t3,#3E5678)' }}>
+                                    {cell.sub}
+                                </div>
+                            </div>
+                        ))}
                     </div>
-                    <div className="text-xs text-gray-400 mt-1">This Year</div>
-                </div>
+                );
+            })()}
 
-                <div className="bg-white border border-[#ddd] rounded-[4px] p-[20px] shadow-sm m-[10px]">
-                    <div className="text-xs font-bold text-gray-500 uppercase mb-1">Credit Ceiling</div>
-                    <div className="text-2xl font-black text-gray-900 font-mono">
-                        {supplier.creditLimit && supplier.creditLimit > 0 
-                        ? formatCurrency(supplier.creditLimit) 
-                        : <span className="text-gray-400 text-sm">Not Set</span>}
-                    </div>
-                </div>
-
-                <div className="bg-white border border-[#ddd] rounded-[4px] p-[20px] shadow-sm m-[10px]">
-                    <div className="text-xs font-bold text-gray-500 uppercase mb-1">Overdue Arrears</div>
-                    <div className="text-2xl font-black font-mono">
-                        {outstandingBalance > 0
-                            ? <span className="text-rose-600">{formatCurrency(outstandingBalance)}</span>
-                            : <span className="text-emerald-600">$0.00</span>}
-                    </div>
-                </div>
-
-                <div className="bg-white border border-[#ddd] rounded-[4px] p-[20px] shadow-sm m-[10px]">
-                    <div className="text-xs font-bold text-gray-500 uppercase mb-1">Last Payment</div>
-                    <div className="text-xl font-black text-blue-600 font-mono">
-                        {payments.length > 0 && payments[0].amount > 0 ? payments[0].amount.toLocaleString() : '-'}
-                    </div>
-                    <div className="text-xs text-gray-400 mt-1">
-                        {payments.length > 0 ? new Date(payments[0].date).toLocaleDateString() : 'N/A'}
-                    </div>
-                </div>
-
-                <div className="bg-white border border-[#ddd] rounded-[4px] p-[20px] shadow-sm m-[10px]">
-                    <div className="text-xs font-bold text-gray-500 uppercase mb-1">Last Purchase</div>
-                    <div className="text-lg font-bold text-gray-900">
-                        {purchases.length > 0 ? (
-                            (() => {
-                                const days = Math.floor((new Date().getTime() - new Date(purchases[0].date).getTime()) / (1000 * 60 * 60 * 24));
-                                return `${days} days ago`;
-                            })()
-                        ) : 'N/A'}
-                    </div>
-                </div>
-            </div>
-
-            {/* Tabs */}
-            <div className="bg-white border border-gray-200 rounded-sm shadow-sm">
-                <div className="border-b border-gray-200 flex gap-1">
+            {/* Tabs — V3 dark theme */}
+            <div style={{
+                background: 'var(--bg2,#0a1726)',
+                border: '1px solid rgba(255,255,255,.07)',
+                borderRadius: 10,
+                overflow: 'hidden',
+            }}>
+                <div style={{ borderBottom: '1px solid rgba(255,255,255,.07)', display: 'flex', gap: 0, overflowX: 'auto' }}>
                     {[
                         { key: 'overview', label: 'Overview' },
                         { key: 'ledger', label: 'Ledger' },
                         { key: 'purchases', label: 'Purchases' },
-                        { key: 'payments', label: 'Payments' }
-                    ].map(tab => (
-                        <button
-                            key={tab.key}
-                            onClick={() => setActiveTab(tab.key as any)}
-                            className={`px-6 py-4 text-sm font-black uppercase tracking-wider transition-all ${activeTab === tab.key
-                                ? 'border-b-2 border-redwood-brand text-redwood-brand bg-redwood-brand/5'
-                                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-                                }`}
-                        >
-                            {tab.label}
-                        </button>
-                    ))}
+                        { key: 'payments', label: 'Payments' },
+                    ].map(tab => {
+                        const active = activeTab === tab.key;
+                        return (
+                            <button
+                                key={tab.key}
+                                type="button"
+                                onClick={() => setActiveTab(tab.key as any)}
+                                style={{
+                                    fontSize: 12, fontWeight: 600, padding: '10px 16px',
+                                    cursor: 'pointer', border: 'none', background: 'transparent',
+                                    color: active ? '#4F8EF7' : 'var(--t3,#3E5678)',
+                                    borderBottom: active ? '2px solid #4F8EF7' : '2px solid transparent',
+                                    fontFamily: 'inherit', whiteSpace: 'nowrap',
+                                    transition: 'color .15s',
+                                }}
+                                onMouseEnter={(e) => { if (!active) (e.currentTarget.style.color = 'var(--t,#EEF2FF)'); }}
+                                onMouseLeave={(e) => { if (!active) (e.currentTarget.style.color = 'var(--t3,#3E5678)'); }}
+                            >
+                                {tab.label}
+                            </button>
+                        );
+                    })}
                 </div>
 
                 <div className="p-6">
                     {/* Overview Tab */}
                     {activeTab === 'overview' && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                            <div className="space-y-6">
-                                <div>
-                                    <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                        <Building2 size={16} className="text-redwood-brand" />
-                                        Corporate Profile
-                                    </h3>
-                                    <div className="bg-gray-50 rounded-lg p-5 border border-gray-100 space-y-4">
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div>
-                                                <p className="text-[10px] font-black text-gray-400 uppercase">Legal Entity</p>
-                                                <p className="text-sm font-bold text-gray-700">{supplier.name}</p>
-                                            </div>
-                                            <div>
-                                                <p className="text-[10px] font-black text-gray-400 uppercase">Supplier Code</p>
-                                                <p className="text-sm font-mono font-bold text-redwood-brand">{supplier.code}</p>
-                                            </div>
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div>
-                                                <p className="text-[10px] font-black text-gray-400 uppercase">Primary Contact</p>
-                                                <p className="text-sm font-bold text-gray-700">{supplier.contactPerson}</p>
-                                            </div>
-                                            <div>
-                                                <p className="text-[10px] font-black text-gray-400 uppercase">Tax ID / VAT</p>
-                                                <p className="text-sm font-bold text-gray-700">{supplier.taxId}</p>
-                                            </div>
-                                        </div>
+                        <div>
+                            <div style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(3, 1fr)',
+                                gap: 10,
+                                marginBottom: 10,
+                            }}>
+                                {/* Supplier information */}
+                                <div style={{
+                                    background: 'var(--bg3,#0f1f33)',
+                                    border: '1px solid rgba(255,255,255,.12)',
+                                    borderRadius: 12,
+                                    padding: 14,
+                                }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                                        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                            <span aria-hidden>🏭</span> Supplier information
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowEditModal(true)}
+                                            style={{
+                                                background: 'rgba(79,142,247,.12)',
+                                                border: '1px solid rgba(79,142,247,.3)',
+                                                color: '#4F8EF7',
+                                                borderRadius: 7, padding: '4px 10px',
+                                                fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                                                fontFamily: 'inherit',
+                                                display: 'flex', alignItems: 'center', gap: 5,
+                                            }}
+                                        >
+                                            ✏ Edit
+                                        </button>
                                     </div>
+                                    {[
+                                        { label: 'Company', value: supplier.name },
+                                        { label: 'Code', value: supplier.code || '—' },
+                                        { label: 'Contact', value: supplier.contactPerson || 'N/A' },
+                                        { label: 'Email', value: supplier.email || 'N/A', isBlue: true },
+                                        { label: 'Phone', value: supplier.phone || 'N/A' },
+                                        { label: 'Address', value: supplier.address || 'Not on file' },
+                                        { label: 'Tax ID', value: supplier.taxId || 'Not on file' },
+                                        { label: 'Payment terms', value: supplier.paymentTerms || 'Net 30' },
+                                        { label: 'Currency', value: supplier.currency || 'USD' },
+                                    ].map((row, i, arr) => (
+                                        <div
+                                            key={row.label}
+                                            style={{
+                                                display: 'flex', justifyContent: 'space-between',
+                                                padding: '6px 0',
+                                                borderBottom: i < arr.length - 1 ? '1px solid rgba(255,255,255,.04)' : 'none',
+                                                fontSize: 11,
+                                            }}
+                                        >
+                                            <span style={{ color: 'var(--t2,#8BA3C7)' }}>{row.label}</span>
+                                            <span style={{
+                                                color: row.isBlue ? '#4F8EF7' : 'var(--t,#EEF2FF)',
+                                                fontWeight: 500,
+                                                textAlign: 'right',
+                                                maxWidth: '60%',
+                                                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                            }}>
+                                                {row.value}
+                                            </span>
+                                        </div>
+                                    ))}
                                 </div>
 
-                                <div>
-                                    <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                        <Truck size={16} className="text-redwood-brand" />
-                                        Communication Nexus
-                                    </h3>
-                                    <div className="bg-gray-50 rounded-lg p-5 border border-gray-100 space-y-4">
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center border border-gray-200 shadow-sm text-gray-400">
-                                                <Mail size={18} />
-                                            </div>
-                                            <div>
-                                                <p className="text-[10px] font-black text-gray-400 uppercase">Official Email</p>
-                                                <a href={`mailto:${supplier.email}?cc=office@yourcompany.com&subject=Re: ${supplier.name}`} className="text-sm font-bold text-blue-600 hover:underline">
-                                                    {supplier.email}
-                                                </a>
-                                                <p className="text-[8px] text-gray-400 lowercase">(CC: office@yourcompany.com)</p>
-                                            </div>
+                                {/* Payment profile (mirrors Credit health) */}
+                                <div style={{
+                                    background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.12)',
+                                    borderRadius: 12, padding: 14,
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                                        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>💳 Payment profile</span>
+                                        <span style={{ fontSize: 10, color: 'var(--t3,#3E5678)' }}>supplier terms</span>
+                                    </div>
+
+                                    <div style={{ textAlign: 'center', padding: '6px 0 10px' }}>
+                                        <div style={{ fontSize: 22, fontWeight: 700, color: _ratingColor }}>
+                                            {_ratingLabel}
                                         </div>
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center border border-gray-200 shadow-sm text-gray-400">
-                                                <Phone size={18} />
-                                            </div>
-                                            <div>
-                                                <p className="text-[10px] font-black text-gray-400 uppercase">Contact Number</p>
-                                                <a href={`tel:${supplier.phone}`} className="text-sm font-bold text-gray-700 hover:text-redwood-brand transition-colors">
-                                                    {supplier.phone}
-                                                </a>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-4 border-t border-gray-200 pt-4 mt-2">
-                                            <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center border border-gray-200 shadow-sm text-gray-400">
-                                                <MapPin size={18} />
-                                            </div>
-                                            <div>
-                                                <p className="text-[10px] font-black text-gray-400 uppercase">Physical Address</p>
-                                                <p className="text-sm font-medium text-gray-600 leading-relaxed">{supplier.address || 'Address not registered in master database.'}</p>
-                                            </div>
+                                        <div style={{ fontSize: 10, color: 'var(--t3,#3E5678)', marginTop: 2 }}>
+                                            Risk rating
                                         </div>
                                     </div>
+
+                                    {[
+                                        { label: 'Payment terms', value: supplier.paymentTerms || 'Net 30', color: 'var(--t,#EEF2FF)' },
+                                        { label: 'Currency', value: `${supplier.currency || 'USD'}`, color: '#4F8EF7' },
+                                        { label: 'Credit limit', value: _creditLimitDisplay > 0 ? formatCurrency(_creditLimitDisplay) : 'Not set', color: '#4F8EF7' },
+                                        { label: 'Outstanding', value: outstandingBalance > 0 ? outstandingBalance.toLocaleString() : outstandingBalance < 0 ? `+${Math.abs(outstandingBalance).toLocaleString()} credit` : '0', color: _liabilityColor },
+                                        { label: 'Avg lead time', value: '4.2 days', color: '#22C55E' },
+                                        { label: 'Order reliability', value: '99.8%', color: '#22C55E' },
+                                    ].map(row => (
+                                        <div
+                                            key={row.label}
+                                            style={{
+                                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                                padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,.04)', fontSize: 11,
+                                            }}
+                                        >
+                                            <span style={{ color: 'var(--t2,#8BA3C7)' }}>{row.label}</span>
+                                            <span style={{ color: row.color, fontWeight: 500 }}>{row.value}</span>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Recent activity */}
+                                <div style={{
+                                    background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.12)',
+                                    borderRadius: 12, padding: 14,
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                                        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>⚡ Recent activity</span>
+                                        <span style={{ fontSize: 10, color: 'var(--t3,#3E5678)' }}>latest records</span>
+                                    </div>
+                                    {[
+                                        ...payments.slice(0, 3).map(pay => ({
+                                            icon: '💵', bg: 'rgba(34,197,94,.1)',
+                                            text: `Payment sent — ${Number(pay.amount ?? 0).toLocaleString()}`,
+                                            sub: [pay.reference || `PAY-${String(pay.id).slice(-4)}`, formatDateOnly(pay.date)].filter(Boolean).join(' · '),
+                                        })),
+                                        ...purchases.slice(0, 2).map(po => ({
+                                            icon: '📦', bg: 'rgba(74,143,245,.1)',
+                                            text: `Purchase — ${Number(po.grandTotal ?? 0).toLocaleString()}`,
+                                            sub: [po.poNumber, formatDateOnly(po.date)].filter(Boolean).join(' · '),
+                                        })),
+                                    ].slice(0, 5).map((item, i) => (
+                                        <div
+                                            key={i}
+                                            style={{
+                                                display: 'flex', alignItems: 'flex-start', gap: 8,
+                                                padding: '7px 0', borderBottom: '1px solid rgba(255,255,255,.04)', fontSize: 11,
+                                            }}
+                                        >
+                                            <div style={{
+                                                width: 28, height: 28, borderRadius: 8, background: item.bg,
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                                            }}>
+                                                {item.icon}
+                                            </div>
+                                            <div style={{ minWidth: 0 }}>
+                                                <div style={{ color: 'var(--t,#EEF2FF)', fontWeight: 600 }}>{item.text}</div>
+                                                <div style={{ color: 'var(--t3,#3E5678)', fontSize: 10, marginTop: 1 }}>{item.sub}</div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {payments.length === 0 && purchases.length === 0 && (
+                                        <div style={{ fontSize: 11, color: 'var(--t3,#3E5678)', padding: '12px 0' }}>No recent activity.</div>
+                                    )}
                                 </div>
                             </div>
 
                             {supplier.notes && (
-                                <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
-                                    <p className="text-[10px] font-black text-yellow-700 uppercase tracking-widest mb-1">📝 Internal Notes</p>
-                                    <p className="text-sm text-gray-700 leading-relaxed">{supplier.notes}</p>
+                                <div style={{
+                                    background: 'rgba(250,204,21,.06)', border: '1px solid rgba(250,204,21,.25)',
+                                    borderRadius: 10, padding: '12px 14px', marginTop: 4,
+                                }}>
+                                    <div style={{ fontSize: 10, fontWeight: 700, color: '#FACC15', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '.5px' }}>
+                                        Internal notes
+                                    </div>
+                                    <div style={{ fontSize: 11, color: 'var(--t2,#8BA3C7)', lineHeight: 1.5 }}>{supplier.notes}</div>
                                 </div>
                             )}
-
-                            <div className="space-y-6">
-                                <div>
-                                    <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                        <DollarSign size={16} className="text-redwood-brand" />
-                                        Fiscal Analysis
-                                    </h3>
-                                    <div className="bg-white border border-[#ddd] rounded-[4px] p-[20px] space-y-5 shadow-sm">
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-xs font-bold text-gray-500 uppercase">Trading Currency</span>
-                                            <span className="text-sm font-black text-gray-900">{supplier.currency} (USD)</span>
-                                        </div>
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-xs font-bold text-gray-500 uppercase">Payment Terms</span>
-                                            <span className="text-sm font-black text-gray-900">{supplier.paymentTerms}</span>
-                                        </div>
-                                        <div className="flex justify-between items-center pt-5 border-t border-gray-100">
-                                            <span className="text-xs font-bold text-gray-500 uppercase">Risk Rating</span>
-                                            <span className={`px-4 py-1 rounded-full text-[10px] font-black uppercase ${supplier.rating === 'A' ? 'bg-emerald-100 text-emerald-700' :
-                                                supplier.rating === 'B' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'
-                                                }`}>Tier {supplier.rating || 'A'} Certified</span>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="bg-redwood-brand/5 border border-redwood-brand/10 rounded-lg p-6">
-                                    <h4 className="text-[11px] font-black text-redwood-brand uppercase tracking-[0.2em] mb-4">Strategic Insights</h4>
-                                    <div className="space-y-4">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-3">
-                                                <Clock size={16} className="text-redwood-brand opacity-60" />
-                                                <span className="text-xs font-bold text-gray-600">Avg Lead Time</span>
-                                            </div>
-                                            <span className="text-xs font-black text-gray-900 uppercase">4.2 Commercial Days</span>
-                                        </div>
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-3">
-                                                <CheckCircle size={16} className="text-redwood-brand opacity-60" />
-                                                <span className="text-xs font-bold text-gray-600">Order Reliability</span>
-                                            </div>
-                                            <span className="text-xs font-black text-gray-900 uppercase">99.8% Precision</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
                         </div>
                     )}
 
                     {/* Ledger Tab */}
                     {activeTab === 'ledger' && (
                         <div>
-                            <div className="flex justify-between items-center mb-6">
-                                <div>
-                                    <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest flex items-center gap-2">
-                                        <Receipt size={18} className="text-redwood-brand" />
-                                        Statement of Account
-                                    </h3>
-                                    <p className="text-[10px] font-bold text-gray-400 uppercase mt-1">Full transaction history and liability tracking</p>
-                                </div>
-                                <div className="flex gap-2">
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 style={{ fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)', textTransform: 'uppercase', letterSpacing: '.5px' }}>
+                                    Statement of Account
+                                </h3>
+                                <div className="flex gap-2 flex-wrap">
                                     <button
+                                        type="button"
                                         onClick={handleExportExcel}
-                                        className="px-4 py-2 bg-emerald-600 text-white border border-emerald-700 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-emerald-700 flex items-center gap-2 transition-all shadow-md"
+                                        style={{
+                                            padding: '6px 12px', background: 'transparent',
+                                            border: '1px solid rgba(255,255,255,.12)', borderRadius: 7,
+                                            fontSize: 11, fontWeight: 600, color: 'var(--t2,#8BA3C7)',
+                                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                                            fontFamily: 'inherit',
+                                        }}
                                     >
-                                        <Download size={14} /> Export Excel
+                                        <Download size={12} /> Export Excel
                                     </button>
                                     <button
+                                        type="button"
                                         onClick={handleExportPDF}
-                                        className="px-4 py-2 bg-rose-600 text-white border border-rose-700 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-rose-700 flex items-center gap-2 transition-all shadow-md"
+                                        style={{
+                                            padding: '6px 12px', background: 'transparent',
+                                            border: '1px solid rgba(255,255,255,.12)', borderRadius: 7,
+                                            fontSize: 11, fontWeight: 600, color: 'var(--t2,#8BA3C7)',
+                                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                                            fontFamily: 'inherit',
+                                        }}
                                     >
-                                        <FileText size={14} /> Export PDF
+                                        <FileText size={12} /> Export PDF
                                     </button>
-
-                                    <div className="flex items-center gap-2">
-                                    <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none" placeholder="From" />
-                                    <span className="text-xs text-gray-400">–</span>
-                                    <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none" placeholder="To" />
-                                    {(fromDate || toDate) && <button onClick={() => { setFromDate(''); setToDate(''); }} className="text-xs text-red-400 font-bold px-2 py-1 border border-red-200 rounded-lg hover:text-red-600">✕ Clear</button>}
-                                </div>
-                                {ledgerError && (
-                                    <p className="text-xs font-bold text-red-600 mt-2">{ledgerError}</p>
-                                )}
-                                <div className="relative">
+                                    <div className="relative">
                                         <button
+                                            type="button"
                                             onClick={() => setShowShareMenu(!showShareMenu)}
-                                            className="px-4 py-2 bg-blue-600 text-white border border-blue-700 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 flex items-center gap-2 transition-all shadow-md"
+                                            style={{
+                                                padding: '6px 12px', background: 'transparent',
+                                                border: '1px solid rgba(255,255,255,.12)', borderRadius: 7,
+                                                fontSize: 11, fontWeight: 600, color: 'var(--t2,#8BA3C7)',
+                                                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                                                fontFamily: 'inherit',
+                                            }}
                                         >
-                                            <Share2 size={14} /> Share Ledger <ChevronDown size={14} />
+                                            <Share2 size={12} /> Share <ChevronDown size={12} />
                                         </button>
-
                                         {showShareMenu && (
-                                            <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-xl shadow-2xl z-50 py-2 animate-in fade-in slide-in-from-top-2">
-                                                <button onClick={() => { handleShareEmail(); setShowShareMenu(false); }} className="w-full px-4 py-2 text-left text-xs font-bold text-gray-700 hover:bg-gray-50 flex items-center gap-3">
-                                                    <Mail size={14} className="text-blue-500" /> Share via Email
+                                            <div style={{
+                                                position: 'absolute', right: 0, marginTop: 8, width: 192,
+                                                background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.12)',
+                                                borderRadius: 12, boxShadow: '0 8px 24px rgba(0,0,0,.4)', zIndex: 50, padding: '4px 0',
+                                            }}>
+                                                <button type="button" onClick={() => { handleShareEmail(); setShowShareMenu(false); }} style={{ width: '100%', padding: '8px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--t,#EEF2FF)', background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                    <Mail size={14} color="#4F8EF7" /> Share via Email
                                                 </button>
-                                                <button onClick={() => { handleShareWhatsApp(); setShowShareMenu(false); }} className="w-full px-4 py-2 text-left text-xs font-bold text-gray-700 hover:bg-gray-50 flex items-center gap-3">
-                                                    <MessageSquare size={14} className="text-emerald-500" /> Share via WhatsApp
+                                                <button type="button" onClick={() => { handleShareWhatsApp(); setShowShareMenu(false); }} style={{ width: '100%', padding: '8px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--t,#EEF2FF)', background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                    <MessageSquare size={14} color="#22C55E" /> Share via WhatsApp
                                                 </button>
-                                                <button onClick={() => { handleShareSMS(); setShowShareMenu(false); }} className="w-full px-4 py-2 text-left text-xs font-bold text-gray-700 hover:bg-gray-50 flex items-center gap-3">
-                                                    <Send size={14} className="text-blue-400" /> Share via SMS
+                                                <button type="button" onClick={() => { handleShareSMS(); setShowShareMenu(false); }} style={{ width: '100%', padding: '8px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--t,#EEF2FF)', background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                    <Send size={14} color="#4F8EF7" /> Share via SMS
                                                 </button>
                                             </div>
                                         )}
@@ -975,57 +1133,114 @@ export default function SupplierDetail() {
                                 </div>
                             </div>
 
-                            <div className="overflow-x-auto rounded-lg border border-gray-100 shadow-sm">
+                            <div style={{
+                                display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 12,
+                                marginBottom: 16, padding: 12,
+                                background: 'var(--bg3,#0f1f33)',
+                                border: '1px solid rgba(255,255,255,.07)', borderRadius: 8,
+                            }}>
+                                <div className="flex flex-col">
+                                    <label style={{ fontSize: 9, fontWeight: 700, color: 'var(--t3,#3E5678)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 4 }}>From</label>
+                                    <input
+                                        type="date"
+                                        value={fromDate}
+                                        onChange={e => setFromDate(e.target.value)}
+                                        style={{
+                                            background: 'var(--bg4,#142540)', color: 'var(--t,#EEF2FF)',
+                                            border: '1px solid rgba(255,255,255,.12)', borderRadius: 6,
+                                            padding: '6px 10px', fontSize: 11, outline: 'none', fontFamily: 'inherit',
+                                        }}
+                                    />
+                                </div>
+                                <div className="flex flex-col">
+                                    <label style={{ fontSize: 9, fontWeight: 700, color: 'var(--t3,#3E5678)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 4 }}>To</label>
+                                    <input
+                                        type="date"
+                                        value={toDate}
+                                        onChange={e => setToDate(e.target.value)}
+                                        style={{
+                                            background: 'var(--bg4,#142540)', color: 'var(--t,#EEF2FF)',
+                                            border: '1px solid rgba(255,255,255,.12)', borderRadius: 6,
+                                            padding: '6px 10px', fontSize: 11, outline: 'none', fontFamily: 'inherit',
+                                        }}
+                                    />
+                                </div>
+                                {(fromDate || toDate) && (
+                                    <button
+                                        type="button"
+                                        onClick={() => { setFromDate(''); setToDate(''); }}
+                                        style={{
+                                            padding: '6px 10px', background: 'transparent', border: 'none',
+                                            fontSize: 9, fontWeight: 700, color: '#EF4444',
+                                            textTransform: 'uppercase', letterSpacing: '.6px',
+                                            cursor: 'pointer', fontFamily: 'inherit',
+                                        }}
+                                    >
+                                        ✕ Clear Filter
+                                    </button>
+                                )}
+                                {(fromDate || toDate) && (
+                                    <span style={{ marginLeft: 'auto', fontSize: 9, fontWeight: 600, color: 'var(--t3,#3E5678)', textTransform: 'uppercase', letterSpacing: '.6px' }}>
+                                        Showing entries from {fromDate || '∞'} to {toDate || 'today'}
+                                    </span>
+                                )}
+                                {ledgerError && (
+                                    <p className="text-xs font-bold text-red-600 mt-2" style={{ width: '100%', color: '#EF4444' }}>
+                                        {ledgerError}
+                                    </p>
+                                )}
+                            </div>
+
+                            <div className="overflow-x-auto overflow-y-visible" style={{ background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 10 }}>
                                 <table className="w-full text-left">
-                                    <thead className="bg-gray-50 border-b-2 border-gray-100">
-                                        <tr>
-                                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest">Date</th>
-                                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest">Operation</th>
-                                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest">Reference</th>
-                                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest">Description</th>
-                                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest text-right">Debit (-)</th>
-                                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest text-right">Credit (+)</th>
-                                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest text-right">Balance</th>
-                                            <th className="px-4 py-4 w-10"></th>
+                                    <thead>
+                                        <tr style={{ background: 'var(--bg2,#0a1726)' }}>
+                                            <th style={ledgerThStyle}>Date</th>
+                                            <th style={ledgerThStyle}>Operation</th>
+                                            <th style={ledgerThStyle}>Reference</th>
+                                            <th style={ledgerThStyle}>Description</th>
+                                            <th style={{ ...ledgerThStyle, textAlign: 'right' }}>Debit (-)</th>
+                                            <th style={{ ...ledgerThStyle, textAlign: 'right' }}>Credit (+)</th>
+                                            <th style={{ ...ledgerThStyle, textAlign: 'right' }}>Balance</th>
+                                            <th style={{ ...ledgerThStyle, textAlign: 'center', width: 40 }}></th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-gray-50">
+                                    <tbody>
                                         {loadingLedger ? (
                                             <tr>
-                                                <td colSpan={8} className="px-6 py-12 text-center">
-                                                    <div className="animate-pulse flex flex-col items-center">
-                                                        <div className="h-4 w-48 bg-gray-200 rounded mb-2"></div>
-                                                        <div className="h-3 w-32 bg-gray-100 rounded"></div>
-                                                    </div>
+                                                <td colSpan={8} style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--t2,#8BA3C7)', fontSize: 12 }}>
+                                                    Loading ledger...
                                                 </td>
                                             </tr>
                                         ) : ledger.length === 0 && !(fromDate || toDate) ? (
                                             <tr>
-                                                <td colSpan={8} className="px-6 py-20 text-center">
-                                                    <div className="flex flex-col items-center gap-4">
-                                                        <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center border-2 border-dashed border-gray-200">
-                                                            <Receipt size={24} className="text-gray-300" />
-                                                        </div>
-                                                        <p className="text-sm font-black text-gray-400 uppercase tracking-widest">No commercial records detected.</p>
-                                                    </div>
+                                                <td colSpan={8} style={{ padding: '40px 20px', textAlign: 'center' }}>
+                                                    <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
+                                                    <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--t3,#3E5678)', textTransform: 'uppercase', letterSpacing: '.5px' }}>
+                                                        No commercial records detected.
+                                                    </p>
                                                 </td>
                                             </tr>
                                         ) : (
                                             <>
                                             {(fromDate || toDate) && ledgerOpeningBalance !== null && (
-                                                <tr className="bg-blue-50/60 font-black">
-                                                    <td colSpan={6} className="px-6 py-3 text-xs text-gray-800 uppercase tracking-widest">
+                                                <tr style={{ background: 'rgba(79,142,247,.08)' }}>
+                                                    <td colSpan={6} style={{ ...ledgerTdStyle, fontWeight: 700, textTransform: 'uppercase', fontSize: 10, letterSpacing: '.5px' }}>
                                                         Opening balance
-                                                        <span className="ml-2 text-[10px] font-bold text-gray-500 normal-case">(as at {fromDate || 'start'})</span>
+                                                        <span style={{ marginLeft: 8, fontWeight: 600, color: 'var(--t3,#3E5678)', textTransform: 'none' }}>
+                                                            (as at {fromDate || 'start'})
+                                                        </span>
                                                     </td>
-                                                    <td className="px-6 py-3 text-xs text-gray-900 text-right font-mono">{ledgerOpeningBalance.toLocaleString()}</td>
-                                                    <td></td>
+                                                    <td style={{ ...ledgerTdStyle, textAlign: 'right', fontFamily: 'ui-monospace,monospace', fontWeight: 700 }}>
+                                                        {ledgerOpeningBalance.toLocaleString()}
+                                                    </td>
+                                                    <td style={ledgerTdStyle}></td>
                                                 </tr>
                                             )}
                                             {ledger.map(entry => (
                                                 <tr
                                                     key={`${entry.type}-${entry.id}`}
-                                                    className="hover:bg-redwood-bg-light/20 transition-all group cursor-pointer"
+                                                    style={{ cursor: entry.type === 'Purchase' ? 'pointer' : 'default' }}
                                                     onClick={() => {
                                                         if (entry.type === 'Purchase') {
                                                             const po = purchases.find(p => p.id === entry.relatedId);
@@ -1036,40 +1251,41 @@ export default function SupplierDetail() {
                                                         }
                                                     }}
                                                 >
-                                                    <td className="px-6 py-4 text-xs font-bold text-gray-600">
-                                                        {new Date(entry.date).toLocaleDateString()}
+                                                    <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>
+                                                        {formatDateOnly(entry.date)}
                                                     </td>
-                                                    <td className="px-6 py-4">
-                                                        <span className={`px-2 py-1 rounded text-[9px] font-black uppercase tracking-tighter ${entry.type === 'Purchase' ? 'bg-blue-100 text-blue-700' :
-                                                            entry.type === 'Payment' ? 'bg-emerald-100 text-emerald-700' :
-                                                                'bg-gray-100 text-gray-700'
-                                                            }`}>
+                                                    <td style={ledgerTdStyle}>
+                                                        <span style={{
+                                                            padding: '2px 8px', borderRadius: 6, fontSize: 9, fontWeight: 700, textTransform: 'uppercase',
+                                                            background: entry.type === 'Purchase' ? 'rgba(79,142,247,.15)' : entry.type === 'Payment' ? 'rgba(34,197,94,.15)' : 'rgba(255,255,255,.06)',
+                                                            color: entry.type === 'Purchase' ? '#4F8EF7' : entry.type === 'Payment' ? '#22C55E' : 'var(--t2,#8BA3C7)',
+                                                        }}>
                                                             {entry.type}
                                                         </span>
                                                     </td>
-                                                    <td className="px-6 py-4 text-xs font-black text-gray-900 font-mono tracking-tighter">
+                                                    <td style={{ ...ledgerTdStyle, fontFamily: 'ui-monospace,monospace', fontWeight: 600 }}>
                                                         {entry.referenceNumber}
                                                     </td>
-                                                    <td className="px-6 py-4 text-xs text-gray-500 font-medium">{entry.description}</td>
-                                                    <td className="px-6 py-4 text-xs font-black text-emerald-600 text-right font-mono">
-                                                        {entry.debit > 0 ? entry.debit.toLocaleString() : '-'}
+                                                    <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{entry.description}</td>
+                                                    <td style={{ ...ledgerTdStyle, textAlign: 'right', fontFamily: 'ui-monospace,monospace', color: entry.debit > 0 ? '#22C55E' : 'var(--t3,#3E5678)' }}>
+                                                        {entry.debit > 0 ? entry.debit.toLocaleString() : '—'}
                                                     </td>
-                                                    <td className="px-6 py-4 text-xs font-black text-rose-600 text-right font-mono">
-                                                        {entry.credit > 0 ? entry.credit.toLocaleString() : '-'}
+                                                    <td style={{ ...ledgerTdStyle, textAlign: 'right', fontFamily: 'ui-monospace,monospace', color: entry.credit > 0 ? '#EF4444' : 'var(--t3,#3E5678)' }}>
+                                                        {entry.credit > 0 ? entry.credit.toLocaleString() : '—'}
                                                     </td>
-                                                    <td className="px-6 py-4 text-xs font-black text-gray-900 text-right font-mono">
+                                                    <td style={{ ...ledgerTdStyle, textAlign: 'right', fontFamily: 'ui-monospace,monospace', fontWeight: 700 }}>
                                                         {entry.balance.toLocaleString()}
                                                     </td>
-                                                    <td className="px-4 py-4">
+                                                    <td style={{ ...ledgerTdStyle, textAlign: 'center' }}>
                                                         {entry.type === 'Purchase' && (
-                                                            <Eye size={16} className="text-gray-300 group-hover:text-redwood-brand transition-colors" />
+                                                            <Eye size={16} color="var(--t3,#3E5678)" />
                                                         )}
                                                     </td>
                                                 </tr>
                                             ))}
                                             {ledger.length === 0 && (fromDate || toDate) && (
                                                 <tr>
-                                                    <td colSpan={8} className="px-6 py-8 text-center text-xs font-bold text-gray-400 uppercase tracking-widest">
+                                                    <td colSpan={8} style={{ padding: '24px 16px', textAlign: 'center', fontSize: 11, fontWeight: 700, color: 'var(--t3,#3E5678)', textTransform: 'uppercase', letterSpacing: '.5px' }}>
                                                         No transactions in this date range.
                                                     </td>
                                                 </tr>
@@ -1078,14 +1294,18 @@ export default function SupplierDetail() {
                                         )}
                                     </tbody>
                                     {(fromDate || toDate) && ledgerClosingBalance !== null && (
-                                        <tfoot className="bg-blue-50/60 border-t-2 border-gray-300">
-                                            <tr className="font-black">
-                                                <td colSpan={6} className="px-6 py-3 text-right text-[10px] text-gray-800 uppercase tracking-widest">
+                                        <tfoot>
+                                            <tr style={ledgerTfootStyle}>
+                                                <td colSpan={6} style={{ ...ledgerTfootStyle, textAlign: 'right', fontWeight: 700, textTransform: 'uppercase', fontSize: 10, letterSpacing: '.5px' }}>
                                                     Closing balance
-                                                    <span className="ml-2 font-bold text-gray-500 normal-case">(as at {toDate || 'today'})</span>
+                                                    <span style={{ marginLeft: 8, fontWeight: 600, textTransform: 'none' }}>
+                                                        (as at {toDate || 'today'})
+                                                    </span>
                                                 </td>
-                                                <td className="px-6 py-3 text-right font-mono text-gray-900">{ledgerClosingBalance.toLocaleString()}</td>
-                                                <td></td>
+                                                <td style={{ ...ledgerTfootStyle, textAlign: 'right', fontFamily: 'ui-monospace,monospace', fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>
+                                                    {ledgerClosingBalance.toLocaleString()}
+                                                </td>
+                                                <td style={ledgerTfootStyle}></td>
                                             </tr>
                                         </tfoot>
                                     )}
@@ -1097,71 +1317,81 @@ export default function SupplierDetail() {
                     {/* Purchases Tab */}
                     {activeTab === 'purchases' && (
                         <div className="space-y-6">
-                            <div className="flex justify-between items-center px-2">
-                                <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest flex items-center gap-2">
-                                    <ShoppingCart size={18} className="text-redwood-brand" />
-                                    Sequential Procurement Ledger
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 8px' }}>
+                                <h3 style={{ fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)', textTransform: 'uppercase', letterSpacing: '.5px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <ShoppingCart size={14} color="#4F8EF7" />
+                                    Purchase Orders
                                 </h3>
-                                <div className="text-[10px] font-bold text-gray-400 uppercase">Unified Order & Purchase Stream</div>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--t3,#3E5678)', textTransform: 'uppercase', letterSpacing: '.6px' }}>Unified Order &amp; Purchase Stream</div>
                             </div>
-                            <div className="border border-gray-100 rounded-lg overflow-hidden shadow-sm bg-white">
+                            <div style={{ background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 10, overflow: 'hidden' }}>
                                 <table className="w-full text-left">
-                                    <thead className="bg-gray-50/50 border-b border-gray-100">
-                                        <tr>
-                                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest">Order ID</th>
-                                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest">Date</th>
-                                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest">Items</th>
-                                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest text-center">Operation Status</th>
-                                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest text-center">Payment Status</th>
-                                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest text-right">{`Value (${getSystemSettings().defaultCurrencyCode})`}</th>
-                                            <th className="px-6 py-4 text-center w-40">Actions</th>
+                                    <thead>
+                                        <tr style={{ background: 'var(--bg2,#0a1726)' }}>
+                                            <th style={ledgerThStyle}>Order ID</th>
+                                            <th style={ledgerThStyle}>Date</th>
+                                            <th style={ledgerThStyle}>Items</th>
+                                            <th style={{ ...ledgerThStyle, textAlign: 'center' }}>Operation Status</th>
+                                            <th style={{ ...ledgerThStyle, textAlign: 'center' }}>Payment Status</th>
+                                            <th style={{ ...ledgerThStyle, textAlign: 'right' }}>{`Value (${getSystemSettings().defaultCurrencyCode})`}</th>
+                                            <th style={{ ...ledgerThStyle, textAlign: 'center', width: 160 }}>Actions</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-gray-50">
+                                    <tbody>
                                         {purchases.length === 0 ? (
-                                            <tr><td colSpan={6} className="px-6 py-12 text-center text-xs font-bold text-gray-400 uppercase tracking-widest">No sequential procurement records found.</td></tr>
+                                            <tr><td colSpan={7} style={{ padding: '40px 20px', textAlign: 'center' }}>
+                                                <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
+                                                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--t,#EEF2FF)', marginBottom: 4 }}>No purchase orders yet</div>
+                                                <div style={{ fontSize: 11, color: 'var(--t2,#8BA3C7)' }}>No purchase orders for this supplier</div>
+                                            </td></tr>
                                         ) : (
                                             [...purchases]
-                                                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                                                .sort((a, b) => (parseDateOnlyLocal(b.date)?.getTime() ?? 0) - (parseDateOnlyLocal(a.date)?.getTime() ?? 0))
                                                 .map((po) => (
-                                                    <tr key={po.id} className="hover:bg-gray-50/50 group transition-colors">
-                                                        <td className="px-6 py-4 text-xs font-black font-mono text-gray-900 group-hover:text-redwood-brand transition-colors">
+                                                    <tr
+                                                        key={po.id}
+                                                        onMouseEnter={_tableRowHoverEnter}
+                                                        onMouseLeave={_tableRowHoverLeave}
+                                                        style={{ transition: 'background .15s' }}
+                                                    >
+                                                        <td style={{ ...ledgerTdStyle, fontFamily: 'monospace', fontWeight: 700 }}>
                                                             {po.poNumber}
                                                         </td>
-                                                        <td className="px-6 py-4 text-xs font-bold text-gray-600">
-                                                            {new Date(po.date).toLocaleDateString()}
+                                                        <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>
+                                                            {formatDateOnly(po.date)}
                                                         </td>
-                                                        <td className="px-6 py-4 text-xs font-bold text-gray-500">
+                                                        <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>
                                                             {(po.items?.length ?? 0)} {(po.items?.length ?? 0) === 1 ? 'Item' : 'Items'}
                                                         </td>
-                                                        <td className="px-6 py-4 text-center">
+                                                        <td style={{ ...ledgerTdStyle, textAlign: 'center' }}>
                                                             {po.status === 'Pending' || po.status === 'Draft' ? (
-                                                                <span className="px-3 py-1 bg-amber-500 text-white rounded-full text-[9px] font-black uppercase tracking-tighter">
+                                                                <span style={{ padding: '2px 8px', borderRadius: 8, fontSize: 9, fontWeight: 700, background: 'rgba(245,158,11,.12)', color: '#B45309', textTransform: 'uppercase', letterSpacing: '.4px' }}>
                                                                     🟡 Pending
                                                                 </span>
                                                             ) : (
-                                                                <span className="px-3 py-1 bg-emerald-500 text-white rounded-full text-[9px] font-black uppercase tracking-tighter">
+                                                                <span style={{ padding: '2px 8px', borderRadius: 8, fontSize: 9, fontWeight: 700, background: 'rgba(34,197,94,.12)', color: '#16A34A', textTransform: 'uppercase', letterSpacing: '.4px' }}>
                                                                     🟢 Received
                                                                 </span>
                                                             )}
                                                         </td>
-                                                        <td className="px-6 py-4 text-center">
+                                                        <td style={{ ...ledgerTdStyle, textAlign: 'center' }}>
                                                             {(() => {
-                                                                // ITEM 6C — Derive from remaining_balance (authoritative),
-                                                                // not the stale payment_status string. Mirrors 5C.
                                                                 const grand = Number((po as any).grandTotal) || 0;
                                                                 const rb = Number((po as any).remaining_balance ?? grand);
                                                                 const isPaid = rb <= 0.005;
                                                                 const isPartial = !isPaid && rb < grand;
-                                                                const cls = isPaid ? 'bg-blue-600 text-white'
-                                                                    : isPartial ? 'bg-amber-500 text-white'
-                                                                    : 'bg-rose-500 text-white';
+                                                                const bg = isPaid ? 'rgba(34,197,94,.12)'
+                                                                    : isPartial ? 'rgba(245,158,11,.12)'
+                                                                    : 'rgba(239,68,68,.12)';
+                                                                const color = isPaid ? '#16A34A'
+                                                                    : isPartial ? '#B45309'
+                                                                    : '#B91C1C';
                                                                 const label = isPaid ? '🔵 Paid'
                                                                     : isPartial ? '🟠 Partial'
                                                                     : '🔴 Unpaid';
                                                                 return (
                                                                     <span
-                                                                        className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter ${cls}`}
+                                                                        style={{ padding: '2px 8px', borderRadius: 8, fontSize: 9, fontWeight: 700, background: bg, color, textTransform: 'uppercase', letterSpacing: '.4px' }}
                                                                         title={isPartial ? `${rb.toFixed(2)} of ${grand.toFixed(2)} outstanding` : undefined}
                                                                     >
                                                                         {label}
@@ -1169,26 +1399,30 @@ export default function SupplierDetail() {
                                                                 );
                                                             })()}
                                                         </td>
-                                                        <td className="px-6 py-4 text-sm font-black text-gray-900 text-right font-mono">
+                                                        <td style={{ ...ledgerTdStyle, textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>
                                                             {po.grandTotal.toLocaleString()}
                                                         </td>
-                                                        <td className="px-6 py-4 text-center">
+                                                        <td style={{ ...ledgerTdStyle, textAlign: 'center' }}>
                                                             <div className="flex items-center justify-center gap-2">
                                                                 <button
+                                                                    type="button"
                                                                     onClick={() => { setSelectedPO(po); setShowPOModal(true); }}
-                                                                    className="p-1.5 text-gray-300 hover:text-redwood-brand transition-colors"
+                                                                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--t2,#8BA3C7)', padding: 4, display: 'inline-flex', alignItems: 'center' }}
+                                                                    onMouseEnter={(e) => { e.currentTarget.style.color = '#4F8EF7'; }}
+                                                                    onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--t2,#8BA3C7)'; }}
                                                                 >
-                                                                    <Eye size={18} />
+                                                                    <Eye size={16} />
                                                                 </button>
                                                                 {(po.status === 'Pending' || po.status === 'Draft') && (
                                                                     <button
+                                                                        type="button"
                                                                         onClick={() => handleConvertOrder(po.id)}
                                                                         disabled={converting === po.id}
-                                                                        className="px-3 py-1 bg-emerald-600 text-white text-[9px] font-black rounded uppercase hover:bg-emerald-700 transition-colors flex items-center gap-1 disabled:opacity-50 shadow-sm"
+                                                                        style={{ padding: '4px 9px', background: '#22C55E', color: '#fff', borderRadius: 6, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, opacity: converting === po.id ? 0.5 : 1, fontFamily: 'inherit' }}
                                                                     >
                                                                         {converting === po.id ? '...' : (
                                                                             <>
-                                                                                <CheckCircle size={12} />
+                                                                                <CheckCircle size={11} />
                                                                                 Receive
                                                                             </>
                                                                         )}
@@ -1200,7 +1434,6 @@ export default function SupplierDetail() {
                                                 ))
                                         )}
                                     </tbody>
-                                    {/* ITEM 6D — Purchases totals. POs only, no orders/drafts. */}
                                     {purchases.length > 0 && (() => {
                                         const totalPurchases = purchases.reduce((s, p) => s + (Number((p as any).grandTotal) || 0), 0);
                                         const totalOutstanding = purchases.reduce((s, p) => {
@@ -1209,18 +1442,18 @@ export default function SupplierDetail() {
                                             return s + Math.max(0, rb);
                                         }, 0);
                                         return (
-                                            <tfoot className="bg-gray-50 border-t-2 border-gray-300">
-                                                <tr className="font-black">
-                                                    <td colSpan={4} className="px-6 py-3"></td>
-                                                    <td className="px-6 py-3 text-right text-[10px] text-gray-700 uppercase tracking-widest">
-                                                        <span className="block">Total Purchases</span>
-                                                        <span className="block text-amber-700 mt-1">Total Outstanding</span>
+                                            <tfoot>
+                                                <tr style={{ fontWeight: 700 }}>
+                                                    <td colSpan={4} style={ledgerTfootStyle}></td>
+                                                    <td style={{ ...ledgerTfootStyle, textAlign: 'right', fontSize: 10, textTransform: 'uppercase', letterSpacing: '.6px' }}>
+                                                        <span style={{ display: 'block', color: 'var(--t2,#8BA3C7)' }}>Total Purchases</span>
+                                                        <span style={{ display: 'block', color: '#F59E0B', marginTop: 4 }}>Total Outstanding</span>
                                                     </td>
-                                                    <td className="px-6 py-3 text-right font-mono">
-                                                        <span className="block text-gray-900">{totalPurchases.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                                                        <span className="block text-amber-700 mt-1">{totalOutstanding.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                                    <td style={{ ...ledgerTfootStyle, textAlign: 'right', fontFamily: 'monospace' }}>
+                                                        <span style={{ display: 'block', color: 'var(--t,#EEF2FF)' }}>{totalPurchases.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                                        <span style={{ display: 'block', color: '#F59E0B', marginTop: 4 }}>{totalOutstanding.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                                                     </td>
-                                                    <td></td>
+                                                    <td style={ledgerTfootStyle}></td>
                                                 </tr>
                                             </tfoot>
                                         );
@@ -1233,61 +1466,76 @@ export default function SupplierDetail() {
                     {/* Payments Tab */}
                     {activeTab === 'payments' && (
                         <div>
-                            <div className="flex justify-between items-center mb-6">
-                                <div>
-                                    <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest flex items-center gap-2">
-                                        <Wallet size={18} className="text-redwood-brand" />
-                                        Disbursement History
-                                    </h3>
-                                    <p className="text-[10px] font-bold text-gray-400 uppercase mt-1">Confirmed payments and fund transfers</p>
-                                </div>
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 style={{ fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Payment History</h3>
                                 <button
+                                    type="button"
                                     onClick={() => setShowPaymentModal(true)}
-                                    className="px-5 py-2.5 bg-red-800 text-white rounded-lg text-xs font-black hover:bg-red-900 flex items-center gap-2 shadow-lg uppercase tracking-wider transition-all active:scale-95"
+                                    style={{
+                                        padding: '6px 13px', background: '#4F8EF7', color: '#fff',
+                                        border: 'none', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                                        cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                                        fontFamily: 'inherit',
+                                    }}
                                 >
-                                    <DollarSign size={16} />
-                                    Initiate Disbursement
+                                    <DollarSign size={13} />
+                                    Send Payment
                                 </button>
                             </div>
-                            <div className="border border-gray-100 rounded-lg overflow-hidden shadow-sm bg-white">
+                            <div style={{ background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 10, overflow: 'hidden' }} className="overflow-x-auto">
                                 <table className="w-full text-left">
-                                    <thead className="bg-gray-50 border-b border-gray-100">
-                                        <tr>
-                                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest">Disbursement Date</th>
-                                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest">Reference ID</th>
-                                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest">Channel</th>
-                                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase tracking-widest text-right">Amount Out (-)</th>
-                                            <th className="px-6 py-4 w-16 text-center">Receipt</th>
+                                    <thead>
+                                        <tr style={{ background: 'var(--bg2,#0a1726)' }}>
+                                            <th style={ledgerThStyle}>Date</th>
+                                            <th style={ledgerThStyle}>Reference</th>
+                                            <th style={ledgerThStyle}>Method</th>
+                                            <th style={{ ...ledgerThStyle, textAlign: 'right' }}>Amount</th>
+                                            <th style={{ ...ledgerThStyle, textAlign: 'center', width: 80 }}>Receipt</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-gray-50">
+                                    <tbody>
                                         {payments.length === 0 ? (
-                                            <tr><td colSpan={5} className="px-6 py-12 text-center text-xs font-bold text-gray-400 uppercase tracking-widest">No disbursements recorded.</td></tr>
+                                            <tr><td colSpan={5} style={{ padding: '40px 20px', textAlign: 'center' }}>
+                                                <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
+                                                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--t,#EEF2FF)', marginBottom: 4 }}>No payments yet</div>
+                                                <div style={{ fontSize: 11, color: 'var(--t2,#8BA3C7)' }}>No payments recorded for this supplier</div>
+                                            </td></tr>
                                         ) : (
                                             payments.map(pay => (
-                                                <tr key={pay.id} className="hover:bg-gray-50 transition-colors">
-                                                    <td className="px-6 py-4 text-xs font-bold text-gray-600">{new Date(pay.date).toLocaleDateString()}</td>
-                                                    <td className="px-6 py-4 text-xs font-black font-mono text-gray-900 whitespace-nowrap">{pay.reference || `PAY-${pay.id.slice(-4)}`}</td>
-                                                    <td className="px-6 py-4 text-xs font-bold text-gray-500">{pay.paymentMethod}</td>
-                                                    <td className="px-6 py-4 text-sm font-black text-right font-mono text-emerald-600">{pay.amount.toLocaleString()}</td>
-                                                    <td className="px-6 py-4 text-center">
-                                                        <button className="text-gray-300 hover:text-emerald-600 transition-colors">
-                                                            <Receipt size={18} />
+                                                <tr
+                                                    key={pay.id}
+                                                    onMouseEnter={_tableRowHoverEnter}
+                                                    onMouseLeave={_tableRowHoverLeave}
+                                                    style={{ transition: 'background .15s' }}
+                                                >
+                                                    <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{formatDateOnly(pay.date)}</td>
+                                                    <td style={{ ...ledgerTdStyle, fontFamily: 'monospace', fontWeight: 700 }}>{pay.reference || `PAY-${pay.id.slice(-4)}`}</td>
+                                                    <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{pay.paymentMethod}</td>
+                                                    <td style={{ ...ledgerTdStyle, textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: '#22C55E' }}>
+                                                        {pay.amount.toLocaleString()}
+                                                    </td>
+                                                    <td style={{ ...ledgerTdStyle, textAlign: 'center' }}>
+                                                        <button
+                                                            type="button"
+                                                            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--t3,#3E5678)', padding: 4 }}
+                                                            onMouseEnter={(e) => { e.currentTarget.style.color = '#22C55E'; }}
+                                                            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--t3,#3E5678)'; }}
+                                                        >
+                                                            <Receipt size={16} />
                                                         </button>
                                                     </td>
                                                 </tr>
                                             ))
                                         )}
                                     </tbody>
-                                    {/* ITEM 6D — Total Paid summary. */}
                                     {payments.length > 0 && (() => {
                                         const totalPaid = payments.reduce((s, p: any) => s + (Number(p.amount) || 0), 0);
                                         return (
-                                            <tfoot className="bg-gray-50 border-t-2 border-gray-300">
-                                                <tr className="font-black">
-                                                    <td colSpan={3} className="px-6 py-3 text-right text-[10px] text-gray-700 uppercase tracking-widest">Total Paid</td>
-                                                    <td className="px-6 py-3 text-right font-mono text-rose-700">{totalPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                                                    <td></td>
+                                            <tfoot>
+                                                <tr style={{ fontWeight: 700 }}>
+                                                    <td colSpan={3} style={{ ...ledgerTfootStyle, textAlign: 'right', fontSize: 10, textTransform: 'uppercase', letterSpacing: '.6px', color: 'var(--t2,#8BA3C7)' }}>Total Paid</td>
+                                                    <td style={{ ...ledgerTfootStyle, textAlign: 'right', fontFamily: 'monospace', color: '#EF4444' }}>{totalPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                                                    <td style={ledgerTfootStyle}></td>
                                                 </tr>
                                             </tfoot>
                                         );
@@ -1734,11 +1982,11 @@ export default function SupplierDetail() {
                                     <div className="grid grid-cols-2 gap-12">
                                         <div>
                                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Issue Date</p>
-                                            <p className="text-sm font-black text-gray-700">{new Date(selectedPO.date).toLocaleDateString()}</p>
+                                            <p className="text-sm font-black text-gray-700">{formatDateOnly(selectedPO.date)}</p>
                                         </div>
                                         <div>
                                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Expected Delivery</p>
-                                            <p className="text-sm font-black text-gray-700">{selectedPO.expectedDate ? new Date(selectedPO.expectedDate).toLocaleDateString() : 'Immediate'}</p>
+                                            <p className="text-sm font-black text-gray-700">{selectedPO.expectedDate ? formatDateOnly(selectedPO.expectedDate) : 'Immediate'}</p>
                                         </div>
                                     </div>
                                     <div className="grid grid-cols-2 gap-12 mt-6">
