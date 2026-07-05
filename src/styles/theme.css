@@ -221,6 +221,22 @@ body, body * {
   display: none;
 }
 
+/* Native date/time picker icon — dark theme surfaces need a light icon;
+   body.light keeps the default dark icon on white/light inputs (invoice card). */
+body:not(.light) input[type="date"]::-webkit-calendar-picker-indicator,
+body:not(.light) input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(1.6);
+  opacity: 0.9;
+  cursor: pointer;
+}
+
+body.light input[type="date"]::-webkit-calendar-picker-indicator,
+body.light input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  filter: none;
+  opacity: 0.75;
+  cursor: pointer;
+}
+
 /* ── Sidebar drawer transition (mobile only — desktop uses lg:static) ── */
 @media (max-width: 1023px) {
   .sidebar-drawer {
