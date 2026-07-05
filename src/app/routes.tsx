@@ -27,6 +27,7 @@ import SalesOrdersWorkflow from '../pages/Sales/SalesOrdersWorkflow';
 import SalesOrderFormPage from '../pages/Sales/SalesOrderFormPage';
 import SalesOrderDetailPage from '../pages/Sales/SalesOrderDetailPage';
 import Quotations from '../pages/Sales/Quotations';
+import QuotationFormPage from '../pages/Sales/QuotationFormPage';
 import Invoices from '../pages/Sales/Invoices';
 import InvoiceFormPage from '../pages/Sales/InvoiceFormPage';
 import CreditNoteFormPage from '../pages/Sales/CreditNoteFormPage';
@@ -210,6 +211,8 @@ export const AppRoutes = () => {
             <Route path="/sales/orders/new" element={<SalesOrderFormPage />} />
             <Route path="/sales/orders/:id" element={<SalesOrderDetailPage />} />
             <Route path="/sales/quotations" element={<Quotations />} />
+            <Route path="/sales/quotations/new" element={<QuotationFormPage />} />
+            <Route path="/sales/quotations/:id" element={<QuotationFormPage />} />
             <Route path="/sales/estimates" element={<PlaceholderPage title="Sales Estimates" />} />
             <Route path="/sales/delivery-notes" element={<PlaceholderPage title="Delivery Notes" />} />
             <Route path="/sales/invoices" element={<Invoices />} />
