@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Plus, Save, FileText } from 'lucide-react';
+import { ArrowLeft, Plus, Save, FileText, UserPlus, X } from 'lucide-react';
 import { getCustomers, getProducts, type Customer, type Product } from '../../services/api';
 import SearchableSelect from '../../components/common/SearchableSelect';
 import InvoiceLineRow, { type InvoiceLineItem } from './InvoiceLineRow';
+import { getSalesmen, addSalesman, type Salesman } from '../../constants/data';
+import { formatDateOnly } from '../../utils/formatters';
 import {
     createQuotation,
     getQuotation,
@@ -38,6 +40,10 @@ const labelStyle: CSSProperties = {
     marginBottom: 6,
     display: 'block',
 };
+
+/** Same Tailwind classes as InvoiceFormPage date inputs (clickable calendar). */
+const DATE_INPUT_CLASS =
+    'w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-bold focus:border-[#4F8EF7] focus:outline-none transition-all';
 
 function newLine(): InvoiceLineItem {
     return {
@@ -85,10 +91,15 @@ export default function QuotationFormPage() {
 
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
+    const [salesmen, setSalesmen] = useState<Salesman[]>(() => getSalesmen());
     const [loading, setLoading] = useState(isEdit);
     const [saving, setSaving] = useState(false);
 
     const [customerId, setCustomerId] = useState('');
+    const [salesmanId, setSalesmanId] = useState('');
+    const [showNewSalesman, setShowNewSalesman] = useState(false);
+    const [newSalesmanName, setNewSalesmanName] = useState('');
+    const [newSalesmanPhone, setNewSalesmanPhone] = useState('');
     const [quoteDate, setQuoteDate] = useState(new Date().toISOString().slice(0, 10));
     const [expiryDate, setExpiryDate] = useState('');
     const [status, setStatus] = useState<QuotationStatus>('draft');
@@ -119,6 +130,12 @@ export default function QuotationFormPage() {
                 setExpiryDate(q.expiry_date?.slice(0, 10) ?? '');
                 setStatus(q.status);
                 setNotes(q.notes ?? '');
+                if (q.salesman_id) {
+                    setSalesmanId(q.salesman_id);
+                } else if (q.salesman_name) {
+                    const match = getSalesmen().find((s) => s.name === q.salesman_name);
+                    if (match) setSalesmanId(match.id);
+                }
                 setLines(q.items.length ? fromQuoteItems(q.items as unknown as Array<Record<string, unknown>>) : [newLine()]);
                 const sub = q.subtotal || 0;
                 setTaxRate(sub > 0 ? (q.tax / sub) * 100 : 0);
@@ -170,8 +187,17 @@ export default function QuotationFormPage() {
             alert('Select a customer');
             return;
         }
+        if (!salesmanId) {
+            alert('Select a salesman');
+            return;
+        }
         if (!lines.some((l) => l.product && Number(l.quantity) > 0)) {
             alert('Add at least one line item');
+            return;
+        }
+        const salesmanName = salesmen.find((s) => s.id === salesmanId)?.name;
+        if (!salesmanName) {
+            alert('Select a valid salesman');
             return;
         }
         setSaving(true);
@@ -187,6 +213,8 @@ export default function QuotationFormPage() {
                 discount: 0,
                 notes,
                 status,
+                salesman_id: salesmanId,
+                salesman_name: salesmanName,
             };
             if (isEdit && id) {
                 await updateQuotation(id, payload);
@@ -212,9 +240,17 @@ export default function QuotationFormPage() {
                     <ArrowLeft size={20} />
                 </button>
                 <FileText size={22} style={{ color: '#4F8EF7' }} />
-                <h1 style={{ fontFamily: "'Syne',sans-serif", fontSize: 20, fontWeight: 600, color: 'var(--color-brand-blue)', margin: 0 }}>
-                    {isEdit ? 'Edit Quotation' : 'New Quotation'}
-                </h1>
+                <div>
+                    <h1 style={{ fontFamily: "'Syne',sans-serif", fontSize: 20, fontWeight: 600, color: 'var(--color-brand-blue)', margin: 0 }}>
+                        {isEdit ? 'Edit Quotation' : 'New Quotation'}
+                    </h1>
+                    {isEdit && quoteDate && (
+                        <p style={{ fontSize: 11, color: 'var(--color-redwood-text-muted)', margin: '4px 0 0' }}>
+                            Quote date {formatDateOnly(quoteDate)}
+                            {expiryDate ? ` · Expires ${formatDateOnly(expiryDate)}` : ''}
+                        </p>
+                    )}
+                </div>
             </div>
 
             <div style={panelStyle} className="space-y-4">
@@ -231,6 +267,78 @@ export default function QuotationFormPage() {
                         />
                     </div>
                     <div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                            <span style={{ ...labelStyle, marginBottom: 0 }}>Salesman *</span>
+                            <button
+                                type="button"
+                                onClick={() => setShowNewSalesman(true)}
+                                className="flex items-center gap-1 text-xs font-black text-orange-600 hover:text-orange-800 transition-all"
+                            >
+                                <UserPlus size={12} /> New Salesman
+                            </button>
+                        </div>
+                        <SearchableSelect
+                            options={salesmen}
+                            value={salesmanId}
+                            onChange={setSalesmanId}
+                            placeholder="Search and select salesman..."
+                            displayKey="name"
+                            theme="dark"
+                        />
+                        {showNewSalesman && (
+                            <div
+                                className="mt-2 p-3 rounded-xl space-y-2"
+                                style={{
+                                    background: 'var(--color-redwood-bg-surface, #0f1f33)',
+                                    border: '0.5px solid var(--color-redwood-border, rgba(255,255,255,0.12))',
+                                }}
+                            >
+                                <div className="flex items-center justify-between">
+                                    <p className="text-xs font-black uppercase" style={{ color: 'var(--color-redwood-text-main, #EEF2FF)' }}>
+                                        New Salesman
+                                    </p>
+                                    <button type="button" onClick={() => setShowNewSalesman(false)} className="text-gray-400 hover:text-gray-600">
+                                        <X size={14} />
+                                    </button>
+                                </div>
+                                <input
+                                    type="text"
+                                    placeholder="Salesman Name *"
+                                    value={newSalesmanName}
+                                    onChange={(e) => setNewSalesmanName(e.target.value)}
+                                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400"
+                                />
+                                <input
+                                    type="text"
+                                    placeholder="Phone (optional)"
+                                    value={newSalesmanPhone}
+                                    onChange={(e) => setNewSalesmanPhone(e.target.value)}
+                                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (!newSalesmanName.trim()) return;
+                                        try {
+                                            const created = addSalesman({ name: newSalesmanName, phone: newSalesmanPhone });
+                                            setSalesmen((prev) => [...prev, created]);
+                                            setSalesmanId(created.id);
+                                            setShowNewSalesman(false);
+                                            setNewSalesmanName('');
+                                            setNewSalesmanPhone('');
+                                        } catch {
+                                            alert('Failed to create salesman.');
+                                        }
+                                    }}
+                                    disabled={!newSalesmanName.trim()}
+                                    className="w-full py-2 bg-orange-500 text-white text-xs font-black rounded-lg hover:bg-orange-600 disabled:opacity-40 transition-all"
+                                >
+                                    Create &amp; Select Salesman
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                    <div>
                         <span style={labelStyle}>Status</span>
                         <select value={status} onChange={(e) => setStatus(e.target.value as QuotationStatus)} style={inputStyle} disabled={status === 'converted' || status === 'expired'}>
                             <option value="draft">Draft</option>
@@ -239,12 +347,32 @@ export default function QuotationFormPage() {
                         </select>
                     </div>
                     <div>
-                        <span style={labelStyle}>Quote date</span>
-                        <input type="date" value={quoteDate} onChange={(e) => setQuoteDate(e.target.value)} style={inputStyle} />
+                        <label className="block text-xs font-semibold text-gray-600 mb-2">
+                            Quote date
+                        </label>
+                        <input
+                            type="date"
+                            value={quoteDate}
+                            onChange={(e) => setQuoteDate(e.target.value)}
+                            className={DATE_INPUT_CLASS}
+                        />
+                        {quoteDate && (
+                            <p className="text-xs text-gray-500 mt-1">{formatDateOnly(quoteDate)}</p>
+                        )}
                     </div>
                     <div>
-                        <span style={labelStyle}>Expiry date</span>
-                        <input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} style={inputStyle} />
+                        <label className="block text-xs font-semibold text-gray-600 mb-2">
+                            Expiry date
+                        </label>
+                        <input
+                            type="date"
+                            value={expiryDate}
+                            onChange={(e) => setExpiryDate(e.target.value)}
+                            className={DATE_INPUT_CLASS}
+                        />
+                        {expiryDate && (
+                            <p className="text-xs text-gray-500 mt-1">{formatDateOnly(expiryDate)}</p>
+                        )}
                     </div>
                 </div>
 

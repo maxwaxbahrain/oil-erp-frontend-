@@ -28,6 +28,8 @@ export interface Quotation {
     total: number;
     notes?: string | null;
     terms?: string | null;
+    salesman_id?: string | null;
+    salesman_name?: string | null;
     status: QuotationStatus;
     converted_sales_order_id?: string | null;
     converted_invoice_id?: number | null;
@@ -47,6 +49,8 @@ function fromApi(raw: Record<string, unknown>): Quotation {
         total: Number(raw.total ?? 0),
         notes: raw.notes != null ? String(raw.notes) : null,
         terms: raw.terms != null ? String(raw.terms) : null,
+        salesman_id: raw.salesman_id != null ? String(raw.salesman_id) : null,
+        salesman_name: raw.salesman_name != null ? String(raw.salesman_name) : null,
         status: (String(raw.status ?? 'draft').toLowerCase() as QuotationStatus),
         converted_sales_order_id: raw.converted_sales_order_id != null ? String(raw.converted_sales_order_id) : null,
         converted_invoice_id: raw.converted_invoice_id != null ? Number(raw.converted_invoice_id) : null,
@@ -78,6 +82,8 @@ export async function createQuotation(payload: Partial<Quotation> & { customer_i
         total: payload.total ?? 0,
         notes: payload.notes,
         terms: payload.terms,
+        salesmanId: payload.salesman_id || undefined,
+        salesmanName: payload.salesman_name || undefined,
         status: payload.status ?? 'draft',
     };
     const r = await authFetch(`${QUOTATIONS_API}/`, {
@@ -104,6 +110,8 @@ export async function updateQuotation(id: number | string, payload: Partial<Quot
     if (payload.total != null) body.total = payload.total;
     if (payload.notes !== undefined) body.notes = payload.notes;
     if (payload.terms !== undefined) body.terms = payload.terms;
+    if (payload.salesman_id !== undefined) body.salesmanId = payload.salesman_id;
+    if (payload.salesman_name !== undefined) body.salesmanName = payload.salesman_name;
     if (payload.status != null) body.status = payload.status;
 
     const r = await authFetch(`${QUOTATIONS_API}/${encodeURIComponent(String(id))}`, {
