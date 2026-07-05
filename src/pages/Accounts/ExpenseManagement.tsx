@@ -35,6 +35,22 @@ import SearchableSelect from '../../components/common/SearchableSelect';
 import { authFetch } from '../../api/axios';
 import { getOilErpApiBase } from '../../config/apiBase';
 
+function pickDefaultExpenseAccountId(
+    accounts: Array<{ id: string; name: string; code: string }>,
+): string {
+    const general = accounts.find(a => a.name.toLowerCase().includes('general expenses'));
+    return general?.id || accounts[0]?.id || '';
+}
+
+function expenseAccountLabel(
+    accountId: number | string | null | undefined,
+    accounts: Array<{ id: string; name: string; code: string }>,
+): string | null {
+    if (accountId == null || accountId === '') return null;
+    const acc = accounts.find(a => a.id === String(accountId));
+    return acc ? `${acc.code} · ${acc.name}` : `#${accountId}`;
+}
+
 const panelStyle: CSSProperties = {
     background: 'var(--color-redwood-bg-surface)',
     border: '1px solid var(--color-redwood-border)',
@@ -183,6 +199,8 @@ export default function ExpenseManagement() {
     const [categorySearch, setCategorySearch] = useState<string>('');
     const [categoryOpen, setCategoryOpen] = useState(false);
     const categoryWrapRef = useRef<HTMLDivElement>(null);
+    const [expenseAccounts, setExpenseAccounts] = useState<Array<{ id: string; name: string; code: string }>>([]);
+    const [selectedAccountId, setSelectedAccountId] = useState('');
 
     // Sync the selected category whenever the user opens the form for
     // editing — keeps the new searchable input in lock-step with the
@@ -191,13 +209,20 @@ export default function ExpenseManagement() {
         if (showManualForm) {
             setSelectedCategory(editingExpense?.category || '');
             setCategorySearch('');
+            const editAcct = editingExpense?.account_id ?? editingExpense?.accountId;
+            setSelectedAccountId(
+                editAcct != null
+                    ? String(editAcct)
+                    : pickDefaultExpenseAccountId(expenseAccounts),
+            );
         } else {
             setSelectedCategory('');
             setCategorySearch('');
             setCategoryOpen(false);
+            setSelectedAccountId('');
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [editingExpense?.id, /* re-fire when modal opens fresh */ /* showManualForm intentionally omitted */]);
+    }, [editingExpense?.id, expenseAccounts, /* showManualForm intentionally omitted */]);
     useEffect(() => {
         if (showManualForm) {
             setSelectedCategory(editingExpense?.category || '');
@@ -248,8 +273,6 @@ export default function ExpenseManagement() {
     const isBillableRef = useRef<HTMLInputElement>(null);
     const clientIdRef = useRef<HTMLSelectElement>(null);
     const isReimbursableRef = useRef<HTMLInputElement>(null);
-    const [expenseAccounts, setExpenseAccounts] = useState<Array<{ id: string; name: string; code: string }>>([]);
-    const [selectedAccountId, setSelectedAccountId] = useState('');
 
     useEffect(() => {
         loadData();
@@ -270,18 +293,17 @@ export default function ExpenseManagement() {
                 setCustomers((list as any[]).map(c => ({ id: c.id, name: c.name })));
             } catch { /* customer list is optional for the form */ }
             try {
-                const ar = await authFetch(`${getOilErpApiBase()}/accounts/`);
+                const ar = await authFetch(`${getOilErpApiBase()}/accounts/?type=expense`);
                 if (ar.ok) {
                     const rows = await ar.json();
-                    setExpenseAccounts(
-                        (Array.isArray(rows) ? rows : [])
-                            .filter((a: { type?: string }) => String(a.type || '').toLowerCase() === 'expense')
-                            .map((a: { id: number; name: string; code: string }) => ({
-                                id: String(a.id),
-                                name: a.name,
-                                code: a.code,
-                            }))
+                    const mapped = (Array.isArray(rows) ? rows : []).map(
+                        (a: { id: number; name: string; code: string }) => ({
+                            id: String(a.id),
+                            name: a.name,
+                            code: a.code,
+                        }),
                     );
+                    setExpenseAccounts(mapped);
                 }
             } catch { /* expense accounts optional */ }
             try {
@@ -338,6 +360,15 @@ export default function ExpenseManagement() {
             return;
         }
 
+        const acctId =
+            selectedAccountId ||
+            String(editingExpense?.account_id ?? editingExpense?.accountId ?? '') ||
+            pickDefaultExpenseAccountId(expenseAccounts);
+        if (!acctId) {
+            alert('No expense account available. Check your chart of accounts.');
+            return;
+        }
+
         setSaving(true);
         try {
             // STEP 4/5 — re-check at save time + persist both flags.
@@ -362,7 +393,7 @@ export default function ExpenseManagement() {
                 is_billable: isBillable,
                 client_id: isBillable && clientIdValue ? clientIdValue : null,
                 is_reimbursable: isReimbursable,
-                account_id: selectedAccountId ? Number(selectedAccountId) : undefined,
+                account_id: Number(acctId),
             });
             await loadData();
             setShowManualForm(false);
@@ -465,6 +496,7 @@ export default function ExpenseManagement() {
 
         setSaving(true);
         try {
+            const defaultAcct = pickDefaultExpenseAccountId(expenseAccounts);
             await saveExpense({
                 category: aiExtractedData.suggestedCategory,
                 amount: aiExtractedData.amount,
@@ -477,7 +509,8 @@ export default function ExpenseManagement() {
                 isRecurring: false,
                 status: 'Draft',
                 aiExtracted: true,
-                aiConfidence: aiExtractedData.confidence
+                aiConfidence: aiExtractedData.confidence,
+                account_id: defaultAcct ? Number(defaultAcct) : undefined,
             });
             await loadData();
             closeAiUpload();
@@ -1062,7 +1095,7 @@ export default function ExpenseManagement() {
                                                 {expense.vendor || '—'} · {expense.description || '—'} · {formatExpenseDate(expense.date)} · {expense.paymentMethod}
                                                 {(expense.account_id ?? expense.accountId) ? (
                                                     <span style={{ marginLeft: 6, color: 'var(--color-brand-blue-tint)' }}>
-                                                        · Acct #{expense.account_id ?? expense.accountId}
+                                                        · {expenseAccountLabel(expense.account_id ?? expense.accountId, expenseAccounts)}
                                                     </span>
                                                 ) : null}
                                             </div>
@@ -1372,6 +1405,18 @@ export default function ExpenseManagement() {
                                         </div>
                                     </div>
 
+                                    <div>
+                                        <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest block mb-3">Expense Account *</label>
+                                        <SearchableSelect
+                                            options={expenseAccounts}
+                                            value={selectedAccountId}
+                                            onChange={setSelectedAccountId}
+                                            placeholder="Select expense account..."
+                                            displayKey="name"
+                                            theme="dark"
+                                        />
+                                    </div>
+
                                     <div className="grid grid-cols-2 gap-6">
                                         <div>
                                             <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest block mb-3">Date *</label>
@@ -1401,18 +1446,6 @@ export default function ExpenseManagement() {
                                             defaultValue={editingExpense?.description}
                                             placeholder="Brief description"
                                             className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-2xl px-6 py-4 text-sm font-bold outline-none h-24 resize-none"
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest block mb-3">Expense account (GL)</label>
-                                        <SearchableSelect
-                                            options={expenseAccounts}
-                                            value={selectedAccountId || String(editingExpense?.account_id ?? editingExpense?.accountId ?? '')}
-                                            onChange={setSelectedAccountId}
-                                            placeholder="Select expense account..."
-                                            displayKey="name"
-                                            theme="dark"
                                         />
                                     </div>
 
