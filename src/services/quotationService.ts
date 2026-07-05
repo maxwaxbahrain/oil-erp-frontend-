@@ -3,7 +3,7 @@ import { getOilErpApiBase } from '../config/apiBase';
 
 const QUOTATIONS_API = `${getOilErpApiBase()}/quotations`;
 
-export type QuotationStatus = 'draft' | 'sent' | 'accepted' | 'expired' | 'converted';
+export type QuotationStatus = 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired' | 'converted';
 
 export interface QuotationLineItem {
     product_id?: string;
@@ -121,6 +121,14 @@ export async function updateQuotation(id: number | string, payload: Partial<Quot
     });
     if (!r.ok) throw new Error(`Failed to update quotation (${r.status})`);
     return fromApi((await r.json()) as Record<string, unknown>);
+}
+
+/** Patch quotation status only (Mark as Sent / Accepted / Rejected). */
+export async function updateQuotationStatus(
+    id: number | string,
+    status: QuotationStatus,
+): Promise<Quotation> {
+    return updateQuotation(id, { status });
 }
 
 export async function convertQuotationToSalesOrder(id: number | string): Promise<{ sales_order_id: string; so_number: string }> {

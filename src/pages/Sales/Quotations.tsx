@@ -1,15 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileText, Plus, RefreshCw, Search, ArrowRightCircle, Receipt } from 'lucide-react';
+import { FileText, Plus, RefreshCw, Search } from 'lucide-react';
 import { getCustomers, type Customer } from '../../services/api';
-import {
-    convertQuotationToInvoice,
-    convertQuotationToSalesOrder,
-    getQuotations,
-    type Quotation,
-    type QuotationStatus,
-} from '../../services/quotationService';
+import { getQuotations, type Quotation, type QuotationStatus } from '../../services/quotationService';
 import { formatDateOnly } from '../../utils/formatters';
+import QuotationStatusActions from './QuotationStatusActions';
 
 const panelStyle: CSSProperties = {
     background: 'var(--color-redwood-bg-surface)',
@@ -25,6 +20,7 @@ const STATUS_CHIPS: { key: StatusFilter; label: string }[] = [
     { key: 'draft', label: 'Draft' },
     { key: 'sent', label: 'Sent' },
     { key: 'accepted', label: 'Accepted' },
+    { key: 'rejected', label: 'Rejected' },
     { key: 'expired', label: 'Expired' },
     { key: 'converted', label: 'Converted' },
 ];
@@ -34,6 +30,7 @@ function statusBadge(status: QuotationStatus): CSSProperties {
         draft: { background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-muted)' },
         sent: { background: 'var(--color-badge-blue-bg)', color: 'var(--color-brand-blue-tint)' },
         accepted: { background: 'rgba(34,197,94,.12)', color: 'var(--color-brand-green-tint)' },
+        rejected: { background: 'rgba(239,68,68,.12)', color: '#FCA5A5' },
         expired: { background: 'rgba(239,68,68,.12)', color: '#FCA5A5' },
         converted: { background: 'rgba(124,58,237,.12)', color: '#C4B5FD' },
     };
@@ -60,7 +57,6 @@ export default function Quotations() {
     const [refreshing, setRefreshing] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('All');
-    const [convertingId, setConvertingId] = useState<number | null>(null);
 
     const customerName = useCallback(
         (id: number) => customers.find((c) => Number(c.id) === id)?.name ?? `Customer #${id}`,
@@ -97,32 +93,6 @@ export default function Quotations() {
             return matchesSearch && matchesStatus;
         });
     }, [quotes, searchTerm, statusFilter, customerName]);
-
-    const handleConvertSO = async (row: Quotation) => {
-        setConvertingId(row.id);
-        try {
-            const res = await convertQuotationToSalesOrder(row.id);
-            alert(`Sales order ${res.so_number} created`);
-            await load(true);
-        } catch (e) {
-            alert(e instanceof Error ? e.message : 'Conversion failed');
-        } finally {
-            setConvertingId(null);
-        }
-    };
-
-    const handleConvertInv = async (row: Quotation) => {
-        setConvertingId(row.id);
-        try {
-            const res = await convertQuotationToInvoice(row.id);
-            alert(`Invoice ${res.invoice_number} created`);
-            await load(true);
-        } catch (e) {
-            alert(e instanceof Error ? e.message : 'Conversion failed');
-        } finally {
-            setConvertingId(null);
-        }
-    };
 
     if (loading) {
         return (
@@ -218,21 +188,7 @@ export default function Quotations() {
                                 <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--color-redwood-text-main)', minWidth: 90, textAlign: 'right' }}>
                                     ${formatMoney(row.total)}
                                 </div>
-                                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                                    {row.status !== 'converted' && row.status !== 'expired' && (
-                                        <>
-                                            <button type="button" disabled={convertingId === row.id} onClick={() => void handleConvertSO(row)} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'transparent', color: 'var(--color-brand-blue-tint)', fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-                                                <ArrowRightCircle size={12} /> To SO
-                                            </button>
-                                            <button type="button" disabled={convertingId === row.id} onClick={() => void handleConvertInv(row)} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'transparent', color: 'var(--color-brand-green-tint)', fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-                                                <Receipt size={12} /> To Invoice
-                                            </button>
-                                        </>
-                                    )}
-                                    <button type="button" onClick={() => navigate(`/sales/quotations/${row.id}`)} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'transparent', color: 'var(--color-redwood-text-muted)', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>
-                                        Edit
-                                    </button>
-                                </div>
+                                <QuotationStatusActions quote={row} onUpdated={() => load(true)} />
                             </div>
                         ))}
                     </div>

@@ -10,8 +10,10 @@ import {
     createQuotation,
     getQuotation,
     updateQuotation,
+    type Quotation,
     type QuotationStatus,
 } from '../../services/quotationService';
+import QuotationStatusActions from './QuotationStatusActions';
 
 const panelStyle: CSSProperties = {
     background: 'var(--color-redwood-bg-surface)',
@@ -106,6 +108,40 @@ export default function QuotationFormPage() {
     const [notes, setNotes] = useState('');
     const [lines, setLines] = useState<InvoiceLineItem[]>([newLine()]);
     const [taxRate, setTaxRate] = useState(0);
+    const [quoteMeta, setQuoteMeta] = useState<Pick<
+        Quotation,
+        'id' | 'quote_number' | 'status' | 'converted_sales_order_id' | 'converted_invoice_id'
+    > | null>(null);
+
+    const applyQuote = useCallback((q: Quotation) => {
+        setQuoteMeta({
+            id: q.id,
+            quote_number: q.quote_number,
+            status: q.status,
+            converted_sales_order_id: q.converted_sales_order_id,
+            converted_invoice_id: q.converted_invoice_id,
+        });
+        setCustomerId(String(q.customer_id));
+        setQuoteDate(q.date.slice(0, 10));
+        setExpiryDate(q.expiry_date?.slice(0, 10) ?? '');
+        setStatus(q.status);
+        setNotes(q.notes ?? '');
+        if (q.salesman_id) {
+            setSalesmanId(q.salesman_id);
+        } else if (q.salesman_name) {
+            const match = getSalesmen().find((s) => s.name === q.salesman_name);
+            if (match) setSalesmanId(match.id);
+        }
+        setLines(q.items.length ? fromQuoteItems(q.items as unknown as Array<Record<string, unknown>>) : [newLine()]);
+        const sub = q.subtotal || 0;
+        setTaxRate(sub > 0 ? (q.tax / sub) * 100 : 0);
+    }, []);
+
+    const reloadQuote = useCallback(async () => {
+        if (!isEdit || !id) return;
+        const q = await getQuotation(id);
+        applyQuote(q);
+    }, [applyQuote, id, isEdit]);
 
     useEffect(() => {
         void (async () => {
@@ -125,25 +161,14 @@ export default function QuotationFormPage() {
             setLoading(true);
             try {
                 const q = await getQuotation(id);
-                setCustomerId(String(q.customer_id));
-                setQuoteDate(q.date.slice(0, 10));
-                setExpiryDate(q.expiry_date?.slice(0, 10) ?? '');
-                setStatus(q.status);
-                setNotes(q.notes ?? '');
-                if (q.salesman_id) {
-                    setSalesmanId(q.salesman_id);
-                } else if (q.salesman_name) {
-                    const match = getSalesmen().find((s) => s.name === q.salesman_name);
-                    if (match) setSalesmanId(match.id);
-                }
-                setLines(q.items.length ? fromQuoteItems(q.items as unknown as Array<Record<string, unknown>>) : [newLine()]);
-                const sub = q.subtotal || 0;
-                setTaxRate(sub > 0 ? (q.tax / sub) * 100 : 0);
+                applyQuote(q);
             } finally {
                 setLoading(false);
             }
         })();
-    }, [id, isEdit]);
+    }, [id, isEdit, applyQuote]);
+
+    const readOnly = isEdit && (status === 'converted' || status === 'expired');
 
     const subtotal = useMemo(
         () => lines.reduce((s, l) => s + (Number(l.amount) || 0), 0),
@@ -212,9 +237,9 @@ export default function QuotationFormPage() {
                 total: grandTotal,
                 discount: 0,
                 notes,
-                status,
                 salesman_id: salesmanId,
                 salesman_name: salesmanName,
+                ...(isEdit ? {} : { status }),
             };
             if (isEdit && id) {
                 await updateQuotation(id, payload);
@@ -235,22 +260,32 @@ export default function QuotationFormPage() {
 
     return (
         <div style={{ paddingBottom: 40 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-                <button type="button" onClick={() => navigate('/sales/quotations')} style={{ background: 'none', border: 'none', color: 'var(--color-redwood-text-muted)', cursor: 'pointer' }}>
-                    <ArrowLeft size={20} />
-                </button>
-                <FileText size={22} style={{ color: '#4F8EF7' }} />
-                <div>
-                    <h1 style={{ fontFamily: "'Syne',sans-serif", fontSize: 20, fontWeight: 600, color: 'var(--color-brand-blue)', margin: 0 }}>
-                        {isEdit ? 'Edit Quotation' : 'New Quotation'}
-                    </h1>
-                    {isEdit && quoteDate && (
-                        <p style={{ fontSize: 11, color: 'var(--color-redwood-text-muted)', margin: '4px 0 0' }}>
-                            Quote date {formatDateOnly(quoteDate)}
-                            {expiryDate ? ` · Expires ${formatDateOnly(expiryDate)}` : ''}
-                        </p>
-                    )}
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <button type="button" onClick={() => navigate('/sales/quotations')} style={{ background: 'none', border: 'none', color: 'var(--color-redwood-text-muted)', cursor: 'pointer' }}>
+                        <ArrowLeft size={20} />
+                    </button>
+                    <FileText size={22} style={{ color: '#4F8EF7' }} />
+                    <div>
+                        <h1 style={{ fontFamily: "'Syne',sans-serif", fontSize: 20, fontWeight: 600, color: 'var(--color-brand-blue)', margin: 0 }}>
+                            {isEdit ? (quoteMeta?.quote_number ?? 'Edit Quotation') : 'New Quotation'}
+                        </h1>
+                        {isEdit && quoteDate && (
+                            <p style={{ fontSize: 11, color: 'var(--color-redwood-text-muted)', margin: '4px 0 0' }}>
+                                Quote date {formatDateOnly(quoteDate)}
+                                {expiryDate ? ` · Expires ${formatDateOnly(expiryDate)}` : ''}
+                                {status ? ` · ${status}` : ''}
+                            </p>
+                        )}
+                    </div>
                 </div>
+                {isEdit && quoteMeta && (
+                    <QuotationStatusActions
+                        quote={quoteMeta}
+                        showEdit={false}
+                        onUpdated={reloadQuote}
+                    />
+                )}
             </div>
 
             <div style={panelStyle} className="space-y-4">
@@ -340,11 +375,15 @@ export default function QuotationFormPage() {
                     </div>
                     <div>
                         <span style={labelStyle}>Status</span>
-                        <select value={status} onChange={(e) => setStatus(e.target.value as QuotationStatus)} style={inputStyle} disabled={status === 'converted' || status === 'expired'}>
-                            <option value="draft">Draft</option>
-                            <option value="sent">Sent</option>
-                            <option value="accepted">Accepted</option>
-                        </select>
+                        {!isEdit ? (
+                            <select value={status} onChange={(e) => setStatus(e.target.value as QuotationStatus)} style={inputStyle}>
+                                <option value="draft">Draft</option>
+                                <option value="sent">Sent</option>
+                                <option value="accepted">Accepted</option>
+                            </select>
+                        ) : (
+                            <div style={{ ...inputStyle, opacity: 0.85, textTransform: 'capitalize' }}>{status}</div>
+                        )}
                     </div>
                     <div>
                         <label className="block text-xs font-semibold text-gray-600 mb-2">
@@ -439,7 +478,7 @@ export default function QuotationFormPage() {
                     <button type="button" onClick={() => navigate('/sales/quotations')} style={{ padding: '10px 18px', borderRadius: 10, border: '1px solid var(--color-redwood-border)', background: 'transparent', color: 'var(--color-redwood-text-muted)', fontWeight: 700, fontSize: 12 }}>
                         Cancel
                     </button>
-                    <button type="button" onClick={() => void handleSave()} disabled={saving || status === 'converted'} style={{ padding: '10px 18px', borderRadius: 10, border: 'none', background: '#4F8EF7', color: '#fff', fontWeight: 700, fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, opacity: saving ? 0.6 : 1 }}>
+                    <button type="button" onClick={() => void handleSave()} disabled={saving || readOnly} style={{ padding: '10px 18px', borderRadius: 10, border: 'none', background: '#4F8EF7', color: '#fff', fontWeight: 700, fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, opacity: saving || readOnly ? 0.6 : 1 }}>
                         <Save size={14} /> {saving ? 'Saving…' : 'Save quotation'}
                     </button>
                 </div>
