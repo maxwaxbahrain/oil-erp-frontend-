@@ -478,12 +478,22 @@ export async function saveProduct(product: Partial<Product>): Promise<Product> {
 }
 
 export async function deleteProduct(id: string): Promise<void> {
-    return new Promise((resolve) => {
-        const products = getInitialProducts();
-        const filtered = products.filter(p => p.id !== id);
-        localStorage.setItem(PRODUCTS_KEY, JSON.stringify(filtered));
-        setTimeout(() => resolve(), 300);
+    const resp = await authFetch(apiUrl(`products/${encodeURIComponent(String(id))}`), {
+        method: 'DELETE',
     });
+
+    if (!resp.ok && resp.status !== 404) {
+        let detail = '';
+        try { detail = await resp.text(); } catch { /* ignore */ }
+        throw new Error(
+            `Backend ${resp.status} on DELETE /products` +
+                (detail ? `: ${detail.slice(0, 200)}` : ''),
+        );
+    }
+
+    const products = getInitialProducts();
+    const filtered = products.filter((p) => String(p.id) !== String(id));
+    localStorage.setItem(PRODUCTS_KEY, JSON.stringify(filtered));
 }
 
 export async function getAIInsights(_id: string): Promise<string[]> {
