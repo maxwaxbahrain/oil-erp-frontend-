@@ -6,7 +6,8 @@ import {
 } from 'lucide-react';
 import {
     getCustomers, getProducts, type Customer, type Product,
-    getCustomerPriceLists, saveCustomerPriceList, type CustomerPriceList,
+    getCustomerPriceLists, saveCustomerPriceList, deleteCustomerPriceList,
+    type CustomerPriceList,
 } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
 import { getCurrentUser } from '../../store/authStore';
@@ -189,6 +190,29 @@ function tierLabel(tier: TierKey): string {
     return 'Standard';
 }
 
+function enrichPriceLists(
+    lists: CustomerPriceList[],
+    customerRows: Customer[],
+    productRows: Product[],
+): CustomerPriceList[] {
+    return lists.map((list) => ({
+        ...list,
+        customerId: String(list.customerId),
+        customerName:
+            customerRows.find((c) => String(c.id) === String(list.customerId))?.name
+            || list.customerName
+            || 'Unknown customer',
+        prices: list.prices.map((entry) => ({
+            ...entry,
+            productId: String(entry.productId),
+            productName:
+                productRows.find((p) => String(p.id) === String(entry.productId))?.name
+                || entry.productName
+                || 'Unknown product',
+        })),
+    }));
+}
+
 export default function CustomerPriceLists() {
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
@@ -202,6 +226,7 @@ export default function CustomerPriceLists() {
     const [selectedCustomer, setSelectedCustomer] = useState('');
     const [saving, setSaving] = useState(false);
     const [successMsg, setSuccessMsg] = useState('');
+    const [errorMsg, setErrorMsg] = useState('');
     const [activeTab, setActiveTab] = useState<PageTab>('lists');
     const [filterChip, setFilterChip] = useState<FilterChip>('all');
     const [tierFilter, setTierFilter] = useState<'all' | TierKey>('all');
@@ -209,19 +234,41 @@ export default function CustomerPriceLists() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        setLoading(true);
-        Promise.all([getCustomers(), getProducts()]).then(([c, p]) => {
-            setCustomers(c);
-            setProducts(p);
-            setPriceLists(getCustomerPriceLists());
-            setMetaMap(getMetaMap());
-            setLoading(false);
-        });
+        let cancelled = false;
+        (async () => {
+            setLoading(true);
+            setErrorMsg('');
+            try {
+                const [c, p, lists] = await Promise.all([
+                    getCustomers(),
+                    getProducts(),
+                    getCustomerPriceLists(),
+                ]);
+                if (cancelled) return;
+                setCustomers(c);
+                setProducts(p);
+                setPriceLists(enrichPriceLists(lists, c, p));
+                setMetaMap(getMetaMap());
+            } catch (err) {
+                if (!cancelled) {
+                    setErrorMsg(err instanceof Error ? err.message : 'Failed to load price lists');
+                }
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
+        })();
+        return () => { cancelled = true; };
     }, []);
 
-    const reloadLists = () => {
-        setPriceLists(getCustomerPriceLists());
-        setMetaMap(getMetaMap());
+    const reloadLists = async () => {
+        setErrorMsg('');
+        try {
+            const lists = await getCustomerPriceLists();
+            setPriceLists(enrichPriceLists(lists, customers, products));
+            setMetaMap(getMetaMap());
+        } catch (err) {
+            setErrorMsg(err instanceof Error ? err.message : 'Failed to refresh price lists');
+        }
     };
 
     const enrichedLists = useMemo(() => {
@@ -283,7 +330,7 @@ export default function CustomerPriceLists() {
             map[e.tier].push(e.list.customerName);
         }
         const standardNames = customers
-            .filter(c => !priceLists.some(l => l.customerId === c.id))
+            .filter(c => !priceLists.some(l => String(l.customerId) === String(c.id)))
             .map(c => c.name)
             .slice(0, 6);
         map.standard = [...map.standard, ...standardNames].slice(0, 8);
@@ -302,53 +349,73 @@ export default function CustomerPriceLists() {
     }, [enrichedLists]);
 
     const startEdit = (list: CustomerPriceList, allProducts: Product[]) => {
-        const existingIds = new Set(list.prices.map(p => p.productId));
+        const existingIds = new Set(list.prices.map(p => String(p.productId)));
         const newEntries = allProducts
-            .filter(p => !existingIds.has(p.id))
-            .map(p => ({ productId: p.id, productName: p.name, customPrice: 0, discountPct: 0 }));
+            .filter(p => !existingIds.has(String(p.id)))
+            .map(p => ({ productId: String(p.id), productName: p.name, customPrice: 0, discountPct: 0 }));
         const updatedList = {
             ...list,
+            customerId: String(list.customerId),
             prices: [...list.prices, ...newEntries],
         };
-        setEditingId(list.customerId);
+        setEditingId(String(list.customerId));
         setEditForm(JSON.parse(JSON.stringify(updatedList)));
-        setExpanded(list.customerId);
+        setExpanded(String(list.customerId));
     };
 
-    const saveEdit = () => {
+    const saveEdit = async () => {
         if (!editForm) return;
         setSaving(true);
-        editForm.updatedAt = new Date().toISOString();
-        saveCustomerPriceList(editForm);
-        reloadLists();
-        setEditingId(null);
-        setEditForm(null);
-        setSaving(false);
-        setSuccessMsg('Price list saved!');
-        setTimeout(() => setSuccessMsg(''), 3000);
+        setErrorMsg('');
+        try {
+            await saveCustomerPriceList(editForm);
+            await reloadLists();
+            setEditingId(null);
+            setEditForm(null);
+            setSuccessMsg('Price list saved!');
+            setTimeout(() => setSuccessMsg(''), 3000);
+        } catch (err) {
+            setErrorMsg(err instanceof Error ? err.message : 'Failed to save price list');
+        } finally {
+            setSaving(false);
+        }
     };
 
-    const createNewList = () => {
+    const createNewList = async () => {
         if (!selectedCustomer) return;
-        const customer = customers.find(c => c.id === selectedCustomer);
-        if (!customer) return;
-        const newList: CustomerPriceList = {
-            customerId: customer.id,
-            customerName: customer.name,
-            prices: products.map(p => ({
-                productId: p.id,
-                productName: p.name,
-                customPrice: 0,
-                discountPct: 0,
-            })),
-            updatedAt: new Date().toISOString(),
-        };
-        saveCustomerPriceList(newList);
-        reloadLists();
-        setShowAdd(false);
-        setSelectedCustomer('');
-        startEdit(newList, products);
-        setExpanded(newList.customerId);
+        const customer = customers.find(c => String(c.id) === String(selectedCustomer));
+        if (!customer) {
+            setErrorMsg('Customer not found — please select again.');
+            return;
+        }
+        setSaving(true);
+        setErrorMsg('');
+        try {
+            const newList: CustomerPriceList = {
+                customerId: String(customer.id),
+                customerName: customer.name,
+                prices: products.map(p => ({
+                    productId: String(p.id),
+                    productName: p.name,
+                    customPrice: 0,
+                    discountPct: 0,
+                })),
+                updatedAt: new Date().toISOString(),
+            };
+            const saved = await saveCustomerPriceList(newList);
+            const enriched = enrichPriceLists([saved], customers, products)[0];
+            await reloadLists();
+            setShowAdd(false);
+            setSelectedCustomer('');
+            startEdit(enriched, products);
+            setExpanded(String(enriched.customerId));
+            setSuccessMsg('Price list created!');
+            setTimeout(() => setSuccessMsg(''), 3000);
+        } catch (err) {
+            setErrorMsg(err instanceof Error ? err.message : 'Failed to create price list');
+        } finally {
+            setSaving(false);
+        }
     };
 
     const updatePrice = (productId: string, field: 'customPrice' | 'discountPct', value: number) => {
@@ -356,19 +423,33 @@ export default function CustomerPriceLists() {
         setEditForm({
             ...editForm,
             prices: editForm.prices.map(p =>
-                p.productId === productId ? { ...p, [field]: value } : p,
+                String(p.productId) === String(productId) ? { ...p, [field]: value } : p,
             ),
         });
     };
 
-    const deleteList = (customerId: string) => {
+    const deleteList = async (customerId: string) => {
         if (!confirm('Remove this customer\'s price list?')) return;
-        const lists = getCustomerPriceLists().filter(l => l.customerId !== customerId);
-        localStorage.setItem('customer_price_lists', JSON.stringify(lists));
-        const meta = getMetaMap();
-        delete meta[customerId];
-        saveMetaMap(meta);
-        reloadLists();
+        const list = priceLists.find(l => String(l.customerId) === String(customerId));
+        if (!list?.id) {
+            setErrorMsg('Price list not found or missing server id.');
+            return;
+        }
+        setSaving(true);
+        setErrorMsg('');
+        try {
+            await deleteCustomerPriceList(list.id);
+            const meta = getMetaMap();
+            delete meta[String(customerId)];
+            saveMetaMap(meta);
+            await reloadLists();
+            setSuccessMsg('Price list removed.');
+            setTimeout(() => setSuccessMsg(''), 3000);
+        } catch (err) {
+            setErrorMsg(err instanceof Error ? err.message : 'Failed to delete price list');
+        } finally {
+            setSaving(false);
+        }
     };
 
     const approveList = (customerId: string) => {
@@ -387,23 +468,29 @@ export default function CustomerPriceLists() {
         setTimeout(() => setSuccessMsg(''), 3000);
     };
 
-    const renewList = (customerId: string) => {
+    const renewList = async (customerId: string) => {
         const meta = getMetaMap();
         const validTo = new Date();
         validTo.setFullYear(validTo.getFullYear() + 1);
-        meta[customerId] = {
-            ...meta[customerId],
+        meta[String(customerId)] = {
+            ...meta[String(customerId)],
             validTo: validTo.toISOString(),
         };
         saveMetaMap(meta);
-        const list = priceLists.find(l => l.customerId === customerId);
-        if (list) {
-            list.updatedAt = new Date().toISOString();
-            saveCustomerPriceList(list);
+        const list = priceLists.find(l => String(l.customerId) === String(customerId));
+        if (!list) {
+            setErrorMsg('Price list not found.');
+            return;
         }
-        reloadLists();
-        setSuccessMsg('Price list renewed for 12 months!');
-        setTimeout(() => setSuccessMsg(''), 3000);
+        setErrorMsg('');
+        try {
+            await saveCustomerPriceList(list);
+            await reloadLists();
+            setSuccessMsg('Price list renewed for 12 months!');
+            setTimeout(() => setSuccessMsg(''), 3000);
+        } catch (err) {
+            setErrorMsg(err instanceof Error ? err.message : 'Failed to renew price list');
+        }
     };
 
     const availableCustomers = customers;
@@ -453,7 +540,7 @@ export default function CustomerPriceLists() {
                         </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                        <button type="button" onClick={() => reloadLists()} style={ghostBtn}>
+                        <button type="button" onClick={() => void reloadLists()} style={ghostBtn}>
                             <RefreshCw size={14} /> Refresh
                         </button>
                         <button type="button" onClick={() => setShowAdd(true)} style={primaryBtn}>
@@ -490,6 +577,12 @@ export default function CustomerPriceLists() {
                     })}
                 </div>
 
+                {errorMsg && (
+                    <div style={{ ...panelStyle, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.35)', color: 'var(--color-brand-red-tint)', fontSize: 12, fontWeight: 600 }}>
+                        {errorMsg}
+                    </div>
+                )}
+
                 {successMsg && (
                     <div style={{ ...panelStyle, background: 'var(--color-badge-green-bg)', border: '1px solid rgba(34,197,94,.28)', color: 'var(--color-brand-green-tint)', fontSize: 12, fontWeight: 600 }}>
                         ✓ {successMsg}
@@ -508,10 +601,10 @@ export default function CustomerPriceLists() {
                             >
                                 <option value="">— Select a customer —</option>
                                 {availableCustomers.map(c => (
-                                    <option key={c.id} value={c.id}>{c.name}</option>
+                                    <option key={c.id} value={String(c.id)}>{c.name}</option>
                                 ))}
                             </select>
-                            <button type="button" onClick={createNewList} disabled={!selectedCustomer} style={{ ...primaryBtn, opacity: selectedCustomer ? 1 : 0.5 }}>
+                            <button type="button" onClick={() => void createNewList()} disabled={!selectedCustomer || saving} style={{ ...primaryBtn, opacity: selectedCustomer && !saving ? 1 : 0.5 }}>
                                 Create
                             </button>
                             <button type="button" onClick={() => setShowAdd(false)} style={ghostBtn}>Cancel</button>
@@ -698,8 +791,8 @@ export default function CustomerPriceLists() {
                                         </thead>
                                         <tbody>
                                             {filtered.map(({ list, tier, maxDiscount, customCount, validFrom, validTo, status, meta, expiresDays }) => {
-                                                const isExpanded = expanded === list.customerId;
-                                                const isEditing = editingId === list.customerId;
+                                                const isExpanded = expanded === String(list.customerId);
+                                                const isEditing = editingId === String(list.customerId);
                                                 const displayList = isEditing && editForm ? editForm : list;
                                                 const statusLabel = status === 'pending' ? 'Pending' : status === 'expiring' ? 'Expiring' : 'Active';
                                                 const discountLabel = maxDiscount > 0
@@ -743,7 +836,7 @@ export default function CustomerPriceLists() {
                                                                         <Edit2 size={11} /> Edit
                                                                     </button>
                                                                     {(status === 'expiring' || expiresDays <= 60) && (
-                                                                        <button type="button" onClick={() => renewList(list.customerId)} style={{ ...ghostBtn, fontSize: 9, padding: '3px 7px', color: 'var(--color-brand-blue-tint)' }}>
+                                                                        <button type="button" onClick={() => void renewList(list.customerId)} style={{ ...ghostBtn, fontSize: 9, padding: '3px 7px', color: 'var(--color-brand-blue-tint)' }}>
                                                                             <RefreshCw size={11} /> Renew
                                                                         </button>
                                                                     )}
@@ -762,7 +855,7 @@ export default function CustomerPriceLists() {
                                                                                         <Edit2 size={12} /> Edit
                                                                                     </button>
                                                                                 )}
-                                                                                <button type="button" onClick={() => deleteList(list.customerId)} style={{ ...ghostBtn, fontSize: 9, color: 'var(--color-brand-red-tint)', border: '1px solid rgba(239,68,68,.2)' }}>
+                                                                                <button type="button" onClick={() => void deleteList(list.customerId)} style={{ ...ghostBtn, fontSize: 9, color: 'var(--color-brand-red-tint)', border: '1px solid rgba(239,68,68,.2)' }}>
                                                                                     <Trash2 size={12} /> Remove
                                                                                 </button>
                                                                                 <button type="button" onClick={() => setExpanded(null)} style={ghostBtn}>
@@ -781,7 +874,7 @@ export default function CustomerPriceLists() {
                                                                                 </thead>
                                                                                 <tbody>
                                                                                     {displayList.prices.map(entry => {
-                                                                                        const product = products.find(p => p.id === entry.productId);
+                                                                                        const product = products.find(p => String(p.id) === String(entry.productId));
                                                                                         const stdPrice = product?.unit_price || 0;
                                                                                         const effective = entry.customPrice > 0
                                                                                             ? entry.customPrice
@@ -821,7 +914,7 @@ export default function CustomerPriceLists() {
                                                                         </div>
                                                                         {isEditing && (
                                                                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--color-redwood-border)' }}>
-                                                                                <button type="button" onClick={saveEdit} disabled={saving} style={{ ...primaryBtn, opacity: saving ? 0.6 : 1 }}>
+                                                                                <button type="button" onClick={() => void saveEdit()} disabled={saving} style={{ ...primaryBtn, opacity: saving ? 0.6 : 1 }}>
                                                                                     <Save size={12} /> Save price list
                                                                                 </button>
                                                                                 <button type="button" onClick={() => { setEditingId(null); setEditForm(null); }} style={ghostBtn}>Cancel</button>
@@ -913,7 +1006,7 @@ export default function CustomerPriceLists() {
                                             <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-redwood-text-main)' }}>Renew {p.list.customerName} price list</div>
                                             <div style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>Expires in {p.expiresDays} days · extend 12 months</div>
                                         </div>
-                                        <button type="button" onClick={() => renewList(p.list.customerId)} style={{ background: '#4F8EF7', border: 'none', borderRadius: 6, padding: '3px 9px', fontSize: 9, color: '#fff', cursor: 'pointer', fontWeight: 600, fontFamily: 'inherit' }}>Renew</button>
+                                        <button type="button" onClick={() => void renewList(p.list.customerId)} style={{ background: '#4F8EF7', border: 'none', borderRadius: 6, padding: '3px 9px', fontSize: 9, color: '#fff', cursor: 'pointer', fontWeight: 600, fontFamily: 'inherit' }}>Renew</button>
                                     </div>
                                 ))}
 

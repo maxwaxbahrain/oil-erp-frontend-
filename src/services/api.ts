@@ -1,4 +1,4 @@
-import { ACCESS_TOKEN_KEY } from '../api/axios';
+import { ACCESS_TOKEN_KEY, authFetch } from '../api/axios';
 import { getOilErpApiBase } from '../config/apiBase';
 
 export const API_BASE_URL = getOilErpApiBase();
@@ -1094,9 +1094,13 @@ export const productsAPI = { getAll: getProducts, getById: getProduct, create: c
 export default { vans: vansAPI, customers: customersAPI, products: productsAPI };
 // ── Customer Price Lists ─────────────────────────────────────────────────────
 
+const PRICE_LISTS_API = `${getOilErpApiBase()}/customer-price-lists`;
+
 export interface CustomerPriceList {
+    id?: number;
     customerId: string;
     customerName: string;
+    notes?: string;
     prices: Array<{
         productId: string;
         productName: string;
@@ -1106,31 +1110,96 @@ export interface CustomerPriceList {
     updatedAt: string;
 }
 
-const PRICE_LIST_KEY = 'customer_price_lists';
+function mapPriceListFromApi(raw: Record<string, unknown>): CustomerPriceList {
+    const pricesRaw = Array.isArray(raw.prices) ? raw.prices : [];
+    return {
+        id: raw.id != null ? Number(raw.id) : undefined,
+        customerId: String(raw.customerId ?? raw.customer_id ?? ''),
+        customerName: '',
+        notes: raw.notes != null ? String(raw.notes) : undefined,
+        prices: pricesRaw.map((row) => {
+            const p = row as Record<string, unknown>;
+            return {
+                productId: String(p.productId ?? p.product_id ?? ''),
+                productName: '',
+                customPrice: Number(p.customPrice ?? p.custom_price ?? 0) || 0,
+                discountPct: Number(p.discountPct ?? p.discount_pct ?? 0) || 0,
+            };
+        }),
+        updatedAt: String(raw.updatedAt ?? raw.updated_at ?? new Date().toISOString()),
+    };
+}
 
-export const getCustomerPriceLists = (): CustomerPriceList[] => {
-    try {
-        return JSON.parse(localStorage.getItem(PRICE_LIST_KEY) || '[]');
-    } catch { return []; }
-};
+function priceListToApiBody(list: CustomerPriceList): Record<string, unknown> {
+    return {
+        customerId: Number(list.customerId),
+        notes: list.notes ?? null,
+        prices: list.prices.map((p) => ({
+            productId: Number(p.productId),
+            customPrice: p.customPrice > 0 ? p.customPrice : null,
+            discountPct: p.discountPct > 0 ? p.discountPct : null,
+        })),
+    };
+}
 
-export const getCustomerPrice = (customerId: string, productId: string, defaultPrice: number): number => {
-    const lists = getCustomerPriceLists();
-    const list = lists.find(l => l.customerId === customerId);
-    if (!list) return defaultPrice;
-    const entry = list.prices.find(p => p.productId === productId);
-    if (!entry) return defaultPrice;
-    if (entry.customPrice > 0) return entry.customPrice;
-    if (entry.discountPct > 0) return defaultPrice * (1 - entry.discountPct / 100);
+export async function getCustomerPriceLists(): Promise<CustomerPriceList[]> {
+    const response = await authFetch(`${PRICE_LISTS_API}/`, { cache: 'no-store' });
+    if (!response.ok) {
+        const detail = await response.text().catch(() => '');
+        throw new Error(detail || `Failed to load price lists (${response.status})`);
+    }
+    const raw = await response.json().catch(() => []);
+    const rows = Array.isArray(raw) ? raw : [];
+    return rows.map((row) => mapPriceListFromApi(row as Record<string, unknown>));
+}
+
+export async function getCustomerPriceListByCustomer(
+    customerId: string | number,
+): Promise<CustomerPriceList | null> {
+    const response = await authFetch(
+        `${PRICE_LISTS_API}/by-customer/${encodeURIComponent(String(customerId))}`,
+        { cache: 'no-store' },
+    );
+    if (response.status === 404) return null;
+    if (!response.ok) {
+        const detail = await response.text().catch(() => '');
+        throw new Error(detail || `Failed to load price list (${response.status})`);
+    }
+    return mapPriceListFromApi((await response.json()) as Record<string, unknown>);
+}
+
+export async function saveCustomerPriceList(list: CustomerPriceList): Promise<CustomerPriceList> {
+    const response = await authFetch(`${PRICE_LISTS_API}/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(priceListToApiBody(list)),
+    });
+    if (!response.ok) {
+        const detail = await response.text().catch(() => '');
+        throw new Error(detail || `Failed to save price list (${response.status})`);
+    }
+    return mapPriceListFromApi((await response.json()) as Record<string, unknown>);
+}
+
+export async function deleteCustomerPriceList(id: number): Promise<void> {
+    const response = await authFetch(`${PRICE_LISTS_API}/${encodeURIComponent(String(id))}`, {
+        method: 'DELETE',
+    });
+    if (!response.ok && response.status !== 204) {
+        const detail = await response.text().catch(() => '');
+        throw new Error(detail || `Failed to delete price list (${response.status})`);
+    }
+}
+
+/** TODO Stage 3: resolve custom price via GET /customer-price-lists/by-customer/{id} at billing time. */
+export const getCustomerPrice = (
+    customerId: string,
+    productId: string,
+    defaultPrice: number,
+): number => {
+    void customerId;
+    void productId;
     return defaultPrice;
-};
-
-export const saveCustomerPriceList = (list: CustomerPriceList): void => {
-    const lists = getCustomerPriceLists();
-    const idx = lists.findIndex(l => l.customerId === list.customerId);
-    if (idx >= 0) lists[idx] = list;
-    else lists.push(list);
-    localStorage.setItem(PRICE_LIST_KEY, JSON.stringify(lists));
 };
 
 // ── Recurring Invoices ───────────────────────────────────────────────────────
