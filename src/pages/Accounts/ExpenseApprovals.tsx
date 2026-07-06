@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { getExpenses, saveExpense, pushExpenseToAccounting, type Expense } from '../../services/expenseService';
 import { getCurrentUser } from '../../store/authStore';
+import { useAuth } from '../../contexts/AuthContext';
 
 const panelStyle: CSSProperties = {
     background: 'var(--color-redwood-bg-surface)',
@@ -127,6 +128,8 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function ExpenseApprovals() {
     const navigate = useNavigate();
+    const { hasRole } = useAuth();
+    const canApproveExpenses = hasRole('admin', 'accountant');
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [allExpenses, setAllExpenses] = useState<Expense[]>([]);
     const [loading, setLoading] = useState(true);
@@ -237,9 +240,9 @@ export default function ExpenseApprovals() {
     };
 
     const handleApprove = async (exp: Expense) => {
+        if (!canApproveExpenses) return;
         setActioningId(exp.id);
         setError(null);
-        const priorStatus = exp.status;
         try {
             const approved = await saveExpense({
                 id: exp.id,
@@ -247,26 +250,12 @@ export default function ExpenseApprovals() {
                 approvedBy: getCurrentUser().name,
                 approvedAt: new Date().toISOString(),
             });
-            try {
-                await pushExpenseToAccounting(approved);
-                await reload();
-            } catch (pushErr) {
-                try {
-                    await saveExpense({
-                        id: exp.id,
-                        status: priorStatus,
-                        approvedBy: undefined,
-                        approvedAt: undefined,
-                    });
-                } catch {
-                    /* swallow rollback errors */
-                }
-                await reload();
+            if (!approved.journal_voucher_number) {
                 setError(
-                    `Approved but failed to push to Accounting: ${pushErr instanceof Error ? pushErr.message : String(pushErr)}. ` +
-                        `Status rolled back — try Approve again.`,
+                    'Expense was approved but accounting was not posted — use Retry Push to Accounting or check chart of accounts.',
                 );
             }
+            await reload();
         } catch (e) {
             setError(e instanceof Error ? e.message : 'Could not approve expense.');
         } finally {
@@ -576,7 +565,7 @@ export default function ExpenseApprovals() {
                                 </div>
                             </div>
                         )}
-                        {!isRejecting && exp.status === 'Approved' && !exp.journal_voucher_number && (
+                        {!isRejecting && exp.status === 'Approved' && !exp.journal_voucher_number && canApproveExpenses && (
                             <button
                                 type="button"
                                 onClick={() => void handlePushToAccounting(exp)}
@@ -602,7 +591,7 @@ export default function ExpenseApprovals() {
                                 Retry Push to Accounting
                             </button>
                         )}
-                        {!isRejecting && exp.status !== 'Approved' && (
+                        {!isRejecting && exp.status !== 'Approved' && canApproveExpenses && (
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
                                 <button
                                     type="button"

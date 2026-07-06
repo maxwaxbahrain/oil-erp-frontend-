@@ -1432,163 +1432,37 @@ export function checkExpensePolicyWithSettings(candidate: {
 
 
 // ─── STEP 11A — Accounting integration ──────────────────────────────
-// Push an Approved Expense to the Accounting module as a balanced
-// Journal Voucher.  Debit = the expense category's GL account,
-// Credit = Accounts Payable (id 2110).  Posts to the live JV backend
-// at /api/journal-vouchers/ — same contract JournalVoucher.tsx uses.
-//
-// Manual button on the Approval Queue (Option A from the design
-// discussion) — surfaces failures immediately rather than auto-firing
-// silently.  Records the resulting journal_voucher_number back on the
-// Expense for traceability.
-
-// Map our expense-category names to ChartOfAccounts account ids.  We
-// list the most common categories; anything not in this map falls
-// back to "Operating Expenses" (id 5200), the parent of most line
-// items.  Adding new mappings is data-only — no logic change.
-const CATEGORY_TO_ACCOUNT_ID: Record<string, string> = {
-    // Operating Expenses (5200 family)
-    'Rent & Utilities':        '5220',
-    'Electricity':             '5220',
-    'Water':                   '5220',
-    'Internet & Phone':        '5220',
-    'Office Supplies':         '5200',
-    'Maintenance & Repairs':   '5200',
-    // Employee Expenses
-    'Salaries & Wages':        '5210',
-    'Benefits & Insurance':    '5210',
-    'Travel & Accommodation':  '5200',
-    'Meals & Entertainment':   '5200',
-    'Training & Development':  '5210',
-    'Fuel & Transportation':   '5230',
-    'Vehicle Expenses':        '5230',
-    // Marketing
-    'Advertising':             '5240',
-    'Social Media Marketing':  '5240',
-    'Promotional Materials':   '5240',
-    'Events & Exhibitions':    '5240',
-    'Commission & Incentives': '5240',
-    // Administrative
-    'Legal & Professional Fees': '5200',
-    'Accounting Services':     '5200',
-    'Bank Charges':            '5260',
-    'Software Subscriptions':  '5200',
-    'Licenses & Permits':      '5200',
-    // Other defaults
-    'Other Expenses':          '5200',
-    'Petty Cash':              '5200',
-};
-
-interface JVLinePayload {
-    id: string;
-    accountId: string;
-    accountCode: string;
-    accountName: string;
-    description: string;
-    debit: number;
-    credit: number;
-}
-
-interface JVPayload {
-    id: string;
-    jvNumber: string;
-    date: string;
-    reference: string;
-    narration: string;
-    lines: JVLinePayload[];
-    totalDebit: number;
-    totalCredit: number;
-    isBalanced: boolean;
-    createdAt: string;
-    status: 'Draft' | 'Posted';
-    type: 'General' | 'Bad Debt' | 'Depreciation' | 'Opening Balance' | 'Adjustment';
-}
+// Retry helper for Approved expenses that did not receive a GL journal on
+// first approve. Backend posts Dr expense / Cr cash-or-bank atomically on
+// approve; this re-triggers that path via PATCH when journal_voucher_number
+// is still empty.
 
 export async function pushExpenseToAccounting(expense: Expense): Promise<{ jvNumber: string; jvId: string }> {
     if (expense.status !== 'Approved') {
         throw new Error('Only Approved expenses can be pushed to Accounting.');
     }
-    // FIX W7-1 — Idempotency guard. Without this, two clicks of the
-    // "Push to Accounting" button create two distinct JVs against one
-    // expense, double-counting it on the books. The expense's
-    // journal_voucher_number is stamped at the end of this function;
-    // if it's already set, the push has already happened.
     if (expense.journal_voucher_number) {
-        throw new Error(
-            `This expense has already been pushed to Accounting as JV ${expense.journal_voucher_number}. ` +
-            `To re-post, void the existing JV first.`
-        );
+        return {
+            jvNumber: expense.journal_voucher_number,
+            jvId: expense.journal_voucher_number,
+        };
     }
     if (expense.amount <= 0) {
         throw new Error('Expense amount must be greater than zero.');
     }
 
-    // Resolve debit account from category (with fallback).
-    const debitAccountId = CATEGORY_TO_ACCOUNT_ID[expense.category] || '5200';
-    const creditAccountId = '2110';  // Accounts Payable
-
-    // Load chart of accounts to fetch account names/codes for the JV
-    // line shape.  Read directly from localStorage (matches what
-    // ChartOfAccounts.getAccounts uses), no React state required.
-    const coaRaw = localStorage.getItem('chart_of_accounts');
-    let accounts: Array<{ id: string; code: string; name: string }> = [];
-    try {
-        accounts = coaRaw ? JSON.parse(coaRaw) : [];
-    } catch { /* fall through */ }
-    const findAcc = (id: string) =>
-        accounts.find(a => a.id === id) ||
-        { id, code: id, name: id === '2110' ? 'Accounts Payable' : 'Operating Expenses' };
-
-    const debit  = findAcc(debitAccountId);
-    const credit = findAcc(creditAccountId);
-
-    const ts = Date.now();
-    const jv: JVPayload = {
-        id:       'JV-EXP-' + ts,
-        jvNumber: '',  // backend assigns
-        date:     expense.date,
-        reference: 'EXP/' + expense.id,
-        narration: `Expense ${expense.id} — ${expense.vendor || 'Vendor'} · ${expense.category}`,
-        type:     'General',
-        status:   'Posted',
-        createdAt: new Date().toISOString(),
-        totalDebit:  expense.amount,
-        totalCredit: expense.amount,
-        isBalanced:  true,
-        lines: [
-            {
-                id: 'L-' + ts + '-D',
-                accountId: debit.id, accountCode: debit.code, accountName: debit.name,
-                description: 'Expense — ' + (expense.description || expense.vendor || expense.category),
-                debit:  expense.amount,
-                credit: 0,
-            },
-            {
-                id: 'L-' + ts + '-C',
-                accountId: credit.id, accountCode: credit.code, accountName: credit.name,
-                description: 'Liability for expense ' + expense.id,
-                debit:  0,
-                credit: expense.amount,
-            },
-        ],
-    };
-
-    const res = await authFetch(`${getOilErpApiBase()}/journal-vouchers/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(jv),
+    // Backend posts Dr expense / Cr cash on approve — re-save Approved to trigger posting.
+    const updated = await saveExpense({
+        id: expense.id,
+        status: 'Approved',
     });
-    if (!res.ok) {
-        let detail = '';
-        try { detail = ((await res.json()) as { detail?: string })?.detail || ''; } catch { /* not JSON */ }
-        throw new Error(detail || ('Could not post JV (HTTP ' + res.status + ').'));
+    if (!updated.journal_voucher_number) {
+        throw new Error(
+            'Accounting post did not complete — check that General Expenses and Cash on Hand accounts exist for this tenant.',
+        );
     }
-    const created = await res.json() as { jvNumber?: string; id?: string };
-    const jvNumber = String(created?.jvNumber || jv.id);
-    const jvId     = String(created?.id || jv.id);
-
-    // Stamp the JV number back on the Expense for traceability.
-    await saveExpense({ id: expense.id, journal_voucher_number: jvNumber });
-
-    return { jvNumber, jvId };
+    return {
+        jvNumber: updated.journal_voucher_number,
+        jvId: updated.journal_voucher_number,
+    };
 }
