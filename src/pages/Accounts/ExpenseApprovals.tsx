@@ -26,7 +26,7 @@ import {
     RefreshCw,
     Plus,
 } from 'lucide-react';
-import { getExpenses, saveExpense, pushExpenseToAccounting, type Expense } from '../../services/expenseService';
+import { getExpenses, saveExpense, pushExpenseToAccounting, getExpenseSettings, type Expense } from '../../services/expenseService';
 import { getCurrentUser } from '../../store/authStore';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -130,6 +130,12 @@ export default function ExpenseApprovals() {
     const navigate = useNavigate();
     const { hasRole } = useAuth();
     const canApproveExpenses = hasRole('admin', 'accountant');
+    const receiptThreshold = getExpenseSettings().policyRules.receiptRequiredThreshold ?? 50;
+    const receiptRequiredButMissing = (exp: Expense): boolean => {
+        const amt = Number(exp.amount) || 0;
+        const hasReceipt = !!(exp.receiptUrl && String(exp.receiptUrl).trim());
+        return amt >= receiptThreshold && !hasReceipt;
+    };
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [allExpenses, setAllExpenses] = useState<Expense[]>([]);
     const [loading, setLoading] = useState(true);
@@ -241,6 +247,12 @@ export default function ExpenseApprovals() {
 
     const handleApprove = async (exp: Expense) => {
         if (!canApproveExpenses) return;
+        if (receiptRequiredButMissing(exp)) {
+            setError(
+                `Receipt required: expenses of $${receiptThreshold.toFixed(2)} or more must have a receipt attached before approval.`,
+            );
+            return;
+        }
         setActioningId(exp.id);
         setError(null);
         try {
@@ -257,7 +269,7 @@ export default function ExpenseApprovals() {
             }
             await reload();
         } catch (e) {
-            setError(e instanceof Error ? e.message : 'Could not approve expense.');
+            setError(e instanceof Error && e.message ? e.message : 'Could not approve expense.');
         } finally {
             setActioningId(null);
         }
@@ -616,7 +628,7 @@ export default function ExpenseApprovals() {
                                 <button
                                     type="button"
                                     onClick={() => void handleApprove(exp)}
-                                    disabled={busy}
+                                    disabled={busy || receiptRequiredButMissing(exp)}
                                     style={{
                                         height: 28,
                                         padding: '0 12px',
@@ -626,11 +638,11 @@ export default function ExpenseApprovals() {
                                         color: 'var(--color-brand-green-tint)',
                                         fontSize: 10,
                                         fontWeight: 600,
-                                        cursor: busy ? 'not-allowed' : 'pointer',
+                                        cursor: busy || receiptRequiredButMissing(exp) ? 'not-allowed' : 'pointer',
                                         display: 'inline-flex',
                                         alignItems: 'center',
                                         gap: 4,
-                                        opacity: busy ? 0.6 : 1,
+                                        opacity: busy || receiptRequiredButMissing(exp) ? 0.6 : 1,
                                     }}
                                 >
                                     {busy ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
@@ -679,6 +691,10 @@ export default function ExpenseApprovals() {
                                 <>
                                     <Paperclip size={11} /> 1 receipt
                                 </>
+                            ) : receiptRequiredButMissing(exp) ? (
+                                <span style={{ color: 'var(--color-brand-amber-tint)', fontWeight: 600 }}>
+                                    — no receipt · Receipt required to approve
+                                </span>
                             ) : (
                                 '— no receipt'
                             )}

@@ -401,6 +401,22 @@ async function _readErrorDetail(res: Response): Promise<string> {
     }
 }
 
+export async function uploadExpenseReceipt(file: File): Promise<string> {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await authFetch(`${EXPENSES_API}/receipt-upload`, {
+        method: 'POST',
+        body: form,
+    });
+    if (!res.ok) {
+        const detail = await _readErrorDetail(res);
+        throw new Error(detail || 'Receipt upload failed');
+    }
+    const data = await res.json();
+    if (!data?.receiptUrl) throw new Error('Upload succeeded but no receiptUrl returned');
+    return data.receiptUrl as string;
+}
+
 export async function saveExpenseCategory(category: Partial<ExpenseCategory>): Promise<ExpenseCategory> {
     return new Promise((resolve) => {
         const categories = getInitialExpenseCategories();

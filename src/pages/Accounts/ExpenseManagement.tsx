@@ -12,6 +12,7 @@ import {
     getExpensesSnapshot,
     getExpenseCategories,
     saveExpense,
+    uploadExpenseReceipt,
     saveExpenseCategory,
     deleteExpense,
     exportExpensesAsCSV,
@@ -201,6 +202,10 @@ export default function ExpenseManagement() {
     const categoryWrapRef = useRef<HTMLDivElement>(null);
     const [expenseAccounts, setExpenseAccounts] = useState<Array<{ id: string; name: string; code: string }>>([]);
     const [selectedAccountId, setSelectedAccountId] = useState('');
+    const [receiptUrl, setReceiptUrl] = useState<string>('');
+    const [receiptFileName, setReceiptFileName] = useState<string>('');
+    const [receiptUploading, setReceiptUploading] = useState(false);
+    const [receiptError, setReceiptError] = useState<string>('');
 
     // Sync the selected category whenever the user opens the form for
     // editing — keeps the new searchable input in lock-step with the
@@ -215,19 +220,41 @@ export default function ExpenseManagement() {
                     ? String(editAcct)
                     : pickDefaultExpenseAccountId(expenseAccounts),
             );
+            if (editingExpense?.receiptUrl) {
+                setReceiptUrl(editingExpense.receiptUrl);
+                setReceiptFileName('Current receipt');
+            } else {
+                setReceiptUrl('');
+                setReceiptFileName('');
+            }
+            setReceiptUploading(false);
+            setReceiptError('');
         } else {
             setSelectedCategory('');
             setCategorySearch('');
             setCategoryOpen(false);
             setSelectedAccountId('');
+            setReceiptUrl('');
+            setReceiptFileName('');
+            setReceiptUploading(false);
+            setReceiptError('');
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [editingExpense?.id, expenseAccounts, /* showManualForm intentionally omitted */]);
     useEffect(() => {
         if (showManualForm) {
             setSelectedCategory(editingExpense?.category || '');
+            if (editingExpense?.receiptUrl) {
+                setReceiptUrl(editingExpense.receiptUrl);
+                setReceiptFileName('Current receipt');
+            } else {
+                setReceiptUrl('');
+                setReceiptFileName('');
+            }
+            setReceiptUploading(false);
+            setReceiptError('');
         }
-    }, [showManualForm, editingExpense?.category]);
+    }, [showManualForm, editingExpense?.category, editingExpense?.receiptUrl, editingExpense?.id]);
 
     // Close the category dropdown on outside click.
     useEffect(() => {
@@ -373,7 +400,7 @@ export default function ExpenseManagement() {
         try {
             // STEP 4/5 — re-check at save time + persist both flags.
             const dupCheck = checkExpenseDuplicate({ vendor, amount, date, category, excludeId: editingExpense?.id });
-            const policy = checkExpensePolicy({ category, amount, date, hasReceipt: false });
+            const policy = checkExpensePolicy({ category, amount, date, hasReceipt: !!receiptUrl });
             await saveExpense({
                 id: editingExpense?.id,
                 category,
@@ -386,6 +413,7 @@ export default function ExpenseManagement() {
                 taxAmount,
                 isRecurring,
                 status: 'Draft',
+                receiptUrl: receiptUrl || undefined,
                 is_duplicate_flag: dupCheck.isDuplicate,
                 duplicate_of_id: dupCheck.matches[0]?.expenseId || null,
                 policy_flags: policy.length > 0 ? policy : undefined,
@@ -457,13 +485,42 @@ export default function ExpenseManagement() {
             excludeId: editingExpense?.id,
         });
         setDuplicateWarning(result.isDuplicate ? result : null);
-        // STEP 5 — Policy check uses the same trigger.  Receipts aren't
-        // attached on the manual entry form, so hasReceipt is false here.
+        // STEP 5 — Policy check uses the same trigger.
         const violations = checkExpensePolicy({
             category, amount, date,
-            hasReceipt: false,
+            hasReceipt: !!receiptUrl,
         });
         setPolicyViolations(violations);
+    };
+
+    const handleReceiptFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (file.size > 10 * 1024 * 1024) {
+            setReceiptError('File too large (max 10MB)');
+            e.target.value = '';
+            return;
+        }
+        setReceiptError('');
+        setReceiptUploading(true);
+        try {
+            const url = await uploadExpenseReceipt(file);
+            setReceiptUrl(url);
+            setReceiptFileName(file.name);
+        } catch (err) {
+            setReceiptError(err instanceof Error ? err.message : 'Receipt upload failed');
+            setReceiptUrl('');
+            setReceiptFileName('');
+        } finally {
+            setReceiptUploading(false);
+            e.target.value = '';
+        }
+    };
+
+    const handleRemoveReceipt = () => {
+        setReceiptUrl('');
+        setReceiptFileName('');
+        setReceiptError('');
     };
 
     // STEP 3 — Smart Categorization: explicit "AI Suggest" button next
@@ -1475,6 +1532,41 @@ export default function ExpenseManagement() {
                                                 className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-2xl px-6 py-4 text-sm font-bold outline-none"
                                             />
                                         </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest block mb-3">Receipt</label>
+                                        <input
+                                            type="file"
+                                            accept="image/png,image/jpeg,image/webp,application/pdf"
+                                            onChange={(e) => void handleReceiptFileChange(e)}
+                                            disabled={receiptUploading}
+                                            className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-2xl px-6 py-4 text-sm font-bold outline-none file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-black file:uppercase file:tracking-widest file:bg-gray-900 file:text-white hover:file:bg-gray-800 disabled:opacity-50"
+                                        />
+                                        <p className="text-[10px] text-gray-500 font-bold mt-2">
+                                            Required for expenses of $50 or more before they can be approved.
+                                        </p>
+                                        {receiptUploading && (
+                                            <p className="text-xs font-bold text-gray-500 mt-2">Uploading…</p>
+                                        )}
+                                        {receiptUrl && !receiptUploading && (
+                                            <div className="mt-2 flex flex-wrap items-center gap-3">
+                                                <span className="text-sm font-bold text-gray-700">{receiptFileName}</span>
+                                                <span className="text-xs font-black text-emerald-700 uppercase tracking-widest">✓ Attached</span>
+                                                <button
+                                                    type="button"
+                                                    onClick={handleRemoveReceipt}
+                                                    className="text-[10px] font-black uppercase tracking-widest text-red-600 hover:text-red-800"
+                                                >
+                                                    Remove
+                                                </button>
+                                            </div>
+                                        )}
+                                        {receiptError && (
+                                            <div className="mt-2 p-3 bg-red-50 border border-red-300 rounded-xl">
+                                                <p className="text-xs font-bold text-red-700">{receiptError}</p>
+                                            </div>
+                                        )}
                                     </div>
 
                                     <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-2xl">
