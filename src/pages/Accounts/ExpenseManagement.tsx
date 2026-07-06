@@ -401,6 +401,10 @@ export default function ExpenseManagement() {
             // STEP 4/5 — re-check at save time + persist both flags.
             const dupCheck = checkExpenseDuplicate({ vendor, amount, date, category, excludeId: editingExpense?.id });
             const policy = checkExpensePolicy({ category, amount, date, hasReceipt: !!receiptUrl });
+            const nextStatus =
+                !editingExpense || !editingExpense.status || editingExpense.status === 'Draft'
+                    ? 'Submitted'
+                    : editingExpense.status;
             await saveExpense({
                 id: editingExpense?.id,
                 category,
@@ -412,7 +416,7 @@ export default function ExpenseManagement() {
                 paymentMethod,
                 taxAmount,
                 isRecurring,
-                status: 'Draft',
+                status: nextStatus,
                 receiptUrl: receiptUrl || undefined,
                 is_duplicate_flag: dupCheck.isDuplicate,
                 duplicate_of_id: dupCheck.matches[0]?.expenseId || null,
