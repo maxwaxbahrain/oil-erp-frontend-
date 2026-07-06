@@ -117,7 +117,10 @@ function App() {
   const [roleIndex, setRoleIndex] = useState(() => roleIndexForPath(location.pathname));
 
   useEffect(() => {
-    setRoleIndex(roleIndexForPath(location.pathname));
+    setRoleIndex(prev => {
+      const next = roleIndexForPath(location.pathname);
+      return prev === next ? prev : next;
+    });
   }, [location.pathname]);
 
   const cycleRole = () => {
@@ -151,10 +154,12 @@ function App() {
     return { unpaid, unpaidTotal, overdue, lowStock };
   }, [aiCtx]);
 
+  // Trial banner — fetch once on mount (not per navigation). Change guards
+  // avoid re-renders when the API returns the same days_left.
   useEffect(() => {
     const token = localStorage.getItem('access_token');
     if (!token) {
-      setTrialBanner(null);
+      setTrialBanner(prev => (prev === null ? prev : null));
       return;
     }
     api
@@ -162,13 +167,16 @@ function App() {
       .then(res => {
         const { plan, days_left, is_trial_expired } = res.data;
         if (plan === 'trial' && !is_trial_expired && days_left < 3) {
-          setTrialBanner({ daysLeft: days_left });
+          setTrialBanner(prev => {
+            if (prev?.daysLeft === days_left) return prev;
+            return { daysLeft: days_left };
+          });
         } else {
-          setTrialBanner(null);
+          setTrialBanner(prev => (prev === null ? prev : null));
         }
       })
-      .catch(() => setTrialBanner(null));
-  }, [location.pathname]);
+      .catch(() => setTrialBanner(prev => (prev === null ? prev : null)));
+  }, []);
 
   // TC-03 — Build a short list of "notifications" from live ERP data
   // so the dropdown shows something concrete instead of the canned
@@ -284,16 +292,26 @@ function App() {
     return <AppRoutes />;
   }
 
+  const hasAlerts = alertCounts.unpaid > 0 || alertCounts.overdue > 0 || alertCounts.lowStock > 0;
+  const showAlertStrip = showAlertBar && hasAlerts;
+
   return (
     <div className="flex h-screen flex-col bg-redwood-bg-light overflow-hidden text-redwood-text-main font-inter">
-      {trialBanner && (
-        <div className="bg-[rgba(245,158,11,0.15)] border-b border-[rgba(245,158,11,0.25)] px-3 py-2 text-center text-[11px] text-[#FCD34D] print:hidden">
-          ⚠️ Your free trial expires in {trialBanner.daysLeft} day{trialBanner.daysLeft === 1 ? '' : 's'}.{' '}
-          <button type="button" onClick={() => navigate('/settings/billing')} className="font-semibold underline hover:no-underline">
-            Upgrade now
-          </button>
-        </div>
-      )}
+      {/* Trial slot — always mounted; fixed height when visible avoids mount/unmount reflow */}
+      <div
+        className="print:hidden flex-shrink-0 overflow-hidden"
+        style={{ height: trialBanner ? '2.25rem' : '0px' }}
+        aria-hidden={!trialBanner}
+      >
+        {trialBanner && (
+          <div className="bg-[rgba(245,158,11,0.15)] border-b border-[rgba(245,158,11,0.25)] px-3 py-2 text-center text-[11px] text-[#FCD34D] h-9 flex items-center justify-center">
+            ⚠️ Your free trial expires in {trialBanner.daysLeft} day{trialBanner.daysLeft === 1 ? '' : 's'}.{' '}
+            <button type="button" onClick={() => navigate('/settings/billing')} className="font-semibold underline hover:no-underline">
+              Upgrade now
+            </button>
+          </div>
+        )}
+      </div>
     <div
       ref={advisorShellRef}
       className="flex flex-1 min-h-0 overflow-hidden"
@@ -675,43 +693,49 @@ function App() {
           </div>
         </header>
 
-        {/* Alert bar — shows only when there's something to alert about */}
-        {showAlertBar && (alertCounts.unpaid > 0 || alertCounts.overdue > 0 || alertCounts.lowStock > 0) && (
-          <div className="bg-[rgba(245,158,11,0.07)] border-b border-[rgba(245,158,11,0.14)] px-3 py-1.5 flex items-center gap-2 overflow-hidden text-[10px] text-redwood-text-muted print:hidden">
-            <AlertTriangle size={14} className="text-[#F59E0B] flex-shrink-0" />
-            <span className="flex-1 min-w-0 truncate">
+        {/* Alert slot — reserve 2rem while bar is enabled so aiCtx arrival doesn't push tabs/content */}
+        <div
+          className="print:hidden flex-shrink-0 overflow-hidden"
+          style={{ height: showAlertBar ? '2rem' : '0px' }}
+          aria-hidden={!showAlertStrip}
+        >
+          {showAlertStrip && (
+            <div className="bg-[rgba(245,158,11,0.07)] border-b border-[rgba(245,158,11,0.14)] px-3 h-8 flex items-center gap-2 overflow-hidden text-[10px] text-redwood-text-muted">
+              <AlertTriangle size={14} className="text-[#F59E0B] flex-shrink-0" />
+              <span className="flex-1 min-w-0 truncate">
+                {alertCounts.unpaid > 0 && (
+                  <>
+                    <strong style={{ color: '#FCD34D', fontWeight: 600 }}>{alertCounts.unpaid} unpaid invoice{alertCounts.unpaid === 1 ? '' : 's'}</strong>
+                    {alertCounts.unpaidTotal > 0 && ` totalling $${alertCounts.unpaidTotal.toLocaleString()}`}
+                  </>
+                )}
+                {alertCounts.unpaid > 0 && (alertCounts.overdue > 0 || alertCounts.lowStock > 0) && ' · '}
+                {alertCounts.overdue > 0 && <>{alertCounts.overdue} overdue</>}
+                {alertCounts.overdue > 0 && alertCounts.lowStock > 0 && ' · '}
+                {alertCounts.lowStock > 0 && <>{alertCounts.lowStock} item{alertCounts.lowStock === 1 ? '' : 's'} low stock</>}
+              </span>
               {alertCounts.unpaid > 0 && (
-                <>
-                  <strong style={{ color: '#FCD34D', fontWeight: 600 }}>{alertCounts.unpaid} unpaid invoice{alertCounts.unpaid === 1 ? '' : 's'}</strong>
-                  {alertCounts.unpaidTotal > 0 && ` totalling $${alertCounts.unpaidTotal.toLocaleString()}`}
-                </>
+                <button onClick={() => navigate('/sales/invoices')} className="text-[9.5px] text-[#F59E0B] font-semibold underline hover:no-underline flex-shrink-0">Invoices →</button>
               )}
-              {alertCounts.unpaid > 0 && (alertCounts.overdue > 0 || alertCounts.lowStock > 0) && ' · '}
-              {alertCounts.overdue > 0 && <>{alertCounts.overdue} overdue</>}
-              {alertCounts.overdue > 0 && alertCounts.lowStock > 0 && ' · '}
-              {alertCounts.lowStock > 0 && <>{alertCounts.lowStock} item{alertCounts.lowStock === 1 ? '' : 's'} low stock</>}
-            </span>
-            {alertCounts.unpaid > 0 && (
-              <button onClick={() => navigate('/sales/invoices')} className="text-[9.5px] text-[#F59E0B] font-semibold underline hover:no-underline flex-shrink-0">Invoices →</button>
-            )}
-            {alertCounts.lowStock > 0 && (
-              <button onClick={() => navigate('/products')} className="text-[9.5px] text-[#F59E0B] font-semibold underline hover:no-underline flex-shrink-0">Stock →</button>
-            )}
-            {alertCounts.overdue > 0 && (
-              <button onClick={() => navigate('/reports/aged-receivable')} className="text-[9.5px] text-[#F59E0B] font-semibold underline hover:no-underline flex-shrink-0">Aged AR →</button>
-            )}
-            <button
-              onClick={() => {
-                try { sessionStorage.setItem('soltol_alert_dismissed', '1'); } catch { /* ignore */ }
-                setShowAlertBar(false);
-              }}
-              className="ml-2 w-5 h-5 rounded bg-white/5 flex items-center justify-center text-[#3E5678] hover:bg-white/10 flex-shrink-0"
-              aria-label="Dismiss"
-            >
-              <X size={12} />
-            </button>
-          </div>
-        )}
+              {alertCounts.lowStock > 0 && (
+                <button onClick={() => navigate('/products')} className="text-[9.5px] text-[#F59E0B] font-semibold underline hover:no-underline flex-shrink-0">Stock →</button>
+              )}
+              {alertCounts.overdue > 0 && (
+                <button onClick={() => navigate('/reports/aged-receivable')} className="text-[9.5px] text-[#F59E0B] font-semibold underline hover:no-underline flex-shrink-0">Aged AR →</button>
+              )}
+              <button
+                onClick={() => {
+                  try { sessionStorage.setItem('soltol_alert_dismissed', '1'); } catch { /* ignore */ }
+                  setShowAlertBar(false);
+                }}
+                className="ml-2 w-5 h-5 rounded bg-white/5 flex items-center justify-center text-[#3E5678] hover:bg-white/10 flex-shrink-0"
+                aria-label="Dismiss"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* Tab row — broad navigation categories with route mapping */}
         <div className="bg-redwood-midnight border-b border-[rgba(255,255,255,0.07)] px-3 flex items-end overflow-x-auto hide-scrollbar print:hidden">
