@@ -60,14 +60,21 @@ function newLine(): InvoiceLineItem {
 }
 
 function toQuoteItems(lines: InvoiceLineItem[]) {
-    return lines.map((l) => ({
-        product_id: l.productId || '',
-        product_name: l.product,
-        quantity: Number(l.quantity) || 0,
-        unit_price: Number(l.rate) || 0,
-        total: Number(l.amount) || 0,
-        description: l.description || '',
-    }));
+    return lines.map((l) => {
+        const rawPid = l.productId;
+        const product_id =
+            rawPid != null && String(rawPid).trim() !== '' && Number(rawPid) > 0
+                ? Number(rawPid)
+                : undefined;
+        return {
+            ...(product_id !== undefined ? { product_id } : {}),
+            product_name: l.product,
+            quantity: Number(l.quantity) || 0,
+            unit_price: Number(l.rate) || 0,
+            total: Number(l.amount) || 0,
+            description: l.description || '',
+        };
+    });
 }
 
 function fromQuoteItems(items: Array<Record<string, unknown>>): InvoiceLineItem[] {

@@ -705,6 +705,9 @@ export default function InvoiceFormPage() {
                     quantity: item.quantity,
                     rate: item.rate,
                     amount: item.amount,
+                    productId: item.productId != null && String(item.productId).trim() !== ''
+                        ? Number(item.productId)
+                        : undefined,
                     // ITEM 7D — persist per-line discount/tax for round-trip on edit.
                     lineDiscount: Number(item.lineDiscount) || 0,
                     lineTaxRate: Number(item.lineTaxRate) || 0,
@@ -773,6 +776,9 @@ export default function InvoiceFormPage() {
                     quantity: item.quantity,
                     rate: item.rate,
                     amount: item.amount,
+                    productId: item.productId != null && String(item.productId).trim() !== ''
+                        ? Number(item.productId)
+                        : undefined,
                     // ITEM 7D — persist per-line discount/tax.
                     lineDiscount: Number(item.lineDiscount) || 0,
                     lineTaxRate: Number(item.lineTaxRate) || 0,

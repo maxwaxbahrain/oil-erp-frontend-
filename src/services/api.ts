@@ -749,15 +749,22 @@ export async function createInvoice(
     customerName: invoice.customerName || '',
     invoiceDate: invoice.invoiceDate || new Date().toISOString().split('T')[0],
     dueDate: invoice.dueDate || null,
-    lineItems: (invoice.lineItems || []).map((item: any) => ({
-      product: item.product || item.name || '',
-      description: item.description || '',
-      quantity: Number(item.quantity) || 1,
-      rate: Number(item.rate) || 0,
-      amount: Number(item.amount) || 0,
-      productId: item.productId || null,
-      itemCode: item.itemCode || item.sku || null,
-    })),
+    lineItems: (invoice.lineItems || []).map((item: any) => {
+      const rawPid = item.productId ?? item.product_id;
+      const product_id =
+        rawPid != null && String(rawPid).trim() !== '' && Number(rawPid) > 0
+          ? Number(rawPid)
+          : undefined;
+      return {
+        product: item.product || item.name || '',
+        description: item.description || '',
+        quantity: Number(item.quantity) || 1,
+        rate: Number(item.rate) || 0,
+        amount: Number(item.amount) || 0,
+        product_id,
+        itemCode: item.itemCode || item.sku || null,
+      };
+    }),
     subtotal: Number(invoice.subtotal) || 0,
     taxRate: Number(invoice.taxRate) || 0,
     taxAmount: Number(invoice.taxAmount) || 0,
@@ -794,14 +801,21 @@ export async function updateInvoice(id: string, invoice: Partial<Invoice>): Prom
     customerName: invoice.customerName || '',
     invoiceDate: invoice.invoiceDate,
     dueDate: invoice.dueDate || null,
-    lineItems: (invoice.lineItems || []).map((item: any) => ({
-      product: item.product || '',
-      description: item.description || '',
-      quantity: Number(item.quantity) || 1,
-      rate: Number(item.rate) || 0,
-      amount: Number(item.amount) || 0,
-      productId: item.productId || null,
-    })),
+    lineItems: (invoice.lineItems || []).map((item: any) => {
+      const rawPid = item.productId ?? item.product_id;
+      const product_id =
+        rawPid != null && String(rawPid).trim() !== '' && Number(rawPid) > 0
+          ? Number(rawPid)
+          : undefined;
+      return {
+        product: item.product || '',
+        description: item.description || '',
+        quantity: Number(item.quantity) || 1,
+        rate: Number(item.rate) || 0,
+        amount: Number(item.amount) || 0,
+        product_id,
+      };
+    }),
     subtotal: Number(invoice.subtotal) || 0,
     taxRate: Number(invoice.taxRate) || 0,
     taxAmount: Number(invoice.taxAmount) || 0,

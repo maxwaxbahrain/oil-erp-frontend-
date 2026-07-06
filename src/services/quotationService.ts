@@ -6,7 +6,7 @@ const QUOTATIONS_API = `${getOilErpApiBase()}/quotations`;
 export type QuotationStatus = 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired' | 'converted';
 
 export interface QuotationLineItem {
-    product_id?: string;
+    product_id?: number | string;
     product_name: string;
     quantity: number;
     unit_price: number;
@@ -70,12 +70,32 @@ export async function getQuotation(id: number | string): Promise<Quotation> {
     return fromApi((await r.json()) as Record<string, unknown>);
 }
 
+function mapQuotationItemsForApi(
+    items: QuotationLineItem[] | undefined,
+): Array<Record<string, unknown>> {
+    return (items ?? []).map((item) => {
+        const rawPid = item.product_id;
+        const product_id =
+            rawPid != null && String(rawPid).trim() !== '' && Number(rawPid) > 0
+                ? Number(rawPid)
+                : undefined;
+        return {
+            ...(product_id !== undefined ? { product_id } : {}),
+            product_name: item.product_name,
+            quantity: Number(item.quantity) || 0,
+            unit_price: Number(item.unit_price) || 0,
+            total: Number(item.total) || 0,
+            ...(item.description ? { description: item.description } : {}),
+        };
+    });
+}
+
 export async function createQuotation(payload: Partial<Quotation> & { customer_id: number; date: string }): Promise<Quotation> {
     const body = {
         customerId: payload.customer_id,
         date: payload.date,
         expiryDate: payload.expiry_date || undefined,
-        items: payload.items ?? [],
+        items: mapQuotationItemsForApi(payload.items),
         subtotal: payload.subtotal ?? 0,
         discount: payload.discount ?? 0,
         tax: payload.tax ?? 0,
@@ -103,7 +123,7 @@ export async function updateQuotation(id: number | string, payload: Partial<Quot
     if (payload.customer_id != null) body.customerId = payload.customer_id;
     if (payload.date != null) body.date = payload.date;
     if (payload.expiry_date !== undefined) body.expiryDate = payload.expiry_date;
-    if (payload.items != null) body.items = payload.items;
+    if (payload.items != null) body.items = mapQuotationItemsForApi(payload.items);
     if (payload.subtotal != null) body.subtotal = payload.subtotal;
     if (payload.discount != null) body.discount = payload.discount;
     if (payload.tax != null) body.tax = payload.tax;
