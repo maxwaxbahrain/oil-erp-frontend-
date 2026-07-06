@@ -88,6 +88,7 @@ export interface Payment {
   notes?: string;
   invoice_id?: string; // Link payment to specific invoice
   is_advance?: boolean; // Mark as advance payment
+  transaction_type?: 'payment' | 'expense';
 }
 
 export interface SalesOrder {

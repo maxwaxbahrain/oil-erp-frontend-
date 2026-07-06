@@ -440,18 +440,21 @@ export default function Banking() {
     // ─────────────────────────────────────────────────────────────────────
     const systemTx: Transaction[] = [
         // Cash IN from customers
-        ...payments.map((p, idx) => ({
-            id: `PAY-${p.id || idx}`,
-            date: p.payment_date || new Date().toISOString().split('T')[0],
-            description: 'Payment received from customer',
-            type: 'Credit' as const,
-            amount: p.amount || 0,
-            balance: 0,
-            reference: `PAY-${String(p.id || idx).slice(0, 6).toUpperCase()}`,
-            category: 'Customer Payment',
-            // ITEM 14 — derive Cash vs Bank from the payment_method.
-            channel: classifyChannel(p.payment_method),
-        })),
+        ...payments.map((p, idx) => {
+            const isExpense = p.transaction_type === 'expense';
+            return {
+                id: `PAY-${p.id || idx}`,
+                date: p.payment_date || new Date().toISOString().split('T')[0],
+                description: isExpense ? 'Expense payment' : 'Payment received from customer',
+                type: isExpense ? ('Debit' as const) : ('Credit' as const),
+                amount: p.amount || 0,
+                balance: 0,
+                reference: `PAY-${String(p.id || idx).slice(0, 6).toUpperCase()}`,
+                category: isExpense ? 'Expense' : 'Customer Payment',
+                // ITEM 14 — derive Cash vs Bank from the payment_method.
+                channel: classifyChannel(p.payment_method),
+            };
+        }),
         // Cash OUT to suppliers
         ...supplierPayments.map(({ row, supplierName }, idx) => ({
             id: `SPAY-${row.id || idx}`,
@@ -1113,6 +1116,9 @@ export default function Banking() {
                                                                 ) : tx.id.startsWith('PAY-') ? (() => {
                                                                     const paymentId = tx.id.replace(/^PAY-/, '');
                                                                     const original = payments.find(p => String(p.id) === paymentId);
+                                                                    if (original?.transaction_type === 'expense') {
+                                                                        return <span style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>auto</span>;
+                                                                    }
                                                                     const isReversal = original?.reference?.startsWith('VOID/') || (original?.amount ?? 0) < 0;
                                                                     if (isReversal) return <span style={{ fontSize: 9, color: 'var(--color-brand-red-tint)', fontWeight: 600 }}>Reversal</span>;
                                                                     return <button type="button" onClick={() => handleVoidPayment(paymentId)} disabled={voidingId === paymentId} style={{ fontSize: 9, fontWeight: 600, color: 'var(--color-brand-red-tint)', background: 'transparent', border: 'none', cursor: 'pointer' }}>{voidingId === paymentId ? 'Voiding…' : 'Void'}</button>;
