@@ -417,6 +417,17 @@ export async function uploadExpenseReceipt(file: File): Promise<string> {
     return data.receiptUrl as string;
 }
 
+export async function getExpenseReceiptUrl(expenseId: number | string): Promise<string> {
+    const res = await authFetch(`${EXPENSES_API}/${encodeURIComponent(String(expenseId))}/receipt`);
+    if (!res.ok) {
+        const detail = await _readErrorDetail(res);
+        throw new Error(detail || 'Could not load receipt');
+    }
+    const data = await res.json();
+    if (!data?.downloadUrl) throw new Error('No receipt available');
+    return data.downloadUrl as string;
+}
+
 export async function saveExpenseCategory(category: Partial<ExpenseCategory>): Promise<ExpenseCategory> {
     return new Promise((resolve) => {
         const categories = getInitialExpenseCategories();

@@ -26,7 +26,7 @@ import {
     RefreshCw,
     Plus,
 } from 'lucide-react';
-import { getExpenses, saveExpense, pushExpenseToAccounting, getExpenseSettings, type Expense } from '../../services/expenseService';
+import { getExpenses, saveExpense, pushExpenseToAccounting, getExpenseSettings, getExpenseReceiptUrl, type Expense } from '../../services/expenseService';
 import { getCurrentUser } from '../../store/authStore';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -145,6 +145,37 @@ export default function ExpenseApprovals() {
     const [rejectReason, setRejectReason] = useState('');
     const [actioningId, setActioningId] = useState<string | null>(null);
     const [viewingId, setViewingId] = useState<string | null>(null);
+    const [receiptLoadingId, setReceiptLoadingId] = useState<string | null>(null);
+
+    const openReceipt = async (exp: Expense) => {
+        if (!exp.receiptUrl) return;
+        if (receiptLoadingId === exp.id) return;
+        setReceiptLoadingId(exp.id);
+        setError(null);
+        try {
+            const url = await getExpenseReceiptUrl(exp.id);
+            window.open(url, '_blank', 'noopener');
+        } catch (e) {
+            setError(e instanceof Error ? e.message : 'Could not load receipt');
+        } finally {
+            setReceiptLoadingId(null);
+        }
+    };
+
+    const receiptLinkStyle: CSSProperties = {
+        fontSize: 10,
+        color: 'var(--color-redwood-text-muted)',
+        marginTop: 4,
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'flex-end',
+        gap: 4,
+        background: 'none',
+        border: 'none',
+        padding: 0,
+        cursor: 'pointer',
+        fontWeight: 600,
+    };
 
     const reload = async (isRefresh = false) => {
         if (isRefresh) setRefreshing(true);
@@ -400,9 +431,20 @@ export default function ExpenseApprovals() {
                         }}
                     >
                         {exp.receiptUrl ? (
-                            <>
-                                <Paperclip size={11} /> 1 receipt
-                            </>
+                            <button
+                                type="button"
+                                onClick={() => void openReceipt(exp)}
+                                disabled={receiptLoadingId === exp.id}
+                                style={receiptLinkStyle}
+                                title="View receipt"
+                            >
+                                {receiptLoadingId === exp.id ? (
+                                    <Loader2 size={11} className="animate-spin" />
+                                ) : (
+                                    <Paperclip size={11} />
+                                )}
+                                {receiptLoadingId === exp.id ? ' Opening…' : ' 1 receipt'}
+                            </button>
                         ) : (
                             '— no receipt'
                         )}
@@ -607,7 +649,10 @@ export default function ExpenseApprovals() {
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
                                 <button
                                     type="button"
-                                    onClick={() => setViewingId(viewing ? null : exp.id)}
+                                    onClick={() => {
+                                        setViewingId(viewing ? null : exp.id);
+                                        if (exp.receiptUrl) void openReceipt(exp);
+                                    }}
                                     style={{
                                         height: 28,
                                         padding: '0 12px',
@@ -688,9 +733,20 @@ export default function ExpenseApprovals() {
                             }}
                         >
                             {exp.receiptUrl ? (
-                                <>
-                                    <Paperclip size={11} /> 1 receipt
-                                </>
+                                <button
+                                    type="button"
+                                    onClick={() => void openReceipt(exp)}
+                                    disabled={receiptLoadingId === exp.id}
+                                    style={receiptLinkStyle}
+                                    title="View receipt"
+                                >
+                                    {receiptLoadingId === exp.id ? (
+                                        <Loader2 size={11} className="animate-spin" />
+                                    ) : (
+                                        <Paperclip size={11} />
+                                    )}
+                                    {receiptLoadingId === exp.id ? ' Opening…' : ' 1 receipt'}
+                                </button>
                             ) : receiptRequiredButMissing(exp) ? (
                                 <span style={{ color: 'var(--color-brand-amber-tint)', fontWeight: 600 }}>
                                     — no receipt · Receipt required to approve
