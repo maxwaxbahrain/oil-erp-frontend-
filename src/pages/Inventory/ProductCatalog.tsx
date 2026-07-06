@@ -9,6 +9,7 @@ import {
 } from '../../services/productService';
 import { formatCurrency } from '../../services/settingsService';
 import { compressImage } from '../../utils/imageCompression';
+import { Edit2, Trash2 } from 'lucide-react';
 
 const C = {
     bg: '#060f1c',
@@ -448,20 +449,21 @@ export default function ProductCatalog() {
                                     cursor: 'pointer',
                                     transition: 'border-color .15s',
                                 }}
-                                onContextMenu={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    handleDelete(product.id, product.name);
-                                }}
                                 onMouseEnter={(e) => {
                                     e.currentTarget.style.borderColor = 'rgba(79,142,247,.3)';
                                     const overlay = e.currentTarget.querySelector('.upload-overlay') as HTMLElement | null;
-                                    if (overlay) overlay.style.opacity = '1';
+                                    if (overlay) {
+                                        overlay.style.opacity = '1';
+                                        overlay.style.pointerEvents = 'auto';
+                                    }
                                 }}
                                 onMouseLeave={(e) => {
                                     e.currentTarget.style.borderColor = 'rgba(255,255,255,.07)';
                                     const overlay = e.currentTarget.querySelector('.upload-overlay') as HTMLElement | null;
-                                    if (overlay) overlay.style.opacity = '0';
+                                    if (overlay) {
+                                        overlay.style.opacity = '0';
+                                        overlay.style.pointerEvents = 'none';
+                                    }
                                 }}
                             >
                                 <div style={{ height: 140, background: C.bg2, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
@@ -501,6 +503,7 @@ export default function ProductCatalog() {
                                             justifyContent: 'center',
                                             gap: 6,
                                             opacity: 0,
+                                            pointerEvents: 'none',
                                             transition: 'opacity .2s',
                                         }}
                                     >
@@ -537,6 +540,52 @@ export default function ProductCatalog() {
                                             {hazmat && asin && <span style={{ color: C.amber }}>⚠ Hazmat</span>}
                                         </div>
                                     )}
+                                    <div style={{ display: 'flex', gap: 6, marginTop: 8, paddingTop: 8, borderTop: '0.5px solid rgba(255,255,255,.06)' }}>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                navigate(`/products/edit/${product.id}`);
+                                            }}
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: 4,
+                                                background: 'rgba(79,142,247,.1)',
+                                                border: '0.5px solid rgba(79,142,247,.2)',
+                                                borderRadius: 6,
+                                                padding: '4px 8px',
+                                                fontSize: 9,
+                                                color: C.blue,
+                                                cursor: 'pointer',
+                                                fontWeight: 600,
+                                            }}
+                                        >
+                                            <Edit2 size={11} /> Edit
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleDelete(product.id, product.name);
+                                            }}
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: 4,
+                                                background: 'rgba(239,68,68,.08)',
+                                                border: '0.5px solid rgba(239,68,68,.2)',
+                                                borderRadius: 6,
+                                                padding: '4px 8px',
+                                                fontSize: 9,
+                                                color: C.red,
+                                                cursor: 'pointer',
+                                                fontWeight: 600,
+                                            }}
+                                        >
+                                            <Trash2 size={11} /> Delete
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         );
