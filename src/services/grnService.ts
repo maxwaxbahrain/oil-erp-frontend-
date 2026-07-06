@@ -87,19 +87,23 @@ export const createGRNFromPO = async (poId: string, warehouse: string = 'Main Wa
         throw new Error('Purchase Order not found');
     }
 
-    // Map PO items to GRN items
-    const grnItems: GRNItem[] = po.items.map(item => ({
-        productId: item.productId,
-        productName: item.productName,
-        sku: item.productId, // Using productId as SKU for now
-        uom: item.uom,
-        orderedQty: item.quantity,
-        receivedQty: 0,
-        acceptedQty: 0,
-        rejectedQty: 0,
-        unitCost: item.unitPrice,
-        totalCost: 0
-    }));
+    // Map PO items to GRN items — default to full ordered qty (normal case);
+    // lines stay editable afterward for partial receipts.
+    const grnItems: GRNItem[] = po.items.map(item => {
+        const orderedQty = item.quantity;
+        return {
+            productId: item.productId,
+            productName: item.productName,
+            sku: item.productId, // Using productId as SKU for now
+            uom: item.uom,
+            orderedQty,
+            receivedQty: orderedQty,
+            acceptedQty: orderedQty,
+            rejectedQty: 0,
+            unitCost: item.unitPrice,
+            totalCost: orderedQty * item.unitPrice,
+        };
+    });
 
     const newGRN: GRN = {
         id: `GRN-${Date.now()}`,
@@ -196,10 +200,10 @@ export const postGRN = async (grnId: string): Promise<PostGRNResult> => {
     // receive window — already-GRN'd, Paid, Rejected, or Completed.
     const purchaseOrders = await getPurchaseOrders();
     const linkedPO = purchaseOrders.find(p => p.id === grn.poId);
-    if (linkedPO && linkedPO.status !== 'Approved' && linkedPO.status !== 'Pending' && linkedPO.status !== 'Draft') {
+    if (linkedPO && linkedPO.status !== 'Approved') {
         throw new Error(
             `Cannot post GRN — the underlying PO ${linkedPO.poNumber} is in status "${linkedPO.status}". ` +
-            `Only Draft, Pending, or Approved POs can be received. ` +
+            `Only Approved POs can be received. ` +
             `Refresh the receiving list to see the current state.`
         );
     }
@@ -255,7 +259,18 @@ export const postGRN = async (grnId: string): Promise<PostGRNResult> => {
         }
     }
 
-    // FIX W3-1 — Unify with Path A: status goes to 'GRN' (not 'Received').
+    if (succeeded === 0) {
+        const failSummary = failures.length
+            ? failures.map((f) => f.productName || f.productId).join(', ')
+            : skipped.filter((s) => s.reason === 'no-productId').map((s) => s.productName || 'unnamed line').join(', ');
+        throw new Error(
+            failures.length
+                ? `No stock was updated — all ${failures.length} item(s) failed: ${failSummary}`
+                : `No stock was updated — no line items had a linked product. Link products on the PO before receiving.`,
+        );
+    }
+
+    // Only mark PO received when at least one stock add succeeded.
     await updatePurchaseOrder(grn.poId, {
         status: 'GRN',
         grn_date: new Date().toISOString(),
@@ -290,9 +305,7 @@ export const deleteGRN = async (grnId: string): Promise<void> => {
 // Get pending Purchase Orders (not yet received)
 export const getPendingPurchaseOrders = async (): Promise<PurchaseOrder[]> => {
     const purchaseOrders = await getPurchaseOrders();
-    return purchaseOrders.filter(po =>
-        po.status === 'Approved' || po.status === 'Pending'
-    );
+    return purchaseOrders.filter(po => po.status === 'Approved');
 };
 
 // Calculate GRN statistics

@@ -22,7 +22,8 @@ import {
     deleteGRN,
     getPendingPurchaseOrders,
     type GRN,
-    type GRNItem
+    type GRNItem,
+    type PostGRNResult,
 } from '../../services/grnService';
 import { type PurchaseOrder } from '../../services/purchasesService';
 import { getCurrentUser } from '../../store/authStore';
@@ -234,6 +235,7 @@ export default function GoodsReceivedForm() {
             return;
         }
 
+        setPosting(true);
         try {
             const newGRN = await createGRNFromPO(selectedPOId, warehouse);
             setGRN(newGRN);
@@ -242,6 +244,90 @@ export default function GoodsReceivedForm() {
         } catch (error: any) {
             console.error('Error creating GRN:', error);
             alert(error.message || 'Error creating GRN');
+        } finally {
+            setPosting(false);
+        }
+    };
+
+    const truncateNames = (xs: string[]) =>
+        xs.length <= 5 ? xs.join(', ') : `${xs.slice(0, 5).join(', ')} +${xs.length - 5} more`;
+
+    const showPostResultAlerts = (result: PostGRNResult) => {
+        const failNames = result.failures.map((f) => f.productName || f.productId);
+        const skippedNoProduct = result.skipped
+            .filter((s) => s.reason === 'no-productId')
+            .map((s) => s.productName || '(unnamed line)');
+
+        if (result.failures.length === 0 && skippedNoProduct.length === 0) {
+            alert('✅ GRN posted successfully! Inventory has been updated.');
+        } else if (result.failures.length === 0) {
+            alert(
+                `⚠️ GRN posted. ${result.succeeded}/${result.attempted} items updated. ${skippedNoProduct.length} line(s) had no product link and were skipped:\n\n${truncateNames(skippedNoProduct)}`,
+            );
+        } else if (result.succeeded === 0) {
+            alert(`❌ GRN posted but NO stock was updated. ${result.failures.length} item(s) failed:\n\n${truncateNames(failNames)}`);
+        } else {
+            alert(`⚠️ Stock updated for ${result.succeeded}/${result.attempted} items. Failed:\n\n${truncateNames(failNames)}`);
+        }
+    };
+
+    const saveDraftForPost = async (draft: GRN, draftItems: GRNItem[]) => {
+        const goodsValue = draftItems.reduce((sum, item) => sum + item.totalCost, 0);
+        const landed = goodsValue + freightCost;
+        await saveGRN({
+            id: draft.id,
+            items: draftItems,
+            warehouse,
+            freightCost,
+            goodsValue,
+            landedCost: landed,
+            notes,
+        });
+    };
+
+    const buildUnlinkedWarning = (lines: { productName?: string }[]) => {
+        const names = lines.map((it) => it.productName || '(unnamed line)');
+        const list =
+            names.length <= 5
+                ? names.join('\n  • ')
+                : `${names.slice(0, 5).join('\n  • ')}\n  • +${names.length - 5} more`;
+        return `⚠️ Warning — ${lines.length} line(s) have no product linked and will NOT update inventory:\n\n  • ${list}\n\nOnly linked items will affect stock.\n\nContinue anyway?`;
+    };
+
+    const handleCreateAndPostFull = async () => {
+        if (!selectedPOId) {
+            alert('Please select a Purchase Order');
+            return;
+        }
+
+        const po = pendingPOs.find((p) => p.id === selectedPOId);
+        const unlinked = (po?.items ?? []).filter((it) => !it.productId);
+        if (unlinked.length > 0) {
+            if (!window.confirm(buildUnlinkedWarning(unlinked))) return;
+        }
+
+        setPosting(true);
+        let draft: GRN | null = null;
+        try {
+            draft = await createGRNFromPO(selectedPOId, warehouse);
+            setGRN(draft);
+            setItems(draft.items);
+            setShowPOSelector(false);
+
+            await saveDraftForPost(draft, draft.items);
+            const result = await postGRN(draft.id);
+            showPostResultAlerts(result);
+            navigate('/receiving');
+        } catch (error: any) {
+            console.error('Error receiving goods:', error);
+            alert(error.message || 'Error receiving goods');
+            if (draft) {
+                setGRN(draft);
+                setItems(draft.items);
+                setShowPOSelector(false);
+            }
+        } finally {
+            setPosting(false);
         }
     };
 
@@ -336,36 +422,9 @@ export default function GoodsReceivedForm() {
 
         setPosting(true);
         try {
-            const goodsValue = items.reduce((sum, item) => sum + item.totalCost, 0);
-            const landedCost = goodsValue + freightCost;
-
-            await saveGRN({
-                id: grn.id,
-                items,
-                warehouse,
-                freightCost,
-                goodsValue,
-                landedCost,
-                notes
-            });
-
+            await saveDraftForPost(grn, items);
             const result = await postGRN(grn.id);
-            const failNames = result.failures.map(f => f.productName || f.productId);
-            const skippedNoProduct = result.skipped
-                .filter(s => s.reason === 'no-productId')
-                .map(s => s.productName || '(unnamed line)');
-            const truncate = (xs: string[]) =>
-                xs.length <= 5 ? xs.join(', ') : `${xs.slice(0, 5).join(', ')} +${xs.length - 5} more`;
-
-            if (result.failures.length === 0 && skippedNoProduct.length === 0) {
-                alert('✅ GRN posted successfully! Inventory has been updated.');
-            } else if (result.failures.length === 0) {
-                alert(`⚠️ GRN posted. ${result.succeeded}/${result.attempted} items updated. ${skippedNoProduct.length} line(s) had no product link and were skipped:\n\n${truncate(skippedNoProduct)}`);
-            } else if (result.succeeded === 0) {
-                alert(`❌ GRN posted but NO stock was updated. ${result.failures.length} item(s) failed:\n\n${truncate(failNames)}`);
-            } else {
-                alert(`⚠️ Stock updated for ${result.succeeded}/${result.attempted} items. Failed:\n\n${truncate(failNames)}`);
-            }
+            showPostResultAlerts(result);
             navigate('/receiving');
         } catch (error: any) {
             console.error('Error posting GRN:', error);
@@ -451,11 +510,11 @@ export default function GoodsReceivedForm() {
     const poSelected = Boolean(grn || selectedPOId);
     const isPosted = grn?.status === 'Posted';
 
-    const handlePrimaryConfirm = () => {
+    const handlePrimaryConfirm = async () => {
         if (showPOSelector && !grn) {
-            handleCreateFromPO();
+            await handleCreateAndPostFull();
         } else if (grn && !isPosted) {
-            handlePost();
+            await handlePost();
         }
     };
 
@@ -785,7 +844,27 @@ export default function GoodsReceivedForm() {
                                     </button>
                                 )}
 
-                                {allFullMatch && (
+                                {allFullMatch && !grn && poSelected && (
+                                    <div
+                                        style={{
+                                            marginTop: 12,
+                                            padding: '10px 12px',
+                                            borderRadius: 8,
+                                            background: 'rgba(79,142,247,.08)',
+                                            border: '1px solid rgba(79,142,247,.2)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 8,
+                                        }}
+                                    >
+                                        <CheckCircle size={16} color={C.blue} />
+                                        <span style={{ fontSize: 10.5, fontWeight: 600, color: C.blue }}>
+                                            Ready to receive full order — confirm below to post to inventory
+                                        </span>
+                                    </div>
+                                )}
+
+                                {allFullMatch && grn && !isPosted && (
                                     <div
                                         style={{
                                             marginTop: 12,
@@ -971,7 +1050,27 @@ export default function GoodsReceivedForm() {
                                     cursor: posting || (showPOSelector && !selectedPOId) ? 'not-allowed' : 'pointer',
                                 }}
                             >
-                                {posting ? 'Confirming...' : showPOSelector && !grn ? 'Confirm goods received' : 'Confirm goods received'}
+                                {posting ? 'Confirming...' : 'Confirm goods received'}
+                            </button>
+                        )}
+                        {showPOSelector && !grn && selectedPOId && !isPosted && (
+                            <button
+                                type="button"
+                                onClick={handleCreateFromPO}
+                                disabled={posting}
+                                style={{
+                                    ...ghostBtn,
+                                    width: '100%',
+                                    justifyContent: 'center',
+                                    marginTop: 8,
+                                    padding: '9px 14px',
+                                    fontSize: 10,
+                                    color: C.muted,
+                                    opacity: posting ? 0.55 : 1,
+                                    cursor: posting ? 'not-allowed' : 'pointer',
+                                }}
+                            >
+                                Adjust quantities before receiving
                             </button>
                         )}
                         {isPosted && (
