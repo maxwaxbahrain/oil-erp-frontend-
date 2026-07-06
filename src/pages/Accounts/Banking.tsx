@@ -204,6 +204,7 @@ interface Transaction {
     balance: number;
     reference: string;
     category: string;
+    isManual?: boolean;
     // ITEM 14 — Cash vs Bank channel. 'Cash' = physical cash (Cash, Petty
     // Cash). 'Bank' = everything that actually moves through a bank
     // account (Bank Transfer, Cheque, Card, Wire, Zelle, etc.). Lets
@@ -219,6 +220,104 @@ function classifyChannel(paymentMethod?: string | null, category?: string | null
     const c = (category || '').toLowerCase().trim();
     if (m === 'cash' || m === 'petty cash' || c === 'cash' || c.includes('cash in hand') || c.includes('petty cash')) return 'Cash';
     return 'Bank';
+}
+
+type FlowDirection = 'in' | 'out' | 'unknown';
+
+const RECON_AMOUNT_TOLERANCE = 0.01;
+const RECON_MAX_DATE_DAYS = 3;
+const RECON_MAX_MATCHES = 4;
+
+/** Derive money flow from ledger row — Credit = in, Debit = out. */
+function getTransactionFlowDirection(tx: Transaction): FlowDirection {
+    const amt = Number(tx.amount);
+    if (!Number.isFinite(amt) || amt <= RECON_AMOUNT_TOLERANCE) return 'unknown';
+    if (tx.type === 'Credit') return 'in';
+    if (tx.type === 'Debit') return 'out';
+    return 'unknown';
+}
+
+function parseTransactionDate(dateStr: string): Date | null {
+    if (!dateStr || !String(dateStr).trim()) return null;
+    const raw = String(dateStr).trim();
+    const d = new Date(raw.includes('T') ? raw : `${raw.slice(0, 10)}T12:00:00`);
+    return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function daysApart(a: Date, b: Date): number {
+    return Math.abs(a.getTime() - b.getTime()) / (24 * 60 * 60 * 1000);
+}
+
+type ReconciliationMatchRow = {
+    id: string;
+    book: string;
+    bank: string;
+    amount: number;
+    pct: number;
+};
+
+/**
+ * Pair ledger rows only when direction matches (both in or both out), amount
+ * aligns, and dates are within a few days. Prefer manual bank-tx vs system rows.
+ */
+function findReconciliationMatches(transactions: Transaction[]): ReconciliationMatchRow[] {
+    type ScoredPair = { a: Transaction; b: Transaction; score: number };
+    const candidates: ScoredPair[] = [];
+
+    for (let i = 0; i < transactions.length; i++) {
+        for (let j = i + 1; j < transactions.length; j++) {
+            const a = transactions[i];
+            const b = transactions[j];
+            if (a.id === b.id) continue;
+
+            const dirA = getTransactionFlowDirection(a);
+            const dirB = getTransactionFlowDirection(b);
+            if (dirA === 'unknown' || dirB === 'unknown' || dirA !== dirB) continue;
+
+            const amountDiff = Math.abs(Number(a.amount) - Number(b.amount));
+            if (amountDiff >= RECON_AMOUNT_TOLERANCE) continue;
+
+            const dateA = parseTransactionDate(a.date);
+            const dateB = parseTransactionDate(b.date);
+            if (dateA && dateB && daysApart(dateA, dateB) > RECON_MAX_DATE_DAYS) continue;
+
+            let score = 100;
+            const baseAmt = Math.max(Number(a.amount), Number(b.amount), 1);
+            score -= Math.min(15, (amountDiff / baseAmt) * 100);
+            if (dateA && dateB) {
+                score -= Math.min(35, Math.round(daysApart(dateA, dateB) * 12));
+            }
+
+            candidates.push({ a, b, score: Math.max(0, Math.round(score)) });
+        }
+    }
+
+    candidates.sort((x, y) => y.score - x.score);
+
+    const used = new Set<string>();
+    const out: ReconciliationMatchRow[] = [];
+
+    for (const { a, b, score } of candidates) {
+        if (used.has(a.id) || used.has(b.id)) continue;
+        used.add(a.id);
+        used.add(b.id);
+
+        const aManual = Boolean(a.isManual);
+        const bManual = Boolean(b.isManual);
+        const bookTx = aManual && !bManual ? b : !aManual && bManual ? a : a;
+        const bankTx = bookTx.id === a.id ? b : a;
+
+        out.push({
+            id: `${bookTx.id}::${bankTx.id}`,
+            book: bookTx.description,
+            bank: bankTx.description,
+            amount: bookTx.amount,
+            pct: score,
+        });
+        if (out.length >= RECON_MAX_MATCHES) break;
+    }
+
+    return out;
 }
 
 // Supplier payment shape on /api/suppliers/{id}/payments.
@@ -542,20 +641,10 @@ export default function Banking() {
         [pdcList],
     );
 
-    const reconciliationMatches = useMemo(() => {
-        const credits = allTransactions.filter(t => t.type === 'Credit').slice(0, 8);
-        const debits = allTransactions.filter(t => t.type === 'Debit');
-        return credits.slice(0, 4).map((cr, idx) => {
-            const match = debits.find(d => Math.abs(d.amount - cr.amount) < 0.01) || debits[idx];
-            return {
-                id: cr.id,
-                book: cr.description,
-                bank: match?.description || 'Bank feed line',
-                amount: cr.amount,
-                pct: null as number | null,
-            };
-        });
-    }, [allTransactions]);
+    const reconciliationMatches = useMemo(
+        () => findReconciliationMatches(allTransactions),
+        [allTransactions],
+    );
 
     const anomalies = useMemo(() => {
         const found: { id: string; title: string; detail: string; severity: 'high' | 'medium' }[] = [];
@@ -1185,7 +1274,7 @@ export default function Banking() {
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}><span style={{ fontSize: 12, fontWeight: 600, color: '#C4B5FD', display: 'flex', alignItems: 'center', gap: 6 }}><Bot size={16} /> Reconciliation</span></div>
                             {reconciliationMatches.length === 0 ? <p style={{ fontSize: 11, color: 'var(--color-redwood-text-muted)' }}>No matches to review</p> : reconciliationMatches.map(m => (
                                 <div key={m.id} style={{ padding: 10, borderRadius: 8, background: 'var(--color-redwood-row-bg)', border: '1px solid var(--color-redwood-border)', marginBottom: 8 }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}><span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>{formatUsd(m.amount)}</span><span style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-redwood-text-muted)' }}>Match score —</span></div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}><span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>{formatUsd(m.amount)}</span><span style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-redwood-text-muted)' }}>Match score {m.pct}%</span></div>
                                     <div style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>Book: {m.book}</div>
                                     <div style={{ fontSize: 10, color: 'var(--color-redwood-text-subtle)' }}>Bank: {m.bank}</div>
                                 </div>
