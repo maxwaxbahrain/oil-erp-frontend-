@@ -19,7 +19,7 @@ import {
     TrendingUp,
     User,
     MapPin
-, Tag , BookOpen , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 , Mail , LogOut , Sparkles , Lock , Activity } from 'lucide-react';
+, Tag , BookOpen , Scale , Clock , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 , Mail , LogOut , Sparkles , Lock , Activity } from 'lucide-react';
 import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
 
@@ -297,6 +297,11 @@ export default function Sidebar({
                         <div className="space-y-0.5 pl-2 border-l-2 border-white/5 ml-2">
                             <NavItem to="/reports" icon={BarChart2} label="All Reports" />
                             <NavItem to="/reports/financial" icon={PieChart} label="Financial Statements" />
+                            <NavItem to="/reports/day-book" icon={BookOpen} label="Day Book" />
+                            <NavItem to="/reports/trial-balance" icon={Scale} label="Trial Balance" />
+                            <NavItem to="/reports/aged-receivable" icon={Clock} label="Aged Receivable" />
+                            <NavItem to="/reports/aged-payable" icon={Clock} label="Aged Payable" />
+                            <NavItem to="/reports/outstanding-bills" icon={FileText} label="Outstanding Bills" />
                         </div>
                     )}
                 </div>
