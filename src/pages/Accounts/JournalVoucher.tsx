@@ -16,7 +16,7 @@ import {
     RotateCcw,
     ShieldAlert,
 } from 'lucide-react';
-import { getAccounts, DEFAULT_ACCOUNTS, type Account } from './ChartOfAccounts';
+import { getGLAccounts, type GLAccount } from '../../services/glService';
 import { authFetch } from '../../api/axios';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -284,13 +284,15 @@ const PLACEHOLDER_JV_NUMBER = 'Auto-assigned on save';
 // ── JV Form Component ─────────────────────────────────────────────────────────
 
 interface JVFormProps {
-    accounts: Account[];
+    accounts: GLAccount[];
+    accountsLoading: boolean;
+    accountsLoadError: string | null;
     editJV?: JournalVoucher;
     onSave: (jv: JournalVoucher, post: boolean) => void;
     onCancel: () => void;
 }
 
-function JVForm({ accounts, editJV, onSave, onCancel }: JVFormProps) {
+function JVForm({ accounts, accountsLoading, accountsLoadError, editJV, onSave, onCancel }: JVFormProps) {
     const [jvNumber] = useState(editJV?.jvNumber || PLACEHOLDER_JV_NUMBER);
     const [date, setDate] = useState(editJV?.date || new Date().toISOString().slice(0, 10));
     const [reference, setReference] = useState(editJV?.reference || '');
@@ -326,10 +328,12 @@ function JVForm({ accounts, editJV, onSave, onCancel }: JVFormProps) {
         }));
     };
 
-    const selectAccount = (lineId: string, account: Account) => {
+    const selectAccount = (lineId: string, account: GLAccount) => {
         setLines(prev => prev.map(l => l.id !== lineId ? l : {
-            ...l, accountId: account.id,
-            accountCode: account.code, accountName: account.name
+            ...l,
+            accountId: String(account.id),
+            accountCode: account.code,
+            accountName: account.name,
         }));
         setShowAcDrop(null);
         setAcSearch(prev => {
@@ -343,7 +347,13 @@ function JVForm({ accounts, editJV, onSave, onCancel }: JVFormProps) {
         setLines(prev => prev.filter(l => l.id !== id));
     };
 
+    const accountsReady = !accountsLoading && !accountsLoadError && accounts.length > 0;
+
     const handleSave = (post: boolean) => {
+        if (!accountsReady) {
+            alert(accountsLoadError || 'Chart of accounts is still loading. Please wait and try again.');
+            return;
+        }
         if (!narration.trim()) { alert('Narration is required.'); return; }
         if (lines.some(l => !l.accountId)) { alert('All lines must have an account selected.'); return; }
         if (lines.some(l => l.debit === 0 && l.credit === 0)) { alert('All lines must have a debit or credit amount.'); return; }
@@ -361,9 +371,9 @@ function JVForm({ accounts, editJV, onSave, onCancel }: JVFormProps) {
 
     const getFilteredAccounts = (search: string) => {
         const q = search.toLowerCase();
-        return accounts.filter(a =>
-            a.name.toLowerCase().includes(q) || a.code.includes(q)
-        ).slice(0, 15);
+        return accounts
+            .filter(a => a.name.toLowerCase().includes(q) || a.code.includes(q))
+            .slice(0, 15);
     };
 
     return (
@@ -399,8 +409,15 @@ function JVForm({ accounts, editJV, onSave, onCancel }: JVFormProps) {
             </div>
 
             <p style={{ fontSize: 10, color: 'var(--color-redwood-text-subtle)', fontStyle: 'italic' }}>
-                A line can be <strong>debit</strong> OR <strong>credit</strong> — clear one side to enter the other.
+                Each line is <strong>either</strong> a debit <strong>or</strong> a credit (not both). Put debits on some lines and matching credits on other lines until totals balance.
             </p>
+
+            {accountsLoading && (
+                <p style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>Loading chart of accounts…</p>
+            )}
+            {accountsLoadError && (
+                <p style={{ fontSize: 10, color: 'var(--color-brand-red-tint)' }}>{accountsLoadError}</p>
+            )}
 
             <div style={{ ...panel, padding: 0, overflow: 'hidden' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -443,8 +460,7 @@ function JVForm({ accounts, editJV, onSave, onCancel }: JVFormProps) {
                                             {getFilteredAccounts(acSearch[line.id] || '').map(ac => (
                                                 <button key={ac.id} type="button" onClick={() => selectAccount(line.id, ac)}
                                                     style={{ width: '100%', textAlign: 'left', padding: '8px 12px', fontSize: 10, background: 'transparent', border: 'none', borderBottom: '1px solid rgba(255,255,255,.04)', cursor: 'pointer', color: 'var(--color-redwood-text-main)', fontFamily: 'inherit' }}>
-                                                    <span style={{ fontFamily: 'ui-monospace,monospace', color: 'var(--color-redwood-text-muted)', marginRight: 6 }}>{ac.code}</span>
-                                                    {ac.name}
+                                                    {ac.code} — {ac.name}
                                                 </button>
                                             ))}
                                             {getFilteredAccounts(acSearch[line.id] || '').length === 0 && (
@@ -506,10 +522,10 @@ function JVForm({ accounts, editJV, onSave, onCancel }: JVFormProps) {
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <button type="button" onClick={() => handleSave(false)} style={ghostBtn}>
+                <button type="button" onClick={() => handleSave(false)} disabled={!accountsReady} style={{ ...ghostBtn, opacity: accountsReady ? 1 : 0.45 }}>
                     <FileText size={14} /> Save as Draft
                 </button>
-                <button type="button" onClick={() => handleSave(true)} disabled={!isBalanced} style={{ ...primaryBtn, opacity: isBalanced ? 1 : 0.45 }}>
+                <button type="button" onClick={() => handleSave(true)} disabled={!isBalanced || !accountsReady} style={{ ...primaryBtn, opacity: isBalanced && accountsReady ? 1 : 0.45 }}>
                     <Check size={14} /> Post Journal Entry
                 </button>
                 <button type="button" onClick={onCancel} style={{ ...ghostBtn, border: 'none', background: 'transparent' }}>Cancel</button>
@@ -620,7 +636,9 @@ function IssueTag({ label, tone }: { label: string; tone: 'red' | 'amber' | 'yel
 // ── Main Journal Voucher Page ─────────────────────────────────────────────────
 
 export default function JournalVoucher() {
-    const [accounts, setAccounts] = useState<Account[]>([]);
+    const [accounts, setAccounts] = useState<GLAccount[]>([]);
+    const [accountsLoading, setAccountsLoading] = useState(true);
+    const [accountsLoadError, setAccountsLoadError] = useState<string | null>(null);
     const [vouchers, setVouchers] = useState<JournalVoucher[]>([]);
     const [mode, setMode] = useState<'list' | 'new' | 'view'>('list');
     const [viewJV, setViewJV] = useState<JournalVoucher | null>(null);
@@ -634,12 +652,34 @@ export default function JournalVoucher() {
     const [dateTo, setDateTo] = useState(monthDefault.to);
 
     useEffect(() => {
-        let accs = getAccounts();
-        if (accs.length === 0) {
-            localStorage.setItem('chart_of_accounts', JSON.stringify(DEFAULT_ACCOUNTS));
-            accs = DEFAULT_ACCOUNTS;
-        }
-        setAccounts(accs);
+        let cancelled = false;
+        setAccountsLoading(true);
+        setAccountsLoadError(null);
+        getGLAccounts()
+            .then((rows) => {
+                if (cancelled) return;
+                const sorted = [...rows].sort((a, b) => a.code.localeCompare(b.code));
+                setAccounts(sorted);
+                if (sorted.length === 0) {
+                    setAccountsLoadError('No accounts found in the chart of accounts.');
+                }
+            })
+            .catch((e: unknown) => {
+                if (cancelled) return;
+                setAccounts([]);
+                const msg = e instanceof Error ? e.message : 'Could not load chart of accounts.';
+                setAccountsLoadError(msg);
+                console.warn('[JournalVoucher] Could not load accounts from API:', e);
+            })
+            .finally(() => {
+                if (!cancelled) setAccountsLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    useEffect(() => {
         getJournalVouchers().then(setVouchers);
     }, []);
 
@@ -777,7 +817,14 @@ export default function JournalVoucher() {
                     <p style={{ fontSize: 10, color: 'var(--color-redwood-text-subtle)', marginTop: 4 }}>Double-entry bookkeeping — total debits must equal total credits</p>
                 </div>
                 <div style={panel}>
-                    <JVForm accounts={accounts} editJV={reversalPrefill} onSave={handleSave} onCancel={() => { setMode('list'); setReversalPrefill(undefined); }} />
+                    <JVForm
+                        accounts={accounts}
+                        accountsLoading={accountsLoading}
+                        accountsLoadError={accountsLoadError}
+                        editJV={reversalPrefill}
+                        onSave={handleSave}
+                        onCancel={() => { setMode('list'); setReversalPrefill(undefined); }}
+                    />
                 </div>
             </div>
         );
