@@ -19,7 +19,7 @@ import {
     TrendingUp,
     User,
     MapPin
-, Tag , BookOpen , Scale , Clock , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 , Mail , LogOut , Sparkles , Lock , Activity } from 'lucide-react';
+, Tag , BookOpen , Scale , Clock , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 , Mail , LogOut , Sparkles , Lock , Activity , Inbox } from 'lucide-react';
 import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
 
@@ -207,6 +207,7 @@ export default function Sidebar({
                     Procurement
                 </div>
                 <NavItem to="/purchases/suppliers" icon={Users} label="Suppliers" />
+                <NavItem to="/receiving" icon={Inbox} label="Material Receipt (GRN)" />
 
                 <div>
                     <SectionHeader
@@ -218,7 +219,6 @@ export default function Sidebar({
                         <div className="space-y-0.5 pl-2 border-l-2 border-white/5 ml-2">
                             <NavItem to="/purchases" icon={FileText} label="Recent Orders" />
                             <NavItem to="/purchases/new" icon={Package} label="Create New PO" />
-                            <NavItem to="/receiving/new" icon={Truck} label="Material Receipt (GRN)" />
                         </div>
                     )}
                 </div>

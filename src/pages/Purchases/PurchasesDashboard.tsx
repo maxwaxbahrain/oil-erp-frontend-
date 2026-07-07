@@ -15,6 +15,7 @@ import {
     Sparkles,
     Eye,
     ChevronDown,
+    Inbox,
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { getPurchaseOrders, approvePurchaseOrder, rejectPurchaseOrder, markPOPaid, deletePurchaseOrder, updatePurchaseOrder, type PurchaseOrder } from '../../services/purchasesService';
@@ -579,6 +580,9 @@ const PurchasesDashboard = () => {
                         </p>
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <button type="button" onClick={() => navigate('/receiving')} style={{ ...ghostBtn, color: C.green, borderColor: 'rgba(34,197,94,.35)' }}>
+                            <Inbox size={14} /> Material Receipt (GRN)
+                        </button>
                         <button type="button" style={ghostBtn}>
                             <History size={14} /> Audit trail
                         </button>
