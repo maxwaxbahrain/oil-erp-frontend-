@@ -208,18 +208,16 @@ export const postGRN = async (grnId: string): Promise<PostGRNResult> => {
         );
     }
 
-    // FIX W3-1 — Per-item stock add via the backend `add-stock` endpoint.
-    // FIX W3-2 — Track per-item attempt/success/failure for UI surfacing.
     let attempted = 0;
     let succeeded = 0;
     const failures: PostGRNResult['failures'] = [];
     const skipped: PostGRNResult['skipped'] = [];
 
+    // Batch goods receipt — one backend call updates stock/cost and posts GL once.
+    const receiptLines: Array<{ productId: number; productName?: string; quantity: number; unitCost: number }> = [];
+
     for (const item of grn.items) {
         if (item.acceptedQty <= 0) {
-            // Skipped rejected lines don't count as failure — they're just
-            // not in scope for stock movement. We still record them so the
-            // UI can explain "X of Y items processed".
             skipped.push({ productName: item.productName, reason: 'zero-accepted' });
             continue;
         }
@@ -227,34 +225,83 @@ export const postGRN = async (grnId: string): Promise<PostGRNResult> => {
             skipped.push({ productName: item.productName, reason: 'no-productId' });
             continue;
         }
-        attempted++;
-        try {
-            const res = await authFetch(apiUrl(`products/${item.productId}/add-stock`), {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    quantity: item.acceptedQty,
-                    // Reference threads BOTH the GRN number AND warehouse so
-                    // Path B's audit trail (which Path A doesn't have) survives
-                    // into the backend's stock movement log.
-                    reference: `${grn.grnNumber} @ ${grn.warehouse}`,
-                }),
-            });
-            if (res.ok) {
-                succeeded++;
-            } else {
-                const text = await res.text().catch(() => '');
-                failures.push({
-                    productId: String(item.productId),
-                    productName: item.productName,
-                    reason: `HTTP ${res.status} ${text}`.trim(),
-                });
-            }
-        } catch (e) {
+        const productId = parseInt(String(item.productId), 10);
+        if (!Number.isFinite(productId)) {
+            skipped.push({ productName: item.productName, reason: 'no-productId' });
+            continue;
+        }
+        const unitCost = Number(item.unitCost);
+        if (!Number.isFinite(unitCost) || unitCost <= 0) {
             failures.push({
                 productId: String(item.productId),
                 productName: item.productName,
-                reason: e instanceof Error ? e.message : String(e),
+                reason: 'unit cost must be greater than zero for GL receipt posting',
+            });
+            continue;
+        }
+        receiptLines.push({
+            productId,
+            productName: item.productName,
+            quantity: item.acceptedQty,
+            unitCost,
+        });
+    }
+
+    attempted = receiptLines.length;
+
+    if (attempted === 0) {
+        const failSummary = failures.length
+            ? failures.map((f) => f.productName || f.productId).join(', ')
+            : skipped.filter((s) => s.reason === 'no-productId').map((s) => s.productName || 'unnamed line').join(', ');
+        throw new Error(
+            failures.length
+                ? `No stock was updated — all ${failures.length} item(s) failed: ${failSummary}`
+                : `No stock was updated — no line items had a linked product. Link products on the PO before receiving.`,
+        );
+    }
+
+    const supplierIdRaw = linkedPO?.supplierId;
+    let supplierId: number | undefined;
+    if (supplierIdRaw != null && /^\d+$/.test(String(supplierIdRaw))) {
+        supplierId = parseInt(String(supplierIdRaw), 10);
+    }
+
+    try {
+        const res = await authFetch(apiUrl('products/grn-receive'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                grnSourceId: grn.id,
+                supplierId,
+                receiptDate: grn.receivedDate,
+                reference: `${grn.grnNumber} @ ${grn.warehouse}`,
+                lines: receiptLines.map((line) => ({
+                    productId: line.productId,
+                    quantity: line.quantity,
+                    unitCost: line.unitCost,
+                })),
+            }),
+        });
+        if (res.ok) {
+            succeeded = attempted;
+        } else {
+            const text = await res.text().catch(() => '');
+            const reason = `HTTP ${res.status} ${text}`.trim();
+            for (const line of receiptLines) {
+                failures.push({
+                    productId: String(line.productId),
+                    productName: line.productName,
+                    reason,
+                });
+            }
+        }
+    } catch (e) {
+        const reason = e instanceof Error ? e.message : String(e);
+        for (const line of receiptLines) {
+            failures.push({
+                productId: String(line.productId),
+                productName: line.productName,
+                reason,
             });
         }
     }
