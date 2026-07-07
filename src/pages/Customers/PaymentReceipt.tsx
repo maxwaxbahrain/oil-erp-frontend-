@@ -14,8 +14,22 @@ import { generatePaymentReceiptPDF, type PaymentReceiptPDFInput } from '../../ut
 import { WORLD_CURRENCIES } from '../../constants/currencies';
 import { getSystemSettings } from '../../services/settingsService';
 import { formatDateOnly } from '../../utils/formatters';
-// ITEM 5H — Bank/Cash account dropdown sourced from Chart of Accounts.
-import { getAccounts, type Account } from '../Accounts/ChartOfAccounts';
+// ITEM 5H — Bank/Cash account dropdown from backend COA (cash_on_hand + bank).
+import { getGLAccounts, type GLAccount } from '../../services/glService';
+
+/** Backend payment lookup matches accounts.id; only cash_on_hand / bank system_keys pass validation. */
+const DEPOSIT_SYSTEM_KEYS = new Set(['cash_on_hand', 'bank']);
+
+function filterDepositAccounts(rows: GLAccount[]): GLAccount[] {
+  return rows.filter((a) => a.system_key != null && DEPOSIT_SYSTEM_KEYS.has(a.system_key));
+}
+
+function defaultDepositAccountId(accounts: GLAccount[]): string {
+  const bank = accounts.find((a) => a.system_key === 'bank');
+  const cash = accounts.find((a) => a.system_key === 'cash_on_hand');
+  const pick = bank ?? cash ?? accounts[0];
+  return pick ? String(pick.id) : '';
+}
 
 interface PaymentReceiptProps {
   customer: Customer;
@@ -57,11 +71,11 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
   const [unpaidInvoices, setUnpaidInvoices] = useState<Invoice[]>([]);
   const [advanceBalance, setAdvanceBalance] = useState<number>(0);
 
-  // ITEM 5H — Bank/Cash accounts loaded from COA (1110 "Cash & Bank"
-  // and any of its descendants). User picks which account the payment
-  // lands in. Forwarded as `deposit_account_id` on the payment payload.
-  const [bankAccounts, setBankAccounts] = useState<Account[]>([]);
+  // ITEM 5H — Cash/bank GL accounts from GET /api/accounts/ (real DB ids).
+  const [bankAccounts, setBankAccounts] = useState<GLAccount[]>([]);
   const [depositAccountId, setDepositAccountId] = useState<string>('');
+  const [accountsLoading, setAccountsLoading] = useState(true);
+  const [accountsLoadError, setAccountsLoadError] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -73,30 +87,36 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
   useEffect(() => {
     loadInvoices();
     loadAdvanceBalance();
-    // ITEM 5H — Load bank/cash accounts. Walk parent chain to find
-    // anything under 1110 "Cash & Bank" (handles arbitrary nesting).
-    try {
-      const all = getAccounts();
-      const isUnderCashBank = (a: Account): boolean => {
-        if (a.id === '1110') return true;
-        let pid = a.parentId;
-        while (pid) {
-            if (pid === '1110') return true;
-            const parent = all.find(x => x.id === pid);
-            pid = parent ? parent.parentId : null;
+  }, [customer.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setAccountsLoading(true);
+    setAccountsLoadError(null);
+    getGLAccounts()
+      .then((rows) => {
+        if (cancelled) return;
+        const depositTargets = filterDepositAccounts(rows);
+        setBankAccounts(depositTargets);
+        setDepositAccountId(defaultDepositAccountId(depositTargets));
+        if (depositTargets.length === 0) {
+          setAccountsLoadError('No cash or bank accounts are configured in the chart of accounts.');
         }
-        return false;
-      };
-      const bank = all.filter(isUnderCashBank);
-      setBankAccounts(bank);
-      // Auto-select: prefer first sub-account of 1110; fall back to 1110 itself.
-      const firstChild = bank.find(a => a.parentId === '1110');
-      const fallback = bank.find(a => a.id === '1110');
-      const initial = firstChild?.id || fallback?.id || '';
-      setDepositAccountId(initial);
-    } catch (e) {
-      console.warn('Could not load bank accounts from Chart of Accounts:', e);
-    }
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        setBankAccounts([]);
+        setDepositAccountId('');
+        const msg = e instanceof Error ? e.message : 'Could not load chart of accounts.';
+        setAccountsLoadError(msg);
+        console.warn('Could not load deposit accounts from API:', e);
+      })
+      .finally(() => {
+        if (!cancelled) setAccountsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [customer.id]);
 
   // FIX #2B — the outstanding set is EXACTLY what the API returns via
@@ -175,8 +195,20 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openInvoices.length]);
 
+  const depositReady =
+    !accountsLoading && !accountsLoadError && bankAccounts.length > 0 && depositAccountId !== '';
+  const submitDisabled = loading || !depositReady;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!depositReady) {
+      alert(
+        accountsLoadError ||
+          'Deposit account is not available. Configure cash/bank accounts in Finance → Chart of Accounts, then reload.'
+      );
+      return;
+    }
 
     // FIX #2B — validate against the combined total (invoices + opening line).
     const hasInvoices = selectedInvoiceIds.length > 0;
@@ -689,17 +721,19 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
             </select>
           </div>
 
-          {/* ITEM 5H — Deposit Account selector sourced from Chart of
-              Accounts (1110 "Cash & Bank" subtree). Tells the ledger
-              which account received the cash. Empty state when no
-              sub-accounts are set up under 1110. */}
+          {/* ITEM 5H — Deposit account from backend COA (cash_on_hand / bank). */}
           <div className="space-y-3">
             <label className="block text-xs font-black text-gray-600 ">
               Deposit To Account <span className="text-red-500">*</span>
             </label>
-            {bankAccounts.length === 0 ? (
+            {accountsLoading ? (
+              <div className="px-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-lg text-xs text-gray-600">
+                Loading cash and bank accounts…
+              </div>
+            ) : accountsLoadError || bankAccounts.length === 0 ? (
               <div className="px-4 py-3 bg-amber-50 border-2 border-amber-200 rounded-lg text-xs text-amber-800">
-                No bank or cash accounts configured. Set up sub-accounts under <strong>Finance → Chart of Accounts → Cash &amp; Bank (1110)</strong>.
+                {accountsLoadError ||
+                  'No cash or bank accounts found. Add accounts with system keys cash_on_hand or bank in Finance → Chart of Accounts.'}
               </div>
             ) : (
                 <select
@@ -709,7 +743,7 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
                     className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-sm font-bold focus:border-[#4F8EF7] focus:ring-4 focus:ring-[#4F8EF7]/10 outline-none transition-all bg-white"
                 >
                     {bankAccounts.map(a => (
-                        <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+                        <option key={a.id} value={String(a.id)}>{a.code} — {a.name}</option>
                     ))}
                 </select>
             )}
@@ -768,7 +802,7 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
           </button>
           <button
             type="submit"
-            disabled={loading}
+            disabled={submitDisabled}
             style={{
                 background: '#4F8EF7',
                 color: '#fff',
@@ -777,8 +811,8 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
                 padding: '8px 20px',
                 fontSize: 12,
                 fontWeight: 600,
-                cursor: loading ? 'not-allowed' : 'pointer',
-                opacity: loading ? 0.5 : 1,
+                cursor: submitDisabled ? 'not-allowed' : 'pointer',
+                opacity: submitDisabled ? 0.5 : 1,
                 display: 'flex',
                 alignItems: 'center',
                 gap: 8,
@@ -786,7 +820,7 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
             }}
           >
             <CreditCard size={14} />
-            {loading ? 'Recording...' : 'Record Payment'}
+            {loading ? 'Recording...' : accountsLoading ? 'Loading accounts…' : 'Record Payment'}
           </button>
         </div>
       </form>
@@ -960,12 +994,12 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
           <button
             type="submit"
             form="payment-form"
-            disabled={loading}
+            disabled={submitDisabled}
             style={{
                 width: '100%', background: '#4F8EF7', color: '#fff', border: 'none',
                 borderRadius: 8, padding: '9px 14px', fontSize: 12, fontWeight: 600,
-                cursor: loading ? 'not-allowed' : 'pointer',
-                opacity: loading ? 0.7 : 1,
+                cursor: submitDisabled ? 'not-allowed' : 'pointer',
+                opacity: submitDisabled ? 0.7 : 1,
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
                 fontFamily: 'inherit',
             }}
