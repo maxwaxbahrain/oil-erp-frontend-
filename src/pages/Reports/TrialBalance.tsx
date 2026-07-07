@@ -14,7 +14,7 @@ interface TrialEntry {
 }
 
 const GL_COVERAGE_NOTE =
-    'Generated from the general ledger. Reflects invoices, customer payments, expenses, and opening balances. Supplier payments and purchase/AP postings are not yet in the GL and are excluded.';
+    'Generated from the general ledger. Includes invoices, customer payments, expenses, opening balances, goods receipts (GRN), and supplier payments.';
 
 function asOfForPeriod(period: 'month' | 'quarter' | 'year'): string {
     const now = new Date();
