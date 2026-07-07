@@ -17,7 +17,7 @@ import {
     ChevronDown,
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { getPurchaseOrders, approvePurchaseOrder, rejectPurchaseOrder, confirmGRN, markPOPaid, deletePurchaseOrder, updatePurchaseOrder, type PurchaseOrder } from '../../services/purchasesService';
+import { getPurchaseOrders, approvePurchaseOrder, rejectPurchaseOrder, markPOPaid, deletePurchaseOrder, updatePurchaseOrder, type PurchaseOrder } from '../../services/purchasesService';
 import { formatDateOnly } from '../../utils/formatters';
 
 const PO_DATE_FMT = { day: 'numeric', month: 'short', year: 'numeric' } as const;
@@ -165,7 +165,7 @@ const PurchasesDashboard = () => {
             const updated = await getPurchaseOrders();
             setPurchaseOrders(updated);
             setReviewPO(null);
-            setSuccessMessage('✅ PO Approved! Warehouse can now confirm Goods Received.');
+            setSuccessMessage('✅ PO Approved! Receive goods via Inventory → Material Receipt.');
             setShowSuccess(true);
             setTimeout(() => setShowSuccess(false), 5000);
         } catch (e: any) { alert('Error: ' + e.message); }
@@ -185,45 +185,8 @@ const PurchasesDashboard = () => {
         } catch (e: any) { alert('Error: ' + e.message); }
     };
 
-    const handleGRN = async (id: string) => {
-        const targetPO = purchaseOrders.find(o => String(o.id) === String(id));
-        const allItems = targetPO?.items || [];
-        const unlinked = allItems.filter(it => !it.productId);
-        const linkedCount = allItems.length - unlinked.length;
-        let prompt = 'Confirm Goods Received (GRN)?\n\nThis will INCREASE warehouse stock for all items in this PO.';
-        if (unlinked.length > 0) {
-            const names = unlinked.map(it => it.productName || '(unnamed line)');
-            const list = names.length <= 5
-                ? names.join('\n  • ')
-                : `${names.slice(0, 5).join('\n  • ')}\n  • +${names.length - 5} more`;
-            prompt = `⚠️ Warning — ${unlinked.length} of ${allItems.length} line item(s) have no product linked and will NOT update inventory:\n\n  • ${list}\n\nOnly ${linkedCount} item(s) will affect stock.\n\nContinue with GRN anyway?`;
-        }
-        if (!confirm(prompt)) return;
-        try {
-            const result = await confirmGRN(id);
-            const updated = await getPurchaseOrders();
-            setPurchaseOrders(updated);
-
-            const failNames = result.failures
-                .map(f => f.productName || f.productId);
-            const skipNames = result.skipped.map(s => s.productName || '(unnamed line)');
-            const truncate = (xs: string[]) =>
-                xs.length <= 5 ? xs.join(', ') : `${xs.slice(0, 5).join(', ')} +${xs.length - 5} more`;
-
-            let msg: string;
-            if (result.failures.length === 0 && result.skipped.length === 0) {
-                msg = '✅ GRN Confirmed! Warehouse stock has been updated.';
-            } else if (result.failures.length === 0 && result.skipped.length > 0) {
-                msg = `⚠️ GRN posted. ${result.succeeded}/${result.attempted} items updated. ${result.skipped.length} line(s) had no product link and were skipped: ${truncate(skipNames)}.`;
-            } else if (result.succeeded === 0) {
-                msg = `❌ GRN posted but NO stock was updated. ${result.failures.length} item(s) failed: ${truncate(failNames)}.`;
-            } else {
-                msg = `⚠️ Stock updated for ${result.succeeded}/${result.attempted} items. Failed: ${truncate(failNames)}.`;
-            }
-            setSuccessMessage(msg);
-            setShowSuccess(true);
-            setTimeout(() => setShowSuccess(false), result.failures.length || result.skipped.length ? 9000 : 5000);
-        } catch (e: any) { alert('Error: ' + e.message); }
+    const goToMaterialReceipt = (poId: string) => {
+        navigate(`/receiving/new?poId=${encodeURIComponent(poId)}`);
     };
 
     const handleMarkPaid = async (id: string) => {
@@ -503,8 +466,8 @@ const PurchasesDashboard = () => {
         if (order.status === 'Approved') {
             return (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-                    <button type="button" onClick={(e) => { e.stopPropagation(); handleGRN(order.id); }} style={actionBtn(C.green)}>
-                        Confirm GRN
+                    <button type="button" onClick={(e) => { e.stopPropagation(); goToMaterialReceipt(order.id); }} style={actionBtn(C.green)}>
+                        Receive goods
                     </button>
                     <button type="button" onClick={(e) => { e.stopPropagation(); setReviewPO(order); }} style={{ ...ghostBtn, padding: '4px 8px', fontSize: 9.5 }}>
                         <Eye size={11} /> View

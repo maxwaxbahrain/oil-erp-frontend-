@@ -9,7 +9,6 @@ import {
     Download,
     X,
     Eye,
-    CheckCircle,
     Receipt,
     Save,
     Package,
@@ -30,7 +29,6 @@ import {
     getCompanyProfile, getSystemSettings, formatCurrency} from '../../services/settingsService';
 import {
     createSupplierPayment,
-    updatePurchaseOrder,
     updateSupplier,
     type Supplier,
     type PurchaseOrder,
@@ -55,6 +53,28 @@ function todayIsoLocal(): string {
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
     return `${y}-${m}-${day}`;
+}
+
+function poWorkflowStatusBadge(status: string): { label: string; bg: string; color: string } {
+    switch (status) {
+        case 'Pending':
+        case 'Draft':
+            return { label: 'Pending approval', bg: 'rgba(245,158,11,.12)', color: '#B45309' };
+        case 'Approved':
+            return { label: 'Approved', bg: 'rgba(79,142,247,.12)', color: '#2563EB' };
+        case 'GRN':
+            return { label: 'Goods received', bg: 'rgba(34,197,94,.12)', color: '#16A34A' };
+        case 'Received':
+            return { label: 'Received (legacy)', bg: 'rgba(34,197,94,.12)', color: '#16A34A' };
+        case 'Paid':
+            return { label: 'Paid', bg: 'rgba(59,130,246,.12)', color: '#1D4ED8' };
+        case 'Completed':
+            return { label: 'Completed', bg: 'rgba(34,197,94,.12)', color: '#16A34A' };
+        case 'Rejected':
+            return { label: 'Rejected', bg: 'rgba(239,68,68,.12)', color: '#B91C1C' };
+        default:
+            return { label: status || 'Unknown', bg: 'rgba(255,255,255,.06)', color: 'var(--t2,#8BA3C7)' };
+    }
 }
 
 /** Map backend PartyLedgerRow → display row; running_balance from API only. */
@@ -188,7 +208,6 @@ export default function SupplierDetail() {
         else if (showEditModal) setShowEditModal(false);
         else if (showPaymentModal) setShowPaymentModal(false);
     }, showPaymentModal || showEditModal || showPOModal);
-    const [converting, setConverting] = useState<string | null>(null);
     const [showShareMenu, setShowShareMenu] = useState(false);
 
     // Payment Form state
@@ -442,19 +461,8 @@ export default function SupplierDetail() {
         }
     };
 
-    const handleConvertOrder = async (orderId: string) => {
-        try {
-            setConverting(orderId);
-            await updatePurchaseOrder(orderId, { status: 'Received' });
-            await loadAllData();
-            await loadLedger(fromDate || undefined, toDate || undefined);
-            alert('✅ Order converted to Purchase Order successfully!');
-        } catch (error) {
-            console.error('Failed to convert order:', error);
-            alert('❌ Failed to convert order');
-        } finally {
-            setConverting(null);
-        }
+    const goToMaterialReceipt = (poId: string) => {
+        navigate(`/receiving/new?poId=${encodeURIComponent(poId)}`);
     };
 
     if (loading) {
@@ -1364,15 +1372,14 @@ export default function SupplierDetail() {
                                                             {(po.items?.length ?? 0)} {(po.items?.length ?? 0) === 1 ? 'Item' : 'Items'}
                                                         </td>
                                                         <td style={{ ...ledgerTdStyle, textAlign: 'center' }}>
-                                                            {po.status === 'Pending' || po.status === 'Draft' ? (
-                                                                <span style={{ padding: '2px 8px', borderRadius: 8, fontSize: 9, fontWeight: 700, background: 'rgba(245,158,11,.12)', color: '#B45309', textTransform: 'uppercase', letterSpacing: '.4px' }}>
-                                                                    🟡 Pending
-                                                                </span>
-                                                            ) : (
-                                                                <span style={{ padding: '2px 8px', borderRadius: 8, fontSize: 9, fontWeight: 700, background: 'rgba(34,197,94,.12)', color: '#16A34A', textTransform: 'uppercase', letterSpacing: '.4px' }}>
-                                                                    🟢 Received
-                                                                </span>
-                                                            )}
+                                                            {(() => {
+                                                                const badge = poWorkflowStatusBadge(po.status);
+                                                                return (
+                                                                    <span style={{ padding: '2px 8px', borderRadius: 8, fontSize: 9, fontWeight: 700, background: badge.bg, color: badge.color, textTransform: 'uppercase', letterSpacing: '.4px' }}>
+                                                                        {badge.label}
+                                                                    </span>
+                                                                );
+                                                            })()}
                                                         </td>
                                                         <td style={{ ...ledgerTdStyle, textAlign: 'center' }}>
                                                             {(() => {
@@ -1416,16 +1423,23 @@ export default function SupplierDetail() {
                                                                 {(po.status === 'Pending' || po.status === 'Draft') && (
                                                                     <button
                                                                         type="button"
-                                                                        onClick={() => handleConvertOrder(po.id)}
-                                                                        disabled={converting === po.id}
-                                                                        style={{ padding: '4px 9px', background: '#22C55E', color: '#fff', borderRadius: 6, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, opacity: converting === po.id ? 0.5 : 1, fontFamily: 'inherit' }}
+                                                                        onClick={() => navigate('/purchases')}
+                                                                        style={{ padding: '4px 9px', background: '#F59E0B', color: '#fff', borderRadius: 6, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, fontFamily: 'inherit' }}
+                                                                        title="Approve this PO on the Purchases dashboard before receiving goods"
                                                                     >
-                                                                        {converting === po.id ? '...' : (
-                                                                            <>
-                                                                                <CheckCircle size={11} />
-                                                                                Receive
-                                                                            </>
-                                                                        )}
+                                                                        <Clock size={11} />
+                                                                        Approve first
+                                                                    </button>
+                                                                )}
+                                                                {po.status === 'Approved' && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => goToMaterialReceipt(po.id)}
+                                                                        style={{ padding: '4px 9px', background: '#22C55E', color: '#fff', borderRadius: 6, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, fontFamily: 'inherit' }}
+                                                                        title="Open Material Receipt to receive goods into inventory"
+                                                                    >
+                                                                        <Package size={11} />
+                                                                        Receive
                                                                     </button>
                                                                 )}
                                                             </div>

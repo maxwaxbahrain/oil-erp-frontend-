@@ -557,8 +557,16 @@ export const confirmGRN = async (id: string): Promise<GRNResult> => {
         }
     }
 
-    // CLEANUP — removed dev console.log; W3-2 banner surfaces the same
-    // counts (succeeded/attempted/failed/skipped) to the UI now.
+    if (succeeded === 0) {
+        const failSummary = failures.length
+            ? failures.map((f) => f.productName || f.productId).join(', ')
+            : skipped.filter((s) => s.reason === 'no-productId').map((s) => s.productName || 'unnamed line').join(', ');
+        throw new Error(
+            failures.length
+                ? `No stock was updated — all ${failures.length} item(s) failed: ${failSummary}`
+                : `No stock was updated — no line items had a linked product. Link products on the PO before receiving.`,
+        );
+    }
 
     const updatedPO = await updatePurchaseOrder(id, {
         status: 'GRN',
