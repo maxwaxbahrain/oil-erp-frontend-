@@ -279,7 +279,7 @@ export default function InventoryReports() {
 
     const handleTabClick = (tab: PageTab) => {
         if (tab === 'stock-adjustment') {
-            navigate('/products');
+            navigate('/inventory/adjustments');
             return;
         }
         setActiveTab(tab);
@@ -519,6 +519,15 @@ export default function InventoryReports() {
                             {reports.map(report => (
                                 <div
                                     key={report.id}
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={() => void runReport(report.id)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                            e.preventDefault();
+                                            void runReport(report.id);
+                                        }
+                                    }}
                                     style={{
                                         background: 'rgba(11,17,32,.65)',
                                         border: '1px solid rgba(255,255,255,.07)',
@@ -528,6 +537,7 @@ export default function InventoryReports() {
                                         flexDirection: 'column',
                                         gap: 10,
                                         minHeight: 180,
+                                        cursor: 'pointer',
                                     }}
                                 >
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -543,7 +553,10 @@ export default function InventoryReports() {
                                         <span style={{ fontSize: 8, fontWeight: 600, color: C.dim, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Run on demand</span>
                                         <button
                                             type="button"
-                                            onClick={() => void runReport(report.id)}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                void runReport(report.id);
+                                            }}
                                             style={{
                                                 ...ghostBtn,
                                                 padding: '5px 10px',
@@ -714,6 +727,44 @@ export default function InventoryReports() {
                     </div>
                     <button type="button" onClick={() => setActiveTab('material-audit')} style={{ ...ghostBtn, color: '#C4B5FD', borderColor: 'rgba(155,111,228,.35)', background: 'rgba(155,111,228,.12)' }}>
                         Open material audit <ChevronRight size={12} />
+                    </button>
+                </div>
+            )}
+
+            {activeTab === 'forecasting' && (
+                <div style={{ ...panel, padding: '14px 16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                        <PieChart size={16} style={{ color: C.purple }} />
+                        <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>Demand forecasting</div>
+                    </div>
+                    <div style={{ fontSize: 10, color: C.muted, lineHeight: 1.5, marginBottom: 12 }}>
+                        30/60/90-day demand projections and reorder recommendations from live inventory calculations. Opens in the report viewer when you run it.
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => void runReport('forecast')}
+                        style={{ ...ghostBtn, color: '#C4B5FD', borderColor: 'rgba(155,111,228,.35)', background: 'rgba(155,111,228,.12)' }}
+                    >
+                        Run forecasting report <ArrowRight size={12} />
+                    </button>
+                </div>
+            )}
+
+            {activeTab === 'supplier-accuracy' && (
+                <div style={{ ...panel, padding: '14px 16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                        <TrendingUp size={16} style={{ color: C.amber }} />
+                        <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>Supplier accuracy</div>
+                    </div>
+                    <div style={{ fontSize: 10, color: C.muted, lineHeight: 1.5, marginBottom: 12 }}>
+                        Lead-time, on-time delivery, and quality performance audit across suppliers. Opens in the report viewer when you run it.
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => void runReport('supplier')}
+                        style={{ ...ghostBtn, color: '#C4B5FD', borderColor: 'rgba(155,111,228,.35)', background: 'rgba(155,111,228,.12)' }}
+                    >
+                        Run supplier accuracy report <ArrowRight size={12} />
                     </button>
                 </div>
             )}
