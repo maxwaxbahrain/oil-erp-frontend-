@@ -417,16 +417,29 @@ export async function saveProduct(product: Partial<Product>): Promise<Product> {
         seo: product.seo ?? { metaTitle: '', metaDescription: '', keywords: '' },
         leadTimeDays: product.leadTimeDays ?? 0,
         minOrderQty: product.minOrderQty ?? 0,
-        locations: product.locations ?? [
-            {
-                id: 'LOC-001',
-                name: 'Main Warehouse',
-                type: 'Warehouse',
-                currentStock: serverRow.stock ?? 0,
-                reorderPoint: 0,
-                maxStock: 1000,
-            },
-        ],
+        locations: (() => {
+            const inputLocations = product.locations ?? [
+                {
+                    id: 'LOC-001',
+                    name: 'Main Warehouse',
+                    type: 'Warehouse' as const,
+                    currentStock: serverRow.stock ?? 0,
+                    reorderPoint: 0,
+                    maxStock: 1000,
+                },
+            ];
+            const serverStock = Number(serverRow.stock ?? 0);
+            if (inputLocations.length === 0) {
+                return inputLocations;
+            }
+            const mainIdx = inputLocations.findIndex(
+                (loc) => loc.id === 'LOC-001' || /^main warehouse$/i.test((loc.name || '').trim()),
+            );
+            const idx = mainIdx >= 0 ? mainIdx : 0;
+            return inputLocations.map((loc, i) =>
+                i === idx ? { ...loc, currentStock: serverStock } : loc,
+            );
+        })(),
     } as Product;
 
     // Update local cache AFTER the API succeeds. Cache failures are

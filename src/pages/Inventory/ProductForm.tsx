@@ -93,6 +93,17 @@ export default function ProductForm() {
             return;
         }
 
+        const totalStock = getTotalStockFromLocations(formData.locations);
+        if (!isEdit && totalStock === 0) {
+            const unitsPerPack = Number(formData.quantityPerUnit) || 0;
+            const message = unitsPerPack > 0
+                ? `Initial stock is 0, but you entered ${unitsPerPack} in "Units per pack" — that field is NOT inventory stock.\n\nEnter quantity in "Initial stock (units)" (section 4), or save with 0 stock anyway?`
+                : 'Initial stock is 0 — did you mean to add stock? Enter it in "Initial stock (units)" in section 4.\n\nSave anyway with 0 stock?';
+            if (!window.confirm(message)) {
+                return;
+            }
+        }
+
         try {
             setLoading(true);
             await saveProduct(formData);
@@ -144,6 +155,12 @@ export default function ProductForm() {
 
     const isMainLocation = (loc: ProductLocation) =>
         loc.id === 'LOC-001' || /^main warehouse$/i.test((loc.name || '').trim());
+
+    const getTotalStockFromLocations = (locations?: ProductLocation[]) =>
+        (locations ?? []).reduce((sum, loc) => sum + (Number(loc.currentStock) || 0), 0);
+
+    const mainLocation =
+        formData.locations?.find((loc) => isMainLocation(loc)) ?? formData.locations?.[0];
 
     const addStoreLocation = () => {
         const newLoc: ProductLocation = {
@@ -433,8 +450,8 @@ export default function ProductForm() {
                             </div>
                             <div>
                                 <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest block mb-3 pl-1">
-                                    Qty per Unit:
-                                    <InfoTooltip text="For bundled products. Example: 1 Box = 24 pieces" />
+                                    Units per pack:
+                                    <InfoTooltip text="Pack size only — e.g. 1 box = 24 bottles. This is NOT your warehouse stock count." />
                                 </label>
                                 <input
                                     type="number"
@@ -443,6 +460,9 @@ export default function ProductForm() {
                                     className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 focus:bg-white rounded-2xl px-8 py-5 text-sm font-bold transition-all outline-none"
                                     placeholder="1"
                                 />
+                                <p className="text-[10px] text-gray-400 mt-2 pl-1">
+                                    Not inventory stock — enter opening quantity in section 4, &ldquo;Initial stock (units)&rdquo;.
+                                </p>
                             </div>
                         </div>
                     </div>
@@ -533,8 +553,44 @@ export default function ProductForm() {
                                 <PlusCircle size={14} /> How many units are you adding to each location?
                             </p>
 
+                            {!isEdit && mainLocation && (
+                                <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-6 space-y-3">
+                                    <label className="text-[11px] font-black text-amber-900 uppercase tracking-widest block pl-1">
+                                        Initial stock (units)
+                                    </label>
+                                    <p className="text-[10px] text-amber-800/80 pl-1 leading-relaxed">
+                                        Opening quantity for {mainLocation.name || 'Main Warehouse'}. This is saved as product stock on the server — not the same as &ldquo;Units per pack&rdquo; above.
+                                    </p>
+                                    <input
+                                        type="number"
+                                        inputMode="numeric"
+                                        min={0}
+                                        value={mainLocation.currentStock ?? ''}
+                                        onChange={(e) =>
+                                            updateLocation(mainLocation.id, {
+                                                currentStock:
+                                                    e.target.value === ''
+                                                        ? undefined
+                                                        : parseInt(e.target.value, 10),
+                                            })
+                                        }
+                                        className="w-full max-w-xs bg-white border-2 border-amber-300 focus:border-amber-500 rounded-2xl px-6 py-4 text-lg font-black outline-none"
+                                        placeholder="e.g. 50"
+                                    />
+                                </div>
+                            )}
+
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                {formData.locations?.map((loc) => (
+                                {formData.locations?.map((loc) => {
+                                    const locationPanelOpen = openLocationId === loc.id;
+                                    const showStockInCard =
+                                        isEdit
+                                            ? locationPanelOpen
+                                            : isMainLocation(loc)
+                                              ? false
+                                              : locationPanelOpen;
+
+                                    return (
                                     <div key={loc.id} className="bg-gray-50 p-8 rounded-3xl border border-transparent hover:border-gray-200 transition-all">
                                         <button
                                             type="button"
@@ -569,7 +625,30 @@ export default function ProductForm() {
                                                 </button>
                                             )}
                                         </div>
-                                        {openLocationId === loc.id && (
+                                        {showStockInCard && (
+                                            <div className="mb-4">
+                                                <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1.5 pl-1">
+                                                    {isMainLocation(loc) ? 'Initial stock (units)' : 'Stock at this location'}
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    inputMode="numeric"
+                                                    min={0}
+                                                    value={loc.currentStock ?? ''}
+                                                    onChange={(e) =>
+                                                        updateLocation(loc.id, {
+                                                            currentStock:
+                                                                e.target.value === ''
+                                                                    ? undefined
+                                                                    : parseInt(e.target.value, 10),
+                                                        })
+                                                    }
+                                                    className="w-full bg-white border border-gray-100 rounded-xl px-4 py-3 text-xs font-bold outline-none focus:border-gray-900"
+                                                    placeholder="0"
+                                                />
+                                            </div>
+                                        )}
+                                        {locationPanelOpen && (
                                             <div className="space-y-4">
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                     <div>
@@ -627,17 +706,6 @@ export default function ProductForm() {
                                                     </div>
                                                 </div>
                                                 <div>
-                                                    <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1.5 pl-1">Quantity:</label>
-                                                    <input
-                                                        type="number"
-                                                        inputMode="numeric"
-                                                        value={loc.currentStock ?? ''}
-                                                        onChange={e => updateLocation(loc.id, { currentStock: e.target.value === '' ? undefined : parseInt(e.target.value, 10) })}
-                                                        className="w-full bg-white border border-gray-100 rounded-xl px-4 py-3 text-xs font-bold outline-none focus:border-gray-900"
-                                                        placeholder="0"
-                                                    />
-                                                </div>
-                                                <div>
                                                     <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1.5 pl-1">Reorder Pt:</label>
                                                     <input
                                                         type="number"
@@ -651,7 +719,8 @@ export default function ProductForm() {
                                             </div>
                                         )}
                                     </div>
-                                ))}
+                                    );
+                                })}
                             </div>
 
                             <div className="flex flex-wrap gap-3 justify-start">
@@ -679,14 +748,14 @@ export default function ProductForm() {
                                     <div>
                                         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Total Initial Quantity</p>
                                         <p className="text-3xl font-black text-white tracking-tighter">
-                                            {formData.locations?.reduce((sum, loc) => sum + (loc.currentStock || 0), 0)} Units
+                                            {getTotalStockFromLocations(formData.locations)} Units
                                         </p>
                                     </div>
                                 </div>
                                 <div className="text-right">
                                     <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Total Value</p>
                                     <p className="text-3xl font-black text-emerald-400 tracking-tighter">
-                                        {formatCurrency((formData.locations?.reduce((sum, loc) => sum + (loc.currentStock || 0), 0) || 0) * (formData.pricing?.purchasePriceExWorks || 0))}
+                                        {formatCurrency(getTotalStockFromLocations(formData.locations) * (formData.pricing?.purchasePriceExWorks || 0))}
                                     </p>
                                 </div>
                             </div>
