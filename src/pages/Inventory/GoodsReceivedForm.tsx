@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, type CSSProperties } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
     ArrowLeft,
     Inbox,
@@ -171,6 +171,8 @@ function SectionHeader({ num, title }: { num: number; title: string }) {
 export default function GoodsReceivedForm() {
     const navigate = useNavigate();
     const { id } = useParams();
+    const [searchParams] = useSearchParams();
+    const poIdParam = searchParams.get('poId')?.trim() || '';
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [posting, setPosting] = useState(false);
@@ -184,6 +186,7 @@ export default function GoodsReceivedForm() {
     const [pendingPOs, setPendingPOs] = useState<PurchaseOrder[]>([]);
     const [selectedPOId, setSelectedPOId] = useState('');
     const [showPOSelector, setShowPOSelector] = useState(false);
+    const [poQueryUnavailable, setPoQueryUnavailable] = useState(false);
 
     const [condition, setCondition] = useState<ConditionKey>('good');
     const [deliveryNote, setDeliveryNote] = useState('');
@@ -198,7 +201,7 @@ export default function GoodsReceivedForm() {
 
     useEffect(() => {
         loadData();
-    }, [id]);
+    }, [id, poIdParam]);
 
     const loadData = async () => {
         setLoading(true);
@@ -219,7 +222,19 @@ export default function GoodsReceivedForm() {
                 const pos = await getPendingPurchaseOrders();
                 setPendingPOs(pos);
                 setShowPOSelector(true);
-                if (pos.length > 0) setSelectedPOId(pos[0].id);
+                setPoQueryUnavailable(false);
+                if (pos.length > 0) {
+                    const matched = poIdParam && pos.find((p) => String(p.id) === poIdParam);
+                    if (matched) {
+                        setSelectedPOId(String(matched.id));
+                    } else {
+                        if (poIdParam) setPoQueryUnavailable(true);
+                        setSelectedPOId(pos[0].id);
+                    }
+                } else {
+                    setSelectedPOId('');
+                    if (poIdParam) setPoQueryUnavailable(true);
+                }
             }
         } catch (error) {
             console.error('Error loading data:', error);
@@ -641,6 +656,11 @@ export default function GoodsReceivedForm() {
                             </div>
                         ) : showPOSelector ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                {poQueryUnavailable && (
+                                    <p style={{ margin: 0, fontSize: 10, color: C.amber, lineHeight: 1.45 }}>
+                                        That PO isn&apos;t available to receive — it may not be approved yet or was already received. Select another order below.
+                                    </p>
+                                )}
                                 {pendingPOs.map((po, idx) => {
                                     const isSelected = selectedPOId === po.id;
                                     const isDisabledStyle = !isSelected && Boolean(selectedPOId);
