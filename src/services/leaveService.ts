@@ -1,10 +1,9 @@
+// Leave management — tenant-scoped HR API (Phase 2c)
 
+import { API_BASE_URL } from './api';
+import { authFetch } from '../api/axios';
 
-// ==========================================
-// 🏖️ ENTERPRISE LEAVE MANAGEMENT ENGINE
-// Module 4: Integrated Leave Management
-// ==========================================
-
+// Legacy display types (payrollService still imports these)
 export type LeaveType =
     | 'Paid Time Off'
     | 'Sick Leave'
@@ -16,244 +15,239 @@ export type LeaveType =
 
 export type LeaveStatus = 'Pending' | 'Approved' | 'Rejected' | 'Cancelled';
 
-export interface LeavePolicy {
-    leaveType: LeaveType;
-    annualQuota: number; // Days per year
-    accrualRate: 'Monthly' | 'Annualy' | 'Upfront';
-    canCarryForward: boolean;
-    maxCarryForwardDays: number;
-    requiresApproval: boolean;
-    minNoticeDays: number;
-}
-
-export interface LeaveRequest {
-    id: string;
-    employeeId: string;
-    employeeName: string;
-    leaveType: LeaveType;
-    startDate: string;
-    endDate: string;
-    daysCount: number;
-    reason: string;
-    status: LeaveStatus;
-    appliedOn: string;
-    approvedBy?: string;
-    approvedOn?: string;
-    rejectionReason?: string;
-}
-
 export interface Holiday {
     date: string;
     name: string;
     isMandatory: boolean;
 }
 
-// 🏢 Implementation of Enterprise Leave Policies
-const DEFAULT_POLICIES: Record<LeaveType, LeavePolicy> = {
-    'Paid Time Off': {
-        leaveType: 'Paid Time Off',
-        annualQuota: 18,
-        accrualRate: 'Monthly', // 1.5 days per month
-        canCarryForward: true,
-        maxCarryForwardDays: 10,
-        requiresApproval: true,
-        minNoticeDays: 7
-    },
-    'Sick Leave': {
-        leaveType: 'Sick Leave',
-        annualQuota: 12,
-        accrualRate: 'Upfront',
-        canCarryForward: false,
-        maxCarryForwardDays: 0,
-        requiresApproval: false, // Auto-approve for simulation
-        minNoticeDays: 0
-    },
-    'Casual Leave': {
-        leaveType: 'Casual Leave',
-        annualQuota: 7,
-        accrualRate: 'Upfront',
-        canCarryForward: false,
-        maxCarryForwardDays: 0,
-        requiresApproval: true,
-        minNoticeDays: 2
-    },
-    'Maternity/Paternity': {
-        leaveType: 'Maternity/Paternity',
-        annualQuota: 90,
-        accrualRate: 'Upfront',
-        canCarryForward: false,
-        maxCarryForwardDays: 0,
-        requiresApproval: true,
-        minNoticeDays: 30
-    },
-    'Bereavement': {
-        leaveType: 'Bereavement',
-        annualQuota: 5,
-        accrualRate: 'Upfront',
-        canCarryForward: false,
-        maxCarryForwardDays: 0,
-        requiresApproval: true,
-        minNoticeDays: 0
-    },
-    'Unpaid Leave': {
-        leaveType: 'Unpaid Leave',
-        annualQuota: 365,
-        accrualRate: 'Upfront',
-        canCarryForward: false,
-        maxCarryForwardDays: 0,
-        requiresApproval: true,
-        minNoticeDays: 7
-    },
-    'Work From Home': {
-        leaveType: 'Work From Home',
-        annualQuota: 24, // 2 days a month
-        accrualRate: 'Monthly',
-        canCarryForward: false,
-        maxCarryForwardDays: 0,
-        requiresApproval: true,
-        minNoticeDays: 1
-    }
-};
-
-// Storage Keys
-const LEAVE_REQUESTS_KEY = 'zavi_leave_requests';
-
-// ==========================================
-// 🛠️ SERVICE FUNCTIONS
-// ==========================================
-
-export const getLeavePolicies = (): LeavePolicy[] => Object.values(DEFAULT_POLICIES);
-
-export const getLeaveRequests = (): LeaveRequest[] => {
-    const stored = localStorage.getItem(LEAVE_REQUESTS_KEY);
-    if (stored) return JSON.parse(stored);
-
-    // Seed Data
-    const seed: LeaveRequest[] = [
-        {
-            id: 'REQ-101',
-            employeeId: 'EMP001',
-            employeeName: 'Sarah Johnson',
-            leaveType: 'Paid Time Off',
-            startDate: '2025-01-15',
-            endDate: '2025-01-20',
-            daysCount: 4,
-            reason: 'Family Vacation',
-            status: 'Pending',
-            appliedOn: '2025-01-02'
-        },
-        {
-            id: 'REQ-102',
-            employeeId: 'EMP002',
-            employeeName: 'Mike Chen',
-            leaveType: 'Sick Leave',
-            startDate: '2025-01-10',
-            endDate: '2025-01-10',
-            daysCount: 1,
-            reason: 'Flu',
-            status: 'Approved',
-            appliedOn: '2025-01-10',
-            approvedBy: 'System',
-            approvedOn: '2025-01-10'
-        }
-    ];
-    localStorage.setItem(LEAVE_REQUESTS_KEY, JSON.stringify(seed));
-    return seed;
-};
-
-export const submitLeaveRequest = async (request: Omit<LeaveRequest, 'id' | 'status' | 'appliedOn' | 'daysCount'>): Promise<LeaveRequest> => {
-    // 1. Calculate Business Days (Simplified)
-    const start = new Date(request.startDate);
-    const end = new Date(request.endDate);
-    const diffTime = Math.abs(end.getTime() - start.getTime());
-    const daysCount = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // Inclusive
-
-    // 2. Validate Policy
-    const policy = DEFAULT_POLICIES[request.leaveType];
-    if (daysCount > policy.annualQuota) {
-        throw new Error(`Request exceeds annual quota for ${request.leaveType}`);
-    }
-
-    // 3. Create Request
-    const newRequest: LeaveRequest = {
-        ...request,
-        id: `REQ-${Date.now()}`,
-        status: 'Pending',
-        appliedOn: new Date().toISOString().split('T')[0],
-        daysCount
-    };
-
-    // 4. Save
-    const requests = getLeaveRequests();
-    requests.unshift(newRequest);
-    localStorage.setItem(LEAVE_REQUESTS_KEY, JSON.stringify(requests));
-
-    // 5. Simulate AI/Auto Approval
-    if (!policy.requiresApproval) {
-        approveLeaveRequest(newRequest.id, 'Auto-System');
-    }
-
-    return newRequest;
-};
-
-export const approveLeaveRequest = async (requestId: string, approverId: string) => {
-    const requests = getLeaveRequests();
-    const index = requests.findIndex(r => r.id === requestId);
-    if (index === -1) throw new Error('Request not found');
-
-    requests[index].status = 'Approved';
-    requests[index].approvedBy = approverId;
-    requests[index].approvedOn = new Date().toISOString();
-
-    // In a real system, we would deduct from employee balance here
-
-    localStorage.setItem(LEAVE_REQUESTS_KEY, JSON.stringify(requests));
-};
-
-export const rejectLeaveRequest = async (requestId: string, reason: string) => {
-    const requests = getLeaveRequests();
-    const index = requests.findIndex(r => r.id === requestId);
-    if (index === -1) throw new Error('Request not found');
-
-    requests[index].status = 'Rejected';
-    requests[index].rejectionReason = reason;
-
-    localStorage.setItem(LEAVE_REQUESTS_KEY, JSON.stringify(requests));
-};
-
-function hashSeed(str: string): number {
-    let h = 0;
-    for (let i = 0; i < str.length; i++) {
-        h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
-    }
-    return Math.abs(h);
+export interface LeavePolicy {
+    id: number;
+    tenantId?: number | null;
+    leaveType: string;
+    annualQuotaDays: number;
+    requiresApproval: boolean;
+    createdAt?: string | null;
+    updatedAt?: string | null;
 }
 
-export const getEmployeeLeaveBalance = (employeeId: string): Record<LeaveType, { total: number, used: number, available: number }> => {
-    const balances: Record<LeaveType, { total: number; used: number; available: number }> = {} as any;
-    const seed = hashSeed(employeeId || 'guest');
+export interface LeaveBalance {
+    id: number;
+    tenantId?: number | null;
+    employeeId: number;
+    leaveType: string;
+    year: number;
+    quotaDays: number;
+    usedDays: number;
+    availableDays: number;
+    createdAt?: string | null;
+    updatedAt?: string | null;
+}
 
-    (Object.keys(DEFAULT_POLICIES) as LeaveType[]).forEach((type, idx) => {
-        const policy = DEFAULT_POLICIES[type];
-        const total = policy.annualQuota;
-        const mixed = (seed + idx * 17) % 10000;
-        const used = Math.floor((mixed / 10000) * Math.max(1, total / 3));
-        balances[type] = {
-            total,
-            used,
-            available: Math.max(0, total - used)
-        };
+export interface LeaveRequest {
+    id: number;
+    tenantId?: number | null;
+    employeeId: number;
+    leaveType: string;
+    startDate: string;
+    endDate: string;
+    daysCount: number;
+    reason?: string | null;
+    status: string;
+    approvedBy?: number | null;
+    approvedOn?: string | null;
+    rejectionReason?: string | null;
+    createdAt?: string | null;
+    updatedAt?: string | null;
+}
+
+export interface SubmitLeaveRequestInput {
+    employeeId: number | string;
+    leaveType: string;
+    startDate: string;
+    endDate: string;
+    daysCount: number;
+    reason?: string | null;
+}
+
+async function readApiError(r: Response): Promise<string> {
+    try {
+        const body = await r.json();
+        if (typeof body?.detail === 'string') return body.detail;
+        if (body?.detail) return JSON.stringify(body.detail);
+    } catch {
+        /* ignore */
+    }
+    return `Request failed (${r.status})`;
+}
+
+function fromPolicy(raw: Record<string, unknown>): LeavePolicy {
+    return {
+        id: Number(raw.id),
+        tenantId: raw.tenantId != null ? Number(raw.tenantId) : raw.tenant_id != null ? Number(raw.tenant_id) : null,
+        leaveType: String(raw.leaveType ?? raw.leave_type ?? ''),
+        annualQuotaDays: Number(raw.annualQuotaDays ?? raw.annual_quota_days ?? 0),
+        requiresApproval: Boolean(raw.requiresApproval ?? raw.requires_approval ?? true),
+        createdAt: raw.createdAt != null ? String(raw.createdAt) : raw.created_at != null ? String(raw.created_at) : null,
+        updatedAt: raw.updatedAt != null ? String(raw.updatedAt) : raw.updated_at != null ? String(raw.updated_at) : null,
+    };
+}
+
+function fromBalance(raw: Record<string, unknown>): LeaveBalance {
+    const quotaDays = Number(raw.quotaDays ?? raw.quota_days ?? 0);
+    const usedDays = Number(raw.usedDays ?? raw.used_days ?? 0);
+    const availableRaw = raw.availableDays ?? raw.available_days;
+    const availableDays = availableRaw != null
+        ? Number(availableRaw)
+        : quotaDays - usedDays;
+    return {
+        id: Number(raw.id),
+        tenantId: raw.tenantId != null ? Number(raw.tenantId) : raw.tenant_id != null ? Number(raw.tenant_id) : null,
+        employeeId: Number(raw.employeeId ?? raw.employee_id),
+        leaveType: String(raw.leaveType ?? raw.leave_type ?? ''),
+        year: Number(raw.year ?? new Date().getFullYear()),
+        quotaDays,
+        usedDays,
+        availableDays,
+        createdAt: raw.createdAt != null ? String(raw.createdAt) : raw.created_at != null ? String(raw.created_at) : null,
+        updatedAt: raw.updatedAt != null ? String(raw.updatedAt) : raw.updated_at != null ? String(raw.updated_at) : null,
+    };
+}
+
+function fromRequest(raw: Record<string, unknown>): LeaveRequest {
+    return {
+        id: Number(raw.id),
+        tenantId: raw.tenantId != null ? Number(raw.tenantId) : raw.tenant_id != null ? Number(raw.tenant_id) : null,
+        employeeId: Number(raw.employeeId ?? raw.employee_id),
+        leaveType: String(raw.leaveType ?? raw.leave_type ?? ''),
+        startDate: String(raw.startDate ?? raw.start_date ?? '').slice(0, 10),
+        endDate: String(raw.endDate ?? raw.end_date ?? '').slice(0, 10),
+        daysCount: Number(raw.daysCount ?? raw.days_count ?? 0),
+        reason: raw.reason != null ? String(raw.reason) : null,
+        status: String(raw.status ?? 'pending').toLowerCase(),
+        approvedBy: raw.approvedBy != null ? Number(raw.approvedBy) : raw.approved_by != null ? Number(raw.approved_by) : null,
+        approvedOn: raw.approvedOn != null ? String(raw.approvedOn) : raw.approved_on != null ? String(raw.approved_on) : null,
+        rejectionReason: raw.rejectionReason != null
+            ? String(raw.rejectionReason)
+            : raw.rejection_reason != null
+              ? String(raw.rejection_reason)
+              : null,
+        createdAt: raw.createdAt != null ? String(raw.createdAt) : raw.created_at != null ? String(raw.created_at) : null,
+        updatedAt: raw.updatedAt != null ? String(raw.updatedAt) : raw.updated_at != null ? String(raw.updated_at) : null,
+    };
+}
+
+export async function getLeavePolicies(): Promise<LeavePolicy[]> {
+    const r = await authFetch(`${API_BASE_URL}/leave/policies`);
+    if (!r.ok) throw new Error(await readApiError(r));
+    const rows = await r.json();
+    return (Array.isArray(rows) ? rows : []).map((row) => fromPolicy(row as Record<string, unknown>));
+}
+
+export async function getLeaveBalances(employeeId: number | string): Promise<LeaveBalance[]> {
+    const r = await authFetch(
+        `${API_BASE_URL}/leave/balances?employeeId=${encodeURIComponent(String(employeeId))}`,
+    );
+    if (!r.ok) throw new Error(await readApiError(r));
+    const rows = await r.json();
+    return (Array.isArray(rows) ? rows : []).map((row) => fromBalance(row as Record<string, unknown>));
+}
+
+export async function getLeaveRequests(employeeId: number | string): Promise<LeaveRequest[]> {
+    const r = await authFetch(
+        `${API_BASE_URL}/leave/requests?employeeId=${encodeURIComponent(String(employeeId))}`,
+    );
+    if (!r.ok) throw new Error(await readApiError(r));
+    const rows = await r.json();
+    return (Array.isArray(rows) ? rows : []).map((row) => fromRequest(row as Record<string, unknown>));
+}
+
+export async function submitLeaveRequest(payload: SubmitLeaveRequestInput): Promise<LeaveRequest> {
+    const r = await authFetch(`${API_BASE_URL}/leave/requests`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            employeeId: Number(payload.employeeId),
+            leaveType: payload.leaveType,
+            startDate: payload.startDate,
+            endDate: payload.endDate,
+            daysCount: payload.daysCount,
+            reason: payload.reason ?? null,
+        }),
     });
+    if (!r.ok) throw new Error(await readApiError(r));
+    return fromRequest((await r.json()) as Record<string, unknown>);
+}
 
-    return balances;
-};
+export async function approveLeaveRequest(requestId: number | string): Promise<LeaveRequest> {
+    const r = await authFetch(
+        `${API_BASE_URL}/leave/requests/${encodeURIComponent(String(requestId))}/approve`,
+        { method: 'POST' },
+    );
+    if (!r.ok) throw new Error(await readApiError(r));
+    return fromRequest((await r.json()) as Record<string, unknown>);
+}
 
+export async function rejectLeaveRequest(
+    requestId: number | string,
+    rejectionReason?: string | null,
+): Promise<LeaveRequest> {
+    const r = await authFetch(
+        `${API_BASE_URL}/leave/requests/${encodeURIComponent(String(requestId))}/reject`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rejectionReason: rejectionReason ?? null }),
+        },
+    );
+    if (!r.ok) throw new Error(await readApiError(r));
+    return fromRequest((await r.json()) as Record<string, unknown>);
+}
+
+export async function cancelLeaveRequest(requestId: number | string): Promise<LeaveRequest> {
+    const r = await authFetch(
+        `${API_BASE_URL}/leave/requests/${encodeURIComponent(String(requestId))}/cancel`,
+        { method: 'POST' },
+    );
+    if (!r.ok) throw new Error(await readApiError(r));
+    return fromRequest((await r.json()) as Record<string, unknown>);
+}
+
+/** Merge API balances with policies for types that have no balance row yet (current year). */
+export async function getLeaveBalanceSummary(employeeId: number | string): Promise<LeaveBalance[]> {
+    const year = new Date().getFullYear();
+    const [balances, policies] = await Promise.all([
+        getLeaveBalances(employeeId),
+        getLeavePolicies().catch(() => [] as LeavePolicy[]),
+    ]);
+
+    const currentYearBalances = balances.filter((b) => b.year === year);
+    const byType = new Map(currentYearBalances.map((b) => [b.leaveType, b]));
+
+    for (const policy of policies) {
+        if (!byType.has(policy.leaveType)) {
+            byType.set(policy.leaveType, {
+                id: 0,
+                employeeId: Number(employeeId),
+                leaveType: policy.leaveType,
+                year,
+                quotaDays: policy.annualQuotaDays,
+                usedDays: 0,
+                availableDays: policy.annualQuotaDays,
+            });
+        }
+    }
+
+    return Array.from(byType.values()).sort((a, b) => a.leaveType.localeCompare(b.leaveType));
+}
+
+// Holidays remain mock until a later phase
 export const getUpcomingHolidays = (): Holiday[] => [
-    { date: '2025-01-01', name: 'New Year\'s Day', isMandatory: true },
+    { date: '2025-01-01', name: "New Year's Day", isMandatory: true },
     { date: '2025-01-20', name: 'Martin Luther King Jr. Day', isMandatory: true },
     { date: '2025-05-26', name: 'Memorial Day', isMandatory: true },
     { date: '2025-07-04', name: 'Independence Day', isMandatory: true },
     { date: '2025-09-01', name: 'Labor Day', isMandatory: true },
     { date: '2025-11-27', name: 'Thanksgiving Day', isMandatory: true },
-    { date: '2025-12-25', name: 'Christmas Day', isMandatory: true }
+    { date: '2025-12-25', name: 'Christmas Day', isMandatory: true },
 ];

@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────────────────────
 // Field & Mobile — Employee Self Service
-// Roster + self profile: real /api/employees (Phase 1b).
-// Payslips, leave, announcements, hours: still mock (later phases).
+// Roster + profile: real /api/employees. Leave: real /api/leave (Phase 2c).
+// Payslips, hours, announcements, holidays: still mock (later phases).
 // ──────────────────────────────────────────────────────────────
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
@@ -16,6 +16,12 @@ import {
   type ApiEmployee,
 } from '../../services/employeeService';
 import { getCurrentUser } from '../../store/authStore';
+import {
+  getLeaveBalanceSummary,
+  getLeaveRequests,
+  submitLeaveRequest,
+  type LeaveRequest as ApiLeaveRequest,
+} from '../../services/leaveService';
 
 // ── Types ─────────────────────────────────────────────────────
 interface Employee {
@@ -44,10 +50,12 @@ interface Payslip {
   colorBg: string;
 }
 
-interface LeaveType {
-  name: string;
+interface LeaveBalanceDisplay {
+  leaveType: string;
+  label: string;
+  quota: number;
   used: number;
-  total: number;
+  available: number;
   color: string;
 }
 
@@ -102,6 +110,10 @@ interface ESSState {
   pageError: string;
   employeesLoading: boolean;
   employeesSaving: boolean;
+  leaveBalances: LeaveBalanceDisplay[];
+  leaveRequests: ApiLeaveRequest[];
+  leaveLoading: boolean;
+  leaveSubmitting: boolean;
   employees: Employee[];
   newEmp: NewEmployeeForm;
 }
@@ -151,17 +163,11 @@ const STATUS_COLORS: Record<string, string> = {
   'Off today':'#EF4444',
 };
 
-// ── Mock data (leave / payslips / announcements — later phases) ─
+// ── Mock data (payslips / announcements / holidays — later phases) ─
 const PAYSLIPS: Payslip[] = [
   { month: 'May 2026',   hours: 165, ot: 1, amount: '$3,750', colorBg: 'rgba(34,197,94,.1)' },
   { month: 'April 2026', hours: 172, ot: 3, amount: '$3,890', colorBg: 'rgba(74,143,245,.1)' },
   { month: 'March 2026', hours: 168, ot: 0, amount: '$3,600', colorBg: 'rgba(124,58,237,.1)' },
-];
-
-const LEAVE_TYPES: LeaveType[] = [
-  { name: 'Annual Leave (PTO)', used: 4, total: 20, color: '#22C55E' },
-  { name: 'Sick Leave',         used: 2, total: 7,  color: '#F59E0B' },
-  { name: 'Emergency Leave',    used: 0, total: 3,  color: '#4F8EF7' },
 ];
 
 const ANNOUNCEMENTS: Announcement[] = [
@@ -256,6 +262,28 @@ function apiToPortalEmployee(e: ApiEmployee): Employee {
   };
 }
 
+function leaveTypeLabel(type: string): string {
+  const labels: Record<string, string> = {
+    annual: 'Annual Leave',
+    sick: 'Sick Leave',
+    emergency: 'Emergency Leave',
+  };
+  return labels[type] ?? type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function leaveTypeColor(type: string): string {
+  const colors: Record<string, string> = {
+    annual: '#22C55E',
+    sick: '#F59E0B',
+    emergency: '#4F8EF7',
+  };
+  return colors[type] ?? '#4F8EF7';
+}
+
+function formatLeaveStatus(status: string): string {
+  return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
+}
+
 function recentActivity(emp: Employee) {
   const items: { icon: string; text: string; time: string }[] = [
     { icon: '💰', text: `Payslip processed — April 2026`, time: '5 days ago' },
@@ -298,6 +326,10 @@ export default function EmployeePortal() {
     pageError: '',
     employeesLoading: true,
     employeesSaving: false,
+    leaveBalances: [],
+    leaveRequests: [],
+    leaveLoading: false,
+    leaveSubmitting: false,
     employees: [],
     newEmp: { ...EMPTY_NEW_EMP },
   });
@@ -319,6 +351,35 @@ export default function EmployeePortal() {
         ...s,
         employeesLoading: false,
         pageError: err instanceof Error ? err.message : 'Failed to load employees',
+      }));
+    }
+  }, []);
+
+  const loadLeaveData = useCallback(async (employeeId: string) => {
+    setState(s => ({ ...s, leaveLoading: true, pageError: '' }));
+    try {
+      const [balances, requests] = await Promise.all([
+        getLeaveBalanceSummary(employeeId),
+        getLeaveRequests(employeeId),
+      ]);
+      setState(s => ({
+        ...s,
+        leaveBalances: balances.map(b => ({
+          leaveType: b.leaveType,
+          label: leaveTypeLabel(b.leaveType),
+          quota: b.quotaDays,
+          used: b.usedDays,
+          available: b.availableDays,
+          color: leaveTypeColor(b.leaveType),
+        })),
+        leaveRequests: requests,
+        leaveLoading: false,
+      }));
+    } catch (err) {
+      setState(s => ({
+        ...s,
+        leaveLoading: false,
+        pageError: err instanceof Error ? err.message : 'Failed to load leave data',
       }));
     }
   }, []);
@@ -527,19 +588,52 @@ export default function EmployeePortal() {
     }));
   }
 
-  function openLeaveModal(typeName: string) {
+  function openLeaveModal(leaveType: string) {
     setState(s => ({
       ...s,
       showLeaveModal: true,
-      leaveModalType: typeName,
+      leaveModalType: leaveType,
       leaveStart: '', leaveEnd: '', leaveReason: '', leaveCover: '',
     }));
   }
   function closeLeaveModal() {
     setState(s => ({ ...s, showLeaveModal: false }));
   }
-  function handleLeaveSubmit() {
-    setState(s => ({ ...s, showLeaveModal: false, toast: 'Leave request submitted for approval' }));
+  async function handleLeaveSubmit() {
+    if (!myProfileEmployee) {
+      setState(s => ({ ...s, pageError: 'No employee record linked to your account' }));
+      return;
+    }
+    if (!state.leaveStart || !state.leaveEnd || leaveDays <= 0) return;
+
+    setState(s => ({ ...s, leaveSubmitting: true, pageError: '' }));
+    try {
+      const reasonParts = [
+        state.leaveReason.trim(),
+        state.leaveCover.trim() ? `Cover: ${state.leaveCover.trim()}` : '',
+      ].filter(Boolean);
+      await submitLeaveRequest({
+        employeeId: myProfileEmployee.id,
+        leaveType: state.leaveModalType,
+        startDate: state.leaveStart,
+        endDate: state.leaveEnd,
+        daysCount: leaveDays,
+        reason: reasonParts.join(' — ') || null,
+      });
+      await loadLeaveData(myProfileEmployee.id);
+      setState(s => ({
+        ...s,
+        showLeaveModal: false,
+        leaveSubmitting: false,
+        toast: 'Leave request submitted for approval',
+      }));
+    } catch (err) {
+      setState(s => ({
+        ...s,
+        leaveSubmitting: false,
+        pageError: err instanceof Error ? err.message : 'Failed to submit leave request',
+      }));
+    }
   }
 
   function downloadPdf(filename: string) {
@@ -560,6 +654,14 @@ export default function EmployeePortal() {
       e => e.userId != null && String(e.userId) === String(currentUser.id),
     ) ?? null;
   }, [state.employees, currentUser.id]);
+
+  useEffect(() => {
+    if (!myProfileEmployee) {
+      setState(s => ({ ...s, leaveBalances: [], leaveRequests: [], leaveLoading: false }));
+      return;
+    }
+    void loadLeaveData(myProfileEmployee.id);
+  }, [myProfileEmployee, loadLeaveData]);
 
   const totalEmps = state.employees.length;
   const totalActive = state.employees.filter(e => e.status === 'Active').length;
@@ -585,11 +687,13 @@ export default function EmployeePortal() {
     return Math.round((end - start) / 86400000) + 1;
   })();
 
+  const pendingLeaveCount = state.leaveRequests.filter(r => r.status === 'pending').length;
+
   // KPIs (Total Employees, Hours Logged, Leave Requests, Total Payroll)
   const KPIS = [
     { stripe: '#4F8EF7', value: String(totalEmps),         label: 'Total Employees',           sub: `${distinctRoles} roles · ${totalActive} active`, badge: 'Active',     badgeBg: 'rgba(79,142,247,.12)',  badgeColor: '#4F8EF7', Icon: Users },
     { stripe: '#22C55E', value: totalHours.toLocaleString(), label: 'Hours Logged (this month)', sub: `avg ${avgPerPerson} per person`,                 badge: 'This month', badgeBg: 'rgba(34,197,94,.12)',   badgeColor: '#22C55E', Icon: Clock },
-    { stripe: '#F59E0B', value: '2',                       label: 'Leave Requests',            sub: 'awaiting approval',                              badge: 'Pending',    badgeBg: 'rgba(245,158,11,.12)',  badgeColor: '#F59E0B', Icon: Calendar },
+    { stripe: '#F59E0B', value: String(pendingLeaveCount), label: 'Leave Requests',            sub: pendingLeaveCount > 0 ? 'awaiting approval' : 'none pending', badge: 'Pending', badgeBg: 'rgba(245,158,11,.12)', badgeColor: '#F59E0B', Icon: Calendar },
     { stripe: '#7C3AED', value: totalPayrollFmt,           label: 'Total Payroll Est.',        sub: 'salary + overtime',                              badge: 'May 2026',   badgeBg: 'rgba(124,58,237,.12)',  badgeColor: '#7C3AED', Icon: Download },
   ];
 
@@ -741,8 +845,24 @@ export default function EmployeePortal() {
                 <InfoRow label="Start date"  value={myProfileEmployee.startDate || '—'} />
                 <InfoRow label="Email"       value={myProfileEmployee.email || '—'} />
                 <InfoRow label="Phone"       value={myProfileEmployee.phone || '—'} />
-                <InfoRow label="PTO balance" value="16 days" valueColor={C.green} />
-                <InfoRow label="Sick leave"  value="5 days"  valueColor={C.amber} />
+                <InfoRow
+                  label="PTO balance"
+                  value={
+                    state.leaveBalances.find(b => b.leaveType === 'annual')
+                      ? `${state.leaveBalances.find(b => b.leaveType === 'annual')!.available} days`
+                      : '—'
+                  }
+                  valueColor={C.green}
+                />
+                <InfoRow
+                  label="Sick leave"
+                  value={
+                    state.leaveBalances.find(b => b.leaveType === 'sick')
+                      ? `${state.leaveBalances.find(b => b.leaveType === 'sick')!.available} days`
+                      : '—'
+                  }
+                  valueColor={C.amber}
+                />
                 <InfoRow
                   label="Status"
                   value={
@@ -1015,42 +1135,97 @@ export default function EmployeePortal() {
               <span style={{ fontSize: 13, fontWeight: 700, color: C.t, display: 'flex', alignItems: 'center', gap: 5 }}>
                 <span aria-hidden>🌴</span> Leave Balance
               </span>
-              <span style={{ fontSize: 10, color: C.t3 }}>2026 allocation</span>
+              <span style={{ fontSize: 10, color: C.t3 }}>{new Date().getFullYear()} allocation</span>
             </div>
-            {LEAVE_TYPES.map((lt, i) => {
-              const remaining = lt.total - lt.used;
-              const pct = lt.total === 0 ? 0 : Math.min(100, Math.round((remaining / lt.total) * 100));
-              return (
-                <div
-                  key={i}
-                  style={{
-                    padding: '8px 0',
-                    borderBottom: i < LEAVE_TYPES.length - 1 ? `1px solid ${C.bd2}` : 'none',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: C.t }}>{lt.name}</span>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: lt.color }}>{remaining} days left</span>
+            {!myProfileEmployee ? (
+              <div style={{ fontSize: 12, color: C.t2, lineHeight: 1.5, padding: '8px 0' }}>
+                No employee record linked to your account. Leave balances are unavailable.
+              </div>
+            ) : state.leaveLoading ? (
+              <div style={{ fontSize: 12, color: C.t2, padding: '8px 0' }}>Loading leave balances…</div>
+            ) : state.leaveBalances.length === 0 ? (
+              <div style={{ fontSize: 12, color: C.t2, lineHeight: 1.5, padding: '8px 0' }}>
+                No leave policies or balances configured yet.
+              </div>
+            ) : (
+              state.leaveBalances.map((lt, i) => {
+                const pct = lt.quota === 0 ? 0 : Math.min(100, Math.round((lt.available / lt.quota) * 100));
+                return (
+                  <div
+                    key={lt.leaveType}
+                    style={{
+                      padding: '8px 0',
+                      borderBottom: i < state.leaveBalances.length - 1 ? `1px solid ${C.bd2}` : 'none',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: C.t }}>{lt.label}</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: lt.color }}>{lt.available} days left</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, gap: 8 }}>
+                      <span style={{ fontSize: 10, color: C.t3 }}>
+                        Used: {lt.used} of {lt.quota} days · Available: {lt.available}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => openLeaveModal(lt.leaveType)}
+                        style={requestButtonStyle}
+                      >
+                        Request
+                      </button>
+                    </div>
+                    <div style={{ background: 'rgba(255,255,255,.05)', borderRadius: 6, height: 7, overflow: 'hidden' }}>
+                      <div style={{
+                        width: `${pct}%`, height: 7, borderRadius: 6,
+                        background: lt.color, transition: 'width .8s',
+                      }} />
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, gap: 8 }}>
-                    <span style={{ fontSize: 10, color: C.t3 }}>Used: {lt.used} of {lt.total} days</span>
-                    <button
-                      type="button"
-                      onClick={() => openLeaveModal(lt.name)}
-                      style={requestButtonStyle}
-                    >
-                      Request
-                    </button>
-                  </div>
-                  <div style={{ background: 'rgba(255,255,255,.05)', borderRadius: 6, height: 7, overflow: 'hidden' }}>
-                    <div style={{
-                      width: `${pct}%`, height: 7, borderRadius: 6,
-                      background: lt.color, transition: 'width .8s',
-                    }} />
-                  </div>
+                );
+              })
+            )}
+
+            {myProfileEmployee && !state.leaveLoading && state.leaveRequests.length > 0 && (
+              <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${C.bd2}` }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: C.t3, letterSpacing: '.5px', marginBottom: 8 }}>
+                  MY LEAVE REQUESTS
                 </div>
-              );
-            })}
+                {state.leaveRequests.slice(0, 5).map((req, i) => (
+                  <div
+                    key={req.id}
+                    style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
+                      padding: '6px 0',
+                      borderBottom: i < Math.min(state.leaveRequests.length, 5) - 1 ? `1px solid ${C.bd2}` : 'none',
+                      fontSize: 11,
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, color: C.t }}>
+                        {leaveTypeLabel(req.leaveType)} · {req.daysCount} day{req.daysCount === 1 ? '' : 's'}
+                      </div>
+                      <div style={{ color: C.t2, fontSize: 10 }}>
+                        {req.startDate} → {req.endDate}
+                      </div>
+                    </div>
+                    <span style={{
+                      fontSize: 9, fontWeight: 700, flexShrink: 0,
+                      background: req.status === 'approved' ? 'rgba(34,197,94,.12)'
+                        : req.status === 'rejected' ? 'rgba(239,68,68,.12)'
+                        : req.status === 'cancelled' ? 'rgba(255,255,255,.06)'
+                        : 'rgba(245,158,11,.12)',
+                      color: req.status === 'approved' ? '#22C55E'
+                        : req.status === 'rejected' ? '#FCA5A5'
+                        : req.status === 'cancelled' ? C.t3
+                        : '#F59E0B',
+                      padding: '2px 7px', borderRadius: 8,
+                    }}>
+                      {formatLeaveStatus(req.status)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -1256,7 +1431,7 @@ export default function EmployeePortal() {
       {state.showLeaveModal && (
         <ModalOverlay onClose={closeLeaveModal}>
           <ModalCard>
-            <ModalHeader title={`🌴 Request Leave — ${state.leaveModalType}`} onClose={closeLeaveModal} />
+            <ModalHeader title={`🌴 Request Leave — ${leaveTypeLabel(state.leaveModalType)}`} onClose={closeLeaveModal} />
             <div style={{ display: 'grid', gridTemplateColumns: cols.formTwoCol ? '1fr 1fr' : '1fr', gap: 10 }}>
               <FieldLabel label="Start Date">
                 <input
@@ -1306,14 +1481,14 @@ export default function EmployeePortal() {
               <button
                 type="button"
                 onClick={handleLeaveSubmit}
-                disabled={!state.leaveStart || !state.leaveEnd || leaveDays <= 0}
+                disabled={!state.leaveStart || !state.leaveEnd || leaveDays <= 0 || state.leaveSubmitting || !myProfileEmployee}
                 style={{
                   ...modalSubmitBtn,
-                  opacity: state.leaveStart && state.leaveEnd && leaveDays > 0 ? 1 : 0.55,
-                  cursor: state.leaveStart && state.leaveEnd && leaveDays > 0 ? 'pointer' : 'not-allowed',
+                  opacity: state.leaveStart && state.leaveEnd && leaveDays > 0 && !state.leaveSubmitting && myProfileEmployee ? 1 : 0.55,
+                  cursor: state.leaveStart && state.leaveEnd && leaveDays > 0 && !state.leaveSubmitting && myProfileEmployee ? 'pointer' : 'not-allowed',
                 }}
               >
-                Submit Request
+                {state.leaveSubmitting ? 'Submitting…' : 'Submit Request'}
               </button>
             </ModalFooter>
           </ModalCard>
@@ -1344,6 +1519,7 @@ export default function EmployeePortal() {
           >
             <ProfilePanel
               emp={state.selectedEmployee}
+              leaveBalances={state.selectedEmployee.id === myProfileEmployee?.id ? state.leaveBalances : []}
               tab={state.profileTab}
               onTab={(t: ESSState['profileTab']) => setState(s => ({ ...s, profileTab: t }))}
               onClose={closeProfile}
@@ -1620,9 +1796,10 @@ function EmployeeFormFields({
 
 // ── Profile side panel ────────────────────────────────────────
 function ProfilePanel({
-  emp, tab, onTab, onClose, onEdit, onDownload, onExport,
+  emp, leaveBalances, tab, onTab, onClose, onEdit, onDownload, onExport,
 }: {
   emp: Employee;
+  leaveBalances: LeaveBalanceDisplay[];
   tab: ESSState['profileTab'];
   onTab: (t: ESSState['profileTab']) => void;
   onClose: () => void;
@@ -1755,14 +1932,18 @@ function ProfilePanel({
             </ProfileSection>
 
             <ProfileSection label="Leave Summary">
-              {LEAVE_TYPES.map((lt, i) => {
-                const remaining = lt.total - lt.used;
-                const pct = lt.total === 0 ? 0 : Math.min(100, Math.round((remaining / lt.total) * 100));
+              {leaveBalances.length === 0 ? (
+                <div style={{ fontSize: 11, color: C.t2 }}>No leave balance data for this employee.</div>
+              ) : leaveBalances.map((lt, i) => {
+                const pct = lt.quota === 0 ? 0 : Math.min(100, Math.round((lt.available / lt.quota) * 100));
                 return (
-                  <div key={i} style={{ padding: '6px 0', borderBottom: i < LEAVE_TYPES.length - 1 ? `1px solid ${C.bd2}` : 'none' }}>
+                  <div key={lt.leaveType} style={{ padding: '6px 0', borderBottom: i < leaveBalances.length - 1 ? `1px solid ${C.bd2}` : 'none' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: C.t }}>{lt.name}</span>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: lt.color }}>{remaining} left</span>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: C.t }}>{lt.label}</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: lt.color }}>{lt.available} left</span>
+                    </div>
+                    <div style={{ fontSize: 10, color: C.t3, marginBottom: 4 }}>
+                      Used: {lt.used} of {lt.quota}
                     </div>
                     <div style={{ background: 'rgba(255,255,255,.05)', borderRadius: 6, height: 6, overflow: 'hidden' }}>
                       <div style={{ width: `${pct}%`, height: 6, borderRadius: 6, background: lt.color }} />
