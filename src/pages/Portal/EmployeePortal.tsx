@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────────────────────
 // Field & Mobile — Employee Self Service
 // Roster + profile: real /api/employees. Leave: real /api/leave (Phase 2c).
-// Payslips, hours, announcements, holidays: still mock (later phases).
+// Payslips: real /api/payroll (Phase 3c). Announcements, holidays: still mock.
 // ──────────────────────────────────────────────────────────────
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
@@ -26,6 +26,18 @@ import {
   rejectLeaveRequest,
   type LeaveRequest as ApiLeaveRequest,
 } from '../../services/leaveService';
+import {
+  formatPayslipPeriod,
+  formatPayslipUsd,
+  getPayslip,
+  getPayrollProfile,
+  getPayslips,
+  mapPayslipToPayrollResult,
+  mapPortalEmployeeToPayrollPdfEmployee,
+  type ApiPayslip,
+  type PayrollProfile,
+} from '../../services/payrollService';
+import { generatePayslipPDF } from '../../utils/payslipPDF';
 
 // ── Types ─────────────────────────────────────────────────────
 interface Employee {
@@ -44,14 +56,6 @@ interface Employee {
   email?: string;
   phone?: string;
   userId?: number | null;
-}
-
-interface Payslip {
-  month: string;
-  hours: number;
-  ot: number;
-  amount: string;
-  colorBg: string;
 }
 
 interface LeaveBalanceDisplay {
@@ -121,6 +125,10 @@ interface ESSState {
   teamLeaveRequests: ApiLeaveRequest[];
   teamLeaveLoading: boolean;
   teamLeaveActingId: number | null;
+  payslips: ApiPayslip[];
+  payslipsLoading: boolean;
+  payrollProfile: PayrollProfile | null;
+  payslipDownloadingId: number | null;
   employees: Employee[];
   newEmp: NewEmployeeForm;
 }
@@ -170,11 +178,12 @@ const STATUS_COLORS: Record<string, string> = {
   'Off today':'#EF4444',
 };
 
-// ── Mock data (payslips / announcements / holidays — later phases) ─
-const PAYSLIPS: Payslip[] = [
-  { month: 'May 2026',   hours: 165, ot: 1, amount: '$3,750', colorBg: 'rgba(34,197,94,.1)' },
-  { month: 'April 2026', hours: 172, ot: 3, amount: '$3,890', colorBg: 'rgba(74,143,245,.1)' },
-  { month: 'March 2026', hours: 168, ot: 0, amount: '$3,600', colorBg: 'rgba(124,58,237,.1)' },
+// ── Mock data (announcements / holidays — later phases) ─
+const PAYSLIP_ROW_COLORS = [
+  'rgba(34,197,94,.1)',
+  'rgba(74,143,245,.1)',
+  'rgba(124,58,237,.1)',
+  'rgba(245,158,11,.1)',
 ];
 
 const ANNOUNCEMENTS: Announcement[] = [
@@ -291,6 +300,15 @@ function formatLeaveStatus(status: string): string {
   return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
 }
 
+function hoursHistoryFromPayslips(payslips: ApiPayslip[]) {
+  return payslips.slice(0, 4).map((p) => ({
+    month: formatPayslipPeriod(p.createdAt),
+    reg: p.regularHours,
+    ot: p.overtimeHours,
+    status: (p.status === 'draft' ? 'Submitted' : 'Approved') as 'Submitted' | 'Approved',
+  }));
+}
+
 function recentActivity(emp: Employee) {
   const items: { icon: string; text: string; time: string }[] = [
     { icon: '💰', text: `Payslip processed — April 2026`, time: '5 days ago' },
@@ -340,11 +358,16 @@ export default function EmployeePortal() {
     teamLeaveRequests: [],
     teamLeaveLoading: false,
     teamLeaveActingId: null,
+    payslips: [],
+    payslipsLoading: false,
+    payrollProfile: null,
+    payslipDownloadingId: null,
     employees: [],
     newEmp: { ...EMPTY_NEW_EMP },
   });
 
   const teamTableRef = useRef<HTMLDivElement>(null);
+  const payslipsSectionRef = useRef<HTMLDivElement>(null);
   const currentUser = useMemo(() => getCurrentUser(), []);
   const { hasRole } = useAuth();
   const canApproveLeave = hasRole('admin', 'manager');
@@ -417,6 +440,30 @@ export default function EmployeePortal() {
       }));
     }
   }, [canApproveLeave]);
+
+  const loadPayslipData = useCallback(async (employeeId: string) => {
+    setState(s => ({ ...s, payslipsLoading: true }));
+    try {
+      const [payslips, profile] = await Promise.all([
+        getPayslips(employeeId),
+        getPayrollProfile(employeeId).catch(() => null),
+      ]);
+      setState(s => ({
+        ...s,
+        payslips,
+        payrollProfile: profile,
+        payslipsLoading: false,
+      }));
+    } catch (err) {
+      setState(s => ({
+        ...s,
+        payslips: [],
+        payrollProfile: null,
+        payslipsLoading: false,
+        pageError: err instanceof Error ? err.message : 'Failed to load payslips',
+      }));
+    }
+  }, []);
 
   useEffect(() => {
     void loadEmployees();
@@ -722,8 +769,35 @@ export default function EmployeePortal() {
     return emp?.name || `Employee #${employeeId}`;
   }
 
-  function downloadPdf(filename: string) {
-    setState(s => ({ ...s, toast: `Downloading ${filename}...` }));
+  async function handleDownloadPayslip(payslipId: number) {
+    if (!myProfileEmployee) {
+      setState(s => ({ ...s, pageError: 'No employee record linked to your account' }));
+      return;
+    }
+    setState(s => ({ ...s, payslipDownloadingId: payslipId, pageError: '' }));
+    try {
+      const payslip = await getPayslip(payslipId);
+      const profile = state.payrollProfile ?? await getPayrollProfile(myProfileEmployee.id).catch(() => null);
+      const pdfEmployee = mapPortalEmployeeToPayrollPdfEmployee(myProfileEmployee, profile);
+      const result = mapPayslipToPayrollResult(payslip);
+      const period = formatPayslipPeriod(payslip.createdAt);
+      generatePayslipPDF({ employee: pdfEmployee, result, period });
+      setState(s => ({
+        ...s,
+        payslipDownloadingId: null,
+        toast: `Payslip PDF downloaded — ${period}`,
+      }));
+    } catch (err) {
+      setState(s => ({
+        ...s,
+        payslipDownloadingId: null,
+        pageError: err instanceof Error ? err.message : 'Failed to download payslip PDF',
+      }));
+    }
+  }
+
+  function scrollToPayslips() {
+    payslipsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
   function exportProfilePdf() {
     if (!state.selectedEmployee) return;
@@ -743,11 +817,20 @@ export default function EmployeePortal() {
 
   useEffect(() => {
     if (!myProfileEmployee) {
-      setState(s => ({ ...s, leaveBalances: [], leaveRequests: [], leaveLoading: false }));
+      setState(s => ({
+        ...s,
+        leaveBalances: [],
+        leaveRequests: [],
+        leaveLoading: false,
+        payslips: [],
+        payrollProfile: null,
+        payslipsLoading: false,
+      }));
       return;
     }
     void loadLeaveData(myProfileEmployee.id);
-  }, [myProfileEmployee, loadLeaveData]);
+    void loadPayslipData(myProfileEmployee.id);
+  }, [myProfileEmployee, loadLeaveData, loadPayslipData]);
 
   const totalEmps = state.employees.length;
   const totalActive = state.employees.filter(e => e.status === 'Active').length;
@@ -810,7 +893,7 @@ export default function EmployeePortal() {
           <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
             <button
               type="button"
-              onClick={() => downloadPdf('all_payslips.zip')}
+              onClick={scrollToPayslips}
               style={{
                 background: 'transparent',
                 border: `1px solid ${C.br2}`,
@@ -1169,50 +1252,71 @@ export default function EmployeePortal() {
           gap: 12,
         }}>
           {/* Payslips */}
-          <div style={card}>
+          <div style={card} ref={payslipsSectionRef}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
               <span style={{ fontSize: 13, fontWeight: 700, color: C.t, display: 'flex', alignItems: 'center', gap: 5 }}>
                 <span aria-hidden>📄</span> My Payslips
               </span>
-              <span style={{ fontSize: 10, color: C.t3 }}>last 3 months</span>
+              <span style={{ fontSize: 10, color: C.t3 }}>
+                {state.payslips.length > 0 ? `${state.payslips.length} on file` : 'from payroll API'}
+              </span>
             </div>
-            {PAYSLIPS.map((p, i) => (
-              <div
-                key={i}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '9px 0',
-                  borderBottom: i < PAYSLIPS.length - 1 ? `1px solid ${C.bd2}` : 'none',
-                  cursor: 'pointer', transition: 'background .15s',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,.025)'; }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-              >
-                <div style={{
-                  width: 32, height: 32, borderRadius: 8, background: p.colorBg,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 16, flexShrink: 0,
-                }}>
-                  📋
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: C.t }}>{p.month}</div>
-                  <div style={{ fontSize: 10, color: C.t2 }}>
-                    {p.hours} hrs · {p.ot} OT · {p.amount} est.
-                  </div>
-                </div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: C.green, flexShrink: 0 }}>
-                  {p.amount}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => downloadPdf(`${p.month}_payslip.pdf`)}
-                  style={pdfButtonStyle}
-                >
-                  <Download size={9} /> PDF
-                </button>
+            {!myProfileEmployee ? (
+              <div style={{ fontSize: 12, color: C.t2, lineHeight: 1.5, padding: '8px 0' }}>
+                No employee record linked to your account. Payslips are unavailable.
               </div>
-            ))}
+            ) : state.payslipsLoading ? (
+              <div style={{ fontSize: 12, color: C.t2, padding: '8px 0' }}>Loading payslips…</div>
+            ) : state.payslips.length === 0 ? (
+              <div style={{ fontSize: 12, color: C.t2, lineHeight: 1.5, padding: '8px 0' }}>
+                No payslips yet. They will appear here after payroll is generated for your account.
+              </div>
+            ) : (
+              state.payslips.slice(0, 6).map((p, i) => {
+                const period = formatPayslipPeriod(p.createdAt);
+                const colorBg = PAYSLIP_ROW_COLORS[i % PAYSLIP_ROW_COLORS.length];
+                const downloading = state.payslipDownloadingId === p.id;
+                return (
+                  <div
+                    key={p.id}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      padding: '9px 0',
+                      borderBottom: i < Math.min(state.payslips.length, 6) - 1 ? `1px solid ${C.bd2}` : 'none',
+                    }}
+                  >
+                    <div style={{
+                      width: 32, height: 32, borderRadius: 8, background: colorBg,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 16, flexShrink: 0,
+                    }}>
+                      📋
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: C.t }}>{period}</div>
+                      <div style={{ fontSize: 10, color: C.t2 }}>
+                        {p.regularHours} hrs · {p.overtimeHours} OT · gross {formatPayslipUsd(p.grossPay)}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: C.green, flexShrink: 0 }}>
+                      {formatPayslipUsd(p.netPay)}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleDownloadPayslip(p.id)}
+                      disabled={downloading}
+                      style={{
+                        ...pdfButtonStyle,
+                        opacity: downloading ? 0.6 : 1,
+                        cursor: downloading ? 'wait' : 'pointer',
+                      }}
+                    >
+                      <Download size={9} /> {downloading ? '…' : 'PDF'}
+                    </button>
+                  </div>
+                );
+              })
+            )}
           </div>
 
           {/* Leave Balance */}
@@ -1741,11 +1845,14 @@ export default function EmployeePortal() {
             <ProfilePanel
               emp={state.selectedEmployee}
               leaveBalances={state.selectedEmployee.id === myProfileEmployee?.id ? state.leaveBalances : []}
+              payslips={state.selectedEmployee.id === myProfileEmployee?.id ? state.payslips : []}
+              payslipsLoading={state.selectedEmployee.id === myProfileEmployee?.id ? state.payslipsLoading : false}
+              payslipDownloadingId={state.payslipDownloadingId}
               tab={state.profileTab}
               onTab={(t: ESSState['profileTab']) => setState(s => ({ ...s, profileTab: t }))}
               onClose={closeProfile}
               onEdit={editFromProfile}
-              onDownload={downloadPdf}
+              onDownloadPayslip={(id) => void handleDownloadPayslip(id)}
               onExport={exportProfilePdf}
             />
           </div>
@@ -2017,15 +2124,19 @@ function EmployeeFormFields({
 
 // ── Profile side panel ────────────────────────────────────────
 function ProfilePanel({
-  emp, leaveBalances, tab, onTab, onClose, onEdit, onDownload, onExport,
+  emp, leaveBalances, payslips, payslipsLoading, payslipDownloadingId,
+  tab, onTab, onClose, onEdit, onDownloadPayslip, onExport,
 }: {
   emp: Employee;
   leaveBalances: LeaveBalanceDisplay[];
+  payslips: ApiPayslip[];
+  payslipsLoading: boolean;
+  payslipDownloadingId: number | null;
   tab: ESSState['profileTab'];
   onTab: (t: ESSState['profileTab']) => void;
   onClose: () => void;
   onEdit: () => void;
-  onDownload: (filename: string) => void;
+  onDownloadPayslip: (payslipId: number) => void;
   onExport: () => void;
 }) {
   const roleStyle = ROLE_STYLES[emp.role as keyof typeof ROLE_STYLES];
@@ -2200,7 +2311,7 @@ function ProfilePanel({
         )}
 
         {tab === 'hours' && (() => {
-          const history = hoursHistory(emp);
+          const history = payslips.length > 0 ? hoursHistoryFromPayslips(payslips) : hoursHistory(emp);
           const totals = history.map(h => h.reg + h.ot);
           const max = Math.max(1, ...totals);
           return (
@@ -2272,37 +2383,55 @@ function ProfilePanel({
         })()}
 
         {tab === 'payslips' && (
-          <ProfileSection label="Last 3 payslips">
-            {PAYSLIPS.map((p, i) => (
-              <div key={i} style={{
-                display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0',
-                borderBottom: i < PAYSLIPS.length - 1 ? `1px solid ${C.bd2}` : 'none',
-              }}>
-                <div style={{
-                  width: 30, height: 30, borderRadius: 8, background: p.colorBg,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 14, flexShrink: 0,
-                }}>
-                  📋
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: C.t }}>{p.month}</div>
-                  <div style={{ fontSize: 9, color: C.t2 }}>
-                    {p.hours} hrs · {p.ot} OT
-                  </div>
-                </div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: C.green, flexShrink: 0 }}>
-                  {p.amount}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => onDownload(`${emp.name.replace(/\s+/g, '_')}_${p.month.replace(/\s+/g, '_')}_payslip.pdf`)}
-                  style={pdfButtonStyle}
-                >
-                  <Download size={9} /> PDF
-                </button>
+          <ProfileSection label="Payslips">
+            {payslipsLoading ? (
+              <div style={{ fontSize: 11, color: C.t2 }}>Loading payslips…</div>
+            ) : payslips.length === 0 ? (
+              <div style={{ fontSize: 11, color: C.t2, lineHeight: 1.5 }}>
+                No payslips on file for this employee yet.
               </div>
-            ))}
+            ) : (
+              payslips.slice(0, 6).map((p, i) => {
+                const period = formatPayslipPeriod(p.createdAt);
+                const colorBg = PAYSLIP_ROW_COLORS[i % PAYSLIP_ROW_COLORS.length];
+                const downloading = payslipDownloadingId === p.id;
+                return (
+                  <div key={p.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0',
+                    borderBottom: i < Math.min(payslips.length, 6) - 1 ? `1px solid ${C.bd2}` : 'none',
+                  }}>
+                    <div style={{
+                      width: 30, height: 30, borderRadius: 8, background: colorBg,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 14, flexShrink: 0,
+                    }}>
+                      📋
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: C.t }}>{period}</div>
+                      <div style={{ fontSize: 9, color: C.t2 }}>
+                        {p.regularHours} hrs · {p.overtimeHours} OT · {formatPayslipUsd(p.grossPay)} gross
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: C.green, flexShrink: 0 }}>
+                      {formatPayslipUsd(p.netPay)}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onDownloadPayslip(p.id)}
+                      disabled={downloading}
+                      style={{
+                        ...pdfButtonStyle,
+                        opacity: downloading ? 0.6 : 1,
+                        cursor: downloading ? 'wait' : 'pointer',
+                      }}
+                    >
+                      <Download size={9} /> {downloading ? '…' : 'PDF'}
+                    </button>
+                  </div>
+                );
+              })
+            )}
           </ProfileSection>
         )}
       </div>

@@ -1,5 +1,8 @@
 // AI-Powered Payroll Service
 
+import { API_BASE_URL } from './api';
+import { authFetch } from '../api/axios';
+import type { CompletePayrollResult } from './payrollCalculationEngine';
 import type { LeaveType, LeaveStatus } from './leaveService';
 
 export interface Employee {
@@ -785,3 +788,234 @@ export function verifyCompliance(employees: Employee[]): {
     };
 }
 
+// ── Phase 3c: tenant-scoped payroll API (real backend) ─────────
+
+export interface PayrollProfile {
+    id: number;
+    tenantId?: number | null;
+    employeeId: number;
+    payType: string;
+    monthlySalary?: number | null;
+    hourlyRate?: number | null;
+    overtimeRate?: number | null;
+    createdAt?: string | null;
+    updatedAt?: string | null;
+}
+
+export interface ApiPayslipDeduction {
+    id: number;
+    tenantId?: number | null;
+    payslipId: number;
+    label: string;
+    amount: number;
+    createdAt?: string | null;
+}
+
+export interface ApiPayslip {
+    id: number;
+    tenantId?: number | null;
+    payrollRunId: number;
+    employeeId: number;
+    regularHours: number;
+    overtimeHours: number;
+    basePay: number;
+    overtimePay: number;
+    grossPay: number;
+    deductionsTotal: number;
+    netPay: number;
+    status: string;
+    createdAt?: string | null;
+    updatedAt?: string | null;
+    deductions: ApiPayslipDeduction[];
+}
+
+async function readPayrollApiError(r: Response): Promise<string> {
+    try {
+        const body = await r.json();
+        if (typeof body?.detail === 'string') return body.detail;
+        if (body?.detail) return JSON.stringify(body.detail);
+    } catch {
+        /* ignore */
+    }
+    return `Request failed (${r.status})`;
+}
+
+function fromPayrollProfile(raw: Record<string, unknown>): PayrollProfile {
+    return {
+        id: Number(raw.id),
+        tenantId: raw.tenantId != null ? Number(raw.tenantId) : raw.tenant_id != null ? Number(raw.tenant_id) : null,
+        employeeId: Number(raw.employeeId ?? raw.employee_id),
+        payType: String(raw.payType ?? raw.pay_type ?? ''),
+        monthlySalary: raw.monthlySalary != null
+            ? Number(raw.monthlySalary)
+            : raw.monthly_salary != null
+              ? Number(raw.monthly_salary)
+              : null,
+        hourlyRate: raw.hourlyRate != null
+            ? Number(raw.hourlyRate)
+            : raw.hourly_rate != null
+              ? Number(raw.hourly_rate)
+              : null,
+        overtimeRate: raw.overtimeRate != null
+            ? Number(raw.overtimeRate)
+            : raw.overtime_rate != null
+              ? Number(raw.overtime_rate)
+              : null,
+        createdAt: raw.createdAt != null ? String(raw.createdAt) : raw.created_at != null ? String(raw.created_at) : null,
+        updatedAt: raw.updatedAt != null ? String(raw.updatedAt) : raw.updated_at != null ? String(raw.updated_at) : null,
+    };
+}
+
+function fromPayslipDeduction(raw: Record<string, unknown>): ApiPayslipDeduction {
+    return {
+        id: Number(raw.id),
+        tenantId: raw.tenantId != null ? Number(raw.tenantId) : raw.tenant_id != null ? Number(raw.tenant_id) : null,
+        payslipId: Number(raw.payslipId ?? raw.payslip_id),
+        label: String(raw.label ?? ''),
+        amount: Number(raw.amount ?? 0),
+        createdAt: raw.createdAt != null ? String(raw.createdAt) : raw.created_at != null ? String(raw.created_at) : null,
+    };
+}
+
+function fromPayslip(raw: Record<string, unknown>): ApiPayslip {
+    const deductionsRaw = raw.deductions;
+    const deductions = Array.isArray(deductionsRaw)
+        ? deductionsRaw.map((row) => fromPayslipDeduction(row as Record<string, unknown>))
+        : [];
+    return {
+        id: Number(raw.id),
+        tenantId: raw.tenantId != null ? Number(raw.tenantId) : raw.tenant_id != null ? Number(raw.tenant_id) : null,
+        payrollRunId: Number(raw.payrollRunId ?? raw.payroll_run_id),
+        employeeId: Number(raw.employeeId ?? raw.employee_id),
+        regularHours: Number(raw.regularHours ?? raw.regular_hours ?? 0),
+        overtimeHours: Number(raw.overtimeHours ?? raw.overtime_hours ?? 0),
+        basePay: Number(raw.basePay ?? raw.base_pay ?? 0),
+        overtimePay: Number(raw.overtimePay ?? raw.overtime_pay ?? 0),
+        grossPay: Number(raw.grossPay ?? raw.gross_pay ?? 0),
+        deductionsTotal: Number(raw.deductionsTotal ?? raw.deductions_total ?? 0),
+        netPay: Number(raw.netPay ?? raw.net_pay ?? 0),
+        status: String(raw.status ?? 'draft'),
+        createdAt: raw.createdAt != null ? String(raw.createdAt) : raw.created_at != null ? String(raw.created_at) : null,
+        updatedAt: raw.updatedAt != null ? String(raw.updatedAt) : raw.updated_at != null ? String(raw.updated_at) : null,
+        deductions,
+    };
+}
+
+export function formatPayslipPeriod(createdAt?: string | null): string {
+    if (!createdAt) return 'Pay period';
+    const d = new Date(createdAt);
+    if (Number.isNaN(d.getTime())) return 'Pay period';
+    return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
+export function formatPayslipUsd(amount: number): string {
+    return `$${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+export async function getPayslips(employeeId: number | string): Promise<ApiPayslip[]> {
+    const r = await authFetch(
+        `${API_BASE_URL}/payroll/payslips?employeeId=${encodeURIComponent(String(employeeId))}`,
+    );
+    if (!r.ok) throw new Error(await readPayrollApiError(r));
+    const rows = await r.json();
+    return (Array.isArray(rows) ? rows : []).map((row) => fromPayslip(row as Record<string, unknown>));
+}
+
+export async function getPayslip(id: number | string): Promise<ApiPayslip> {
+    const r = await authFetch(`${API_BASE_URL}/payroll/payslips/${encodeURIComponent(String(id))}`);
+    if (!r.ok) throw new Error(await readPayrollApiError(r));
+    return fromPayslip((await r.json()) as Record<string, unknown>);
+}
+
+export async function getPayrollProfile(employeeId: number | string): Promise<PayrollProfile> {
+    const r = await authFetch(
+        `${API_BASE_URL}/payroll/profiles/${encodeURIComponent(String(employeeId))}`,
+    );
+    if (!r.ok) throw new Error(await readPayrollApiError(r));
+    return fromPayrollProfile((await r.json()) as Record<string, unknown>);
+}
+
+export function mapPayslipToPayrollResult(payslip: ApiPayslip): CompletePayrollResult {
+    const earnings = [
+        { name: 'Base Pay', amount: payslip.basePay, type: 'Earning' as const },
+    ];
+    if (payslip.overtimePay > 0) {
+        earnings.push({ name: 'Overtime Pay', amount: payslip.overtimePay, type: 'Earning' as const });
+    }
+
+    const deductions = (payslip.deductions || []).map((d) => ({
+        name: d.label,
+        amount: d.amount,
+        type: 'Deduction' as const,
+    }));
+    if (deductions.length === 0 && payslip.deductionsTotal > 0) {
+        deductions.push({ name: 'Deductions', amount: payslip.deductionsTotal, type: 'Deduction' as const });
+    }
+
+    return {
+        employeeId: String(payslip.employeeId),
+        period: formatPayslipPeriod(payslip.createdAt),
+        grossPay: payslip.grossPay,
+        netPay: payslip.netPay,
+        totalDeductions: payslip.deductionsTotal,
+        earnings,
+        deductions,
+        employerContributions: [],
+        taxes: {
+            federalTax: 0,
+            stateTax: 0,
+            socialSecurity: 0,
+            medicare: 0,
+            totalTax: 0,
+        },
+        meta: {
+            isProRata: false,
+            currency: 'USD',
+            exchangeRateToUSD: 1,
+        },
+    };
+}
+
+export function mapPortalEmployeeToPayrollPdfEmployee(
+    emp: {
+        id: string;
+        name: string;
+        employeeNumber: string;
+        department?: string;
+        role: string;
+        email?: string;
+        hireDateIso?: string;
+    },
+    profile?: PayrollProfile | null,
+): Employee {
+    const payType = profile?.payType?.toLowerCase();
+    const salaryType: Employee['salaryType'] = payType === 'hourly' ? 'Hourly' : 'Monthly';
+    const salaryAmount = payType === 'hourly'
+        ? Number(profile?.hourlyRate ?? 0)
+        : Number(profile?.monthlySalary ?? 0);
+
+    return {
+        id: emp.id,
+        name: emp.name,
+        email: emp.email || '',
+        jobTitle: emp.role,
+        department: emp.department || '',
+        employeeId: emp.employeeNumber,
+        status: 'Active',
+        joinDate: emp.hireDateIso || '',
+        salaryType,
+        salaryAmount,
+        currency: 'USD',
+        filingStatus: 'Single',
+        allowances: 0,
+        additionalWithholding: 0,
+        healthInsurance: false,
+        retirement401k: false,
+        retirement401kPercent: 0,
+        lifeInsurance: false,
+        dentalInsurance: false,
+        vacationDays: 0,
+        sickDays: 0,
+        personalDays: 0,
+    };
+}
