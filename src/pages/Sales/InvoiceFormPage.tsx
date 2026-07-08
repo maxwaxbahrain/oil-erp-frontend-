@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { ArrowLeft, Plus, Save, FileText, UserPlus, X, Download } from 'lucide-react';
-import { getCustomers, getInvoices, createInvoice, updateInvoice, getProducts, createCustomer, type Customer, type Product } from '../../services/api';
+import { getCustomers, getInvoices, getProducts, createCustomer, API_BASE_URL, type Customer, type Product } from '../../services/api';
 import { getCustomerPrice } from '../../services/api';
-// ITEM 7A — Pull salesmen via getSalesmen() so newly-added entries
-// from the quick-add UI show up without a page reload.
-import { getSalesmen, addSalesman, VANS, PAYMENT_METHODS, type Salesman } from '../../constants/data';
+import { getSalesmen, type SalesmanPickerOption } from '../../services/employeeService';
+import { authFetch } from '../../api/axios';
+import { VANS, PAYMENT_METHODS } from '../../constants/data';
 import SearchableSelect from '../../components/common/SearchableSelect';
 import InvoiceLineRow, { type InvoiceLineItem } from './InvoiceLineRow';
 // ITEM 7F — Deposit (bank/cash) account picker for inline Record Payment.
@@ -34,7 +34,7 @@ interface InvoiceFormData {
     roundOff: number;
     grandTotal: number;
     notes: string;
-    salesmanId: string;
+    salesmanEmployeeId: string;
     vanId: string;
     paymentStatus: 'Paid' | 'Unpaid' | 'Advance Paid';
     paymentMethod: string;
@@ -83,6 +83,116 @@ function decrementCachedStock(productId: string | number, qty: number) {
         });
         localStorage.setItem('zavi_products', JSON.stringify(updated));
     } catch { /* cache update is best-effort */ }
+}
+
+function parseSalesmanNameFromNotes(notes: string | null | undefined): string | null {
+    if (!notes) return null;
+    for (const line of notes.split('\n')) {
+        const stripped = line.trim();
+        if (stripped.toLowerCase().startsWith('salesman:')) {
+            const value = stripped.slice(stripped.indexOf(':') + 1).trim();
+            return value || null;
+        }
+    }
+    return null;
+}
+
+function resolveSalesmanEmployeeId(
+    rawFk: unknown,
+    notes: string | null | undefined,
+    salesmen: SalesmanPickerOption[],
+): string {
+    if (rawFk != null && String(rawFk).trim() !== '') return String(rawFk);
+    const legacyName = parseSalesmanNameFromNotes(notes);
+    if (!legacyName) return '';
+    const norm = legacyName.trim().toLowerCase();
+    const matches = salesmen.filter((s) => s.name.trim().toLowerCase() === norm);
+    return matches.length === 1 ? matches[0].id : '';
+}
+
+type InvoiceSaveExtras = {
+    payment_status: string;
+    payment_method: string;
+    amount_paid: number;
+    remaining_balance: number;
+    status: string;
+    deposit_account_id?: string;
+};
+
+async function persistInvoiceWithSalesmanFk(
+    isEditMode: boolean,
+    editId: string | undefined,
+    formData: InvoiceFormData,
+    extras: InvoiceSaveExtras,
+): Promise<{ id: string; invoiceNumber?: string }> {
+    const grand = Number(formData.grandTotal) || 0;
+    const lineItems = formData.lineItems.map((item) => {
+        const rawPid = item.productId;
+        const product_id =
+            rawPid != null && String(rawPid).trim() !== '' && Number(rawPid) > 0
+                ? Number(rawPid)
+                : undefined;
+        return {
+            product: item.product || '',
+            description: item.description || '',
+            quantity: Number(item.quantity) || 1,
+            rate: Number(item.rate) || 0,
+            amount: Number(item.amount) || 0,
+            product_id,
+            itemCode: null,
+        };
+    });
+
+    const payload: Record<string, unknown> = {
+        invoiceNumber: formData.invoiceNumber || `INV-${Date.now()}`,
+        customerId: String(formData.customerId),
+        customerName: formData.customerName || '',
+        invoiceDate: formData.invoiceDate || new Date().toISOString().split('T')[0],
+        dueDate: formData.dueDate || null,
+        lineItems,
+        subtotal: Number(formData.subtotal) || 0,
+        taxRate: Number(formData.taxRate) || 0,
+        taxAmount: Number(formData.taxAmount) || 0,
+        discount: Number(formData.discount) || 0,
+        grandTotal: grand,
+        notes: formData.notes || '',
+        van: VANS.find((v) => v.id === formData.vanId)?.name || '',
+        payment_status: extras.payment_status,
+        payment_method: extras.payment_method,
+        amount_paid: extras.amount_paid,
+        remaining_balance: extras.remaining_balance,
+        status: extras.status,
+    };
+
+    if (formData.salesmanEmployeeId) {
+        payload.salesmanEmployeeId = Number(formData.salesmanEmployeeId);
+    }
+
+    const url = isEditMode && editId && editId !== 'new'
+        ? `${API_BASE_URL}/invoices/${encodeURIComponent(String(editId))}`
+        : `${API_BASE_URL}/invoices/`;
+    const method = isEditMode && editId && editId !== 'new' ? 'PUT' : 'POST';
+
+    const r = await authFetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+        let detail = `Request failed (${r.status})`;
+        try {
+            const body = await r.json();
+            if (typeof body?.detail === 'string') detail = body.detail;
+        } catch {
+            /* ignore */
+        }
+        throw new Error(detail);
+    }
+    const raw = (await r.json()) as Record<string, unknown>;
+    return {
+        id: String(raw.id ?? editId ?? ''),
+        invoiceNumber: String(raw.invoice_number ?? raw.invoiceNumber ?? formData.invoiceNumber),
+    };
 }
 
 function autoRoundOffAmount(subtotal: number, effectiveDiscount: number, taxAmount: number): number {
@@ -174,12 +284,8 @@ export default function InvoiceFormPage() {
     const [newCustPhone, setNewCustPhone] = useState('');
     const [newCustAddress, setNewCustAddress] = useState('');
     const [savingCust, setSavingCust] = useState(false);
-    // ITEM 7A — Salesmen state (localStorage-backed via getSalesmen) +
-    // quick-add modal state. Mirrors the New Customer pattern.
-    const [salesmen, setSalesmen] = useState<Salesman[]>(() => getSalesmen());
-    const [showNewSalesman, setShowNewSalesman] = useState(false);
-    const [newSalesmanName, setNewSalesmanName] = useState('');
-    const [newSalesmanPhone, setNewSalesmanPhone] = useState('');
+    // Phase S1b — salesmen from GET /api/employees?role=salesman
+    const [salesmen, setSalesmen] = useState<SalesmanPickerOption[]>([]);
 
     // ITEM 7F — Bank/Cash accounts loaded from COA (1110 "Cash & Bank" subtree).
     // Powers the inline Record Payment "Deposit To Account" dropdown.
@@ -225,7 +331,7 @@ export default function InvoiceFormPage() {
         roundOff: 0,
         grandTotal: 0,
         notes: '',
-        salesmanId: '',
+        salesmanEmployeeId: '',
         vanId: '',
         paymentStatus: 'Unpaid',
         paymentMethod: '',
@@ -263,12 +369,6 @@ export default function InvoiceFormPage() {
         }
     }, []);
 
-    // ITEM 16 — Escape closes the New Customer or New Salesman inline
-    // modals (whichever is currently open). New Salesman wins precedence
-    // because it's the more recent addition (typically on top of the
-    // form when both could theoretically be opened, even though only one
-    // is visible at a time).
-    useEscape(() => setShowNewSalesman(false), showNewSalesman);
     useEscape(() => setShowNewCustomer(false), showNewCustomer);
 
     // ITEM 7C — Compute the next sequential invoice number on mount.
@@ -300,12 +400,14 @@ export default function InvoiceFormPage() {
         const loadData = async () => {
             try {
                 setLoading(true);
-                const [customersData, productsData] = await Promise.all([
+                const [customersData, productsData, salesmenData] = await Promise.all([
                     getCustomers(),
-                    getProducts()
+                    getProducts(),
+                    getSalesmen().catch(() => [] as SalesmanPickerOption[]),
                 ]);
                 setCustomers(customersData);
                 setProducts(productsData);
+                setSalesmen(salesmenData);
                 // Populate form when editing - fetch from API if navigated directly by URL
                 let invoiceToEdit = existingInvoice;
                 if (invoiceIdParam && invoiceIdParam !== 'new' && !invoiceToEdit) {
@@ -331,9 +433,9 @@ export default function InvoiceFormPage() {
                     // to pick one.
                     const salesmanQuery = String(voicePrefill.salesman || '').trim();
                     const matchedSalesman = salesmanQuery
-                        ? fuzzyMatchByName(salesmanQuery, salesmen)
+                        ? fuzzyMatchByName(salesmanQuery, salesmenData)
                         : null;
-                    const salesmanId = matchedSalesman ? String(matchedSalesman.id) : '';
+                    const salesmanEmployeeId = matchedSalesman ? String(matchedSalesman.id) : '';
 
                     const rawItems = Array.isArray(voicePrefill.items) ? voicePrefill.items : [];
                     const lineItems =
@@ -400,13 +502,27 @@ export default function InvoiceFormPage() {
                         ...prev,
                         customerId,
                         customerName,
-                        salesmanId,
+                        salesmanEmployeeId,
                         ...(voiceDate ? { invoiceDate: voiceDate } : {}),
                         lineItems,
                     }));
                     setVoicePrefillBanner(true);
                 } else if (isEditMode && invoiceToEdit) {
                     const inv = invoiceToEdit;
+                    let rawFk: unknown;
+                    try {
+                        const r = await authFetch(`${API_BASE_URL}/invoices/`);
+                        if (r.ok) {
+                            const list = await r.json();
+                            const raw = (Array.isArray(list) ? list : []).find(
+                                (row: Record<string, unknown>) =>
+                                    String(row.id) === String(inv.id),
+                            );
+                            rawFk = raw?.salesman_employee_id ?? raw?.salesmanEmployeeId;
+                        }
+                    } catch {
+                        /* best-effort FK restore */
+                    }
                     setFormData({
                         customerId: String(inv.customerId || ''),
                         customerName: inv.customerName || '',
@@ -433,7 +549,7 @@ export default function InvoiceFormPage() {
                         roundOff: 0,
                         grandTotal: Number(inv.grandTotal) || 0,
                         notes: inv.notes || '',
-                        salesmanId: inv.salesman || '',
+                        salesmanEmployeeId: resolveSalesmanEmployeeId(rawFk, inv.notes, salesmenData),
                         vanId: inv.van || '',
                         paymentStatus: inv.payment_status || 'Unpaid',
                         paymentMethod: inv.payment_method || 'Cash',
@@ -544,22 +660,6 @@ export default function InvoiceFormPage() {
         });
     }, []);
 
-    // ITEM 7A — Quick-add salesman handler. Saves to localStorage
-    // (via addSalesman) and auto-selects the new salesman in the form.
-    const createNewSalesman = () => {
-        if (!newSalesmanName.trim()) return;
-        try {
-            const created = addSalesman({ name: newSalesmanName, phone: newSalesmanPhone });
-            setSalesmen(prev => [...prev, created]);
-            setFormData(prev => ({ ...prev, salesmanId: created.id }));
-            setShowNewSalesman(false);
-            setNewSalesmanName('');
-            setNewSalesmanPhone('');
-        } catch (e) {
-            alert('Failed to create salesman.');
-        }
-    };
-
     const createNewCustomer = async () => {
         if (!newCustName.trim()) return;
         setSavingCust(true);
@@ -646,6 +746,8 @@ export default function InvoiceFormPage() {
     // ITEM 7G — Download a real PDF of the invoice. Works from in-memory
     // form state so the user can preview before saving (no save side-effects).
     // Mirrors the payslip/receipt PDF utilities.
+    const selectedSalesmanName = salesmen.find((s) => s.id === formData.salesmanEmployeeId)?.name;
+
     const handleDownloadPDF = () => {
         const cust = customers.find(c => c.id === formData.customerId) || null;
         try {
@@ -673,7 +775,7 @@ export default function InvoiceFormPage() {
                 amountPaid: formData.amountPaid,
                 remainingBalance: formData.remainingBalance,
                 paymentStatus: formData.paymentStatus,
-                salesman: salesmen.find(s => s.id === formData.salesmanId)?.name,
+                salesman: selectedSalesmanName ?? parseSalesmanNameFromNotes(formData.notes) ?? undefined,
                 notes: formData.notes,
             });
         } catch (e: any) {
@@ -693,48 +795,21 @@ export default function InvoiceFormPage() {
         }
         try {
             setSaving(true);
-            const invoiceData = {
-                invoiceNumber: formData.invoiceNumber,
-                customerId: formData.customerId,
-                customerName: formData.customerName,
-                invoiceDate: formData.invoiceDate,
-                dueDate: formData.dueDate,
-                lineItems: formData.lineItems.map(item => ({
-                    product: item.product,
-                    description: item.description,
-                    quantity: item.quantity,
-                    rate: item.rate,
-                    amount: item.amount,
-                    productId: item.productId != null && String(item.productId).trim() !== ''
-                        ? Number(item.productId)
-                        : undefined,
-                    // ITEM 7D — persist per-line discount/tax for round-trip on edit.
-                    lineDiscount: Number(item.lineDiscount) || 0,
-                    lineTaxRate: Number(item.lineTaxRate) || 0,
-                })),
-                subtotal: formData.subtotal,
-                taxRate: formData.taxRate,
-                taxAmount: formData.taxAmount,
-                discount: formData.discount,
-                grandTotal: formData.grandTotal,
-                notes: formData.notes,
-                salesman: salesmen.find(s => s.id === formData.salesmanId)?.name,
-                van: VANS.find(v => v.id === formData.vanId)?.name,
-                payment_status: 'Unpaid',
-                payment_method: formData.paymentMethod,
-                amount_paid: 0,
-                remaining_balance: formData.grandTotal,
-                status: 'Draft' as const,
-                // ITEM 7F — Deposit account on draft is mostly informational
-                // (draft hasn't recorded payment yet) but we keep the link
-                // so it round-trips on subsequent edits.
-                deposit_account_id: formData.depositAccountId || undefined,
-            };
             const editId = existingInvoice?.id || invoiceIdParam;
-            const saved = isEditMode && editId && editId !== 'new'
-                ? await updateInvoice(String(editId), invoiceData as any)
-                : await createInvoice(invoiceData as any);
-            const invNum = (saved as { invoiceNumber?: string })?.invoiceNumber || formData.invoiceNumber;
+            const saved = await persistInvoiceWithSalesmanFk(
+                Boolean(isEditMode && editId && editId !== 'new'),
+                editId,
+                formData,
+                {
+                    payment_status: 'Unpaid',
+                    payment_method: formData.paymentMethod,
+                    amount_paid: 0,
+                    remaining_balance: formData.grandTotal,
+                    status: 'Draft',
+                    deposit_account_id: formData.depositAccountId || undefined,
+                },
+            );
+            const invNum = saved.invoiceNumber || formData.invoiceNumber;
             setSavedNotice(`${invNum} (draft)`);
             setTimeout(() => navigate('/sales/invoices'), 1500);
         } catch (error: any) {
@@ -764,46 +839,20 @@ export default function InvoiceFormPage() {
         try {
             setSaving(true);
 
-            const invoiceData = {
-                invoiceNumber: formData.invoiceNumber,
-                customerId: formData.customerId,
-                customerName: formData.customerName,
-                invoiceDate: formData.invoiceDate,
-                dueDate: formData.dueDate,
-                lineItems: formData.lineItems.map(item => ({
-                    product: item.product,
-                    description: item.description,
-                    quantity: item.quantity,
-                    rate: item.rate,
-                    amount: item.amount,
-                    productId: item.productId != null && String(item.productId).trim() !== ''
-                        ? Number(item.productId)
-                        : undefined,
-                    // ITEM 7D — persist per-line discount/tax.
-                    lineDiscount: Number(item.lineDiscount) || 0,
-                    lineTaxRate: Number(item.lineTaxRate) || 0,
-                })),
-                subtotal: formData.subtotal,
-                taxRate: formData.taxRate,
-                taxAmount: formData.taxAmount,
-                discount: formData.discount,
-                grandTotal: formData.grandTotal,
-                notes: formData.notes,
-                salesman: salesmen.find(s => s.id === formData.salesmanId)?.name,
-                van: VANS.find(v => v.id === formData.vanId)?.name,
-                payment_status: formData.paymentStatus,
-                payment_method: formData.paymentMethod,
-                amount_paid: formData.paymentStatus === 'Paid' ? formData.grandTotal : formData.amountPaid,
-                remaining_balance: formData.remainingBalance,
-                status: (formData.paymentStatus === 'Paid' ? 'Paid' : formData.paymentStatus === 'Advance Paid' ? 'Partial' : 'Unpaid') as any,
-                // ITEM 7F — Deposit account for the journal posting.
-                deposit_account_id: formData.depositAccountId || undefined,
-            };
-
             const editId = existingInvoice?.id || invoiceIdParam;
-            const savedInvoice = isEditMode && editId && editId !== 'new'
-                ? await updateInvoice(String(editId), invoiceData)
-                : await createInvoice(invoiceData);
+            const savedInvoice = await persistInvoiceWithSalesmanFk(
+                Boolean(isEditMode && editId && editId !== 'new'),
+                editId,
+                formData,
+                {
+                    payment_status: formData.paymentStatus,
+                    payment_method: formData.paymentMethod,
+                    amount_paid: formData.paymentStatus === 'Paid' ? formData.grandTotal : formData.amountPaid,
+                    remaining_balance: formData.remainingBalance,
+                    status: formData.paymentStatus === 'Paid' ? 'Paid' : formData.paymentStatus === 'Advance Paid' ? 'Partial' : 'Unpaid',
+                    deposit_account_id: formData.depositAccountId || undefined,
+                },
+            );
 
             console.log('✅ Invoice saved:', savedInvoice);
 
@@ -821,7 +870,7 @@ export default function InvoiceFormPage() {
             // FIX 1 — inline emerald banner instead of blocking alert.
             // Show for ~1.5s so the user sees confirmation, then navigate
             // to the customer ledger where the new invoice appears.
-            const invNum = (savedInvoice as { invoiceNumber?: string })?.invoiceNumber || formData.invoiceNumber;
+            const invNum = savedInvoice.invoiceNumber || formData.invoiceNumber;
             setSavedNotice(invNum);
             setTimeout(() => {
                 navigate(`/customers/${formData.customerId}?tab=ledger`);
@@ -1075,81 +1124,22 @@ export default function InvoiceFormPage() {
                 {/* New: Salesman and Van Fields */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-6 border-b-2 border-gray-200">
                     <div>
-                        <div className="flex items-center justify-between mb-2">
-                            <label className="text-xs font-semibold text-gray-600">
-                                Salesman <span className="text-red-500">*</span>
-                            </label>
-                            {/* ITEM 7A — Quick-add new salesman, mirrors New Customer. */}
-                            <button type="button" onClick={() => setShowNewSalesman(true)}
-                                className="flex items-center gap-1 text-xs font-black text-orange-600 hover:text-orange-800 transition-all">
-                                <UserPlus size={12} /> New Salesman
-                            </button>
-                        </div>
-                        <SearchableSelect
-                            options={salesmen}
-                            value={formData.salesmanId}
-                            onChange={(val) => setFormData(p => ({ ...p, salesmanId: val }))}
-                            placeholder="Search and select salesman..."
-                            displayKey="name"
-                            theme="dark"
-                        />
-                        {showNewSalesman && (
-                            <div
-                                className="mt-2 p-3 rounded-xl space-y-2"
-                                style={{
-                                    background: 'var(--color-redwood-bg-surface, #0f1f33)',
-                                    border: '0.5px solid var(--color-redwood-border, rgba(255,255,255,0.12))',
-                                }}
-                            >
-                                <div className="flex items-center justify-between">
-                                    <p
-                                        className="text-xs font-black uppercase"
-                                        style={{ color: 'var(--color-redwood-text-main, #EEF2FF)' }}
-                                    >
-                                        New Salesman
-                                    </p>
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowNewSalesman(false)}
-                                        className="hover:opacity-80 transition-opacity"
-                                        style={{ color: 'var(--color-redwood-text-muted, #8BA3C7)' }}
-                                    >
-                                        <X size={14} />
-                                    </button>
-                                </div>
-                                <input
-                                    type="text"
-                                    placeholder="Salesman Name *"
-                                    value={newSalesmanName}
-                                    onChange={e => setNewSalesmanName(e.target.value)}
-                                    className="w-full rounded-lg px-3 py-2 text-sm focus:outline-none placeholder:text-[#8BA3C7]"
-                                    style={{
-                                        border: '0.5px solid var(--color-redwood-border, rgba(255,255,255,0.12))',
-                                        background: 'var(--color-redwood-midnight, #0a1726)',
-                                        color: 'var(--color-redwood-text-main, #EEF2FF)',
-                                    }}
-                                />
-                                <input
-                                    type="text"
-                                    placeholder="Phone (optional)"
-                                    value={newSalesmanPhone}
-                                    onChange={e => setNewSalesmanPhone(e.target.value)}
-                                    className="w-full rounded-lg px-3 py-2 text-sm focus:outline-none placeholder:text-[#8BA3C7]"
-                                    style={{
-                                        border: '0.5px solid var(--color-redwood-border, rgba(255,255,255,0.12))',
-                                        background: 'var(--color-redwood-midnight, #0a1726)',
-                                        color: 'var(--color-redwood-text-main, #EEF2FF)',
-                                    }}
-                                />
-                                <button
-                                    type="button"
-                                    onClick={createNewSalesman}
-                                    disabled={!newSalesmanName.trim()}
-                                    className="w-full py-2 bg-orange-500 text-white text-xs font-black rounded-lg hover:bg-orange-600 disabled:opacity-40 transition-all"
-                                >
-                                    Create &amp; Select Salesman
-                                </button>
-                            </div>
+                        <label className="text-xs font-semibold text-gray-600 mb-2 block">
+                            Salesman <span className="text-gray-400 font-normal">(optional)</span>
+                        </label>
+                        {salesmen.length === 0 ? (
+                            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                                No salesmen — add one in the Employee Portal (set employee role to salesman).
+                            </p>
+                        ) : (
+                            <SearchableSelect
+                                options={salesmen}
+                                value={formData.salesmanEmployeeId}
+                                onChange={(val) => setFormData((p) => ({ ...p, salesmanEmployeeId: val }))}
+                                placeholder="Search and select salesman..."
+                                displayKey="name"
+                                theme="dark"
+                            />
                         )}
                     </div>
                     <div>

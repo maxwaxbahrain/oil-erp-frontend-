@@ -1,19 +1,52 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Plus, Save, FileText, UserPlus, X } from 'lucide-react';
+import { ArrowLeft, Plus, Save, FileText } from 'lucide-react';
 import { getCustomers, getProducts, type Customer, type Product } from '../../services/api';
 import SearchableSelect from '../../components/common/SearchableSelect';
 import InvoiceLineRow, { type InvoiceLineItem } from './InvoiceLineRow';
-import { getSalesmen, addSalesman, type Salesman } from '../../constants/data';
+import { getSalesmen, type SalesmanPickerOption } from '../../services/employeeService';
+import { authFetch } from '../../api/axios';
+import { getOilErpApiBase } from '../../config/apiBase';
 import { formatDateOnly } from '../../utils/formatters';
 import {
-    createQuotation,
     getQuotation,
-    updateQuotation,
     type Quotation,
     type QuotationStatus,
 } from '../../services/quotationService';
 import QuotationStatusActions from './QuotationStatusActions';
+
+const QUOTATIONS_API = `${getOilErpApiBase()}/quotations`;
+
+function resolveSalesmanEmployeeIdFromQuote(
+    raw: Record<string, unknown> | null | undefined,
+    salesmen: SalesmanPickerOption[],
+): string {
+    const fk = raw?.salesman_employee_id ?? raw?.salesmanEmployeeId;
+    if (fk != null && String(fk).trim() !== '') return String(fk);
+    const legacyName = raw?.salesman_name != null ? String(raw.salesman_name).trim() : '';
+    if (!legacyName) return '';
+    const norm = legacyName.toLowerCase();
+    const matches = salesmen.filter((s) => s.name.trim().toLowerCase() === norm);
+    return matches.length === 1 ? matches[0].id : '';
+}
+
+function mapQuotationItemsForApi(items: InvoiceLineItem[]) {
+    return items.map((item) => {
+        const rawPid = item.productId;
+        const product_id =
+            rawPid != null && String(rawPid).trim() !== '' && Number(rawPid) > 0
+                ? Number(rawPid)
+                : undefined;
+        return {
+            ...(product_id !== undefined ? { product_id } : {}),
+            product_name: item.product,
+            quantity: Number(item.quantity) || 0,
+            unit_price: Number(item.rate) || 0,
+            total: Number(item.amount) || 0,
+            ...(item.description ? { description: item.description } : {}),
+        };
+    });
+}
 
 const panelStyle: CSSProperties = {
     background: 'var(--color-redwood-bg-surface)',
@@ -59,24 +92,6 @@ function newLine(): InvoiceLineItem {
     };
 }
 
-function toQuoteItems(lines: InvoiceLineItem[]) {
-    return lines.map((l) => {
-        const rawPid = l.productId;
-        const product_id =
-            rawPid != null && String(rawPid).trim() !== '' && Number(rawPid) > 0
-                ? Number(rawPid)
-                : undefined;
-        return {
-            ...(product_id !== undefined ? { product_id } : {}),
-            product_name: l.product,
-            quantity: Number(l.quantity) || 0,
-            unit_price: Number(l.rate) || 0,
-            total: Number(l.amount) || 0,
-            description: l.description || '',
-        };
-    });
-}
-
 function fromQuoteItems(items: Array<Record<string, unknown>>): InvoiceLineItem[] {
     return items.map((it, idx) => {
         const q = Number(it.quantity ?? it.qty ?? 0);
@@ -100,15 +115,12 @@ export default function QuotationFormPage() {
 
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
-    const [salesmen, setSalesmen] = useState<Salesman[]>(() => getSalesmen());
+    const [salesmen, setSalesmen] = useState<SalesmanPickerOption[]>([]);
     const [loading, setLoading] = useState(isEdit);
     const [saving, setSaving] = useState(false);
 
     const [customerId, setCustomerId] = useState('');
-    const [salesmanId, setSalesmanId] = useState('');
-    const [showNewSalesman, setShowNewSalesman] = useState(false);
-    const [newSalesmanName, setNewSalesmanName] = useState('');
-    const [newSalesmanPhone, setNewSalesmanPhone] = useState('');
+    const [salesmanEmployeeId, setSalesmanEmployeeId] = useState('');
     const [quoteDate, setQuoteDate] = useState(new Date().toISOString().slice(0, 10));
     const [expiryDate, setExpiryDate] = useState('');
     const [status, setStatus] = useState<QuotationStatus>('draft');
@@ -120,7 +132,7 @@ export default function QuotationFormPage() {
         'id' | 'quote_number' | 'status' | 'converted_sales_order_id' | 'converted_invoice_id'
     > | null>(null);
 
-    const applyQuote = useCallback((q: Quotation) => {
+    const applyQuote = useCallback((q: Quotation, raw: Record<string, unknown> | undefined, sm: SalesmanPickerOption[]) => {
         setQuoteMeta({
             id: q.id,
             quote_number: q.quote_number,
@@ -133,12 +145,7 @@ export default function QuotationFormPage() {
         setExpiryDate(q.expiry_date?.slice(0, 10) ?? '');
         setStatus(q.status);
         setNotes(q.notes ?? '');
-        if (q.salesman_id) {
-            setSalesmanId(q.salesman_id);
-        } else if (q.salesman_name) {
-            const match = getSalesmen().find((s) => s.name === q.salesman_name);
-            if (match) setSalesmanId(match.id);
-        }
+        setSalesmanEmployeeId(resolveSalesmanEmployeeIdFromQuote(raw, sm));
         setLines(q.items.length ? fromQuoteItems(q.items as unknown as Array<Record<string, unknown>>) : [newLine()]);
         const sub = q.subtotal || 0;
         setTaxRate(sub > 0 ? (q.tax / sub) * 100 : 0);
@@ -146,16 +153,27 @@ export default function QuotationFormPage() {
 
     const reloadQuote = useCallback(async () => {
         if (!isEdit || !id) return;
-        const q = await getQuotation(id);
-        applyQuote(q);
+        const [q, rawRes, sm] = await Promise.all([
+            getQuotation(id),
+            authFetch(`${QUOTATIONS_API}/${encodeURIComponent(String(id))}`),
+            getSalesmen().catch(() => [] as SalesmanPickerOption[]),
+        ]);
+        const raw = rawRes.ok ? ((await rawRes.json()) as Record<string, unknown>) : undefined;
+        setSalesmen(sm);
+        applyQuote(q, raw, sm);
     }, [applyQuote, id, isEdit]);
 
     useEffect(() => {
         void (async () => {
             try {
-                const [cust, prods] = await Promise.all([getCustomers(), getProducts()]);
+                const [cust, prods, sm] = await Promise.all([
+                    getCustomers(),
+                    getProducts(),
+                    getSalesmen().catch(() => [] as SalesmanPickerOption[]),
+                ]);
                 setCustomers(cust);
                 setProducts(prods);
+                setSalesmen(sm);
             } catch (e) {
                 console.error(e);
             }
@@ -167,8 +185,14 @@ export default function QuotationFormPage() {
         void (async () => {
             setLoading(true);
             try {
-                const q = await getQuotation(id);
-                applyQuote(q);
+                const [q, rawRes, sm] = await Promise.all([
+                    getQuotation(id),
+                    authFetch(`${QUOTATIONS_API}/${encodeURIComponent(String(id))}`),
+                    getSalesmen().catch(() => [] as SalesmanPickerOption[]),
+                ]);
+                const raw = rawRes.ok ? ((await rawRes.json()) as Record<string, unknown>) : undefined;
+                setSalesmen(sm);
+                applyQuote(q, raw, sm);
             } finally {
                 setLoading(false);
             }
@@ -219,39 +243,40 @@ export default function QuotationFormPage() {
             alert('Select a customer');
             return;
         }
-        if (!salesmanId) {
-            alert('Select a salesman');
-            return;
-        }
         if (!lines.some((l) => l.product && Number(l.quantity) > 0)) {
             alert('Add at least one line item');
             return;
         }
-        const salesmanName = salesmen.find((s) => s.id === salesmanId)?.name;
-        if (!salesmanName) {
-            alert('Select a valid salesman');
-            return;
-        }
         setSaving(true);
         try {
-            const payload = {
-                customer_id: Number(customerId),
+            const body: Record<string, unknown> = {
+                customerId: Number(customerId),
                 date: quoteDate,
-                expiry_date: expiryDate || null,
-                items: toQuoteItems(lines),
+                expiryDate: expiryDate || undefined,
+                items: mapQuotationItemsForApi(lines),
                 subtotal,
                 tax: taxAmount,
                 total: grandTotal,
                 discount: 0,
                 notes,
-                salesman_id: salesmanId,
-                salesman_name: salesmanName,
                 ...(isEdit ? {} : { status }),
             };
-            if (isEdit && id) {
-                await updateQuotation(id, payload);
-            } else {
-                await createQuotation(payload);
+            if (salesmanEmployeeId) {
+                body.salesmanEmployeeId = Number(salesmanEmployeeId);
+            }
+
+            const url = isEdit && id
+                ? `${QUOTATIONS_API}/${encodeURIComponent(String(id))}`
+                : `${QUOTATIONS_API}/`;
+            const method = isEdit && id ? 'PATCH' : 'POST';
+            const r = await authFetch(url, {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            if (!r.ok) {
+                const detail = await r.text();
+                throw new Error(detail || `Save failed (${r.status})`);
             }
             navigate('/sales/quotations');
         } catch (e) {
@@ -309,75 +334,20 @@ export default function QuotationFormPage() {
                         />
                     </div>
                     <div>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                            <span style={{ ...labelStyle, marginBottom: 0 }}>Salesman *</span>
-                            <button
-                                type="button"
-                                onClick={() => setShowNewSalesman(true)}
-                                className="flex items-center gap-1 text-xs font-black text-orange-600 hover:text-orange-800 transition-all"
-                            >
-                                <UserPlus size={12} /> New Salesman
-                            </button>
-                        </div>
-                        <SearchableSelect
-                            options={salesmen}
-                            value={salesmanId}
-                            onChange={setSalesmanId}
-                            placeholder="Search and select salesman..."
-                            displayKey="name"
-                            theme="dark"
-                        />
-                        {showNewSalesman && (
-                            <div
-                                className="mt-2 p-3 rounded-xl space-y-2"
-                                style={{
-                                    background: 'var(--color-redwood-bg-surface, #0f1f33)',
-                                    border: '0.5px solid var(--color-redwood-border, rgba(255,255,255,0.12))',
-                                }}
-                            >
-                                <div className="flex items-center justify-between">
-                                    <p className="text-xs font-black uppercase" style={{ color: 'var(--color-redwood-text-main, #EEF2FF)' }}>
-                                        New Salesman
-                                    </p>
-                                    <button type="button" onClick={() => setShowNewSalesman(false)} className="text-gray-400 hover:text-gray-600">
-                                        <X size={14} />
-                                    </button>
-                                </div>
-                                <input
-                                    type="text"
-                                    placeholder="Salesman Name *"
-                                    value={newSalesmanName}
-                                    onChange={(e) => setNewSalesmanName(e.target.value)}
-                                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400"
-                                />
-                                <input
-                                    type="text"
-                                    placeholder="Phone (optional)"
-                                    value={newSalesmanPhone}
-                                    onChange={(e) => setNewSalesmanPhone(e.target.value)}
-                                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400"
-                                />
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        if (!newSalesmanName.trim()) return;
-                                        try {
-                                            const created = addSalesman({ name: newSalesmanName, phone: newSalesmanPhone });
-                                            setSalesmen((prev) => [...prev, created]);
-                                            setSalesmanId(created.id);
-                                            setShowNewSalesman(false);
-                                            setNewSalesmanName('');
-                                            setNewSalesmanPhone('');
-                                        } catch {
-                                            alert('Failed to create salesman.');
-                                        }
-                                    }}
-                                    disabled={!newSalesmanName.trim()}
-                                    className="w-full py-2 bg-orange-500 text-white text-xs font-black rounded-lg hover:bg-orange-600 disabled:opacity-40 transition-all"
-                                >
-                                    Create &amp; Select Salesman
-                                </button>
-                            </div>
+                        <span style={labelStyle}>Salesman <span style={{ fontWeight: 500, textTransform: 'none' }}>(optional)</span></span>
+                        {salesmen.length === 0 ? (
+                            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-1">
+                                No salesmen — add one in the Employee Portal (set employee role to salesman).
+                            </p>
+                        ) : (
+                            <SearchableSelect
+                                options={salesmen}
+                                value={salesmanEmployeeId}
+                                onChange={setSalesmanEmployeeId}
+                                placeholder="Search and select salesman..."
+                                displayKey="name"
+                                theme="dark"
+                            />
                         )}
                     </div>
                     <div>

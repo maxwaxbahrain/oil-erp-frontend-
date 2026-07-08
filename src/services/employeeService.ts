@@ -412,8 +412,15 @@ export interface ApiEmployee {
     workEmail?: string | null;
     hireDate?: string | null;
     employmentStatus: string;
+    employeeRole?: string | null;
     createdAt?: string | null;
     updatedAt?: string | null;
+}
+
+/** Dropdown option for invoice/quotation salesman picker (FK → employees.id). */
+export interface SalesmanPickerOption {
+    id: string;
+    name: string;
 }
 
 export interface EmployeeCreateInput {
@@ -457,6 +464,12 @@ function fromApiEmployee(raw: Record<string, unknown>): ApiEmployee {
               ? String(raw.hire_date).slice(0, 10)
               : null,
         employmentStatus: String(raw.employmentStatus ?? raw.employment_status ?? 'active'),
+        employeeRole:
+            raw.employeeRole != null
+                ? String(raw.employeeRole)
+                : raw.employee_role != null
+                  ? String(raw.employee_role)
+                  : null,
         createdAt: raw.createdAt != null ? String(raw.createdAt) : raw.created_at != null ? String(raw.created_at) : null,
         updatedAt: raw.updatedAt != null ? String(raw.updatedAt) : raw.updated_at != null ? String(raw.updated_at) : null,
     };
@@ -478,6 +491,17 @@ export async function getEmployees(): Promise<ApiEmployee[]> {
     if (!r.ok) throw new Error(await readApiError(r));
     const rows = await r.json();
     return (Array.isArray(rows) ? rows : []).map((row) => fromApiEmployee(row as Record<string, unknown>));
+}
+
+/** Tenant-scoped employees with HR role salesman — for invoice/quotation picker. */
+export async function getSalesmen(): Promise<SalesmanPickerOption[]> {
+    const r = await authFetch(`${API_BASE_URL}/employees/?role=salesman`);
+    if (!r.ok) throw new Error(await readApiError(r));
+    const rows = await r.json();
+    return (Array.isArray(rows) ? rows : []).map((row) => {
+        const emp = fromApiEmployee(row as Record<string, unknown>);
+        return { id: String(emp.id), name: emp.fullName };
+    });
 }
 
 export async function addEmployee(payload: EmployeeCreateInput): Promise<ApiEmployee> {
