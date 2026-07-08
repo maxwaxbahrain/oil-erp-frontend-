@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Printer } from 'lucide-react';
-import { getCreditNote, updateCreditNote, type CreditNote } from '../../services/creditNoteService';
+import { getCreditNote, updateCreditNote, applyCreditNoteToInvoice, type CreditNote } from '../../services/creditNoteService';
+import { getCustomerInvoices } from '../../services/api';
 
 const THEME = '#800020';
 
@@ -9,20 +10,69 @@ export default function CreditNoteDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [note, setNote] = useState<CreditNote | null>(null);
+  const [applySuccess, setApplySuccess] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
     void (async () => setNote(await getCreditNote(id)))();
   }, [id]);
 
+  async function resolveApplyInvoiceId(): Promise<string | null> {
+    if (!note) return null;
+
+    const invs = await getCustomerInvoices(note.customerId);
+    const open = invs.filter((i) => Number(i.remaining_balance ?? i.grandTotal ?? 0) > 0);
+    if (open.length === 0) {
+      alert('No open invoices found for this customer.');
+      return null;
+    }
+
+    if (note.originalInvoiceId) {
+      const linked = open.find((i) => String(i.id) === String(note.originalInvoiceId));
+      if (linked) return String(linked.id);
+    }
+
+    if (open.length === 1) {
+      return String(open[0].id);
+    }
+
+    const list = open
+      .map(
+        (i) =>
+          `${i.invoiceNumber || i.id} ($${Number(i.remaining_balance ?? i.grandTotal ?? 0).toFixed(2)} outstanding)`,
+      )
+      .join('\n');
+    const picked = window.prompt(`Enter invoice number or ID:\n\n${list}`);
+    if (!picked) return null;
+
+    const match = open.find(
+      (i) => String(i.id) === picked.trim() || i.invoiceNumber === picked.trim(),
+    );
+    if (!match) {
+      alert('Invoice not found in open invoices.');
+      return null;
+    }
+    return String(match.id);
+  }
+
   async function applyToInvoice() {
     if (!note) return;
     const amount = Number(window.prompt('Amount to apply', String(note.remainingCredit)) || 0);
     if (amount <= 0) return;
-    const used = Math.min(note.totalCreditAmount, note.usedAmount + amount);
-    const status = used >= note.totalCreditAmount ? 'fully_used' : 'partially_used';
-    const updated = await updateCreditNote(note.id, { usedAmount: used, status });
-    setNote(updated);
+
+    try {
+      const invoiceId = await resolveApplyInvoiceId();
+      if (!invoiceId) return;
+
+      const updated = await applyCreditNoteToInvoice(note.id, invoiceId, amount);
+      setNote(updated);
+      setApplySuccess(
+        `Applied $${amount.toFixed(2)} from ${note.creditNoteNumber}. Status: ${updated.status.replace('_', ' ')}.`,
+      );
+      setTimeout(() => setApplySuccess(null), 6000);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Apply failed.');
+    }
   }
 
   async function cancelNote() {
@@ -59,6 +109,20 @@ export default function CreditNoteDetailPage() {
 
   return (
     <div className="p-6 space-y-6">
+      {applySuccess && (
+        <div
+          className="fixed top-6 right-6 z-50 px-5 py-3 rounded-lg shadow-lg max-w-md"
+          style={{
+            background: 'var(--color-badge-green-bg, #ecfdf5)',
+            borderLeft: '4px solid var(--color-brand-green, #22c55e)',
+          }}
+        >
+          <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-brand-green-tint, #15803d)' }}>
+            {applySuccess}
+          </p>
+        </div>
+      )}
+
       <div className="bg-white border rounded-xl p-5 flex justify-between items-center print:hidden">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate('/sales/credit-notes')} className="p-2 border rounded-lg"><ArrowLeft size={16} /></button>

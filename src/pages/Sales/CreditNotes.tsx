@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FileText, Loader2, Plus, RefreshCw, Search, X } from 'lucide-react';
-import { getCreditNotes, getCreditNoteStats, updateCreditNote, applyCreditToInvoice, type CreditNote } from '../../services/creditNoteService';
+import { getCreditNotes, getCreditNoteStats, updateCreditNote, applyCreditNoteToInvoice, type CreditNote } from '../../services/creditNoteService';
 import { getCustomerInvoices, type Invoice } from '../../services/api';
 
 type FilterTab = 'all' | 'draft' | 'issued' | 'used' | 'expired' | 'cancelled';
@@ -282,11 +282,11 @@ export default function CreditNotes() {
     setApplying(true);
     setApplyError(null);
     try {
-      const { updatedCN } = await applyCreditToInvoice({
-        creditNote: applyingCN,
-        invoice: inv,
-        amount: applyAmount,
-      });
+      const updatedCN = await applyCreditNoteToInvoice(
+        applyingCN.id,
+        String(inv.id),
+        applyAmount,
+      );
       setApplySuccess(
         `✅ Applied $${applyAmount.toFixed(2)} from ${applyingCN.creditNoteNumber} to invoice ${inv.invoiceNumber || `#${inv.id}`}. ` +
         `CN status: ${updatedCN.status.replace('_', ' ')}.`
@@ -1337,7 +1337,7 @@ export default function CreditNotes() {
                   padding: 12,
                 }}
               >
-                ℹ️ This will record a ledger entry with payment method "Credit Note" linking the CN to the invoice. The invoice's outstanding balance will reduce by the amount applied.
+                ℹ️ This allocates the credit note to the selected invoice. The invoice outstanding balance will reduce by the amount applied — no cash payment or new ledger entry is created.
               </p>
             </div>
 

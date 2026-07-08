@@ -1,4 +1,4 @@
-import { API_BASE_URL, createPayment, type Invoice } from './api';
+import { API_BASE_URL, type Invoice } from './api';
 import { authFetch } from '../api/axios';
 
 export type CreditReason = 'overcharge' | 'return' | 'price_adjustment' | 'goodwill' | 'other';
@@ -203,19 +203,26 @@ export async function getCreditNoteStats(): Promise<CreditNoteStats> {
   return { totalIssuedThisMonth, totalUsed, pendingUnused, expiringSoon };
 }
 
-// FIX W5-1 — Apply a credit note to a specific invoice.
-// No dedicated backend endpoint exists for credit-note application,
-// so this records the application as a contra-payment via the same
-// /ledger/payment endpoint cash payments use (mode='Credit Note'),
-// which reliably reduces the invoice's remaining_balance. Then we
-// bump the CN's usedAmount + recompute status (partially_used /
-// fully_used) so the dashboard reflects the new state.
-//
-// Trade-off: the application shows up in Banking as a transaction
-// with payment_method='Credit Note'. That's standard accounting
-// practice (CN application IS a contra-payment in the ledger) and
-// the call site can filter by mode if it needs to separate cash
-// receipts from credit applications.
+// Apply existing credit to an invoice — allocation only (backend posts no GL / no payment).
+export async function applyCreditNoteToInvoice(
+  creditNoteId: string,
+  invoiceId: string,
+  amount: number,
+): Promise<CreditNote> {
+  const r = await authFetch(`${API_BASE_URL}/credit-notes/${creditNoteId}/apply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      invoice_id: Number(invoiceId),
+      amount,
+    }),
+  });
+  if (!r.ok) {
+    throw new Error(await r.text());
+  }
+  return toUi(await r.json());
+}
+
 export async function applyCreditToInvoice(args: {
   creditNote: CreditNote;
   invoice: Invoice;
@@ -236,31 +243,7 @@ export async function applyCreditToInvoice(args: {
     );
   }
 
-  // Step 1 — record the contra-payment so backend reduces invoice balance.
-  await createPayment({
-    customer_id: cn.customerId,
-    amount,
-    payment_method: 'Credit Note',
-    reference: `CN/${cn.creditNoteNumber}`,
-    payment_date: new Date().toISOString().slice(0, 10),
-    invoice_id: inv.id,
-    notes: `Applied from credit note ${cn.creditNoteNumber}`,
-    is_advance: false,
-  });
-
-  // Step 2 — bump CN's usedAmount and flip status as appropriate.
-  const newUsed = cn.usedAmount + amount;
-  const newRemaining = cn.totalCreditAmount - newUsed;
-  const newStatus: CreditStatus =
-    newRemaining <= 0.005 ? 'fully_used' :
-    newUsed > 0 ? 'partially_used' :
-    cn.status;
-
-  const updatedCN = await updateCreditNote(cn.id, {
-    usedAmount: newUsed,
-    status: newStatus,
-  });
-
+  const updatedCN = await applyCreditNoteToInvoice(cn.id, String(inv.id), amount);
   return { updatedCN };
 }
 
