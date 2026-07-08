@@ -16,10 +16,14 @@ import {
   type ApiEmployee,
 } from '../../services/employeeService';
 import { getCurrentUser } from '../../store/authStore';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   getLeaveBalanceSummary,
   getLeaveRequests,
+  getAllLeaveRequests,
   submitLeaveRequest,
+  approveLeaveRequest,
+  rejectLeaveRequest,
   type LeaveRequest as ApiLeaveRequest,
 } from '../../services/leaveService';
 
@@ -114,6 +118,9 @@ interface ESSState {
   leaveRequests: ApiLeaveRequest[];
   leaveLoading: boolean;
   leaveSubmitting: boolean;
+  teamLeaveRequests: ApiLeaveRequest[];
+  teamLeaveLoading: boolean;
+  teamLeaveActingId: number | null;
   employees: Employee[];
   newEmp: NewEmployeeForm;
 }
@@ -330,12 +337,17 @@ export default function EmployeePortal() {
     leaveRequests: [],
     leaveLoading: false,
     leaveSubmitting: false,
+    teamLeaveRequests: [],
+    teamLeaveLoading: false,
+    teamLeaveActingId: null,
     employees: [],
     newEmp: { ...EMPTY_NEW_EMP },
   });
 
   const teamTableRef = useRef<HTMLDivElement>(null);
   const currentUser = useMemo(() => getCurrentUser(), []);
+  const { hasRole } = useAuth();
+  const canApproveLeave = hasRole('admin', 'manager');
 
   const loadEmployees = useCallback(async () => {
     setState(s => ({ ...s, employeesLoading: true, pageError: '' }));
@@ -384,9 +396,35 @@ export default function EmployeePortal() {
     }
   }, []);
 
+  const loadTeamLeaveQueue = useCallback(async () => {
+    if (!canApproveLeave) {
+      setState(s => ({ ...s, teamLeaveRequests: [], teamLeaveLoading: false }));
+      return;
+    }
+    setState(s => ({ ...s, teamLeaveLoading: true }));
+    try {
+      const rows = await getAllLeaveRequests();
+      setState(s => ({
+        ...s,
+        teamLeaveRequests: rows.filter(r => r.status === 'pending'),
+        teamLeaveLoading: false,
+      }));
+    } catch (err) {
+      setState(s => ({
+        ...s,
+        teamLeaveLoading: false,
+        pageError: err instanceof Error ? err.message : 'Failed to load leave approvals',
+      }));
+    }
+  }, [canApproveLeave]);
+
   useEffect(() => {
     void loadEmployees();
   }, [loadEmployees]);
+
+  useEffect(() => {
+    void loadTeamLeaveQueue();
+  }, [loadTeamLeaveQueue]);
 
   const [cols, setCols] = useState({
     kpi: typeof window !== 'undefined' && window.innerWidth >= 1024 ? 4 : 2,
@@ -621,6 +659,7 @@ export default function EmployeePortal() {
         reason: reasonParts.join(' — ') || null,
       });
       await loadLeaveData(myProfileEmployee.id);
+      if (canApproveLeave) await loadTeamLeaveQueue();
       setState(s => ({
         ...s,
         showLeaveModal: false,
@@ -634,6 +673,53 @@ export default function EmployeePortal() {
         pageError: err instanceof Error ? err.message : 'Failed to submit leave request',
       }));
     }
+  }
+
+  async function handleApproveLeave(requestId: number) {
+    setState(s => ({ ...s, teamLeaveActingId: requestId, pageError: '' }));
+    try {
+      await approveLeaveRequest(requestId);
+      await loadTeamLeaveQueue();
+      if (myProfileEmployee) await loadLeaveData(myProfileEmployee.id);
+      setState(s => ({
+        ...s,
+        teamLeaveActingId: null,
+        toast: 'Leave request approved',
+      }));
+    } catch (err) {
+      setState(s => ({
+        ...s,
+        teamLeaveActingId: null,
+        pageError: err instanceof Error ? err.message : 'Failed to approve leave request',
+      }));
+    }
+  }
+
+  async function handleRejectLeave(requestId: number) {
+    const reason = window.prompt('Rejection reason (optional):');
+    if (reason === null) return; // user cancelled
+    setState(s => ({ ...s, teamLeaveActingId: requestId, pageError: '' }));
+    try {
+      await rejectLeaveRequest(requestId, reason.trim() || null);
+      await loadTeamLeaveQueue();
+      if (myProfileEmployee) await loadLeaveData(myProfileEmployee.id);
+      setState(s => ({
+        ...s,
+        teamLeaveActingId: null,
+        toast: 'Leave request rejected',
+      }));
+    } catch (err) {
+      setState(s => ({
+        ...s,
+        teamLeaveActingId: null,
+        pageError: err instanceof Error ? err.message : 'Failed to reject leave request',
+      }));
+    }
+  }
+
+  function employeeNameForLeave(employeeId: number): string {
+    const emp = state.employees.find(e => String(e.id) === String(employeeId));
+    return emp?.name || `Employee #${employeeId}`;
   }
 
   function downloadPdf(filename: string) {
@@ -1228,6 +1314,141 @@ export default function EmployeePortal() {
             )}
           </div>
         </div>
+
+        {/* SECTION 4b — Manager Leave Approvals (admin/manager only) */}
+        {canApproveLeave && (
+          <>
+            <SectionDivider label="LEAVE APPROVALS · TEAM QUEUE" />
+            <div style={{ ...card, marginBottom: 4 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: C.t, display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <Calendar size={13} /> Leave Approvals
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{
+                    fontSize: 9, fontWeight: 700,
+                    background: state.teamLeaveRequests.length > 0 ? 'rgba(245,158,11,.15)' : 'rgba(34,197,94,.12)',
+                    color: state.teamLeaveRequests.length > 0 ? '#F59E0B' : '#22C55E',
+                    padding: '2px 8px', borderRadius: 10,
+                  }}>
+                    {state.teamLeaveRequests.length} pending
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void loadTeamLeaveQueue()}
+                    disabled={state.teamLeaveLoading}
+                    style={{
+                      background: 'transparent',
+                      border: `1px solid ${C.br2}`,
+                      color: C.t2,
+                      borderRadius: 7,
+                      padding: '4px 10px',
+                      fontSize: 10,
+                      fontWeight: 600,
+                      cursor: state.teamLeaveLoading ? 'wait' : 'pointer',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    {state.teamLeaveLoading ? 'Refreshing…' : 'Refresh'}
+                  </button>
+                </div>
+              </div>
+
+              {state.teamLeaveLoading && state.teamLeaveRequests.length === 0 ? (
+                <div style={{ fontSize: 12, color: C.t2, padding: '10px 0' }}>Loading pending requests…</div>
+              ) : state.teamLeaveRequests.length === 0 ? (
+                <div style={{ fontSize: 12, color: C.t2, padding: '10px 0', lineHeight: 1.5 }}>
+                  No pending leave requests for your team.
+                </div>
+              ) : (
+                state.teamLeaveRequests.map((req, i) => {
+                  const acting = state.teamLeaveActingId === req.id;
+                  return (
+                    <div
+                      key={req.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        justifyContent: 'space-between',
+                        gap: 12,
+                        padding: '12px 0',
+                        borderBottom: i < state.teamLeaveRequests.length - 1 ? `1px solid ${C.bd2}` : 'none',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: C.t }}>
+                          {employeeNameForLeave(req.employeeId)}
+                        </div>
+                        <div style={{ fontSize: 12, color: C.t2, marginTop: 3 }}>
+                          {leaveTypeLabel(req.leaveType)} · {req.daysCount} day{req.daysCount === 1 ? '' : 's'}
+                        </div>
+                        <div style={{ fontSize: 11, color: C.t3, marginTop: 2 }}>
+                          {req.startDate} → {req.endDate}
+                        </div>
+                        {req.reason && (
+                          <div style={{ fontSize: 11, color: C.t2, marginTop: 4, lineHeight: 1.4 }}>
+                            {req.reason}
+                          </div>
+                        )}
+                        <span style={{
+                          display: 'inline-block',
+                          marginTop: 6,
+                          fontSize: 9, fontWeight: 700,
+                          background: 'rgba(245,158,11,.12)',
+                          color: '#F59E0B',
+                          padding: '2px 7px', borderRadius: 8,
+                        }}>
+                          {formatLeaveStatus(req.status)}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                        <button
+                          type="button"
+                          disabled={acting}
+                          onClick={() => void handleApproveLeave(req.id)}
+                          style={{
+                            background: '#22C55E',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: 8,
+                            padding: '8px 14px',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            cursor: acting ? 'wait' : 'pointer',
+                            opacity: acting ? 0.6 : 1,
+                            fontFamily: 'inherit',
+                          }}
+                        >
+                          {acting ? '…' : 'Approve'}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={acting}
+                          onClick={() => void handleRejectLeave(req.id)}
+                          style={{
+                            background: 'rgba(239,68,68,.15)',
+                            color: '#FCA5A5',
+                            border: '1px solid rgba(239,68,68,.3)',
+                            borderRadius: 8,
+                            padding: '8px 14px',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            cursor: acting ? 'wait' : 'pointer',
+                            opacity: acting ? 0.6 : 1,
+                            fontFamily: 'inherit',
+                          }}
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </>
+        )}
 
         {/* SECTION 5 — Announcements + Holidays */}
         <div style={{

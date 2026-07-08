@@ -162,6 +162,14 @@ export async function getLeaveRequests(employeeId: number | string): Promise<Lea
     return (Array.isArray(rows) ? rows : []).map((row) => fromRequest(row as Record<string, unknown>));
 }
 
+/** Tenant-wide leave queue (no employeeId filter) — for manager approvals. */
+export async function getAllLeaveRequests(): Promise<LeaveRequest[]> {
+    const r = await authFetch(`${API_BASE_URL}/leave/requests`);
+    if (!r.ok) throw new Error(await readApiError(r));
+    const rows = await r.json();
+    return (Array.isArray(rows) ? rows : []).map((row) => fromRequest(row as Record<string, unknown>));
+}
+
 export async function submitLeaveRequest(payload: SubmitLeaveRequestInput): Promise<LeaveRequest> {
     const r = await authFetch(`${API_BASE_URL}/leave/requests`, {
         method: 'POST',
