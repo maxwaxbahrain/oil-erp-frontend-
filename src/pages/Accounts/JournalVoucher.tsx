@@ -373,7 +373,7 @@ function JVForm({ accounts, accountsLoading, accountsLoadError, editJV, onSave, 
         const q = search.toLowerCase();
         return accounts
             .filter(a => a.name.toLowerCase().includes(q) || a.code.includes(q))
-            .slice(0, 15);
+            .slice(0, 100);
     };
 
     return (
