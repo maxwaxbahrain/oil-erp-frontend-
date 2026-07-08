@@ -935,6 +935,152 @@ export async function getPayrollProfile(employeeId: number | string): Promise<Pa
     return fromPayrollProfile((await r.json()) as Record<string, unknown>);
 }
 
+export interface PayrollProfileCreateInput {
+    employeeId: number;
+    payType: 'salaried' | 'hourly';
+    monthlySalary?: number | null;
+    hourlyRate?: number | null;
+    overtimeRate?: number | null;
+}
+
+export interface PayrollProfileUpdateInput {
+    payType?: 'salaried' | 'hourly';
+    monthlySalary?: number | null;
+    hourlyRate?: number | null;
+    overtimeRate?: number | null;
+}
+
+export interface ApiPayrollRun {
+    id: number;
+    tenantId?: number | null;
+    periodLabel: string;
+    periodStart: string;
+    periodEnd: string;
+    status: string;
+    createdAt?: string | null;
+    updatedAt?: string | null;
+}
+
+export interface PayrollRunCreateInput {
+    periodLabel: string;
+    periodStart: string;
+    periodEnd: string;
+    status?: string;
+}
+
+export async function getPayrollProfiles(): Promise<PayrollProfile[]> {
+    const r = await authFetch(`${API_BASE_URL}/payroll/profiles`);
+    if (!r.ok) throw new Error(await readPayrollApiError(r));
+    const rows = await r.json();
+    return (Array.isArray(rows) ? rows : []).map((row) => fromPayrollProfile(row as Record<string, unknown>));
+}
+
+export async function createPayrollProfile(input: PayrollProfileCreateInput): Promise<PayrollProfile> {
+    const r = await authFetch(`${API_BASE_URL}/payroll/profiles`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            employeeId: input.employeeId,
+            payType: input.payType,
+            monthlySalary: input.monthlySalary ?? null,
+            hourlyRate: input.hourlyRate ?? null,
+            overtimeRate: input.overtimeRate ?? null,
+        }),
+    });
+    if (!r.ok) throw new Error(await readPayrollApiError(r));
+    return fromPayrollProfile((await r.json()) as Record<string, unknown>);
+}
+
+export async function updatePayrollProfile(
+    profileId: number | string,
+    input: PayrollProfileUpdateInput,
+): Promise<PayrollProfile> {
+    const r = await authFetch(`${API_BASE_URL}/payroll/profiles/${encodeURIComponent(String(profileId))}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            payType: input.payType,
+            monthlySalary: input.monthlySalary,
+            hourlyRate: input.hourlyRate,
+            overtimeRate: input.overtimeRate,
+        }),
+    });
+    if (!r.ok) throw new Error(await readPayrollApiError(r));
+    return fromPayrollProfile((await r.json()) as Record<string, unknown>);
+}
+
+function fromPayrollRun(raw: Record<string, unknown>): ApiPayrollRun {
+    const periodStart = raw.periodStart ?? raw.period_start;
+    const periodEnd = raw.periodEnd ?? raw.period_end;
+    return {
+        id: Number(raw.id),
+        tenantId: raw.tenantId != null ? Number(raw.tenantId) : raw.tenant_id != null ? Number(raw.tenant_id) : null,
+        periodLabel: String(raw.periodLabel ?? raw.period_label ?? ''),
+        periodStart: periodStart != null ? String(periodStart).slice(0, 10) : '',
+        periodEnd: periodEnd != null ? String(periodEnd).slice(0, 10) : '',
+        status: String(raw.status ?? 'draft'),
+        createdAt: raw.createdAt != null ? String(raw.createdAt) : raw.created_at != null ? String(raw.created_at) : null,
+        updatedAt: raw.updatedAt != null ? String(raw.updatedAt) : raw.updated_at != null ? String(raw.updated_at) : null,
+    };
+}
+
+/** Real API payroll runs (distinct from mock getPayrollRuns used by PayrollManagement). */
+export async function listPayrollRuns(): Promise<ApiPayrollRun[]> {
+    const r = await authFetch(`${API_BASE_URL}/payroll/runs`);
+    if (!r.ok) throw new Error(await readPayrollApiError(r));
+    const rows = await r.json();
+    return (Array.isArray(rows) ? rows : []).map((row) => fromPayrollRun(row as Record<string, unknown>));
+}
+
+/** Real API create pay run (distinct from mock createPayrollRun). */
+export async function createPayrollRunRecord(input: PayrollRunCreateInput): Promise<ApiPayrollRun> {
+    const r = await authFetch(`${API_BASE_URL}/payroll/runs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            periodLabel: input.periodLabel,
+            periodStart: input.periodStart,
+            periodEnd: input.periodEnd,
+            status: input.status ?? 'draft',
+        }),
+    });
+    if (!r.ok) throw new Error(await readPayrollApiError(r));
+    return fromPayrollRun((await r.json()) as Record<string, unknown>);
+}
+
+export async function generatePayrollRun(runId: number | string): Promise<ApiPayslip[]> {
+    const r = await authFetch(
+        `${API_BASE_URL}/payroll/runs/${encodeURIComponent(String(runId))}/generate`,
+        { method: 'POST' },
+    );
+    if (!r.ok) throw new Error(await readPayrollApiError(r));
+    const rows = await r.json();
+    return (Array.isArray(rows) ? rows : []).map((row) => fromPayslip(row as Record<string, unknown>));
+}
+
+export async function getPayslipsByRun(runId: number | string): Promise<ApiPayslip[]> {
+    const r = await authFetch(
+        `${API_BASE_URL}/payroll/payslips?runId=${encodeURIComponent(String(runId))}`,
+    );
+    if (!r.ok) throw new Error(await readPayrollApiError(r));
+    const rows = await r.json();
+    return (Array.isArray(rows) ? rows : []).map((row) => fromPayslip(row as Record<string, unknown>));
+}
+
+export function formatPayProfileSummary(profile?: PayrollProfile | null): string {
+    if (!profile) return 'not set';
+    const payType = profile.payType?.toLowerCase();
+    if (payType === 'hourly') {
+        const rate = formatPayslipUsd(profile.hourlyRate ?? 0);
+        const ot = profile.overtimeRate != null ? ` · OT ${formatPayslipUsd(profile.overtimeRate)}` : '';
+        return `hourly · ${rate}/hr${ot}`;
+    }
+    if (payType === 'salaried') {
+        return `salaried · ${formatPayslipUsd(profile.monthlySalary ?? 0)}/mo`;
+    }
+    return profile.payType || 'not set';
+}
+
 export function mapPayslipToPayrollResult(payslip: ApiPayslip): CompletePayrollResult {
     const earnings = [
         { name: 'Base Pay', amount: payslip.basePay, type: 'Earning' as const },

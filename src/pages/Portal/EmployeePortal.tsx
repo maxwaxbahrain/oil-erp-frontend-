@@ -38,6 +38,7 @@ import {
   type PayrollProfile,
 } from '../../services/payrollService';
 import { generatePayslipPDF } from '../../utils/payslipPDF';
+import PayrollAdmin from './PayrollAdmin';
 
 // ── Types ─────────────────────────────────────────────────────
 interface Employee {
@@ -768,6 +769,14 @@ export default function EmployeePortal() {
     const emp = state.employees.find(e => String(e.id) === String(employeeId));
     return emp?.name || `Employee #${employeeId}`;
   }
+
+  const showPortalToast = useCallback((message: string) => {
+    setState(s => ({ ...s, toast: message }));
+  }, []);
+
+  const showPortalError = useCallback((message: string) => {
+    setState(s => ({ ...s, pageError: message }));
+  }, []);
 
   async function handleDownloadPayslip(payslipId: number) {
     if (!myProfileEmployee) {
@@ -1550,6 +1559,20 @@ export default function EmployeePortal() {
                   );
                 })
               )}
+            </div>
+          </>
+        )}
+
+        {/* SECTION 4c — Payroll admin (admin/manager only) */}
+        {canApproveLeave && (
+          <>
+            <SectionDivider label="PAYROLL · RUN PAYROLL" />
+            <div style={{ ...card, marginBottom: 4 }}>
+              <PayrollAdmin
+                employees={state.employees}
+                onToast={showPortalToast}
+                onError={showPortalError}
+              />
             </div>
           </>
         )}
