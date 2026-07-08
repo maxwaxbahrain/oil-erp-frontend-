@@ -1,10 +1,18 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Camera, CheckCircle2, ChevronRight, MapPin, Plus, Truck, RefreshCw, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Calendar, Camera, CheckCircle2, ChevronRight, MapPin, Plus, Truck, RefreshCw, AlertTriangle } from 'lucide-react';
 import { createInvoice, createPayment, getCustomers, getVans, type Van } from '../../services/api';
 import { getRoutes, getRouteStops, type RouteStop } from '../../services/routeService';
 import { getSalesOrders } from '../../services/api';
 import { patchSalesOrder } from '../../services/salesService';
+import { getEmployees, type ApiEmployee } from '../../services/employeeService';
+import {
+  getLeaveBalanceSummary,
+  getLeaveRequests,
+  submitLeaveRequest,
+  type LeaveBalance,
+  type LeaveRequest,
+} from '../../services/leaveService';
 import { getCurrentUser } from '../../store/authStore';
 import { completeDeliveryNote, createDeliveryNote, toDriverDeliveryStatus } from '../../services/deliveryService';
 import { compressImage } from '../../utils/imageCompression';
@@ -68,7 +76,26 @@ function formatDriverShort(name: string): string {
   return parts[0] || 'Driver';
 }
 
-type DriverStep = 'van-select' | 'dashboard' | 'confirm' | 'success';
+type DriverStep = 'van-select' | 'dashboard' | 'confirm' | 'success' | 'leave';
+
+function formatLeaveStatus(status: string): string {
+  return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
+}
+
+function leaveStatusStyle(status: string): { bg: string; color: string } {
+  if (status === 'approved') return { bg: 'rgba(34,197,94,.14)', color: '#22C55E' };
+  if (status === 'rejected') return { bg: 'rgba(239,68,68,.14)', color: '#FCA5A5' };
+  if (status === 'cancelled') return { bg: 'rgba(255,255,255,.06)', color: '#8BA3C7' };
+  return { bg: 'rgba(245,158,11,.14)', color: '#F59E0B' };
+}
+
+function countLeaveDays(start: string, end: string): number {
+  if (!start || !end) return 0;
+  const startMs = new Date(start).getTime();
+  const endMs = new Date(end).getTime();
+  if (Number.isNaN(startMs) || Number.isNaN(endMs) || endMs < startMs) return 0;
+  return Math.round((endMs - startMs) / 86400000) + 1;
+}
 type PaymentMode = 'CASH' | 'CREDIT' | 'CHEQUE';
 
 type DeliveryItem = {
@@ -120,6 +147,73 @@ export default function DriverApp() {
   const isDrawing = useRef(false);
   const [successInfo, setSuccessInfo] = useState<{ customer: string; invoice: string; amount: number; podWarning?: string | null } | null>(null);
   const [driverName, setDriverName] = useState('Driver');
+  const [leaveReturnStep, setLeaveReturnStep] = useState<DriverStep>('van-select');
+  const [linkedEmployee, setLinkedEmployee] = useState<ApiEmployee | null>(null);
+  const [employeeLoading, setEmployeeLoading] = useState(true);
+  const [leaveBalances, setLeaveBalances] = useState<LeaveBalance[]>([]);
+  const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
+  const [leaveLoading, setLeaveLoading] = useState(false);
+  const [leaveSubmitting, setLeaveSubmitting] = useState(false);
+  const [leaveError, setLeaveError] = useState('');
+  const [leaveToast, setLeaveToast] = useState('');
+  const [leaveType, setLeaveType] = useState('');
+  const [leaveStart, setLeaveStart] = useState('');
+  const [leaveEnd, setLeaveEnd] = useState('');
+  const [leaveReason, setLeaveReason] = useState('');
+
+  const leaveDays = useMemo(() => countLeaveDays(leaveStart, leaveEnd), [leaveStart, leaveEnd]);
+
+  const loadLeaveData = useCallback(async (employeeId: number | string) => {
+    setLeaveLoading(true);
+    setLeaveError('');
+    try {
+      const [balances, requests] = await Promise.all([
+        getLeaveBalanceSummary(employeeId),
+        getLeaveRequests(employeeId),
+      ]);
+      setLeaveBalances(balances);
+      setLeaveRequests(requests);
+      setLeaveType((prev) => prev || balances[0]?.leaveType || '');
+    } catch (err) {
+      setLeaveError(err instanceof Error ? err.message : 'Could not load leave data');
+      setLeaveBalances([]);
+      setLeaveRequests([]);
+    } finally {
+      setLeaveLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setEmployeeLoading(true);
+      try {
+        const rows = await getEmployees();
+        const linked = rows.find(
+          (e) => e.userId != null && String(e.userId) === String(currentUser.id),
+        ) ?? null;
+        if (!cancelled) setLinkedEmployee(linked);
+      } catch {
+        if (!cancelled) setLinkedEmployee(null);
+      } finally {
+        if (!cancelled) setEmployeeLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser.id]);
+
+  useEffect(() => {
+    if (step !== 'leave' || employeeLoading || !linkedEmployee) return;
+    void loadLeaveData(linkedEmployee.id);
+  }, [step, employeeLoading, linkedEmployee, loadLeaveData]);
+
+  useEffect(() => {
+    if (!leaveToast) return;
+    const t = setTimeout(() => setLeaveToast(''), 2500);
+    return () => clearTimeout(t);
+  }, [leaveToast]);
 
   useEffect(() => {
     loadVans();
@@ -265,6 +359,56 @@ export default function DriverApp() {
     setDriverName(van.driver_name || 'Driver');
     await loadStopsForVan(van);
     setStep('dashboard');
+  }
+
+  function openLeave(fromStep: DriverStep) {
+    setLeaveReturnStep(fromStep);
+    setLeaveError('');
+    setLeaveStart('');
+    setLeaveEnd('');
+    setLeaveReason('');
+    setLeaveType('');
+    setStep('leave');
+    if (linkedEmployee) {
+      void loadLeaveData(linkedEmployee.id);
+    }
+  }
+
+  function closeLeave() {
+    setStep(leaveReturnStep);
+  }
+
+  async function handleLeaveSubmit() {
+    if (!linkedEmployee) {
+      setLeaveError('No employee record linked — contact your manager');
+      return;
+    }
+    if (!leaveType || !leaveStart || !leaveEnd || leaveDays <= 0) {
+      setLeaveError('Select leave type, valid start/end dates');
+      return;
+    }
+
+    setLeaveSubmitting(true);
+    setLeaveError('');
+    try {
+      await submitLeaveRequest({
+        employeeId: linkedEmployee.id,
+        leaveType,
+        startDate: leaveStart,
+        endDate: leaveEnd,
+        daysCount: leaveDays,
+        reason: leaveReason.trim() || null,
+      });
+      await loadLeaveData(linkedEmployee.id);
+      setLeaveStart('');
+      setLeaveEnd('');
+      setLeaveReason('');
+      setLeaveToast('Leave request submitted for approval');
+    } catch (err) {
+      setLeaveError(err instanceof Error ? err.message : 'Failed to submit leave request');
+    } finally {
+      setLeaveSubmitting(false);
+    }
   }
 
   function openNavigate(address: string) {
@@ -472,6 +616,313 @@ export default function DriverApp() {
     }
   }
 
+  if (step === 'leave') {
+    const leaveBadge = (color: string, bg: string): CSSProperties => ({
+      display: 'inline-flex',
+      alignItems: 'center',
+      fontSize: 9,
+      fontWeight: 700,
+      letterSpacing: '.3px',
+      textTransform: 'uppercase',
+      color,
+      background: bg,
+      borderRadius: 20,
+      padding: '3px 8px',
+      whiteSpace: 'nowrap',
+    });
+
+    const inputStyle: CSSProperties = {
+      width: '100%',
+      minHeight: 48,
+      padding: '12px 14px',
+      borderRadius: 12,
+      border: '1px solid rgba(255,255,255,.1)',
+      background: C.bg3,
+      color: C.text,
+      fontSize: 15,
+      fontFamily: 'inherit',
+      boxSizing: 'border-box',
+    };
+
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          background: C.bg,
+          color: C.text,
+          fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+          maxWidth: 480,
+          margin: '0 auto',
+          paddingBottom: leaveToast ? 72 : 24,
+        }}
+      >
+        <div style={{ padding: '14px 16px 10px', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button
+            type="button"
+            onClick={closeLeave}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 10,
+              border: '1px solid rgba(255,255,255,.1)',
+              background: C.bg2,
+              color: C.text,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+            }}
+            aria-label="Back"
+          >
+            <ArrowLeft size={18} />
+          </button>
+          <div>
+            <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>Request Leave</h1>
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: C.muted }}>Submit time off from the field</p>
+          </div>
+        </div>
+
+        {(employeeLoading || leaveLoading) && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '40px 16px', gap: 12 }}>
+            <div className="w-10 h-10 border-[3px] border-[rgba(79,142,247,.25)] border-t-[#4F8EF7] rounded-full animate-spin" />
+            <p style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '.08em' }}>
+              Loading leave…
+            </p>
+          </div>
+        )}
+
+        {!employeeLoading && !leaveLoading && !linkedEmployee && (
+          <div
+            style={{
+              margin: '8px 16px',
+              background: 'rgba(245,158,11,.08)',
+              border: '1px solid rgba(245,158,11,.25)',
+              borderRadius: 14,
+              padding: 20,
+              textAlign: 'center',
+            }}
+          >
+            <AlertTriangle size={28} style={{ color: C.amber, margin: '0 auto 10px' }} />
+            <p style={{ fontSize: 14, fontWeight: 700, margin: '0 0 6px' }}>No employee record linked</p>
+            <p style={{ fontSize: 12, color: C.muted, margin: 0, lineHeight: 1.5 }}>
+              No employee record linked — contact your manager to set up leave access.
+            </p>
+          </div>
+        )}
+
+        {!employeeLoading && !leaveLoading && linkedEmployee && (
+          <div style={{ padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div
+              style={{
+                background: C.bg2,
+                border: '1px solid rgba(255,255,255,.08)',
+                borderRadius: 14,
+                padding: '14px 16px',
+              }}
+            >
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.dim, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>
+                Your balances
+              </div>
+              {leaveBalances.length === 0 ? (
+                <p style={{ fontSize: 12, color: C.muted, margin: 0 }}>No leave balances on file yet.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {leaveBalances.map((b) => (
+                    <div
+                      key={`${b.leaveType}-${b.year}`}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 10,
+                        padding: '10px 12px',
+                        background: C.bg3,
+                        borderRadius: 10,
+                        border: leaveType === b.leaveType ? `1px solid ${C.blue}` : '1px solid rgba(255,255,255,.06)',
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700 }}>{b.leaveType}</div>
+                        <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+                          {b.usedDays} used · {b.quotaDays} quota
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 18, fontWeight: 800, color: C.green }}>{b.availableDays}</div>
+                        <div style={{ fontSize: 9, color: C.dim, textTransform: 'uppercase' }}>available</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div
+              style={{
+                background: C.bg2,
+                border: '1px solid rgba(255,255,255,.08)',
+                borderRadius: 14,
+                padding: '14px 16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+              }}
+            >
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.dim, textTransform: 'uppercase', letterSpacing: '.06em' }}>
+                New request
+              </div>
+
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Leave type</span>
+                <select
+                  value={leaveType}
+                  onChange={(e) => setLeaveType(e.target.value)}
+                  style={{ ...inputStyle, appearance: 'none' }}
+                >
+                  {leaveBalances.map((b) => (
+                    <option key={b.leaveType} value={b.leaveType}>
+                      {b.leaveType} ({b.availableDays} days left)
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Start date</span>
+                  <input
+                    type="date"
+                    value={leaveStart}
+                    onChange={(e) => setLeaveStart(e.target.value)}
+                    style={inputStyle}
+                  />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>End date</span>
+                  <input
+                    type="date"
+                    value={leaveEnd}
+                    onChange={(e) => setLeaveEnd(e.target.value)}
+                    style={inputStyle}
+                  />
+                </label>
+              </div>
+
+              {leaveDays > 0 && (
+                <p style={{ fontSize: 12, color: C.blue, margin: 0, fontWeight: 600 }}>
+                  {leaveDays} day{leaveDays === 1 ? '' : 's'} requested
+                </p>
+              )}
+
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Reason (optional)</span>
+                <textarea
+                  rows={3}
+                  value={leaveReason}
+                  onChange={(e) => setLeaveReason(e.target.value)}
+                  placeholder="Why you need time off"
+                  style={{ ...inputStyle, minHeight: 88, resize: 'vertical' }}
+                />
+              </label>
+
+              {leaveError && (
+                <p style={{ fontSize: 12, color: '#FCA5A5', margin: 0 }}>{leaveError}</p>
+              )}
+
+              <button
+                type="button"
+                onClick={() => void handleLeaveSubmit()}
+                disabled={leaveSubmitting || !leaveType || !leaveStart || !leaveEnd || leaveDays <= 0}
+                style={{
+                  width: '100%',
+                  minHeight: 52,
+                  borderRadius: 12,
+                  border: 'none',
+                  background: leaveSubmitting ? C.dim : C.blue,
+                  color: '#fff',
+                  fontSize: 15,
+                  fontWeight: 800,
+                  cursor: leaveSubmitting ? 'wait' : 'pointer',
+                  fontFamily: 'inherit',
+                  opacity: !leaveType || !leaveStart || !leaveEnd || leaveDays <= 0 ? 0.55 : 1,
+                }}
+              >
+                {leaveSubmitting ? 'Submitting…' : 'Submit leave request'}
+              </button>
+            </div>
+
+            {leaveRequests.length > 0 && (
+              <div
+                style={{
+                  background: C.bg2,
+                  border: '1px solid rgba(255,255,255,.08)',
+                  borderRadius: 14,
+                  padding: '14px 16px',
+                }}
+              >
+                <div style={{ fontSize: 10, fontWeight: 700, color: C.dim, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>
+                  Recent requests
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                  {leaveRequests.slice(0, 8).map((req, i) => {
+                    const st = leaveStatusStyle(req.status);
+                    return (
+                      <div
+                        key={req.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 10,
+                          padding: '10px 0',
+                          borderBottom: i < Math.min(leaveRequests.length, 8) - 1 ? '1px solid rgba(255,255,255,.06)' : 'none',
+                        }}
+                      >
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700 }}>
+                            {req.leaveType} · {req.daysCount} day{req.daysCount === 1 ? '' : 's'}
+                          </div>
+                          <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+                            {req.startDate} → {req.endDate}
+                          </div>
+                        </div>
+                        <span style={leaveBadge(st.color, st.bg)}>{formatLeaveStatus(req.status)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {leaveToast && (
+          <div
+            style={{
+              position: 'fixed',
+              left: 16,
+              right: 16,
+              bottom: 20,
+              maxWidth: 448,
+              margin: '0 auto',
+              background: 'rgba(34,197,94,.95)',
+              color: '#fff',
+              borderRadius: 12,
+              padding: '12px 16px',
+              fontSize: 14,
+              fontWeight: 700,
+              textAlign: 'center',
+              boxShadow: '0 8px 24px rgba(0,0,0,.35)',
+              zIndex: 50,
+            }}
+          >
+            {leaveToast}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   if (step === 'van-select') {
     const badge = (color: string, bg: string): CSSProperties => ({
       display: 'inline-flex',
@@ -588,6 +1039,32 @@ export default function DriverApp() {
               </span>
             </div>
           </div>
+        </div>
+
+        {/* Leave entry — thumb-friendly, always visible before van pick */}
+        <div style={{ padding: '0 16px 12px' }}>
+          <button
+            type="button"
+            onClick={() => openLeave('van-select')}
+            style={{
+              width: '100%',
+              minHeight: 48,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              borderRadius: 12,
+              border: '1px solid rgba(79,142,247,.35)',
+              background: 'rgba(79,142,247,.1)',
+              color: C.blue,
+              fontSize: 14,
+              fontWeight: 700,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+            }}
+          >
+            <Calendar size={18} /> Request Leave
+          </button>
         </div>
 
         {/* Loading */}
@@ -1086,6 +1563,14 @@ export default function DriverApp() {
             <div className="text-2xl font-black">${stats.collected.toFixed(0)}</div>
           </div>
         </div>
+
+        <button
+          type="button"
+          onClick={() => openLeave('dashboard')}
+          className="w-full min-h-12 rounded-xl border-2 border-[#4F8EF7] bg-blue-50 text-[#2563EB] text-sm font-black flex items-center justify-center gap-2"
+        >
+          <Calendar size={18} /> Request Leave
+        </button>
 
         <div className="space-y-3">
           {stops.map((s, idx) => (
