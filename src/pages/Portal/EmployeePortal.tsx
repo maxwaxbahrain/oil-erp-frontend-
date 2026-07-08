@@ -1,31 +1,26 @@
 // ──────────────────────────────────────────────────────────────
 // Field & Mobile — Employee Self Service
-// Pure presentational ESS dashboard matching the Soltol One ERP
-// design system. All data hardcoded — no services, hooks, or
-// fetches per spec.
-//
-// Interactivity (this build):
-//   · "+ New Employee" opens Add modal, pushes into local state
-//   · Row "✏ Edit" opens Edit modal pre-filled, updates in place
-//   · Row "👤 View" or name click opens 3-tab profile side panel
-//   · "⬇ PDF" payslip buttons fire a green toast
-//   · Leave "Request" buttons open a leave-request modal (toast on submit)
-//   · "Save Hours" toggles to green "✓ Saved!" for 2s
-//   · "View all →" scrolls to the team snapshot table
-//
-// All mutations are LOCAL — nothing persists. The component is still
-// a self-contained mockup; the real persistence services that used
-// to back this page remain on disk and untouched.
+// Roster + self profile: real /api/employees (Phase 1b).
+// Payslips, leave, announcements, hours: still mock (later phases).
 // ──────────────────────────────────────────────────────────────
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Download, Plus, ChevronRight, Users, Clock, Calendar,
   Megaphone, X, Edit2, Eye,
 } from 'lucide-react';
+import {
+  getEmployees,
+  addEmployee,
+  updateEmployee,
+  deleteEmployee,
+  type ApiEmployee,
+} from '../../services/employeeService';
+import { getCurrentUser } from '../../store/authStore';
 
 // ── Types ─────────────────────────────────────────────────────
 interface Employee {
   id: string;
+  employeeNumber: string;
   name: string;
   role: 'Office' | 'Van Driver' | 'Salesman' | 'Warehouse' | 'Admin';
   netPay: string;
@@ -35,8 +30,10 @@ interface Employee {
   status: 'Active' | 'On route' | 'On leave' | 'Off today';
   department?: string;
   startDate?: string;
+  hireDateIso?: string;
   email?: string;
   phone?: string;
+  userId?: number | null;
 }
 
 interface Payslip {
@@ -71,6 +68,7 @@ interface Holiday {
 }
 
 interface NewEmployeeForm {
+  employeeNumber: string;
   name: string;
   role: string;
   department: string;
@@ -101,17 +99,19 @@ interface ESSState {
   leaveReason: string;
   leaveCover: string;
   toast: string;
+  pageError: string;
+  employeesLoading: boolean;
+  employeesSaving: boolean;
   employees: Employee[];
   newEmp: NewEmployeeForm;
 }
 
 const VALID_ROLES = ['Office', 'Van Driver', 'Salesman', 'Warehouse', 'Admin'] as const;
-const VALID_STATUSES = ['Active', 'On route', 'On leave', 'Off today'] as const;
 const ROLE_OPTIONS: string[] = ['Office', 'Van Driver', 'Salesman', 'Warehouse', 'Admin', 'Finance', 'Manager'];
 const STATUS_OPTIONS: string[] = ['Active', 'On route', 'On leave', 'Off today'];
 
 const EMPTY_NEW_EMP: NewEmployeeForm = {
-  name: '', role: 'Office', department: '', email: '', phone: '',
+  employeeNumber: '', name: '', role: 'Office', department: '', email: '', phone: '',
   startDate: '', regularHours: 176, overtimeHours: 0, ptoDays: 20,
   netPay: '', status: 'Active',
 };
@@ -151,20 +151,7 @@ const STATUS_COLORS: Record<string, string> = {
   'Off today':'#EF4444',
 };
 
-// ── Hardcoded data ────────────────────────────────────────────
-const EMPLOYEES: Employee[] = [
-  { id: 'e1',  name: 'John Smith',       role: 'Office',     netPay: '$3,750', regularHours: 165, overtimeHours: 1,  ptoDays: 16, status: 'Active',    department: 'Operations',  startDate: 'Jan 2023', email: 'john.smith@soltol.com',       phone: '+971 50 123 4567' },
-  { id: 'e2',  name: 'Sarah Lee',        role: 'Van Driver', netPay: '$3,375', regularHours: 166, overtimeHours: 2,  ptoDays: 16, status: 'On route',  department: 'Logistics',   startDate: 'Mar 2022', email: 'sarah.lee@soltol.com',        phone: '+971 50 234 5678' },
-  { id: 'e3',  name: 'Mike Johnson',     role: 'Salesman',   netPay: '$3,000', regularHours: 175, overtimeHours: 13, ptoDays: 16, status: 'Active',    department: 'Sales',       startDate: 'Sep 2021', email: 'mike.johnson@soltol.com',     phone: '+971 50 345 6789' },
-  { id: 'e4',  name: 'James Okonkwo',    role: 'Office',     netPay: '$2,640', regularHours: 156, overtimeHours: 4,  ptoDays: 16, status: 'Active',    department: 'Operations',  startDate: 'May 2023', email: 'james.okonkwo@soltol.com',    phone: '+971 50 456 7890' },
-  { id: 'e5',  name: 'Priya Nair',       role: 'Van Driver', netPay: '$2,850', regularHours: 149, overtimeHours: 11, ptoDays: 12, status: 'On leave',  department: 'Logistics',   startDate: 'Feb 2023', email: 'priya.nair@soltol.com',       phone: '+971 50 567 8901' },
-  { id: 'e6',  name: 'Carlos Mendez',    role: 'Salesman',   netPay: '$3,150', regularHours: 146, overtimeHours: 6,  ptoDays: 16, status: 'Active',    department: 'Sales',       startDate: 'Aug 2022', email: 'carlos.mendez@soltol.com',    phone: '+971 50 678 9012' },
-  { id: 'e7',  name: 'David Chen',       role: 'Office',     netPay: '$2,400', regularHours: 161, overtimeHours: 9,  ptoDays: 16, status: 'Active',    department: 'Finance',     startDate: 'Apr 2024', email: 'david.chen@soltol.com',       phone: '+971 50 789 0123' },
-  { id: 'e8',  name: 'Fatima Al-Hassan', role: 'Van Driver', netPay: '$3,600', regularHours: 144, overtimeHours: 6,  ptoDays: 16, status: 'Off today', department: 'Logistics',   startDate: 'Nov 2022', email: 'fatima.alhassan@soltol.com',  phone: '+971 50 890 1234' },
-  { id: 'e9',  name: 'Tom Reed',         role: 'Salesman',   netPay: '$2,520', regularHours: 151, overtimeHours: 11, ptoDays: 16, status: 'Active',    department: 'Sales',       startDate: 'Jun 2023', email: 'tom.reed@soltol.com',         phone: '+971 50 901 2345' },
-  { id: 'e10', name: 'Anna Petrov',      role: 'Office',     netPay: '$2,700', regularHours: 163, overtimeHours: 5,  ptoDays: 16, status: 'Active',    department: 'HR',          startDate: 'Jan 2024', email: 'anna.petrov@soltol.com',      phone: '+971 50 012 3456' },
-];
-
+// ── Mock data (leave / payslips / announcements — later phases) ─
 const PAYSLIPS: Payslip[] = [
   { month: 'May 2026',   hours: 165, ot: 1, amount: '$3,750', colorBg: 'rgba(34,197,94,.1)' },
   { month: 'April 2026', hours: 172, ot: 3, amount: '$3,890', colorBg: 'rgba(74,143,245,.1)' },
@@ -210,8 +197,63 @@ function SectionDivider({ label }: { label: string }) {
 function clampRole(r: string): Employee['role'] {
   return (VALID_ROLES as readonly string[]).includes(r) ? (r as Employee['role']) : 'Office';
 }
-function clampStatus(s: string): Employee['status'] {
-  return (VALID_STATUSES as readonly string[]).includes(s) ? (s as Employee['status']) : 'Active';
+
+function apiStatusToPortal(status: string): Employee['status'] {
+  const v = (status || 'active').toLowerCase();
+  if (v === 'on_leave') return 'On leave';
+  if (v === 'terminated') return 'Off today';
+  return 'Active';
+}
+
+function portalStatusToApi(status: string): string {
+  const map: Record<string, string> = {
+    Active: 'active',
+    'On route': 'active',
+    'On leave': 'on_leave',
+    'Off today': 'terminated',
+  };
+  return map[status] ?? 'active';
+}
+
+function formatHireDateLabel(iso?: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+}
+
+function initials(name: string): string {
+  return name.split(' ').filter(Boolean).map(s => s[0]).slice(0, 2).join('').toUpperCase() || '?';
+}
+
+function suggestEmployeeNumber(rows: Employee[]): string {
+  let max = 0;
+  for (const row of rows) {
+    const m = /^EMP-(\d+)$/i.exec(row.employeeNumber || '');
+    if (m) max = Math.max(max, Number(m[1]));
+  }
+  return `EMP-${String(max + 1).padStart(3, '0')}`;
+}
+
+function apiToPortalEmployee(e: ApiEmployee): Employee {
+  const roleLabel = e.jobTitle?.trim() || 'Office';
+  return {
+    id: String(e.id),
+    employeeNumber: e.employeeNumber,
+    name: e.fullName,
+    role: clampRole(roleLabel),
+    netPay: '—',
+    regularHours: 0,
+    overtimeHours: 0,
+    ptoDays: 0,
+    status: apiStatusToPortal(e.employmentStatus),
+    department: e.department ?? undefined,
+    startDate: formatHireDateLabel(e.hireDate),
+    hireDateIso: e.hireDate ?? undefined,
+    email: e.workEmail ?? undefined,
+    phone: e.phone ?? undefined,
+    userId: e.userId ?? undefined,
+  };
 }
 
 function recentActivity(emp: Employee) {
@@ -253,17 +295,43 @@ export default function EmployeePortal() {
     leaveReason: '',
     leaveCover: '',
     toast: '',
-    employees: [...EMPLOYEES],
+    pageError: '',
+    employeesLoading: true,
+    employeesSaving: false,
+    employees: [],
     newEmp: { ...EMPTY_NEW_EMP },
   });
+
+  const teamTableRef = useRef<HTMLDivElement>(null);
+  const currentUser = useMemo(() => getCurrentUser(), []);
+
+  const loadEmployees = useCallback(async () => {
+    setState(s => ({ ...s, employeesLoading: true, pageError: '' }));
+    try {
+      const rows = await getEmployees();
+      setState(s => ({
+        ...s,
+        employees: rows.map(apiToPortalEmployee),
+        employeesLoading: false,
+      }));
+    } catch (err) {
+      setState(s => ({
+        ...s,
+        employeesLoading: false,
+        pageError: err instanceof Error ? err.message : 'Failed to load employees',
+      }));
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadEmployees();
+  }, [loadEmployees]);
 
   const [cols, setCols] = useState({
     kpi: typeof window !== 'undefined' && window.innerWidth >= 1024 ? 4 : 2,
     twoCol: typeof window !== 'undefined' ? window.innerWidth >= 768 : true,
     formTwoCol: typeof window !== 'undefined' ? window.innerWidth >= 540 : true,
   });
-
-  const teamTableRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const update = () =>
@@ -306,7 +374,11 @@ export default function EmployeePortal() {
   }
 
   function openAddModal() {
-    setState(s => ({ ...s, showAddModal: true, newEmp: { ...EMPTY_NEW_EMP } }));
+    setState(s => ({
+      ...s,
+      showAddModal: true,
+      newEmp: { ...EMPTY_NEW_EMP, employeeNumber: suggestEmployeeNumber(s.employees) },
+    }));
   }
   function closeAddModal() {
     setState(s => ({ ...s, showAddModal: false, newEmp: { ...EMPTY_NEW_EMP } }));
@@ -318,12 +390,13 @@ export default function EmployeePortal() {
       showEditModal: true,
       editingEmployee: emp,
       newEmp: {
+        employeeNumber: emp.employeeNumber,
         name: emp.name,
         role: emp.role,
         department: emp.department ?? '',
         email: emp.email ?? '',
         phone: emp.phone ?? '',
-        startDate: emp.startDate ?? '',
+        startDate: emp.hireDateIso ?? '',
         regularHours: emp.regularHours,
         overtimeHours: emp.overtimeHours,
         ptoDays: emp.ptoDays,
@@ -336,60 +409,91 @@ export default function EmployeePortal() {
     setState(s => ({ ...s, showEditModal: false, editingEmployee: null, newEmp: { ...EMPTY_NEW_EMP } }));
   }
 
-  function handleAddEmployee() {
-    if (!state.newEmp.name.trim()) return;
-    const id = 'e' + (state.employees.length + 1);
-    const fresh: Employee = {
-      id,
-      name: state.newEmp.name.trim(),
-      role: clampRole(state.newEmp.role),
-      netPay: state.newEmp.netPay || '$0',
-      regularHours: state.newEmp.regularHours,
-      overtimeHours: state.newEmp.overtimeHours,
-      ptoDays: state.newEmp.ptoDays,
-      status: clampStatus(state.newEmp.status),
-      department: state.newEmp.department,
-      startDate: state.newEmp.startDate,
-      email: state.newEmp.email,
-      phone: state.newEmp.phone,
-    };
-    setState(s => ({
-      ...s,
-      employees: [...s.employees, fresh],
-      showAddModal: false,
-      newEmp: { ...EMPTY_NEW_EMP },
-      toast: 'Employee added successfully',
-    }));
+  async function handleAddEmployee() {
+    if (!state.newEmp.name.trim() || !state.newEmp.employeeNumber.trim()) return;
+    setState(s => ({ ...s, employeesSaving: true, pageError: '' }));
+    try {
+      await addEmployee({
+        employeeNumber: state.newEmp.employeeNumber.trim(),
+        fullName: state.newEmp.name.trim(),
+        jobTitle: state.newEmp.role.trim() || 'Office',
+        department: state.newEmp.department.trim() || null,
+        workEmail: state.newEmp.email.trim() || null,
+        phone: state.newEmp.phone.trim() || null,
+        hireDate: state.newEmp.startDate || null,
+        employmentStatus: portalStatusToApi(state.newEmp.status),
+      });
+      await loadEmployees();
+      setState(s => ({
+        ...s,
+        showAddModal: false,
+        newEmp: { ...EMPTY_NEW_EMP },
+        employeesSaving: false,
+        toast: 'Employee added successfully',
+      }));
+    } catch (err) {
+      setState(s => ({
+        ...s,
+        employeesSaving: false,
+        pageError: err instanceof Error ? err.message : 'Failed to add employee',
+      }));
+    }
   }
 
-  function handleSaveEdit() {
-    if (!state.editingEmployee || !state.newEmp.name.trim()) return;
+  async function handleSaveEdit() {
+    if (!state.editingEmployee || !state.newEmp.name.trim() || !state.newEmp.employeeNumber.trim()) return;
     const id = state.editingEmployee.id;
-    setState(s => ({
-      ...s,
-      employees: s.employees.map(e =>
-        e.id === id
-          ? {
-              ...e,
-              name: s.newEmp.name.trim(),
-              role: clampRole(s.newEmp.role),
-              status: clampStatus(s.newEmp.status),
-              netPay: s.newEmp.netPay || e.netPay,
-              regularHours: s.newEmp.regularHours,
-              overtimeHours: s.newEmp.overtimeHours,
-              ptoDays: s.newEmp.ptoDays,
-              department: s.newEmp.department,
-              startDate: s.newEmp.startDate,
-              email: s.newEmp.email,
-              phone: s.newEmp.phone,
-            }
-          : e
-      ),
-      showEditModal: false,
-      editingEmployee: null,
-      newEmp: { ...EMPTY_NEW_EMP },
-      toast: 'Employee updated',
-    }));
+    setState(s => ({ ...s, employeesSaving: true, pageError: '' }));
+    try {
+      await updateEmployee(id, {
+        employeeNumber: state.newEmp.employeeNumber.trim(),
+        fullName: state.newEmp.name.trim(),
+        jobTitle: state.newEmp.role.trim() || 'Office',
+        department: state.newEmp.department.trim() || null,
+        workEmail: state.newEmp.email.trim() || null,
+        phone: state.newEmp.phone.trim() || null,
+        hireDate: state.newEmp.startDate || null,
+        employmentStatus: portalStatusToApi(state.newEmp.status),
+      });
+      await loadEmployees();
+      setState(s => ({
+        ...s,
+        showEditModal: false,
+        editingEmployee: null,
+        newEmp: { ...EMPTY_NEW_EMP },
+        employeesSaving: false,
+        toast: 'Employee updated',
+      }));
+    } catch (err) {
+      setState(s => ({
+        ...s,
+        employeesSaving: false,
+        pageError: err instanceof Error ? err.message : 'Failed to update employee',
+      }));
+    }
+  }
+
+  async function handleDeleteEmployee() {
+    if (!state.editingEmployee) return;
+    setState(s => ({ ...s, employeesSaving: true, pageError: '' }));
+    try {
+      await deleteEmployee(state.editingEmployee.id);
+      await loadEmployees();
+      setState(s => ({
+        ...s,
+        showEditModal: false,
+        editingEmployee: null,
+        newEmp: { ...EMPTY_NEW_EMP },
+        employeesSaving: false,
+        toast: 'Employee terminated',
+      }));
+    } catch (err) {
+      setState(s => ({
+        ...s,
+        employeesSaving: false,
+        pageError: err instanceof Error ? err.message : 'Failed to delete employee',
+      }));
+    }
   }
 
   function openProfile(emp: Employee) {
@@ -408,11 +512,12 @@ export default function EmployeePortal() {
       showEditModal: true,
       editingEmployee: emp,
       newEmp: {
+        employeeNumber: emp.employeeNumber,
         name: emp.name, role: emp.role,
         department: emp.department ?? '',
         email: emp.email ?? '',
         phone: emp.phone ?? '',
-        startDate: emp.startDate ?? '',
+        startDate: emp.hireDateIso ?? '',
         regularHours: emp.regularHours,
         overtimeHours: emp.overtimeHours,
         ptoDays: emp.ptoDays,
@@ -450,6 +555,12 @@ export default function EmployeePortal() {
   }
 
   // ── Derived values ───────────────────────────────────────
+  const myProfileEmployee = useMemo(() => {
+    return state.employees.find(
+      e => e.userId != null && String(e.userId) === String(currentUser.id),
+    ) ?? null;
+  }, [state.employees, currentUser.id]);
+
   const totalEmps = state.employees.length;
   const totalActive = state.employees.filter(e => e.status === 'Active').length;
   const distinctRoles = new Set(state.employees.map(e => e.role)).size;
@@ -539,6 +650,20 @@ export default function EmployeePortal() {
       </div>
 
       <div style={{ padding: '14px 20px 20px' }}>
+        {state.pageError && (
+          <div style={{
+            marginBottom: 12,
+            padding: '10px 14px',
+            borderRadius: 9,
+            background: 'rgba(239,68,68,.12)',
+            border: '1px solid rgba(239,68,68,.3)',
+            color: '#FCA5A5',
+            fontSize: 12,
+          }}>
+            {state.pageError}
+          </div>
+        )}
+
         {/* SECTION 1 — KPI row */}
         <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols.kpi},1fr)`, gap: 10 }}>
           {KPIS.map((k, i) => {
@@ -586,44 +711,62 @@ export default function EmployeePortal() {
         }}>
           {/* Profile */}
           <div style={card}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-              <div style={{
-                width: 52, height: 52, borderRadius: '50%',
-                background: 'linear-gradient(135deg,#4F8EF7,#7C3AED)',
-                color: '#fff', fontSize: 16, fontWeight: 700,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                flexShrink: 0,
-              }}>
-                AQ
+            {myProfileEmployee ? (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                  <div style={{
+                    width: 52, height: 52, borderRadius: '50%',
+                    background: 'linear-gradient(135deg,#4F8EF7,#7C3AED)',
+                    color: '#fff', fontSize: 16, fontWeight: 700,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    flexShrink: 0,
+                  }}>
+                    {initials(myProfileEmployee.name)}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: C.t }}>{myProfileEmployee.name}</div>
+                    <span style={{
+                      fontSize: 10, fontWeight: 700,
+                      background: (ROLE_STYLES[myProfileEmployee.role as keyof typeof ROLE_STYLES] ?? ROLE_STYLES.Office).bg,
+                      color: (ROLE_STYLES[myProfileEmployee.role as keyof typeof ROLE_STYLES] ?? ROLE_STYLES.Office).text,
+                      padding: '2px 8px', borderRadius: 10,
+                      display: 'inline-block', marginTop: 4,
+                    }}>
+                      {myProfileEmployee.role}
+                    </span>
+                  </div>
+                </div>
+                <InfoRow label="Employee ID" value={myProfileEmployee.employeeNumber} />
+                <InfoRow label="Department"  value={myProfileEmployee.department || '—'} />
+                <InfoRow label="Start date"  value={myProfileEmployee.startDate || '—'} />
+                <InfoRow label="Email"       value={myProfileEmployee.email || '—'} />
+                <InfoRow label="Phone"       value={myProfileEmployee.phone || '—'} />
+                <InfoRow label="PTO balance" value="16 days" valueColor={C.green} />
+                <InfoRow label="Sick leave"  value="5 days"  valueColor={C.amber} />
+                <InfoRow
+                  label="Status"
+                  value={
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{
+                        width: 6, height: 6, borderRadius: '50%',
+                        background: STATUS_COLORS[myProfileEmployee.status] ?? '#22C55E',
+                      }} />
+                      {myProfileEmployee.status}
+                    </span>
+                  }
+                  valueColor={C.green}
+                  isLast
+                />
+              </>
+            ) : (
+              <div style={{ padding: '8px 0' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.t, marginBottom: 8 }}>My Profile</div>
+                <div style={{ fontSize: 12, color: C.t2, lineHeight: 1.5 }}>
+                  No employee record is linked to your account yet.
+                  Ask an administrator to create an employee record with your user ID.
+                </div>
               </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: C.t }}>Abdul Qadeer</div>
-                <span style={{
-                  fontSize: 10, fontWeight: 700,
-                  background: ROLE_STYLES.Office.bg, color: ROLE_STYLES.Office.text,
-                  padding: '2px 8px', borderRadius: 10,
-                  display: 'inline-block', marginTop: 4,
-                }}>
-                  Office
-                </span>
-              </div>
-            </div>
-            <InfoRow label="Employee ID" value="EMP-001" />
-            <InfoRow label="Department"  value="Management" />
-            <InfoRow label="Start date"  value="Jan 2023" />
-            <InfoRow label="PTO balance" value="16 days" valueColor={C.green} />
-            <InfoRow label="Sick leave"  value="5 days"  valueColor={C.amber} />
-            <InfoRow
-              label="Status"
-              value={
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22C55E' }} />
-                  Active
-                </span>
-              }
-              valueColor={C.green}
-              isLast
-            />
+            )}
           </div>
 
           {/* Hours card */}
@@ -715,7 +858,19 @@ export default function EmployeePortal() {
                 </tr>
               </thead>
               <tbody>
-                {state.employees.map(emp => {
+                {state.employeesLoading ? (
+                  <tr>
+                    <td colSpan={7} style={{ padding: '20px 10px', color: C.t2, fontSize: 12, textAlign: 'center' }}>
+                      Loading employees…
+                    </td>
+                  </tr>
+                ) : state.employees.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} style={{ padding: '20px 10px', color: C.t2, fontSize: 12, textAlign: 'center' }}>
+                      No employees yet. Use &quot;New Employee&quot; to add your first team member.
+                    </td>
+                  </tr>
+                ) : state.employees.map(emp => {
                   const roleStyle = ROLE_STYLES[emp.role as keyof typeof ROLE_STYLES];
                   const roleBg = roleStyle?.bg ?? 'rgba(255,255,255,.06)';
                   const roleText = roleStyle?.text ?? C.t2;
@@ -1038,14 +1193,14 @@ export default function EmployeePortal() {
               <button
                 type="button"
                 onClick={handleAddEmployee}
-                disabled={!state.newEmp.name.trim()}
+                disabled={!state.newEmp.name.trim() || !state.newEmp.employeeNumber.trim() || state.employeesSaving}
                 style={{
                   ...modalSubmitBtn,
-                  opacity: state.newEmp.name.trim() ? 1 : 0.55,
-                  cursor: state.newEmp.name.trim() ? 'pointer' : 'not-allowed',
+                  opacity: state.newEmp.name.trim() && state.newEmp.employeeNumber.trim() && !state.employeesSaving ? 1 : 0.55,
+                  cursor: state.newEmp.name.trim() && state.newEmp.employeeNumber.trim() && !state.employeesSaving ? 'pointer' : 'not-allowed',
                 }}
               >
-                <Plus size={12} /> Add Employee
+                <Plus size={12} /> {state.employeesSaving ? 'Saving…' : 'Add Employee'}
               </button>
             </ModalFooter>
           </ModalCard>
@@ -1066,18 +1221,31 @@ export default function EmployeePortal() {
               onChange={next => setState(s => ({ ...s, newEmp: next }))}
             />
             <ModalFooter>
+              <button
+                type="button"
+                onClick={handleDeleteEmployee}
+                disabled={state.employeesSaving}
+                style={{
+                  ...modalCancelBtn,
+                  marginRight: 'auto',
+                  color: '#FCA5A5',
+                  borderColor: 'rgba(239,68,68,.35)',
+                }}
+              >
+                Terminate
+              </button>
               <button type="button" onClick={closeEditModal} style={modalCancelBtn}>Cancel</button>
               <button
                 type="button"
                 onClick={handleSaveEdit}
-                disabled={!state.newEmp.name.trim()}
+                disabled={!state.newEmp.name.trim() || !state.newEmp.employeeNumber.trim() || state.employeesSaving}
                 style={{
                   ...modalSubmitBtn,
-                  opacity: state.newEmp.name.trim() ? 1 : 0.55,
-                  cursor: state.newEmp.name.trim() ? 'pointer' : 'not-allowed',
+                  opacity: state.newEmp.name.trim() && state.newEmp.employeeNumber.trim() && !state.employeesSaving ? 1 : 0.55,
+                  cursor: state.newEmp.name.trim() && state.newEmp.employeeNumber.trim() && !state.employeesSaving ? 'pointer' : 'not-allowed',
                 }}
               >
-                Save Changes
+                {state.employeesSaving ? 'Saving…' : 'Save Changes'}
               </button>
             </ModalFooter>
           </ModalCard>
@@ -1334,6 +1502,15 @@ function EmployeeFormFields({
     onChange({ ...value, [k]: v });
   return (
     <div style={{ display: 'grid', gridTemplateColumns: twoCol ? '1fr 1fr' : '1fr', gap: 10 }}>
+      <FieldLabel label="Employee ID *" full>
+        <input
+          type="text"
+          value={value.employeeNumber}
+          onChange={e => set('employeeNumber', e.target.value)}
+          placeholder="EMP-001"
+          style={{ ...formInputStyle, textAlign: 'left' }}
+        />
+      </FieldLabel>
       <FieldLabel label="Full Name *" full>
         <input
           type="text"
@@ -1550,11 +1727,11 @@ function ProfilePanel({
         {tab === 'overview' && (
           <>
             <ProfileSection label="Personal Information">
-              <InfoRow label="Employee ID" value={emp.id} />
-              <InfoRow label="Department"  value={emp.department ?? 'Management'} />
-              <InfoRow label="Email"       value={emp.email ?? `${emp.name.toLowerCase().replace(/\s+/g, '.')}@soltol.com`} />
-              <InfoRow label="Phone"       value={emp.phone ?? '+971 50 XXX XXXX'} />
-              <InfoRow label="Start date"  value={emp.startDate ?? 'Jan 2023'} />
+              <InfoRow label="Employee ID" value={emp.employeeNumber} />
+              <InfoRow label="Department"  value={emp.department ?? '—'} />
+              <InfoRow label="Email"       value={emp.email ?? '—'} />
+              <InfoRow label="Phone"       value={emp.phone ?? '—'} />
+              <InfoRow label="Start date"  value={emp.startDate ?? '—'} />
               <InfoRow
                 label="Status"
                 value={

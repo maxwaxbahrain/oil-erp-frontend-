@@ -1,5 +1,8 @@
 // Comprehensive Employee Management Service - Enterprise Grade
 
+import { API_BASE_URL } from './api';
+import { authFetch } from '../api/axios';
+
 export interface EmployeeBasicInfo {
     id: string;
     employeeId: string; // Auto-generated unique ID
@@ -393,4 +396,135 @@ export async function calculatePromotionReadiness(_employeeId: string): Promise<
             });
         }, 1000);
     });
+}
+
+// ── Phase 1: tenant-scoped HR employees API ─────────────────────
+
+export interface ApiEmployee {
+    id: number;
+    tenantId?: number | null;
+    userId?: number | null;
+    employeeNumber: string;
+    fullName: string;
+    department?: string | null;
+    jobTitle?: string | null;
+    phone?: string | null;
+    workEmail?: string | null;
+    hireDate?: string | null;
+    employmentStatus: string;
+    createdAt?: string | null;
+    updatedAt?: string | null;
+}
+
+export interface EmployeeCreateInput {
+    userId?: number | null;
+    employeeNumber: string;
+    fullName: string;
+    department?: string | null;
+    jobTitle?: string | null;
+    phone?: string | null;
+    workEmail?: string | null;
+    hireDate?: string | null;
+    employmentStatus?: string;
+}
+
+export interface EmployeeUpdateInput {
+    userId?: number | null;
+    employeeNumber?: string;
+    fullName?: string;
+    department?: string | null;
+    jobTitle?: string | null;
+    phone?: string | null;
+    workEmail?: string | null;
+    hireDate?: string | null;
+    employmentStatus?: string;
+}
+
+function fromApiEmployee(raw: Record<string, unknown>): ApiEmployee {
+    return {
+        id: Number(raw.id),
+        tenantId: raw.tenantId != null ? Number(raw.tenantId) : raw.tenant_id != null ? Number(raw.tenant_id) : null,
+        userId: raw.userId != null ? Number(raw.userId) : raw.user_id != null ? Number(raw.user_id) : null,
+        employeeNumber: String(raw.employeeNumber ?? raw.employee_number ?? ''),
+        fullName: String(raw.fullName ?? raw.full_name ?? ''),
+        department: raw.department != null ? String(raw.department) : null,
+        jobTitle: raw.jobTitle != null ? String(raw.jobTitle) : raw.job_title != null ? String(raw.job_title) : null,
+        phone: raw.phone != null ? String(raw.phone) : null,
+        workEmail: raw.workEmail != null ? String(raw.workEmail) : raw.work_email != null ? String(raw.work_email) : null,
+        hireDate: raw.hireDate != null
+            ? String(raw.hireDate).slice(0, 10)
+            : raw.hire_date != null
+              ? String(raw.hire_date).slice(0, 10)
+              : null,
+        employmentStatus: String(raw.employmentStatus ?? raw.employment_status ?? 'active'),
+        createdAt: raw.createdAt != null ? String(raw.createdAt) : raw.created_at != null ? String(raw.created_at) : null,
+        updatedAt: raw.updatedAt != null ? String(raw.updatedAt) : raw.updated_at != null ? String(raw.updated_at) : null,
+    };
+}
+
+async function readApiError(r: Response): Promise<string> {
+    try {
+        const body = await r.json();
+        if (typeof body?.detail === 'string') return body.detail;
+        if (body?.detail) return JSON.stringify(body.detail);
+    } catch {
+        /* ignore */
+    }
+    return `Request failed (${r.status})`;
+}
+
+export async function getEmployees(): Promise<ApiEmployee[]> {
+    const r = await authFetch(`${API_BASE_URL}/employees/`);
+    if (!r.ok) throw new Error(await readApiError(r));
+    const rows = await r.json();
+    return (Array.isArray(rows) ? rows : []).map((row) => fromApiEmployee(row as Record<string, unknown>));
+}
+
+export async function addEmployee(payload: EmployeeCreateInput): Promise<ApiEmployee> {
+    const r = await authFetch(`${API_BASE_URL}/employees/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            employeeNumber: payload.employeeNumber,
+            fullName: payload.fullName,
+            department: payload.department ?? null,
+            jobTitle: payload.jobTitle ?? null,
+            phone: payload.phone ?? null,
+            workEmail: payload.workEmail ?? null,
+            hireDate: payload.hireDate ?? null,
+            employmentStatus: payload.employmentStatus ?? 'active',
+            ...(payload.userId != null ? { userId: payload.userId } : {}),
+        }),
+    });
+    if (!r.ok) throw new Error(await readApiError(r));
+    return fromApiEmployee((await r.json()) as Record<string, unknown>);
+}
+
+export async function updateEmployee(id: number | string, payload: EmployeeUpdateInput): Promise<ApiEmployee> {
+    const body: Record<string, unknown> = {};
+    if (payload.userId !== undefined) body.userId = payload.userId;
+    if (payload.employeeNumber !== undefined) body.employeeNumber = payload.employeeNumber;
+    if (payload.fullName !== undefined) body.fullName = payload.fullName;
+    if (payload.department !== undefined) body.department = payload.department;
+    if (payload.jobTitle !== undefined) body.jobTitle = payload.jobTitle;
+    if (payload.phone !== undefined) body.phone = payload.phone;
+    if (payload.workEmail !== undefined) body.workEmail = payload.workEmail;
+    if (payload.hireDate !== undefined) body.hireDate = payload.hireDate;
+    if (payload.employmentStatus !== undefined) body.employmentStatus = payload.employmentStatus;
+
+    const r = await authFetch(`${API_BASE_URL}/employees/${encodeURIComponent(String(id))}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(await readApiError(r));
+    return fromApiEmployee((await r.json()) as Record<string, unknown>);
+}
+
+export async function deleteEmployee(id: number | string): Promise<ApiEmployee> {
+    const r = await authFetch(`${API_BASE_URL}/employees/${encodeURIComponent(String(id))}`, {
+        method: 'DELETE',
+    });
+    if (!r.ok) throw new Error(await readApiError(r));
+    return fromApiEmployee((await r.json()) as Record<string, unknown>);
 }
