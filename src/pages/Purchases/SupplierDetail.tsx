@@ -37,6 +37,21 @@ import {
 } from '../../services/purchasesService';
 import { authFetch } from '../../api/axios';
 import { getSupplierLedger, type PartyLedgerRow } from '../../services/api';
+import { getGLAccounts, type GLAccount } from '../../services/glService';
+
+/** Backend supplier payment lookup matches accounts.id; cash_on_hand / bank only. */
+const PAY_FROM_SYSTEM_KEYS = new Set(['cash_on_hand', 'bank']);
+
+function filterPayFromAccounts(rows: GLAccount[]): GLAccount[] {
+    return rows.filter((a) => a.system_key != null && PAY_FROM_SYSTEM_KEYS.has(a.system_key));
+}
+
+function defaultPayFromAccountId(accounts: GLAccount[]): string {
+    const bank = accounts.find((a) => a.system_key === 'bank');
+    const cash = accounts.find((a) => a.system_key === 'cash_on_hand');
+    const pick = bank ?? cash ?? accounts[0];
+    return pick ? String(pick.id) : '';
+}
 
 // SupplierDetail v3 (direct API): bypasses the service layer for read paths
 // so cached old bundles can't show stale localStorage data. Writes still
@@ -221,9 +236,11 @@ export default function SupplierDetail() {
     });
     // ITEM 6E — Multi-PO checklist state (mirror of customer 5E).
     const [selectedPOIds, setSelectedPOIds] = useState<string[]>([]);
-    // ITEM 6G — Pay-from-account (COA 1110 subtree).
-    const [bankAccounts, setBankAccounts] = useState<Array<{ id: string; code: string; name: string }>>([]);
+    // Pay-from-account dropdown — real GL accounts from GET /api/accounts/.
+    const [bankAccounts, setBankAccounts] = useState<GLAccount[]>([]);
     const [payFromAccountId, setPayFromAccountId] = useState<string>('');
+    const [accountsLoading, setAccountsLoading] = useState(true);
+    const [accountsLoadError, setAccountsLoadError] = useState<string | null>(null);
 
     const [selectedCurrency, setSelectedCurrency] = useState(WORLD_CURRENCIES[0]); // Default to USD
 
@@ -236,31 +253,35 @@ export default function SupplierDetail() {
         }
     }, [location.search]);
 
-    // ITEM 6G — Load bank/cash COA accounts (1110 subtree). Same recursive
-    // parent-chain walk used on the customer side (5H).
+    // Load cash/bank GL accounts from GET /api/accounts/ (same pattern as PaymentReceipt 5H).
     useEffect(() => {
-        (async () => {
-            try {
-                const { getAccounts } = await import('../Accounts/ChartOfAccounts');
-                const all = getAccounts();
-                const isUnderCashBank = (a: typeof all[number]): boolean => {
-                    if (a.id === '1110') return true;
-                    let pid = a.parentId;
-                    while (pid) {
-                        if (pid === '1110') return true;
-                        const parent = all.find(x => x.id === pid);
-                        pid = parent ? parent.parentId : null;
-                    }
-                    return false;
-                };
-                const bank = all.filter(isUnderCashBank).map(a => ({ id: a.id, code: a.code, name: a.name }));
-                setBankAccounts(bank);
-                const firstChild = bank.find(a => all.find(x => x.id === a.id)?.parentId === '1110');
-                setPayFromAccountId(firstChild?.id || bank.find(a => a.id === '1110')?.id || '');
-            } catch (e) {
-                console.warn('Could not load COA accounts:', e);
-            }
-        })();
+        let cancelled = false;
+        setAccountsLoading(true);
+        setAccountsLoadError(null);
+        getGLAccounts()
+            .then((rows) => {
+                if (cancelled) return;
+                const payTargets = filterPayFromAccounts(rows);
+                setBankAccounts(payTargets);
+                setPayFromAccountId(defaultPayFromAccountId(payTargets));
+                if (payTargets.length === 0) {
+                    setAccountsLoadError('No cash or bank accounts are configured in the chart of accounts.');
+                }
+            })
+            .catch((e: unknown) => {
+                if (cancelled) return;
+                setBankAccounts([]);
+                setPayFromAccountId('');
+                const msg = e instanceof Error ? e.message : 'Could not load chart of accounts.';
+                setAccountsLoadError(msg);
+                console.warn('Could not load pay-from accounts from API:', e);
+            })
+            .finally(() => {
+                if (!cancelled) setAccountsLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
     }, []);
 
     // FIX W2-3 — Auto-open the edit modal when the user clicked the
@@ -358,11 +379,24 @@ export default function SupplierDetail() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id, fromDate, toDate]);
 
+    const payFromReady =
+        !accountsLoading && !accountsLoadError && bankAccounts.length > 0 && payFromAccountId !== '';
+
     const handleSendPayment = async () => {
         if (!id || paymentForm.amount <= 0) {
             alert('Please enter a valid amount');
             return;
         }
+
+        if (!payFromReady) {
+            alert(
+                accountsLoadError ||
+                    'Pay-from account is not available. Configure cash/bank accounts in Finance → Chart of Accounts, then reload.'
+            );
+            return;
+        }
+
+        const payFromId = Number(payFromAccountId);
 
         try {
             setLoadingDetails(true);
@@ -384,8 +418,8 @@ export default function SupplierDetail() {
                         paymentMethod: paymentForm.paymentMethod,
                         reference: paymentReference,
                         notes: paymentForm.notes,
-                        // ITEM 6G — Pay-from-account metadata (backend-forward).
-                        pay_from_account_id: payFromAccountId || undefined,
+                        // Real GL account id from GET /api/accounts/.
+                        pay_from_account_id: payFromId,
                     } as any);
                     succeeded.push('(direct)');
                 } catch (err) {
@@ -407,8 +441,8 @@ export default function SupplierDetail() {
                             paymentMethod: paymentForm.paymentMethod,
                             reference: ref,
                             notes: paymentForm.notes,
-                            // ITEM 6G — Same pay-from account for the whole batch.
-                            pay_from_account_id: payFromAccountId || undefined,
+                            // Same pay-from account for the whole batch.
+                            pay_from_account_id: payFromId,
                             // Forward the linked PO id as metadata so the backend
                             // can apply it to the right purchase order once the
                             // schema supports it.
@@ -1682,15 +1716,19 @@ export default function SupplierDetail() {
                                 )}
                             </div>
 
-                            {/* ITEM 6G — Pay-From Account dropdown sourced from
-                                COA 1110 subtree. Same metadata pattern as 5H. */}
+                            {/* Pay-from account from backend COA (cash_on_hand / bank). */}
                             <div>
                                 <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">
                                     Pay From Account <span className="text-red-500">*</span>
                                 </label>
-                                {bankAccounts.length === 0 ? (
+                                {accountsLoading ? (
+                                    <div className="px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-lg text-xs text-gray-600">
+                                        Loading cash and bank accounts…
+                                    </div>
+                                ) : accountsLoadError || bankAccounts.length === 0 ? (
                                     <div className="px-4 py-3 bg-amber-50 border-2 border-amber-200 rounded-lg text-xs text-amber-800">
-                                        No bank or cash accounts configured. Set up sub-accounts under <strong>Chart of Accounts → Cash &amp; Bank (1110)</strong>.
+                                        {accountsLoadError ||
+                                            'No cash or bank accounts found. Add accounts with system keys cash_on_hand or bank in Finance → Chart of Accounts.'}
                                     </div>
                                 ) : (
                                     <select
@@ -1698,8 +1736,10 @@ export default function SupplierDetail() {
                                         onChange={(e) => setPayFromAccountId(e.target.value)}
                                         className="w-full border-2 border-gray-100 bg-gray-50 rounded-xl px-4 py-4 text-sm font-black focus:border-redwood-brand focus:bg-white outline-none transition-all uppercase"
                                     >
-                                        {bankAccounts.map(a => (
-                                            <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+                                        {bankAccounts.map((a) => (
+                                            <option key={a.id} value={String(a.id)}>
+                                                {a.code} — {a.name}
+                                            </option>
                                         ))}
                                     </select>
                                 )}
@@ -1777,7 +1817,7 @@ export default function SupplierDetail() {
                         </button>
                         <button
                             onClick={handleSendPayment}
-                            disabled={loadingDetails || paymentForm.amount <= 0}
+                            disabled={loadingDetails || paymentForm.amount <= 0 || !payFromReady || accountsLoading}
                             className="px-10 py-3 bg-redwood-brand text-white rounded-xl text-xs font-black hover:brightness-95 transition-all flex items-center gap-3 shadow-xl uppercase tracking-[0.15em] disabled:opacity-50"
                         >
                             <Save size={18} />
