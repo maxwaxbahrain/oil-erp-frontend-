@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────────────────────
 // Field & Mobile — Employee Self Service
 // Roster + profile: real /api/employees. Leave: real /api/leave (Phase 2c).
-// Payslips: real /api/payroll (Phase 3c). Announcements, holidays: still mock.
+// Payslips: real /api/payroll (Phase 3c). Announcements + holidays: real /api (Phase 4b).
 // ──────────────────────────────────────────────────────────────
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
@@ -39,6 +39,20 @@ import {
 } from '../../services/payrollService';
 import { generatePayslipPDF } from '../../utils/payslipPDF';
 import PayrollAdmin from './PayrollAdmin';
+import {
+  createAnnouncement,
+  createHoliday,
+  deleteAnnouncement,
+  deleteHoliday,
+  formatHolidayMonthDay,
+  formatRelativeTime,
+  getAnnouncements,
+  getHolidays,
+  isRecentAnnouncement,
+  upcomingHolidays,
+  type ApiAnnouncement,
+  type ApiCompanyHoliday,
+} from '../../services/companyService';
 
 // ── Types ─────────────────────────────────────────────────────
 interface Employee {
@@ -66,22 +80,6 @@ interface LeaveBalanceDisplay {
   used: number;
   available: number;
   color: string;
-}
-
-interface Announcement {
-  title: string;
-  description: string;
-  time: string;
-  isNew: boolean;
-  iconBg: string;
-  icon: string;
-}
-
-interface Holiday {
-  month: string;
-  day: string;
-  name: string;
-  status: 'Confirmed' | 'Upcoming';
 }
 
 interface NewEmployeeForm {
@@ -130,6 +128,21 @@ interface ESSState {
   payslipsLoading: boolean;
   payrollProfile: PayrollProfile | null;
   payslipDownloadingId: number | null;
+  announcements: ApiAnnouncement[];
+  announcementsLoading: boolean;
+  announcementSubmitting: boolean;
+  announcementDeletingId: number | null;
+  showPostAnnouncement: boolean;
+  postAnnouncementTitle: string;
+  postAnnouncementBody: string;
+  postAnnouncementPinned: boolean;
+  holidays: ApiCompanyHoliday[];
+  holidaysLoading: boolean;
+  holidaySubmitting: boolean;
+  holidayDeletingId: number | null;
+  showAddHoliday: boolean;
+  addHolidayName: string;
+  addHolidayDate: string;
   employees: Employee[];
   newEmp: NewEmployeeForm;
 }
@@ -179,31 +192,12 @@ const STATUS_COLORS: Record<string, string> = {
   'Off today':'#EF4444',
 };
 
-// ── Mock data (announcements / holidays — later phases) ─
+// ── Shared row colors ─
 const PAYSLIP_ROW_COLORS = [
   'rgba(34,197,94,.1)',
   'rgba(74,143,245,.1)',
   'rgba(124,58,237,.1)',
   'rgba(245,158,11,.1)',
-];
-
-const ANNOUNCEMENTS: Announcement[] = [
-  { title: 'Open enrollment for benefits',
-    description: 'Review health and dental options and submit choices before the deadline.',
-    isNew: true,  time: '2 hours ago',  iconBg: 'rgba(239,68,68,.1)',  icon: '📌' },
-  { title: 'Quarterly town hall',
-    description: 'Join the all-hands meeting this Friday afternoon at 3pm.',
-    isNew: false, time: 'Yesterday',    iconBg: 'rgba(34,197,94,.1)',  icon: '✅' },
-  { title: 'New expense policy — June 1',
-    description: 'All expenses over $50 require manager approval before submission.',
-    isNew: false, time: '3 days ago',   iconBg: 'rgba(74,143,245,.1)', icon: '📋' },
-];
-
-const HOLIDAYS: Holiday[] = [
-  { month: 'Dec', day: '31', name: "New Year's Day",   status: 'Confirmed' },
-  { month: 'Jan', day: '19', name: 'MLK Jr. Day',       status: 'Confirmed' },
-  { month: 'May', day: '25', name: 'Memorial Day',      status: 'Confirmed' },
-  { month: 'Jul', day: '4',  name: 'Independence Day',  status: 'Upcoming' },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -363,6 +357,21 @@ export default function EmployeePortal() {
     payslipsLoading: false,
     payrollProfile: null,
     payslipDownloadingId: null,
+    announcements: [],
+    announcementsLoading: false,
+    announcementSubmitting: false,
+    announcementDeletingId: null,
+    showPostAnnouncement: false,
+    postAnnouncementTitle: '',
+    postAnnouncementBody: '',
+    postAnnouncementPinned: false,
+    holidays: [],
+    holidaysLoading: false,
+    holidaySubmitting: false,
+    holidayDeletingId: null,
+    showAddHoliday: false,
+    addHolidayName: '',
+    addHolidayDate: '',
     employees: [],
     newEmp: { ...EMPTY_NEW_EMP },
   });
@@ -466,9 +475,39 @@ export default function EmployeePortal() {
     }
   }, []);
 
+  const loadCompanyData = useCallback(async () => {
+    setState(s => ({ ...s, announcementsLoading: true, holidaysLoading: true }));
+    try {
+      const [announcements, holidays] = await Promise.all([
+        getAnnouncements(),
+        getHolidays(),
+      ]);
+      setState(s => ({
+        ...s,
+        announcements,
+        holidays,
+        announcementsLoading: false,
+        holidaysLoading: false,
+      }));
+    } catch (err) {
+      setState(s => ({
+        ...s,
+        announcements: [],
+        holidays: [],
+        announcementsLoading: false,
+        holidaysLoading: false,
+        pageError: err instanceof Error ? err.message : 'Failed to load announcements and holidays',
+      }));
+    }
+  }, []);
+
   useEffect(() => {
     void loadEmployees();
   }, [loadEmployees]);
+
+  useEffect(() => {
+    void loadCompanyData();
+  }, [loadCompanyData]);
 
   useEffect(() => {
     void loadTeamLeaveQueue();
@@ -778,6 +817,105 @@ export default function EmployeePortal() {
     setState(s => ({ ...s, pageError: message }));
   }, []);
 
+  async function handlePostAnnouncement() {
+    const title = state.postAnnouncementTitle.trim();
+    const body = state.postAnnouncementBody.trim();
+    if (!title || !body) {
+      setState(s => ({ ...s, pageError: 'Announcement title and body are required' }));
+      return;
+    }
+    setState(s => ({ ...s, announcementSubmitting: true, pageError: '' }));
+    try {
+      await createAnnouncement({
+        title,
+        body,
+        isPinned: state.postAnnouncementPinned,
+      });
+      await loadCompanyData();
+      setState(s => ({
+        ...s,
+        announcementSubmitting: false,
+        showPostAnnouncement: false,
+        postAnnouncementTitle: '',
+        postAnnouncementBody: '',
+        postAnnouncementPinned: false,
+        toast: 'Announcement posted',
+      }));
+    } catch (err) {
+      setState(s => ({
+        ...s,
+        announcementSubmitting: false,
+        pageError: err instanceof Error ? err.message : 'Failed to post announcement',
+      }));
+    }
+  }
+
+  async function handleDeleteAnnouncement(id: number) {
+    setState(s => ({ ...s, announcementDeletingId: id, pageError: '' }));
+    try {
+      await deleteAnnouncement(id);
+      await loadCompanyData();
+      setState(s => ({
+        ...s,
+        announcementDeletingId: null,
+        toast: 'Announcement removed',
+      }));
+    } catch (err) {
+      setState(s => ({
+        ...s,
+        announcementDeletingId: null,
+        pageError: err instanceof Error ? err.message : 'Failed to delete announcement',
+      }));
+    }
+  }
+
+  async function handleAddHoliday() {
+    const name = state.addHolidayName.trim();
+    const holidayDate = state.addHolidayDate;
+    if (!name || !holidayDate) {
+      setState(s => ({ ...s, pageError: 'Holiday name and date are required' }));
+      return;
+    }
+    setState(s => ({ ...s, holidaySubmitting: true, pageError: '' }));
+    try {
+      await createHoliday({ name, holidayDate });
+      await loadCompanyData();
+      setState(s => ({
+        ...s,
+        holidaySubmitting: false,
+        showAddHoliday: false,
+        addHolidayName: '',
+        addHolidayDate: '',
+        toast: 'Holiday added',
+      }));
+    } catch (err) {
+      setState(s => ({
+        ...s,
+        holidaySubmitting: false,
+        pageError: err instanceof Error ? err.message : 'Failed to add holiday',
+      }));
+    }
+  }
+
+  async function handleDeleteHoliday(id: number) {
+    setState(s => ({ ...s, holidayDeletingId: id, pageError: '' }));
+    try {
+      await deleteHoliday(id);
+      await loadCompanyData();
+      setState(s => ({
+        ...s,
+        holidayDeletingId: null,
+        toast: 'Holiday removed',
+      }));
+    } catch (err) {
+      setState(s => ({
+        ...s,
+        holidayDeletingId: null,
+        pageError: err instanceof Error ? err.message : 'Failed to delete holiday',
+      }));
+    }
+  }
+
   async function handleDownloadPayslip(payslipId: number) {
     if (!myProfileEmployee) {
       setState(s => ({ ...s, pageError: 'No employee record linked to your account' }));
@@ -866,6 +1004,22 @@ export default function EmployeePortal() {
   })();
 
   const pendingLeaveCount = state.leaveRequests.filter(r => r.status === 'pending').length;
+  const upcomingHolidayList = useMemo(() => upcomingHolidays(state.holidays), [state.holidays]);
+  const recentAnnouncementCount = useMemo(
+    () => state.announcements.filter(a => isRecentAnnouncement(a.createdAt)).length,
+    [state.announcements],
+  );
+
+  const adminFieldStyle: React.CSSProperties = {
+    width: '100%',
+    background: 'rgba(255,255,255,.04)',
+    border: `1px solid ${C.br2}`,
+    borderRadius: 7,
+    padding: '7px 10px',
+    fontSize: 11,
+    color: C.t,
+    fontFamily: 'inherit',
+  };
 
   // KPIs (Total Employees, Hours Logged, Leave Requests, Total Payroll)
   const KPIS = [
@@ -1585,95 +1739,321 @@ export default function EmployeePortal() {
         }}>
           {/* Announcements */}
           <div style={card}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, gap: 8, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 13, fontWeight: 700, color: C.t, display: 'flex', alignItems: 'center', gap: 5 }}>
                 <Megaphone size={13} /> Company Announcements
               </span>
-              <span style={{
-                fontSize: 9, fontWeight: 700,
-                background: 'rgba(239,68,68,.15)', color: '#EF4444',
-                padding: '2px 7px', borderRadius: 10,
-              }}>
-                1 NEW
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {recentAnnouncementCount > 0 && (
+                  <span style={{
+                    fontSize: 9, fontWeight: 700,
+                    background: 'rgba(239,68,68,.15)', color: '#EF4444',
+                    padding: '2px 7px', borderRadius: 10,
+                  }}>
+                    {recentAnnouncementCount} NEW
+                  </span>
+                )}
+                {canApproveLeave && (
+                  <button
+                    type="button"
+                    onClick={() => setState(s => ({ ...s, showPostAnnouncement: !s.showPostAnnouncement }))}
+                    style={{
+                      background: 'transparent',
+                      border: `1px solid ${C.br2}`,
+                      color: C.t2,
+                      borderRadius: 7,
+                      padding: '4px 10px',
+                      fontSize: 10,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    {state.showPostAnnouncement ? 'Cancel' : 'Post announcement'}
+                  </button>
+                )}
+              </div>
             </div>
-            {ANNOUNCEMENTS.map((a, i) => (
-              <div key={i} style={{
-                display: 'flex', gap: 10, padding: '10px 0',
-                borderBottom: i < ANNOUNCEMENTS.length - 1 ? `1px solid ${C.bd2}` : 'none',
+
+            {canApproveLeave && state.showPostAnnouncement && (
+              <div style={{
+                marginBottom: 10,
+                padding: 10,
+                borderRadius: 8,
+                background: 'rgba(255,255,255,.03)',
+                border: `1px solid ${C.bd2}`,
               }}>
-                <div style={{
-                  width: 36, height: 36, borderRadius: 10, background: a.iconBg,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 18, flexShrink: 0,
-                }}>
-                  {a.icon}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: C.t }}>{a.title}</span>
-                    {a.isNew && (
-                      <span style={{
-                        fontSize: 9, fontWeight: 700,
-                        background: 'rgba(239,68,68,.15)', color: '#EF4444',
-                        padding: '1px 6px', borderRadius: 8,
-                      }}>
-                        NEW
-                      </span>
+                <label style={{ display: 'block', marginBottom: 8 }}>
+                  <span style={{ fontSize: 10, color: C.t3, display: 'block', marginBottom: 4 }}>Title</span>
+                  <input
+                    value={state.postAnnouncementTitle}
+                    onChange={(e) => setState(s => ({ ...s, postAnnouncementTitle: e.target.value }))}
+                    style={adminFieldStyle}
+                  />
+                </label>
+                <label style={{ display: 'block', marginBottom: 8 }}>
+                  <span style={{ fontSize: 10, color: C.t3, display: 'block', marginBottom: 4 }}>Body</span>
+                  <textarea
+                    value={state.postAnnouncementBody}
+                    onChange={(e) => setState(s => ({ ...s, postAnnouncementBody: e.target.value }))}
+                    rows={3}
+                    style={{ ...adminFieldStyle, resize: 'vertical' }}
+                  />
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, fontSize: 11, color: C.t2 }}>
+                  <input
+                    type="checkbox"
+                    checked={state.postAnnouncementPinned}
+                    onChange={(e) => setState(s => ({ ...s, postAnnouncementPinned: e.target.checked }))}
+                  />
+                  Pin to top
+                </label>
+                <button
+                  type="button"
+                  onClick={() => void handlePostAnnouncement()}
+                  disabled={state.announcementSubmitting}
+                  style={{
+                    background: C.blue,
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 7,
+                    padding: '7px 14px',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    cursor: state.announcementSubmitting ? 'wait' : 'pointer',
+                    opacity: state.announcementSubmitting ? 0.7 : 1,
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  {state.announcementSubmitting ? 'Posting…' : 'Post'}
+                </button>
+              </div>
+            )}
+
+            {state.announcementsLoading ? (
+              <div style={{ fontSize: 12, color: C.t2, padding: '8px 0' }}>Loading announcements…</div>
+            ) : state.announcements.length === 0 ? (
+              <div style={{ fontSize: 12, color: C.t2, lineHeight: 1.5, padding: '8px 0' }}>
+                No announcements yet.
+              </div>
+            ) : (
+              state.announcements.map((a, i) => {
+                const iconBg = PAYSLIP_ROW_COLORS[i % PAYSLIP_ROW_COLORS.length];
+                const isNew = isRecentAnnouncement(a.createdAt);
+                const deleting = state.announcementDeletingId === a.id;
+                return (
+                  <div key={a.id} style={{
+                    display: 'flex', gap: 10, padding: '10px 0',
+                    borderBottom: i < state.announcements.length - 1 ? `1px solid ${C.bd2}` : 'none',
+                  }}>
+                    <div style={{
+                      width: 36, height: 36, borderRadius: 10, background: iconBg,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 18, flexShrink: 0,
+                    }}>
+                      {a.isPinned ? '📌' : '📢'}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: C.t }}>{a.title}</span>
+                        {a.isPinned && (
+                          <span style={{
+                            fontSize: 9, fontWeight: 700,
+                            background: 'rgba(245,158,11,.15)', color: '#F59E0B',
+                            padding: '1px 6px', borderRadius: 8,
+                          }}>
+                            PINNED
+                          </span>
+                        )}
+                        {isNew && (
+                          <span style={{
+                            fontSize: 9, fontWeight: 700,
+                            background: 'rgba(239,68,68,.15)', color: '#EF4444',
+                            padding: '1px 6px', borderRadius: 8,
+                          }}>
+                            NEW
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 11, color: C.t2, lineHeight: 1.4, marginTop: 2 }}>
+                        {a.body}
+                      </div>
+                      <div style={{ fontSize: 10, color: C.t3, marginTop: 4 }}>
+                        {formatRelativeTime(a.createdAt)}
+                      </div>
+                    </div>
+                    {canApproveLeave && (
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteAnnouncement(a.id)}
+                        disabled={deleting}
+                        aria-label="Delete announcement"
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: C.t3,
+                          cursor: deleting ? 'wait' : 'pointer',
+                          padding: 4,
+                          flexShrink: 0,
+                          opacity: deleting ? 0.5 : 1,
+                        }}
+                      >
+                        <X size={12} />
+                      </button>
                     )}
                   </div>
-                  <div style={{ fontSize: 11, color: C.t2, lineHeight: 1.4, marginTop: 2 }}>
-                    {a.description}
-                  </div>
-                  <div style={{ fontSize: 10, color: C.t3, marginTop: 4 }}>{a.time}</div>
-                </div>
-              </div>
-            ))}
+                );
+              })
+            )}
           </div>
 
           {/* Holidays */}
           <div style={card}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, gap: 8, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 13, fontWeight: 700, color: C.t, display: 'flex', alignItems: 'center', gap: 5 }}>
                 <span aria-hidden>🗓</span> Upcoming Holidays
               </span>
-              <span style={{ fontSize: 10, color: C.t3 }}>company closed</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 10, color: C.t3 }}>
+                  {upcomingHolidayList.length > 0 ? `${upcomingHolidayList.length} upcoming` : 'from company calendar'}
+                </span>
+                {canApproveLeave && (
+                  <button
+                    type="button"
+                    onClick={() => setState(s => ({ ...s, showAddHoliday: !s.showAddHoliday }))}
+                    style={{
+                      background: 'transparent',
+                      border: `1px solid ${C.br2}`,
+                      color: C.t2,
+                      borderRadius: 7,
+                      padding: '4px 10px',
+                      fontSize: 10,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    {state.showAddHoliday ? 'Cancel' : 'Add holiday'}
+                  </button>
+                )}
+              </div>
             </div>
-            {HOLIDAYS.map((h, i) => {
-              const isConfirmed = h.status === 'Confirmed';
-              return (
-                <div key={i} style={{
-                  display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0',
-                  borderBottom: i < HOLIDAYS.length - 1 ? `1px solid ${C.bd2}` : 'none',
-                }}>
-                  <div style={{
-                    width: 44, height: 44, borderRadius: 8,
-                    background: C.bg3, border: `1px solid ${C.br2}`,
-                    display: 'flex', flexDirection: 'column',
-                    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+
+            {canApproveLeave && state.showAddHoliday && (
+              <div style={{
+                marginBottom: 10,
+                padding: 10,
+                borderRadius: 8,
+                background: 'rgba(255,255,255,.03)',
+                border: `1px solid ${C.bd2}`,
+              }}>
+                <label style={{ display: 'block', marginBottom: 8 }}>
+                  <span style={{ fontSize: 10, color: C.t3, display: 'block', marginBottom: 4 }}>Holiday name</span>
+                  <input
+                    value={state.addHolidayName}
+                    onChange={(e) => setState(s => ({ ...s, addHolidayName: e.target.value }))}
+                    style={adminFieldStyle}
+                  />
+                </label>
+                <label style={{ display: 'block', marginBottom: 10 }}>
+                  <span style={{ fontSize: 10, color: C.t3, display: 'block', marginBottom: 4 }}>Date</span>
+                  <input
+                    type="date"
+                    value={state.addHolidayDate}
+                    onChange={(e) => setState(s => ({ ...s, addHolidayDate: e.target.value }))}
+                    style={adminFieldStyle}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => void handleAddHoliday()}
+                  disabled={state.holidaySubmitting}
+                  style={{
+                    background: C.green,
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 7,
+                    padding: '7px 14px',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    cursor: state.holidaySubmitting ? 'wait' : 'pointer',
+                    opacity: state.holidaySubmitting ? 0.7 : 1,
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  {state.holidaySubmitting ? 'Adding…' : 'Add holiday'}
+                </button>
+              </div>
+            )}
+
+            {state.holidaysLoading ? (
+              <div style={{ fontSize: 12, color: C.t2, padding: '8px 0' }}>Loading holidays…</div>
+            ) : upcomingHolidayList.length === 0 ? (
+              <div style={{ fontSize: 12, color: C.t2, lineHeight: 1.5, padding: '8px 0' }}>
+                No upcoming holidays scheduled.
+              </div>
+            ) : (
+              upcomingHolidayList.map((h, i) => {
+                const { month, day } = formatHolidayMonthDay(h.holidayDate);
+                const deleting = state.holidayDeletingId === h.id;
+                const statusLabel = h.isCompanyClosed ? 'Closed' : 'Open';
+                const statusColor = h.isCompanyClosed ? '#22C55E' : '#4F8EF7';
+                const statusBg = h.isCompanyClosed ? 'rgba(34,197,94,.1)' : 'rgba(74,143,245,.1)';
+                return (
+                  <div key={h.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0',
+                    borderBottom: i < upcomingHolidayList.length - 1 ? `1px solid ${C.bd2}` : 'none',
                   }}>
-                    <div style={{ fontSize: 9, fontWeight: 700, color: C.t3, textTransform: 'uppercase', lineHeight: 1 }}>
-                      {h.month}
+                    <div style={{
+                      width: 44, height: 44, borderRadius: 8,
+                      background: C.bg3, border: `1px solid ${C.br2}`,
+                      display: 'flex', flexDirection: 'column',
+                      alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                    }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, color: C.t3, textTransform: 'uppercase', lineHeight: 1 }}>
+                        {month}
+                      </div>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: C.t, lineHeight: 1.05 }}>
+                        {day}
+                      </div>
                     </div>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: C.t, lineHeight: 1.05 }}>
-                      {h.day}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: C.t }}>{h.name}</div>
+                      <div style={{ fontSize: 10, color: C.t2 }}>
+                        {h.isCompanyClosed ? 'Company closed' : 'Office open'}
+                      </div>
                     </div>
+                    <span style={{
+                      fontSize: 9, fontWeight: 700,
+                      background: statusBg,
+                      color: statusColor,
+                      padding: '3px 8px', borderRadius: 10, flexShrink: 0,
+                    }}>
+                      {statusLabel}
+                    </span>
+                    {canApproveLeave && (
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteHoliday(h.id)}
+                        disabled={deleting}
+                        aria-label="Delete holiday"
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: C.t3,
+                          cursor: deleting ? 'wait' : 'pointer',
+                          padding: 4,
+                          flexShrink: 0,
+                          opacity: deleting ? 0.5 : 1,
+                        }}
+                      >
+                        <X size={12} />
+                      </button>
+                    )}
                   </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: C.t }}>{h.name}</div>
-                    <div style={{ fontSize: 10, color: C.t2 }}>Company closed</div>
-                  </div>
-                  <span style={{
-                    fontSize: 9, fontWeight: 700,
-                    background: isConfirmed ? 'rgba(34,197,94,.1)' : 'rgba(74,143,245,.1)',
-                    color: isConfirmed ? '#22C55E' : '#4F8EF7',
-                    padding: '3px 8px', borderRadius: 10, flexShrink: 0,
-                  }}>
-                    {h.status}
-                  </span>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </div>
       </div>
