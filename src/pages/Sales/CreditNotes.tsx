@@ -126,6 +126,7 @@ export default function CreditNotes() {
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
   const [applySuccess, setApplySuccess] = useState<string | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -224,10 +225,19 @@ export default function CreditNotes() {
 
   async function cancelNote(note: CreditNote) {
     if (!window.confirm(`Cancel ${note.creditNoteNumber}?`)) return;
-    await updateCreditNote(note.id, { status: 'cancelled' });
-    // CLEANUP-1 — Removed optimistic balance restore. Backend reconciles
-    // customer.balance on CN status change; next list refetch reflects it.
-    await load();
+    try {
+      setPageError(null);
+      await updateCreditNote(note.id, { status: 'cancelled' });
+      // CLEANUP-1 — Removed optimistic balance restore. Backend reconciles
+      // customer.balance on CN status change; next list refetch reflects it.
+      await load();
+      setApplySuccess(`Credit note ${note.creditNoteNumber} cancelled`);
+      setTimeout(() => setApplySuccess(null), 6000);
+    } catch (e) {
+      setApplySuccess(null);
+      setPageError(e instanceof Error ? e.message : 'Cancel failed.');
+      setTimeout(() => setPageError(null), 6000);
+    }
   }
 
   // FIX W5-1 — When the user opens the Apply modal for a CN, load the
@@ -281,6 +291,7 @@ export default function CreditNotes() {
     }
     setApplying(true);
     setApplyError(null);
+    setPageError(null);
     try {
       const updatedCN = await applyCreditNoteToInvoice(
         applyingCN.id,
@@ -288,14 +299,17 @@ export default function CreditNotes() {
         applyAmount,
       );
       setApplySuccess(
-        `✅ Applied $${applyAmount.toFixed(2)} from ${applyingCN.creditNoteNumber} to invoice ${inv.invoiceNumber || `#${inv.id}`}. ` +
-        `CN status: ${updatedCN.status.replace('_', ' ')}.`
+        `Applied $${applyAmount.toFixed(2)} to ${inv.invoiceNumber || `invoice #${inv.id}`} from ${applyingCN.creditNoteNumber}. ` +
+        `Status: ${updatedCN.status.replace('_', ' ')}.`
       );
       setApplyingCN(null);
       await load();
       setTimeout(() => setApplySuccess(null), 6000);
     } catch (e) {
-      setApplyError(e instanceof Error ? e.message : 'Apply failed.');
+      const message = e instanceof Error ? e.message : 'Apply failed.';
+      setApplyError(message);
+      setPageError(message);
+      setTimeout(() => setPageError(null), 6000);
     } finally {
       setApplying(false);
     }
@@ -1061,7 +1075,7 @@ export default function CreditNotes() {
         </div>
       </div>
 
-      {/* FIX W5-1 — Success banner after applying credit. */}
+      {/* Success / error banners for apply and cancel. */}
       {applySuccess && (
         <div
           className="fixed top-6 right-6 z-50 px-5 py-3 rounded-lg shadow-lg max-w-md"
@@ -1072,6 +1086,19 @@ export default function CreditNotes() {
         >
           <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-brand-green-tint)' }}>
             {applySuccess}
+          </p>
+        </div>
+      )}
+      {pageError && (
+        <div
+          className="fixed top-6 right-6 z-50 px-5 py-3 rounded-lg shadow-lg max-w-md"
+          style={{
+            background: 'var(--color-badge-red-bg)',
+            borderLeft: '4px solid var(--color-brand-red-tint)',
+          }}
+        >
+          <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-brand-red-tint)' }}>
+            {pageError}
           </p>
         </div>
       )}

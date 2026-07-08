@@ -11,29 +11,37 @@ export default function CreditNoteDetailPage() {
   const navigate = useNavigate();
   const [note, setNote] = useState<CreditNote | null>(null);
   const [applySuccess, setApplySuccess] = useState<string | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
     void (async () => setNote(await getCreditNote(id)))();
   }, [id]);
 
-  async function resolveApplyInvoiceId(): Promise<string | null> {
+  async function resolveApplyInvoice(): Promise<{ id: string; label: string } | null> {
     if (!note) return null;
 
     const invs = await getCustomerInvoices(note.customerId);
     const open = invs.filter((i) => Number(i.remaining_balance ?? i.grandTotal ?? 0) > 0);
     if (open.length === 0) {
-      alert('No open invoices found for this customer.');
+      setApplySuccess(null);
+      setPageError('No open invoices found for this customer.');
+      setTimeout(() => setPageError(null), 6000);
       return null;
     }
 
+    const toTarget = (inv: (typeof open)[number]) => ({
+      id: String(inv.id),
+      label: inv.invoiceNumber || `invoice #${inv.id}`,
+    });
+
     if (note.originalInvoiceId) {
       const linked = open.find((i) => String(i.id) === String(note.originalInvoiceId));
-      if (linked) return String(linked.id);
+      if (linked) return toTarget(linked);
     }
 
     if (open.length === 1) {
-      return String(open[0].id);
+      return toTarget(open[0]);
     }
 
     const list = open
@@ -49,10 +57,12 @@ export default function CreditNoteDetailPage() {
       (i) => String(i.id) === picked.trim() || i.invoiceNumber === picked.trim(),
     );
     if (!match) {
-      alert('Invoice not found in open invoices.');
+      setApplySuccess(null);
+      setPageError('Invoice not found in open invoices.');
+      setTimeout(() => setPageError(null), 6000);
       return null;
     }
-    return String(match.id);
+    return toTarget(match);
   }
 
   async function applyToInvoice() {
@@ -61,25 +71,37 @@ export default function CreditNoteDetailPage() {
     if (amount <= 0) return;
 
     try {
-      const invoiceId = await resolveApplyInvoiceId();
-      if (!invoiceId) return;
+      setPageError(null);
+      const invoice = await resolveApplyInvoice();
+      if (!invoice) return;
 
-      const updated = await applyCreditNoteToInvoice(note.id, invoiceId, amount);
+      const updated = await applyCreditNoteToInvoice(note.id, invoice.id, amount);
       setNote(updated);
       setApplySuccess(
-        `Applied $${amount.toFixed(2)} from ${note.creditNoteNumber}. Status: ${updated.status.replace('_', ' ')}.`,
+        `Applied $${amount.toFixed(2)} to ${invoice.label}. Status: ${updated.status.replace('_', ' ')}.`,
       );
       setTimeout(() => setApplySuccess(null), 6000);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Apply failed.');
+      setApplySuccess(null);
+      setPageError(e instanceof Error ? e.message : 'Apply failed.');
+      setTimeout(() => setPageError(null), 6000);
     }
   }
 
   async function cancelNote() {
     if (!note) return;
     if (!window.confirm('Cancel this credit note?')) return;
-    const updated = await updateCreditNote(note.id, { status: 'cancelled' });
-    setNote(updated);
+    try {
+      setPageError(null);
+      const updated = await updateCreditNote(note.id, { status: 'cancelled' });
+      setNote(updated);
+      setApplySuccess(`Credit note ${note.creditNoteNumber} cancelled`);
+      setTimeout(() => setApplySuccess(null), 6000);
+    } catch (e) {
+      setApplySuccess(null);
+      setPageError(e instanceof Error ? e.message : 'Cancel failed.');
+      setTimeout(() => setPageError(null), 6000);
+    }
   }
 
   if (!note) return <div className="p-6">Loading...</div>;
@@ -119,6 +141,19 @@ export default function CreditNoteDetailPage() {
         >
           <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-brand-green-tint, #15803d)' }}>
             {applySuccess}
+          </p>
+        </div>
+      )}
+      {pageError && (
+        <div
+          className="fixed top-6 right-6 z-50 px-5 py-3 rounded-lg shadow-lg max-w-md"
+          style={{
+            background: 'var(--color-badge-red-bg, #fef2f2)',
+            borderLeft: '4px solid var(--color-brand-red-tint, #ef4444)',
+          }}
+        >
+          <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-brand-red-tint, #dc2626)' }}>
+            {pageError}
           </p>
         </div>
       )}
