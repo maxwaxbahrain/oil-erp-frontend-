@@ -119,3 +119,16 @@ export async function getAdjustmentHistory(productId?: number): Promise<Inventor
         .filter((row: unknown): row is Record<string, unknown> => row != null && typeof row === 'object')
         .map(fromRecord);
 }
+
+/** POST /api/inventory/adjustments/{id}/reverse — compensating stock + GL reversal. */
+export async function reverseAdjustment(id: number): Promise<InventoryAdjustmentRecord> {
+    const r = await authFetch(
+        `${API_BASE_URL}/inventory/adjustments/${encodeURIComponent(String(id))}/reverse`,
+        { method: 'POST' },
+    );
+    if (!r.ok) {
+        throw new Error(await readApiError(r));
+    }
+    const body = await r.json();
+    return fromRecord(body as Record<string, unknown>);
+}

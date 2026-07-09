@@ -15,10 +15,12 @@ import {
     Calendar,
     TrendingUp,
     AlertCircle,
+    RotateCcw,
 } from 'lucide-react';
 import { getProducts as getMergedProducts } from '../../services/productService';
 import {
     getAdjustmentHistory,
+    reverseAdjustment,
     type InventoryAdjustmentRecord,
 } from '../../services/inventoryAdjustmentService';
 import { getCurrentUser } from '../../store/authStore';
@@ -211,6 +213,8 @@ export default function InventoryAdjustment() {
     const [historyLoading, setHistoryLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [success, setSuccess] = useState('');
+    const [errorMessage, setErrorMessage] = useState('');
+    const [reversingId, setReversingId] = useState<number | null>(null);
     const [search, setSearch] = useState('');
     const [open, setOpen] = useState(false);
     const [historyPeriod, setHistoryPeriod] = useState<HistoryPeriod>('30');
@@ -246,6 +250,39 @@ export default function InventoryAdjustment() {
             setAdjustments([]);
         } finally {
             setHistoryLoading(false);
+        }
+    };
+
+    const handleReverseAdjustment = async (adj: InventoryAdjustmentRecord) => {
+        if (adj.isReversed || adj.isReversal) return;
+        if (
+            !window.confirm(
+                'Reverse this adjustment? This will restore stock and reverse the GL entry.',
+            )
+        ) {
+            return;
+        }
+        setReversingId(adj.id);
+        setErrorMessage('');
+        try {
+            await reverseAdjustment(adj.id);
+            await refreshProducts();
+            await refreshAdjustmentHistory();
+            setSuccess('Adjustment reversed — stock and GL updated');
+            setTimeout(() => setSuccess(''), 4000);
+        } catch (e) {
+            const raw = e instanceof Error ? e.message : 'Could not reverse adjustment';
+            const friendly =
+                raw.toLowerCase().includes('already reversed') ||
+                raw.toLowerCase().includes('cannot reverse a reversal')
+                    ? raw.toLowerCase().includes('already reversed')
+                        ? 'Already reversed'
+                        : 'Cannot reverse a reversal adjustment'
+                    : raw;
+            setErrorMessage(friendly);
+            setTimeout(() => setErrorMessage(''), 5000);
+        } finally {
+            setReversingId(null);
         }
     };
 
@@ -670,6 +707,23 @@ export default function InventoryAdjustment() {
                     }}
                 >
                     ✓ {success}
+                </div>
+            )}
+
+            {errorMessage && (
+                <div
+                    style={{
+                        margin: '10px 16px 0',
+                        padding: '10px 14px',
+                        borderRadius: 10,
+                        background: 'rgba(239,68,68,.1)',
+                        border: '1px solid rgba(239,68,68,.25)',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: C.red,
+                    }}
+                >
+                    {errorMessage}
                 </div>
             )}
 
@@ -1510,17 +1564,36 @@ export default function InventoryAdjustment() {
                                                             {createdByLabel} · {formatDisplayDate(displayDate)}
                                                         </div>
                                                     </div>
-                                                    <div
-                                                        style={{
-                                                            fontSize: 13,
-                                                            fontWeight: 700,
-                                                            fontFamily: 'ui-monospace, monospace',
-                                                            color: isAdd ? C.green : C.red,
-                                                            flexShrink: 0,
-                                                        }}
-                                                    >
-                                                        {isAdd ? '+' : '−'}
-                                                        {quantity}
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                                                        <div
+                                                            style={{
+                                                                fontSize: 13,
+                                                                fontWeight: 700,
+                                                                fontFamily: 'ui-monospace, monospace',
+                                                                color: isAdd ? C.green : C.red,
+                                                            }}
+                                                        >
+                                                            {isAdd ? '+' : '−'}
+                                                            {quantity}
+                                                        </div>
+                                                        {!adj.isReversed && !adj.isReversal && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleReverseAdjustment(adj)}
+                                                                disabled={reversingId === adj.id}
+                                                                style={{
+                                                                    ...ghostBtn,
+                                                                    fontSize: 9,
+                                                                    padding: '4px 8px',
+                                                                    color: C.amber,
+                                                                    borderColor: 'rgba(245,158,11,.35)',
+                                                                    opacity: reversingId === adj.id ? 0.6 : 1,
+                                                                }}
+                                                            >
+                                                                <RotateCcw size={10} />
+                                                                {reversingId === adj.id ? 'Reversing…' : 'Reverse'}
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 </div>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
