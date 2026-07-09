@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Plus, Save, FileText } from 'lucide-react';
+import { ArrowLeft, Plus, FileText, Loader2 } from 'lucide-react';
 import { getCustomers, getProducts, type Customer, type Product } from '../../services/api';
 import SearchableSelect from '../../components/common/SearchableSelect';
 import InvoiceLineRow, { type InvoiceLineItem } from './InvoiceLineRow';
@@ -117,7 +117,9 @@ export default function QuotationFormPage() {
     const [products, setProducts] = useState<Product[]>([]);
     const [salesmen, setSalesmen] = useState<SalesmanPickerOption[]>([]);
     const [loading, setLoading] = useState(isEdit);
-    const [saving, setSaving] = useState(false);
+    const [submitting, setSubmitting] = useState(false);
+    // Mirror SalesOrderFormPage — only the clicked footer button shows a spinner.
+    const [submittingStatus, setSubmittingStatus] = useState<'draft' | 'sent' | null>(null);
 
     const [customerId, setCustomerId] = useState('');
     const [salesmanEmployeeId, setSalesmanEmployeeId] = useState('');
@@ -238,7 +240,9 @@ export default function QuotationFormPage() {
         );
     }, [products]);
 
-    const handleSave = async () => {
+    const showDraftFooterActions = !readOnly && (!isEdit || status === 'draft');
+
+    const handleSaveAs = async (saveStatus: 'draft' | 'sent') => {
         if (!customerId) {
             alert('Select a customer');
             return;
@@ -247,7 +251,8 @@ export default function QuotationFormPage() {
             alert('Add at least one line item');
             return;
         }
-        setSaving(true);
+        setSubmitting(true);
+        setSubmittingStatus(saveStatus);
         try {
             const body: Record<string, unknown> = {
                 customerId: Number(customerId),
@@ -259,7 +264,7 @@ export default function QuotationFormPage() {
                 total: grandTotal,
                 discount: 0,
                 notes,
-                ...(isEdit ? {} : { status }),
+                status: saveStatus,
             };
             if (salesmanEmployeeId) {
                 body.salesmanEmployeeId = Number(salesmanEmployeeId);
@@ -282,7 +287,8 @@ export default function QuotationFormPage() {
         } catch (e) {
             alert(e instanceof Error ? e.message : 'Save failed');
         } finally {
-            setSaving(false);
+            setSubmitting(false);
+            setSubmittingStatus(null);
         }
     };
 
@@ -311,7 +317,7 @@ export default function QuotationFormPage() {
                         )}
                     </div>
                 </div>
-                {isEdit && quoteMeta && (
+                {isEdit && quoteMeta && status !== 'draft' && (
                     <QuotationStatusActions
                         quote={quoteMeta}
                         showEdit={false}
@@ -350,18 +356,12 @@ export default function QuotationFormPage() {
                             />
                         )}
                     </div>
-                    <div>
-                        <span style={labelStyle}>Status</span>
-                        {!isEdit ? (
-                            <select value={status} onChange={(e) => setStatus(e.target.value as QuotationStatus)} style={inputStyle}>
-                                <option value="draft">Draft</option>
-                                <option value="sent">Sent</option>
-                                <option value="accepted">Accepted</option>
-                            </select>
-                        ) : (
+                    {isEdit && (
+                        <div>
+                            <span style={labelStyle}>Status</span>
                             <div style={{ ...inputStyle, opacity: 0.85, textTransform: 'capitalize' }}>{status}</div>
-                        )}
-                    </div>
+                        </div>
+                    )}
                     <div>
                         <label className="block text-xs font-semibold text-gray-600 mb-2">
                             Quote date
@@ -451,13 +451,62 @@ export default function QuotationFormPage() {
                     <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} style={{ ...inputStyle, resize: 'none' }} />
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
                     <button type="button" onClick={() => navigate('/sales/quotations')} style={{ padding: '10px 18px', borderRadius: 10, border: '1px solid var(--color-redwood-border)', background: 'transparent', color: 'var(--color-redwood-text-muted)', fontWeight: 700, fontSize: 12 }}>
                         Cancel
                     </button>
-                    <button type="button" onClick={() => void handleSave()} disabled={saving || readOnly} style={{ padding: '10px 18px', borderRadius: 10, border: 'none', background: '#4F8EF7', color: '#fff', fontWeight: 700, fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, opacity: saving || readOnly ? 0.6 : 1 }}>
-                        <Save size={14} /> {saving ? 'Saving…' : 'Save quotation'}
-                    </button>
+                    {showDraftFooterActions && (
+                        <div style={{ display: 'flex', flex: '1 1 280px', gap: 8, maxWidth: 480 }}>
+                            <button
+                                type="button"
+                                disabled={submitting && submittingStatus !== 'draft'}
+                                aria-busy={submittingStatus === 'draft'}
+                                onClick={() => void handleSaveAs('draft')}
+                                style={{
+                                    flex: 1,
+                                    background: 'transparent',
+                                    border: '0.5px solid var(--color-border-secondary, var(--color-redwood-border))',
+                                    borderRadius: 8,
+                                    padding: '9px 14px',
+                                    fontSize: 12,
+                                    fontWeight: 500,
+                                    color: 'var(--color-text-secondary, var(--color-redwood-text-muted))',
+                                    cursor: submitting ? 'not-allowed' : 'pointer',
+                                    opacity: submitting && submittingStatus !== 'draft' ? 0.5 : 1,
+                                    fontFamily: 'inherit',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                }}
+                            >
+                                {submittingStatus === 'draft' ? <Loader2 className="animate-spin" size={18} /> : 'Save as draft'}
+                            </button>
+                            <button
+                                type="button"
+                                disabled={submitting && submittingStatus !== 'sent'}
+                                aria-busy={submittingStatus === 'sent'}
+                                onClick={() => void handleSaveAs('sent')}
+                                style={{
+                                    flex: 1,
+                                    background: '#4F8EF7',
+                                    color: '#fff',
+                                    border: 'none',
+                                    borderRadius: 8,
+                                    padding: '9px 14px',
+                                    fontSize: 12,
+                                    fontWeight: 600,
+                                    cursor: submitting ? 'not-allowed' : 'pointer',
+                                    opacity: submitting && submittingStatus !== 'sent' ? 0.5 : 1,
+                                    fontFamily: 'inherit',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                }}
+                            >
+                                {submittingStatus === 'sent' ? <Loader2 className="animate-spin" size={18} /> : 'Confirm & send'}
+                            </button>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
