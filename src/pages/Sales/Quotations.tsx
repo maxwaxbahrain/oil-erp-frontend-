@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'r
 import { useNavigate } from 'react-router-dom';
 import { FileText, Plus, RefreshCw, Search } from 'lucide-react';
 import { getCustomers, type Customer } from '../../services/api';
+import { getSalesmen } from '../../services/employeeService';
 import { getQuotations, type Quotation, type QuotationStatus } from '../../services/quotationService';
 import { formatDateOnly } from '../../utils/formatters';
+import { buildSalesmanNameById, resolveSalesmanDisplayName } from '../../utils/salesmanDisplay';
 import QuotationStatusActions from './QuotationStatusActions';
 
 const panelStyle: CSSProperties = {
@@ -57,6 +59,7 @@ export default function Quotations() {
     const [refreshing, setRefreshing] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('All');
+    const [salesmanById, setSalesmanById] = useState<Map<string, string>>(() => new Map());
 
     const customerName = useCallback(
         (id: number) => customers.find((c) => Number(c.id) === id)?.name ?? `Customer #${id}`,
@@ -67,9 +70,14 @@ export default function Quotations() {
         if (isRefresh) setRefreshing(true);
         else setLoading(true);
         try {
-            const [rows, cust] = await Promise.all([getQuotations(), getCustomers()]);
+            const [rows, cust, salesmen] = await Promise.all([
+                getQuotations(),
+                getCustomers(),
+                getSalesmen().catch(() => []),
+            ]);
             setQuotes(rows);
             setCustomers(cust);
+            setSalesmanById(buildSalesmanNameById(salesmen));
         } catch (e) {
             console.error('Failed to load quotations', e);
         } finally {
@@ -81,6 +89,17 @@ export default function Quotations() {
     useEffect(() => {
         void load();
     }, [load]);
+
+    const quotationSalesman = useCallback(
+        (row: Quotation) =>
+            resolveSalesmanDisplayName({
+                salesmanEmployeeId: row.salesman_employee_id,
+                legacyName: row.salesman_name,
+                notes: row.notes,
+                salesmanById,
+            }),
+        [salesmanById],
+    );
 
     const filtered = useMemo(() => {
         const q = searchTerm.trim().toLowerCase();
@@ -182,6 +201,8 @@ export default function Quotations() {
                                     <div style={{ fontSize: 12, color: 'var(--color-redwood-text-muted)', marginTop: 2 }}>
                                         {customerName(row.customer_id)} · {formatDateOnly(row.date)}
                                         {row.expiry_date ? ` · Expires ${formatDateOnly(row.expiry_date)}` : ''}
+                                        {' · Salesman: '}
+                                        {quotationSalesman(row)}
                                     </div>
                                 </div>
                                 <span style={statusBadge(row.status)}>{row.status}</span>

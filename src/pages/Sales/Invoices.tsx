@@ -31,6 +31,11 @@ import {
   shareInvoicePDF,
   type SharePdfResult,
 } from '../../services/invoiceDocumentService';
+import { getSalesmen } from '../../services/employeeService';
+import {
+  buildSalesmanNameById,
+  resolveSalesmanDisplayName,
+} from '../../utils/salesmanDisplay';
 
 const THEME_PRIMARY = '#4F8EF7';
 const THEME_OVERDUE = '#EF4444';
@@ -63,10 +68,15 @@ function sameDay(a: Date | null, b: Date | null): boolean {
   return a.getTime() === b.getTime();
 }
 
-function parseSalesmanFromNotes(notes: string | undefined): string {
-  if (!notes?.trim()) return '';
-  const m = notes.match(/Salesman:\s*([^\n]+)/i);
-  return (m?.[1] ?? '').trim();
+function invoiceSalesmanDisplay(
+  inv: Invoice,
+  salesmanById: Map<string, string>,
+): string {
+  return resolveSalesmanDisplayName({
+    salesmanEmployeeId: inv.salesmanEmployeeId,
+    notes: inv.notes,
+    salesmanById,
+  });
 }
 
 function displayCustomerName(inv: Invoice, customerById: Map<string, string>): string {
@@ -121,6 +131,7 @@ export default function Invoices() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [salesmanFilter, setSalesmanFilter] = useState<string>('all');
+  const [salesmanById, setSalesmanById] = useState<Map<string, string>>(() => new Map());
 
   const [detailInvoice, setDetailInvoice] = useState<Invoice | null>(null);
   const [shareMenuInvoiceId, setShareMenuInvoiceId] = useState<string | null>(null);
@@ -145,7 +156,11 @@ export default function Invoices() {
     setLoading(true);
     setError(null);
     try {
-      const [invList, custList] = await Promise.all([getInvoices(), getCustomers()]);
+      const [invList, custList, salesmen] = await Promise.all([
+        getInvoices(),
+        getCustomers(),
+        getSalesmen().catch(() => []),
+      ]);
       if (invList.length === 0) {
         console.error('[Invoices] getInvoices() returned an empty array', {
           endpoint: `${API_BASE_URL}/invoices/`,
@@ -155,6 +170,7 @@ export default function Invoices() {
       }
       setInvoices(invList);
       setCustomers(custList);
+      setSalesmanById(buildSalesmanNameById(salesmen));
       setCompany(getCompanySettings());
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Failed to load invoices';
@@ -199,11 +215,11 @@ export default function Invoices() {
   const salesmenOptions = useMemo(() => {
     const set = new Set<string>();
     for (const inv of invoices) {
-      const s = parseSalesmanFromNotes(inv.notes);
-      if (s) set.add(s);
+      const s = invoiceSalesmanDisplay(inv, salesmanById);
+      if (s && s !== '—') set.add(s);
     }
     return ['all', ...[...set].sort((a, b) => a.localeCompare(b))];
-  }, [invoices]);
+  }, [invoices, salesmanById]);
 
   const filteredInvoices = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -246,7 +262,7 @@ export default function Invoices() {
     }
 
     if (salesmanFilter !== 'all') {
-      list = list.filter((inv) => parseSalesmanFromNotes(inv.notes) === salesmanFilter);
+      list = list.filter((inv) => invoiceSalesmanDisplay(inv, salesmanById) === salesmanFilter);
     }
 
     return list.sort((a, b) => {
@@ -255,7 +271,7 @@ export default function Invoices() {
       if (tb !== ta) return tb - ta;
       return String(b.id).localeCompare(String(a.id), undefined, { numeric: true });
     });
-  }, [invoices, search, filterTab, dateFrom, dateTo, salesmanFilter, customerById, today]);
+  }, [invoices, search, filterTab, dateFrom, dateTo, salesmanFilter, customerById, today, salesmanById]);
 
   const closeShareMenu = () => {
     setShareMenuInvoiceId(null);
@@ -639,7 +655,7 @@ export default function Invoices() {
                 <tbody className="divide-y divide-gray-100">
                   {filteredInvoices.map((inv) => {
                     const itemsCount = inv.lineItems?.length ?? 0;
-                    const sm = parseSalesmanFromNotes(inv.notes) || '—';
+                    const sm = invoiceSalesmanDisplay(inv, salesmanById);
                     return (
                       <tr key={inv.id} className="hover:bg-gray-50/80 transition-colors">
                         <td className="px-3 sm:px-4 py-3">
@@ -808,7 +824,7 @@ export default function Invoices() {
                     )}
                   </p>
                   <p className="text-xs text-gray-500 mt-1 font-semibold">
-                    Salesman: {parseSalesmanFromNotes(detailInvoice.notes) || '—'}
+                    Salesman: {invoiceSalesmanDisplay(detailInvoice, salesmanById)}
                   </p>
                 </div>
                 <div className="text-left sm:text-right">

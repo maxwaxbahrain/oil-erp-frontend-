@@ -30,6 +30,7 @@ export interface Quotation {
     terms?: string | null;
     salesman_id?: string | null;
     salesman_name?: string | null;
+    salesman_employee_id?: number | null;
     status: QuotationStatus;
     converted_sales_order_id?: string | null;
     converted_invoice_id?: number | null;
@@ -51,6 +52,12 @@ function fromApi(raw: Record<string, unknown>): Quotation {
         terms: raw.terms != null ? String(raw.terms) : null,
         salesman_id: raw.salesman_id != null ? String(raw.salesman_id) : null,
         salesman_name: raw.salesman_name != null ? String(raw.salesman_name) : null,
+        salesman_employee_id:
+            raw.salesman_employee_id != null
+                ? Number(raw.salesman_employee_id)
+                : raw.salesmanEmployeeId != null
+                  ? Number(raw.salesmanEmployeeId)
+                  : null,
         status: (String(raw.status ?? 'draft').toLowerCase() as QuotationStatus),
         converted_sales_order_id: raw.converted_sales_order_id != null ? String(raw.converted_sales_order_id) : null,
         converted_invoice_id: raw.converted_invoice_id != null ? Number(raw.converted_invoice_id) : null,

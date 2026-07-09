@@ -156,6 +156,8 @@ export interface Invoice {
   invoiceDate: string;
   dueDate: string;
   salesman?: string;
+  /** FK to employees.id — present when list API includes salesman_employee_id */
+  salesmanEmployeeId?: number | string | null;
   van?: string;
   lineItems: Array<{
     product: string;
@@ -923,6 +925,12 @@ function mapApiInvoiceToInvoice(inv: Record<string, unknown>): Invoice {
     discount: Number(inv.discount ?? 0),
     grandTotal,
     notes: String(inv.notes ?? ''),
+    salesmanEmployeeId:
+      inv.salesman_employee_id != null
+        ? Number(inv.salesman_employee_id)
+        : inv.salesmanEmployeeId != null
+          ? Number(inv.salesmanEmployeeId)
+          : null,
     status: statusNorm,
     payment_status:
       remaining_balance <= 0 && grandTotal > 0 ? 'Paid' : paid > 0 ? 'Advance Paid' : 'Unpaid',

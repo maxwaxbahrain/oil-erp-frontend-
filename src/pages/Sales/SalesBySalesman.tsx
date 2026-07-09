@@ -1,26 +1,47 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Users, Award } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { getInvoices, type Invoice } from '../../services/api';
+import { getSalesmen } from '../../services/employeeService';
+import { buildSalesmanNameById, resolveSalesmanDisplayName } from '../../utils/salesmanDisplay';
 
 const COLORS = ['#f59e0b', '#06b6d4', '#8b5cf6', '#10b981', '#ef4444'];
 
+function invoiceSalesmanKey(inv: Invoice, salesmanById: Map<string, string>): string {
+    const name = resolveSalesmanDisplayName({
+        salesmanEmployeeId: inv.salesmanEmployeeId,
+        notes: inv.notes,
+        salesmanById,
+    });
+    return name === '—' ? 'Unassigned' : name;
+}
+
 export default function SalesBySalesman() {
     const [invoices, setInvoices] = useState<Invoice[]>([]);
+    const [salesmanById, setSalesmanById] = useState<Map<string, string>>(() => new Map());
 
     useEffect(() => {
-        getInvoices().then(setInvoices).catch(() => setInvoices([]));
+        void Promise.all([getInvoices(), getSalesmen().catch(() => [])]).then(([inv, salesmen]) => {
+            setInvoices(inv);
+            setSalesmanById(buildSalesmanNameById(salesmen));
+        });
     }, []);
 
-    const salesmanData = Object.values(
-        invoices.reduce<Record<string, { name: string; sales: number; orders: number; commission: number | null }>>((acc, invoice) => {
-            const key = invoice.salesman || 'Unassigned';
-            if (!acc[key]) acc[key] = { name: key, sales: 0, orders: 0, commission: null };
-            acc[key].sales += Number(invoice.grandTotal) || 0;
-            acc[key].orders += 1;
-            return acc;
-        }, {}),
-    ).sort((a, b) => b.sales - a.sales);
+    const salesmanData = useMemo(
+        () =>
+            Object.values(
+                invoices.reduce<
+                    Record<string, { name: string; sales: number; orders: number; commission: number | null }>
+                >((acc, invoice) => {
+                    const key = invoiceSalesmanKey(invoice, salesmanById);
+                    if (!acc[key]) acc[key] = { name: key, sales: 0, orders: 0, commission: null };
+                    acc[key].sales += Number(invoice.grandTotal) || 0;
+                    acc[key].orders += 1;
+                    return acc;
+                }, {}),
+            ).sort((a, b) => b.sales - a.sales),
+        [invoices, salesmanById],
+    );
     const topSalesman = salesmanData[0] || null;
 
     return (
