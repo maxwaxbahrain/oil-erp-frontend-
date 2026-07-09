@@ -39,6 +39,7 @@ import {
 } from '../../services/payrollService';
 import { generatePayslipPDF } from '../../utils/payslipPDF';
 import PayrollAdmin from './PayrollAdmin';
+import CommissionAdmin from './CommissionAdmin';
 import {
   createAnnouncement,
   createHoliday,
@@ -1723,6 +1724,20 @@ export default function EmployeePortal() {
             <SectionDivider label="PAYROLL · RUN PAYROLL" />
             <div style={{ ...card, marginBottom: 4 }}>
               <PayrollAdmin
+                employees={state.employees}
+                onToast={showPortalToast}
+                onError={showPortalError}
+              />
+            </div>
+          </>
+        )}
+
+        {/* SECTION 4d — Commission report (admin/manager only) */}
+        {canApproveLeave && (
+          <>
+            <SectionDivider label="COMMISSION · OWED" />
+            <div style={{ ...card, marginBottom: 4 }}>
+              <CommissionAdmin
                 employees={state.employees}
                 onToast={showPortalToast}
                 onError={showPortalError}
