@@ -17,22 +17,12 @@ import {
     AlertCircle,
 } from 'lucide-react';
 import { getProducts as getMergedProducts } from '../../services/productService';
+import {
+    getAdjustmentHistory,
+    type InventoryAdjustmentRecord,
+} from '../../services/inventoryAdjustmentService';
 import { getCurrentUser } from '../../store/authStore';
 import { authFetch } from '../../api/axios';
-
-interface Adjustment {
-    id: string;
-    productId: string;
-    productName: string;
-    type: 'add' | 'reduce';
-    quantity: number;
-    reason: string;
-    date: string;
-    before: number;
-    after: number;
-    note?: string;
-    user?: string;
-}
 
 const REASON_CHIPS = [
     'Purchase received',
@@ -52,16 +42,6 @@ const LEGACY_REASON_MAP: Record<string, string> = {
     'Transfer out': 'Other',
     'Sample given': 'Sample/promo',
 };
-
-const ADJ_KEY = 'inventory_adjustments';
-const getAdjs = (): Adjustment[] => {
-    try {
-        return JSON.parse(localStorage.getItem(ADJ_KEY) || '[]');
-    } catch {
-        return [];
-    }
-};
-const saveAdj = (a: Adjustment) => localStorage.setItem(ADJ_KEY, JSON.stringify([a, ...getAdjs()]));
 
 const C = {
     bg: '#0D1117',
@@ -194,13 +174,31 @@ function formatDisplayDate(iso: string): string {
     }
 }
 
-function filterByPeriod(items: Adjustment[], period: HistoryPeriod): Adjustment[] {
+function adjustmentDisplayDate(adj: InventoryAdjustmentRecord): string {
+    return adj.adjustmentDate || adj.createdAt?.slice(0, 10) || '';
+}
+
+function displayCreatedBy(
+    adj: InventoryAdjustmentRecord,
+    currentUser?: { id?: number | string; name?: string } | null,
+): string {
+    const uid = adj.createdByUserId;
+    if (uid != null && currentUser?.id != null && String(currentUser.id) === String(uid)) {
+        return currentUser.name || 'You';
+    }
+    if (uid != null) return `User #${uid}`;
+    return 'System';
+}
+
+function filterByPeriod(items: InventoryAdjustmentRecord[], period: HistoryPeriod): InventoryAdjustmentRecord[] {
     if (period === 'all') return items;
     const days = Number(period);
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);
     return items.filter((a) => {
-        const d = new Date(a.date + (a.date.length === 10 ? 'T12:00:00' : ''));
+        const iso = adjustmentDisplayDate(a);
+        if (!iso) return false;
+        const d = new Date(iso + (iso.length === 10 ? 'T12:00:00' : ''));
         return d >= cutoff;
     });
 }
@@ -208,8 +206,9 @@ function filterByPeriod(items: Adjustment[], period: HistoryPeriod): Adjustment[
 export default function InventoryAdjustment() {
     const navigate = useNavigate();
     const [products, setProducts] = useState<any[]>([]);
-    const [adjustments, setAdjustments] = useState<Adjustment[]>([]);
+    const [adjustments, setAdjustments] = useState<InventoryAdjustmentRecord[]>([]);
     const [loading, setLoading] = useState(true);
+    const [historyLoading, setHistoryLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [success, setSuccess] = useState('');
     const [search, setSearch] = useState('');
@@ -238,9 +237,21 @@ export default function InventoryAdjustment() {
         setProducts(list.map(flatten));
     };
 
+    const refreshAdjustmentHistory = async () => {
+        setHistoryLoading(true);
+        try {
+            const rows = await getAdjustmentHistory();
+            setAdjustments(rows);
+        } catch {
+            setAdjustments([]);
+        } finally {
+            setHistoryLoading(false);
+        }
+    };
+
     useEffect(() => {
         refreshProducts().finally(() => setLoading(false));
-        setAdjustments(getAdjs());
+        refreshAdjustmentHistory();
     }, []);
 
     useEffect(() => {
@@ -279,8 +290,12 @@ export default function InventoryAdjustment() {
     );
 
     const historyStats = useMemo(() => {
-        const added = filteredHistory.filter((a) => a.type === 'add').reduce((s, a) => s + a.quantity, 0);
-        const reduced = filteredHistory.filter((a) => a.type === 'reduce').reduce((s, a) => s + a.quantity, 0);
+        const added = filteredHistory
+            .filter((a) => a.quantityDelta > 0)
+            .reduce((s, a) => s + Math.abs(a.quantityDelta), 0);
+        const reduced = filteredHistory
+            .filter((a) => a.quantityDelta < 0)
+            .reduce((s, a) => s + Math.abs(a.quantityDelta), 0);
         return { added, reduced, count: filteredHistory.length };
     }, [filteredHistory]);
 
@@ -469,24 +484,9 @@ export default function InventoryAdjustment() {
                 throw new Error(`Backend ${putResp.status}: ${detail.slice(0, 200) || putResp.statusText}`);
             }
 
-            const currentUser = getCurrentUser();
-            const adj: Adjustment = {
-                id: `ADJ-${Date.now()}`,
-                productId: String(backendId),
-                productName: sel.name,
-                type: form.type,
-                quantity: form.quantity,
-                reason: form.reason,
-                date: form.date,
-                before: backendCurrentStock,
-                after: newStock,
-                note: form.note.trim() || undefined,
-                user: currentUser?.name || 'System Admin',
-            };
-            saveAdj(adj);
             const upd = await getMergedProducts();
             setProducts(upd.map(flatten));
-            setAdjustments(getAdjs());
+            await refreshAdjustmentHistory();
             setSuccess(`Stock ${form.type === 'add' ? 'increased' : 'reduced'} by ${form.quantity} units (now ${newStock})`);
             setTimeout(() => setSuccess(''), 4000);
             setForm((p) => ({
@@ -510,20 +510,32 @@ export default function InventoryAdjustment() {
             alert('No adjustments to export for the selected period.');
             return;
         }
-        const header = 'Date,Product,SKU,Type,Quantity,Reason,Before,After,User,Note';
+        const header =
+            'Date,Product,SKU,Type,Quantity,Reason,Before,After,CreatedBy,GL,Reversed,Note';
+        const currentUser = getCurrentUser();
         const lines = rows.map((a) => {
-            const prod = products.find((p) => p.id === a.productId);
+            const prod = products.find((p) => String(p.id) === String(a.productId));
             const sku = prod?.sku || '';
+            const isAdd = a.quantityDelta > 0;
+            const qty = Math.abs(a.quantityDelta);
+            const date = adjustmentDisplayDate(a);
+            const glLabel = a.journalEntryId
+                ? 'posted'
+                : a.glStatus === 'skipped_zero_cost'
+                  ? 'skipped_zero_cost'
+                  : 'no_gl';
             return [
-                a.date,
-                `"${a.productName.replace(/"/g, '""')}"`,
+                date,
+                `"${(a.productName || prod?.name || '').replace(/"/g, '""')}"`,
                 `"${sku.replace(/"/g, '""')}"`,
-                a.type,
-                a.quantity,
+                isAdd ? 'add' : 'reduce',
+                qty,
                 `"${displayReason(a.reason).replace(/"/g, '""')}"`,
-                a.before,
-                a.after,
-                `"${(a.user || 'System Admin').replace(/"/g, '""')}"`,
+                a.stockBefore,
+                a.stockAfter,
+                `"${displayCreatedBy(a, currentUser).replace(/"/g, '""')}"`,
+                glLabel,
+                a.isReversed ? 'yes' : 'no',
                 `"${(a.note || '').replace(/"/g, '""')}"`,
             ].join(',');
         });
@@ -1438,23 +1450,35 @@ export default function InventoryAdjustment() {
                         </div>
                     </div>
 
-                    {loading ? (
-                        <div style={{ padding: 48, textAlign: 'center', color: C.dim, fontSize: 11 }}>Loading...</div>
+                    {historyLoading ? (
+                        <div style={{ padding: 48, textAlign: 'center', color: C.dim, fontSize: 11 }}>Loading history...</div>
                     ) : filteredHistory.length === 0 ? (
                         <div style={{ padding: 48, textAlign: 'center' }}>
                             <Package size={36} color={C.dim} style={{ margin: '0 auto 10px', opacity: 0.4 }} />
-                            <p style={{ margin: 0, fontSize: 11, color: C.dim }}>No adjustments in this period</p>
+                            <p style={{ margin: 0, fontSize: 11, color: C.dim }}>
+                                {adjustments.length === 0
+                                    ? 'No adjustments yet — saved changes will appear here'
+                                    : 'No adjustments in this period'}
+                            </p>
                         </div>
                     ) : (
                         <div style={{ flex: 1, maxHeight: 520, overflowY: 'auto' }}>
                             {filteredHistory.map((adj) => {
-                                const isAdd = adj.type === 'add';
+                                const isAdd = adj.quantityDelta > 0;
+                                const quantity = Math.abs(adj.quantityDelta);
                                 const reasonLabel = displayReason(adj.reason);
+                                const productName =
+                                    adj.productName ||
+                                    products.find((p) => String(p.id) === String(adj.productId))?.name ||
+                                    'Product';
                                 const unitCostAdj =
-                                    products.find((p) => p.id === adj.productId)?.cost ||
+                                    products.find((p) => String(p.id) === String(adj.productId))?.cost ||
                                     products.find((p) => p.name === adj.productName)?.cost ||
                                     0;
-                                const impact = adj.quantity * (unitCostAdj > 0 ? unitCostAdj : 12);
+                                const impact = quantity * (unitCostAdj > 0 ? unitCostAdj : 0);
+                                const currentUser = getCurrentUser();
+                                const createdByLabel = displayCreatedBy(adj, currentUser);
+                                const displayDate = adjustmentDisplayDate(adj);
                                 return (
                                     <div
                                         key={adj.id}
@@ -1481,9 +1505,9 @@ export default function InventoryAdjustment() {
                                             <div style={{ flex: 1, minWidth: 0 }}>
                                                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
                                                     <div style={{ minWidth: 0 }}>
-                                                        <div style={{ fontSize: 11.5, fontWeight: 600, color: C.text }}>{adj.productName}</div>
+                                                        <div style={{ fontSize: 11.5, fontWeight: 600, color: C.text }}>{productName}</div>
                                                         <div style={{ fontSize: 9.5, color: C.dim, marginTop: 2 }}>
-                                                            {adj.user || 'System Admin'} · {formatDisplayDate(adj.date)}
+                                                            {createdByLabel} · {formatDisplayDate(displayDate)}
                                                         </div>
                                                     </div>
                                                     <div
@@ -1495,8 +1519,8 @@ export default function InventoryAdjustment() {
                                                             flexShrink: 0,
                                                         }}
                                                     >
-                                                        {isAdd ? '+' : '-'}
-                                                        {adj.quantity}
+                                                        {isAdd ? '+' : '−'}
+                                                        {quantity}
                                                     </div>
                                                 </div>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
@@ -1514,11 +1538,80 @@ export default function InventoryAdjustment() {
                                                     >
                                                         {reasonLabel}
                                                     </span>
+                                                    {adj.journalEntryId ? (
+                                                        <span
+                                                            style={{
+                                                                fontSize: 8,
+                                                                fontWeight: 700,
+                                                                textTransform: 'uppercase',
+                                                                letterSpacing: '.3px',
+                                                                padding: '3px 8px',
+                                                                borderRadius: 20,
+                                                                background: 'rgba(34,197,94,.12)',
+                                                                color: C.green,
+                                                            }}
+                                                        >
+                                                            GL posted
+                                                        </span>
+                                                    ) : (
+                                                        <span
+                                                            style={{
+                                                                fontSize: 8,
+                                                                fontWeight: 700,
+                                                                textTransform: 'uppercase',
+                                                                letterSpacing: '.3px',
+                                                                padding: '3px 8px',
+                                                                borderRadius: 20,
+                                                                background: 'rgba(245,158,11,.12)',
+                                                                color: C.amber,
+                                                            }}
+                                                        >
+                                                            {adj.glStatus === 'skipped_zero_cost' ? 'No GL (zero cost)' : 'No GL'}
+                                                        </span>
+                                                    )}
+                                                    {adj.isReversal && (
+                                                        <span
+                                                            style={{
+                                                                fontSize: 8,
+                                                                fontWeight: 700,
+                                                                textTransform: 'uppercase',
+                                                                letterSpacing: '.3px',
+                                                                padding: '3px 8px',
+                                                                borderRadius: 20,
+                                                                background: 'rgba(155,111,228,.12)',
+                                                                color: C.purple,
+                                                            }}
+                                                        >
+                                                            Reversal
+                                                        </span>
+                                                    )}
+                                                    {adj.isReversed && (
+                                                        <span
+                                                            style={{
+                                                                fontSize: 8,
+                                                                fontWeight: 700,
+                                                                textTransform: 'uppercase',
+                                                                letterSpacing: '.3px',
+                                                                padding: '3px 8px',
+                                                                borderRadius: 20,
+                                                                background: 'rgba(239,68,68,.12)',
+                                                                color: C.red,
+                                                            }}
+                                                        >
+                                                            Reversed
+                                                        </span>
+                                                    )}
                                                 </div>
                                                 <div style={{ fontSize: 9.5, color: C.dim, marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
                                                     <TrendingUp size={10} />
-                                                    {adj.before} → {adj.after} units · {isAdd ? '+' : '-'}
-                                                    {fmtUsd(impact)} inventory
+                                                    {adj.stockBefore} → {adj.stockAfter} units
+                                                    {impact > 0 && (
+                                                        <>
+                                                            {' '}
+                                                            · {isAdd ? '+' : '−'}
+                                                            {fmtUsd(impact)} inventory
+                                                        </>
+                                                    )}
                                                     {adj.note && <> · {adj.note}</>}
                                                 </div>
                                             </div>
