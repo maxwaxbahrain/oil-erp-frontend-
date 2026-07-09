@@ -43,6 +43,22 @@ export interface CalculateAllResult {
     records: CommissionRecord[];
 }
 
+export interface CommissionRuleCreateInput {
+    employeeId: number;
+    ruleType: 'percent' | 'per_unit';
+    rate: number;
+    unitLabel?: string | null;
+    effectiveFrom?: string | null;
+}
+
+export interface CommissionRuleUpdateInput {
+    ruleType?: 'percent' | 'per_unit';
+    rate?: number;
+    unitLabel?: string | null;
+    isActive?: boolean;
+    effectiveFrom?: string | null;
+}
+
 async function readApiError(r: Response): Promise<string> {
     try {
         const body = await r.json();
@@ -111,11 +127,56 @@ function fromSummaryRow(raw: Record<string, unknown>): CommissionSummaryRow {
     };
 }
 
-export async function getCommissionRules(): Promise<CommissionRule[]> {
-    const r = await authFetch(`${API_BASE_URL}/commission/rules`);
+export async function getCommissionRules(employeeId?: number): Promise<CommissionRule[]> {
+    const qs = employeeId != null ? `?employeeId=${encodeURIComponent(String(employeeId))}` : '';
+    const r = await authFetch(`${API_BASE_URL}/commission/rules${qs}`);
     if (!r.ok) throw new Error(await readApiError(r));
     const rows = await r.json();
     return (Array.isArray(rows) ? rows : []).map((row) => fromRule(row as Record<string, unknown>));
+}
+
+export async function createCommissionRule(payload: CommissionRuleCreateInput): Promise<CommissionRule> {
+    const r = await authFetch(`${API_BASE_URL}/commission/rules`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            employeeId: payload.employeeId,
+            ruleType: payload.ruleType,
+            rate: payload.rate,
+            unitLabel: payload.unitLabel?.trim() || null,
+            effectiveFrom: payload.effectiveFrom || null,
+        }),
+    });
+    if (!r.ok) throw new Error(await readApiError(r));
+    return fromRule((await r.json()) as Record<string, unknown>);
+}
+
+export async function updateCommissionRule(
+    id: number,
+    payload: CommissionRuleUpdateInput,
+): Promise<CommissionRule> {
+    const body: Record<string, unknown> = {};
+    if (payload.ruleType != null) body.ruleType = payload.ruleType;
+    if (payload.rate != null) body.rate = payload.rate;
+    if (payload.unitLabel !== undefined) body.unitLabel = payload.unitLabel?.trim() || null;
+    if (payload.isActive != null) body.isActive = payload.isActive;
+    if (payload.effectiveFrom !== undefined) body.effectiveFrom = payload.effectiveFrom;
+
+    const r = await authFetch(`${API_BASE_URL}/commission/rules/${encodeURIComponent(String(id))}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(await readApiError(r));
+    return fromRule((await r.json()) as Record<string, unknown>);
+}
+
+export async function deleteCommissionRule(id: number): Promise<CommissionRule> {
+    const r = await authFetch(`${API_BASE_URL}/commission/rules/${encodeURIComponent(String(id))}`, {
+        method: 'DELETE',
+    });
+    if (!r.ok) throw new Error(await readApiError(r));
+    return fromRule((await r.json()) as Record<string, unknown>);
 }
 
 export async function getCommissionSummary(): Promise<CommissionSummaryRow[]> {
@@ -153,6 +214,18 @@ export async function calculateInvoice(invoiceId: number): Promise<CommissionRec
     );
     if (!r.ok) throw new Error(await readApiError(r));
     return fromRecord((await r.json()) as Record<string, unknown>);
+}
+
+export function formatCommissionRuleRate(rule: {
+    ruleType: string;
+    rate: number;
+    unitLabel?: string | null;
+}): string {
+    const type = rule.ruleType.toLowerCase();
+    if (type === 'percent') return `${rule.rate}%`;
+    const unit = rule.unitLabel?.trim();
+    const amt = formatCommissionUsd(rule.rate);
+    return unit ? `${amt} / ${unit}` : amt;
 }
 
 export function formatCommissionUsd(amount: number): string {
