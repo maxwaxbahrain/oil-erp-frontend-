@@ -1485,7 +1485,7 @@ export default function DriverApp() {
               disabled={loading || !signatureData}
               className="w-full min-h-12 bg-green-600 text-white rounded-lg text-lg font-black disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? 'Confirming...' : !isSigning ? 'GET SIGNATURE FIRST' : 'CONFIRM DELIVERY ✓'}
+              {loading ? 'Confirming...' : !isSigning ? 'GET SIGNATURE FIRST' : 'Save & Confirm Delivery ✓'}
             </button>
           </div>
         </div>
