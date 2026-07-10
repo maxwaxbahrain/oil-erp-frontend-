@@ -22,6 +22,8 @@ interface ERPContext {
 
 interface AIAssistantProps {
     context: ERPContext;
+    subscriptionLocked?: boolean;
+    onSubscriptionRequired?: () => void;
 }
 
 const SUGGESTED_QUERIES = [
@@ -35,7 +37,11 @@ const SUGGESTED_QUERIES = [
     "What marketing strategy works for NYC distributors?",
 ];
 
-export default function AIAssistant({ context }: AIAssistantProps) {
+export default function AIAssistant({
+    context,
+    subscriptionLocked = false,
+    onSubscriptionRequired,
+}: AIAssistantProps) {
     const [open, setOpen] = useState(false);
     const [minimized, setMinimized] = useState(false);
     const [messages, setMessages] = useState<Message[]>([]);
@@ -75,10 +81,17 @@ export default function AIAssistant({ context }: AIAssistantProps) {
     // cards on the AI Hub to actually do something when clicked instead
     // of being dead tiles with a hint.
     useEffect(() => {
-        const onOpen = () => { setOpen(true); setMinimized(false); };
+        const onOpen = () => {
+            if (subscriptionLocked) {
+                onSubscriptionRequired?.();
+                return;
+            }
+            setOpen(true);
+            setMinimized(false);
+        };
         window.addEventListener('soltol:open-ai-advisor', onOpen);
         return () => window.removeEventListener('soltol:open-ai-advisor', onOpen);
-    }, []);
+    }, [subscriptionLocked, onSubscriptionRequired]);
 
     const buildSystemPrompt = () => {
         const today = new Date().toISOString().slice(0, 10);
@@ -421,7 +434,13 @@ ${text.split('\n').map(line => {
             {/* Floating Button */}
             {!open && (
                 <button
-                    onClick={() => setOpen(true)}
+                    onClick={() => {
+                        if (subscriptionLocked) {
+                            onSubscriptionRequired?.();
+                            return;
+                        }
+                        setOpen(true);
+                    }}
                     className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-5 py-4 bg-gray-900 text-white rounded-2xl shadow-2xl hover:bg-gray-800 transition-all hover:scale-105 border border-orange-500/30 print:hidden"
                 >
                     <BrainCircuit size={20} className="text-orange-400" />

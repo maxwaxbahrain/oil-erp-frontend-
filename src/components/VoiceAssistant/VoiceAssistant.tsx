@@ -21,7 +21,13 @@ import { VoiceMicFabShell } from './VoiceMicFabShell';
 
 type AssistantState = 'idle' | 'listening' | 'processing' | 'speaking';
 
-export function VoiceAssistant() {
+export function VoiceAssistant({
+    voiceLocked = false,
+    onSubscriptionRequired,
+}: {
+    voiceLocked?: boolean;
+    onSubscriptionRequired?: () => void;
+} = {}) {
     const navigate = useNavigate();
     const [state, setState] = useState<AssistantState>('idle');
     const [lastTranscript, setLastTranscript] = useState<string>('');
@@ -113,6 +119,11 @@ export function VoiceAssistant() {
     });
 
     const handleMicClick = useCallback(() => {
+        if (voiceLocked) {
+            onSubscriptionRequired?.();
+            return;
+        }
+
         if (state === 'processing' || state === 'speaking') return;
 
         if (state === 'idle') {
@@ -149,7 +160,7 @@ export function VoiceAssistant() {
             }
             setState('processing');
         }
-    }, [state, recognition, speakReply]);
+    }, [state, recognition, speakReply, voiceLocked, onSubscriptionRequired]);
 
     const handleTypedSubmit = useCallback(
         (e: FormEvent) => {

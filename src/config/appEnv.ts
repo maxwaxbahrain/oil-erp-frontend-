@@ -5,3 +5,4 @@ export const appEnv: AppEnv =
   typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : 'development';
 
 export const isStaging = appEnv === 'staging';
+export const isProduction = appEnv === 'production';

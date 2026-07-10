@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Construction } from 'lucide-react';
 import ProtectedRoute from '../components/ProtectedRoute';
+import ProductionLockedRoute from './ProductionLockedRoute';
 import { isStaging } from '../config/appEnv';
 import AccountingSetupRequired from '../components/common/AccountingSetupRequired';
 import LoginPage from '../pages/LoginPage';
@@ -180,7 +181,6 @@ export const AppRoutes = () => {
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/sales/dashboard" element={<SalesDashboard />} />
             <Route path="/warehouse/dashboard" element={<WarehouseDashboard />} />
-            <Route path="/ai/hub" element={<AIHubDashboard />} />
 
             <Route path="/products" element={<ProductManagement />} />
             <Route path="/products/new" element={<ProductForm />} />
@@ -269,6 +269,10 @@ export const AppRoutes = () => {
             <Route path="/finance/payment-edit" element={<PaymentEdit />} />
             <Route path="/finance/bad-debts" element={<BadDebtsJV />} />
             </Route>
+
+            {/* Premium / AI features — locked on production via ProductionLockedRoute */}
+            <Route element={<ProductionLockedRoute />}>
+            <Route path="/ai/hub" element={<AIHubDashboard />} />
             <Route path="/ai" element={<AIHub />} />
             <Route path="/ai/auto-po" element={<AutoPOGeneration />} />
             <Route path="/ai/anomaly" element={<AnomalyDetection />} />
@@ -286,16 +290,12 @@ export const AppRoutes = () => {
             <Route path="/tax/calculator" element={<TaxCalculatorPage />} />
             <Route path="/tax/transactions" element={<TaxTransactions />} />
             <Route path="/tax/rates" element={<TaxRates />} />
-            {/* Session 2F — Tax Filing wizard routes */}
             <Route path="/tax/filing" element={<TaxFilingList />} />
             <Route path="/tax/filing/new" element={<FilingWizardStart />} />
             <Route path="/tax/filing/wizard/:filingId" element={<FilingWizard />} />
             <Route path="/tax/filing/preview/:filingId" element={<FilingPreview />} />
-            {/* Session 3A — 96-form IRS catalog */}
             <Route path="/tax/forms" element={<TaxFormsLibrary />} />
-            {/* Session 3B — AI Tax Advisor (SSE-streaming chat) */}
             <Route path="/tax/advisor" element={<TaxAdvisor />} />
-            {/* Session 3C — live Tax Dashboard */}
             <Route path="/tax/dashboard" element={<TaxDashboard />} />
             <Route path="/amazon" element={<AmazonIntegration />} />
             <Route path="/pulse" element={<Pulse />} />
@@ -311,6 +311,8 @@ export const AppRoutes = () => {
             <Route path="/marketing/segments" element={<CustomerSegments />} />
             <Route path="/marketing/campaigns" element={<CampaignManager />} />
             <Route path="/marketing/analytics" element={<MarketingAnalytics />} />
+            <Route path="/reports/demand-forecast" element={<AccountingSetupRequired />} />
+            </Route>
 
             {/* Employee Portal - Module 15 */}
             <Route path="/portal" element={<EmployeePortal />} />
@@ -328,7 +330,6 @@ export const AppRoutes = () => {
 
             {/* Reports */}
             <Route path="/reports/sales" element={<ProfitabilityReports />} />
-            <Route path="/reports/demand-forecast" element={<AccountingSetupRequired />} />
             <Route path="/sales/price-lists" element={<CustomerPriceLists />} />
             <Route path="/sales/recurring" element={<RecurringInvoices />} />
             <Route path="/reports/aged-receivable" element={<AgedReceivable />} />
@@ -373,7 +374,12 @@ export const AppRoutes = () => {
                 <Route path="/superadmin" element={<SuperAdminPage />} />
                 <Route path="/superadmin/emails" element={<SuperAdminPage />} />
                 <Route path="/superadmin/tenant/:tenantId" element={<TenantProfilePage />} />
-                <Route path="/voice/onboard" element={<VoiceTenantOnboard />} />
+            </Route>
+
+            <Route element={<ProductionLockedRoute />}>
+                <Route element={<ProtectedRoute superAdminOnly />}>
+                    <Route path="/voice/onboard" element={<VoiceTenantOnboard />} />
+                </Route>
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />

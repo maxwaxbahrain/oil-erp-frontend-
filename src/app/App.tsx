@@ -35,7 +35,9 @@ import SatisfactionSurvey from '../components/SatisfactionSurvey';
 import VoiceAssistant from '../components/VoiceAssistant/VoiceAssistant';
 import CommandBar from '../components/VoiceAssistant/CommandBar';
 import AdvisorDock from '../components/advisor/AdvisorDock';
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { SubscriptionRequiredDialog } from '../components/common/SubscriptionRequired';
+import { isProduction } from '../config/appEnv';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { getInvoices, getCustomers, getProducts, getPayments } from '../services/api';
 import { getPurchaseOrders } from '../services/purchasesService';
 import { calculateReceivables } from '../utils/arMetrics';
@@ -88,6 +90,8 @@ function App() {
     setOpenGroups((p) => ({ ...p, [key]: true }));
   const [notifsOpen, setNotifsOpen] = useState(false);
   const [advisorOpen, setAdvisorOpen] = useState(false);
+  const [subscriptionDialogOpen, setSubscriptionDialogOpen] = useState(false);
+  const showSubscriptionRequired = useCallback(() => setSubscriptionDialogOpen(true), []);
   const advisorShellRef = useRef<HTMLDivElement>(null);
   // Light/dark mode toggle — flips `light` class on <body>, persists
   // to localStorage key `soltol-theme`. Cosmetic only — no business logic.
@@ -503,7 +507,10 @@ function App() {
               overflow: 'hidden',
             }}
           >
-            <CommandBar />
+            <CommandBar
+              voiceLocked={isProduction}
+              onSubscriptionRequired={showSubscriptionRequired}
+            />
           </div>
 
           {/* + New Invoice — blue header CTA matching preview.  Hidden
@@ -560,7 +567,13 @@ function App() {
               </div>
               <button
                 type="button"
-                onClick={() => setAdvisorOpen((v) => !v)}
+                onClick={() => {
+                  if (isProduction) {
+                    showSubscriptionRequired();
+                    return;
+                  }
+                  setAdvisorOpen((v) => !v);
+                }}
                 aria-label={advisorOpen ? 'Close AI Advisor' : 'Open AI Advisor'}
                 aria-expanded={advisorOpen}
                 title="AI Advisor"
@@ -778,8 +791,15 @@ function App() {
         </div>
 
         {/* AI Accountant - Available on all pages */}
-        <AIAssistant context={aiCtx} />
-        <VoiceAssistant />
+        <AIAssistant
+          context={aiCtx}
+          subscriptionLocked={isProduction}
+          onSubscriptionRequired={showSubscriptionRequired}
+        />
+        <VoiceAssistant
+          voiceLocked={isProduction}
+          onSubscriptionRequired={showSubscriptionRequired}
+        />
         <div style={{ position: 'relative' }}>
           <SatisfactionSurvey />
         </div>
@@ -842,10 +862,17 @@ function App() {
         })}
       </nav>
 
-      <AdvisorDock
-        open={advisorOpen}
-        onClose={() => setAdvisorOpen(false)}
-        shellRef={advisorShellRef}
+      {!isProduction && (
+        <AdvisorDock
+          open={advisorOpen}
+          onClose={() => setAdvisorOpen(false)}
+          shellRef={advisorShellRef}
+        />
+      )}
+
+      <SubscriptionRequiredDialog
+        open={subscriptionDialogOpen}
+        onClose={() => setSubscriptionDialogOpen(false)}
       />
     </div>
     </div>

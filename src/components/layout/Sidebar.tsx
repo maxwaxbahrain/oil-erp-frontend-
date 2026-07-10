@@ -22,6 +22,9 @@ import {
 , Tag , BookOpen , Scale , Clock , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 , Mail , LogOut , Sparkles , Lock , Activity , Inbox } from 'lucide-react';
 import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
+import { isProduction } from '../../config/appEnv';
+import { isRouteLocked } from '../../config/lockedFeatures';
+import { LockedNavIcon } from '../common/SubscriptionRequired';
 
 
 export default function Sidebar({
@@ -63,6 +66,7 @@ export default function Sidebar({
 
     const NavItem = ({ to, icon: Icon, label }: { to: string, icon: any, label: string }) => {
         const isActive = location.pathname === to || (to !== '/' && location.pathname.startsWith(to));
+        const showLock = isProduction && isRouteLocked(to);
         return (
             <Link
                 to={to}
@@ -77,7 +81,8 @@ export default function Sidebar({
                     <div className="absolute left-0 top-0 bottom-0 w-1 bg-white" />
                 )}
                 <Icon size={18} className={clsx(isActive ? "text-white" : "text-[#5d6b7b] group-hover:text-white")} />
-                <span className="text-[12px] font-semibold tracking-wide">{label}</span>
+                <span className="text-[12px] font-semibold tracking-wide flex-1">{label}</span>
+                {showLock && <LockedNavIcon />}
             </Link>
         );
     };
@@ -121,8 +126,6 @@ export default function Sidebar({
                     Core
                 </div>
                 <NavItem to="/" icon={LayoutDashboard} label="Dashboard" />
-                <NavItem to="/pulse" icon={Send} label="PULSE — Team Chat" />
-                <NavItem to="/pulse/notes" icon={FileText} label="Meeting Notes" />
                 <NavItem to="/migrate" icon={Database} label="📥 Data Migration" />
                 <NavItem to="/portal" icon={User} label="Employee Portal" />
 
@@ -135,10 +138,7 @@ export default function Sidebar({
                     Sales
                 </div>
                 <NavItem to="/customers" icon={Users} label="Customers" />
-                <NavItem to="/credit" icon={Shield} label="Credit Intelligence" />
-                <NavItem to="/crm" icon={BarChart2} label="CRM Pipeline" />
                 <NavItem to="/sales/orders" icon={FileText} label="Orders" />
-                <NavItem to="/amazon" icon={Package} label="Amazon" />
 
                 <div>
                     <SectionHeader
@@ -273,11 +273,6 @@ export default function Sidebar({
                 <NavItem to="/finance/financial-statement" icon={FileText} label="Financial Statement" />
                 <NavItem to="/finance/journal-voucher" icon={FileText} label="Journal Voucher (JV)" />
                 <NavItem to="/finance/bad-debts" icon={AlertTriangle} label="Bad Debts Write-Off" />
-                {/* ITEM 13 — Edit Payments sidebar link removed. Edits are
-                    now initiated from per-row Edit buttons in the Customer
-                    Payments tab; the PaymentEdit route remains as a
-                    deep-link target (/finance/payment-edit?id=<paymentId>). */}
-                <NavItem to="/tax" icon={Calculator} label="Tax Management" />
 
                 <div className="h-px bg-white/5 my-3 mx-2" />
                 </>
@@ -309,6 +304,27 @@ export default function Sidebar({
                 <NavItem to="/reports/sales" icon={TrendingUp} label="Profitability Reports" />
                 <NavItem to="/sales/price-lists" icon={Tag} label="Customer Price Lists" />
                 <NavItem to="/sales/recurring" icon={RefreshCw} label="Recurring Invoices" />
+
+                <div className="h-px bg-white/5 my-3 mx-2" />
+
+                {/* PREMIUM — locked on production */}
+                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-amber-400/70 px-4 py-2 mt-1">
+                    Premium
+                </div>
+                <NavItem to="/pulse" icon={Send} label="PULSE — Team Chat" />
+                <NavItem to="/pulse/notes" icon={FileText} label="Meeting Notes" />
+
+                {canSeeSales && (
+                <>
+                <NavItem to="/credit" icon={Shield} label="Credit Intelligence" />
+                <NavItem to="/crm" icon={BarChart2} label="CRM Pipeline" />
+                <NavItem to="/amazon" icon={Package} label="Amazon" />
+                </>
+                )}
+
+                {canSeeFinance && (
+                <NavItem to="/tax" icon={Calculator} label="Tax Management" />
+                )}
 
                 <div className="h-px bg-white/5 my-3 mx-2" />
 

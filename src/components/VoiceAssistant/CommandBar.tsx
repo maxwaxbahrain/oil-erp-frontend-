@@ -61,7 +61,13 @@ const KEYFRAMES_CSS = `
 }
 `;
 
-export function CommandBar() {
+export function CommandBar({
+    voiceLocked = false,
+    onSubscriptionRequired,
+}: {
+    voiceLocked?: boolean;
+    onSubscriptionRequired?: () => void;
+} = {}) {
     const navigate = useNavigate();
     const [state, setState] = useState<BarState>('idle');
     const [query, setQuery] = useState('');
@@ -186,6 +192,11 @@ export function CommandBar() {
 
     // ── Mic toggle — starts listening OR stops and submits ─────
     const handleMicToggle = useCallback(() => {
+        if (voiceLocked) {
+            onSubscriptionRequired?.();
+            return;
+        }
+
         if (state === 'processing' || state === 'result') return;
 
         if (state === 'listening') {
@@ -216,7 +227,7 @@ export function CommandBar() {
             setResponse(`Error: ${msg}`);
             setState('result');
         }
-    }, [state, recognition]);
+    }, [state, recognition, voiceLocked, onSubscriptionRequired]);
 
     // ── Form submit (Enter for typed text) ─────────────────────
     const handleSubmit = useCallback(
