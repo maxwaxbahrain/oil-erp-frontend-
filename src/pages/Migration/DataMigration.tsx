@@ -426,8 +426,6 @@ export default function DataMigration() {
             return;
         }
 
-        stopPolling();
-
         if (job.status === 'completed') {
             finishImportSuccess((job.results ?? {}) as Record<string, any>);
             setBusy(false);
@@ -437,39 +435,52 @@ export default function DataMigration() {
         if (job.status === 'failed') {
             finishImportFailure(job.error || 'Unknown server error');
         }
-    }, [finishImportFailure, finishImportSuccess, log, prog, stopPolling]);
+    }, [finishImportFailure, finishImportSuccess, log, prog]);
 
     const pollImportStatus = useCallback(async (jobId: number) => {
+        const pollUrl = `/api/migrate/import-status/${jobId}`;
         try {
-            const { data: job } = await api.get<ImportJobStatus>(`/api/migrate/import-status/${jobId}`);
+            const { data: job } = await api.get<ImportJobStatus>(pollUrl);
+            console.debug('[migration poll]', pollUrl, job.status, {
+                job_id: job.job_id,
+                phase: job.phase,
+                processed: job.processed,
+                total: job.total,
+            });
             consecutivePollFailuresRef.current = 0;
+
+            if (job.status === 'completed' || job.status === 'failed') {
+                stopPolling();
+            }
+
             handleJobStatus(job);
         } catch (e: any) {
             consecutivePollFailuresRef.current += 1;
+            const errDetail = e?.response?.data?.detail;
+            const errMsg = typeof errDetail === 'string'
+                ? errDetail
+                : errDetail
+                    ? JSON.stringify(errDetail)
+                    : e?.message || 'poll request failed';
+            console.debug('[migration poll error]', pollUrl, errMsg, e?.response?.status);
             if (consecutivePollFailuresRef.current >= MAX_CONSECUTIVE_POLL_FAILURES) {
-                finishImportFailure(
-                    e?.response?.data?.detail || e?.message || 'Lost connection to import status',
-                );
+                finishImportFailure(errMsg || 'Lost connection to import status');
                 return;
             }
-            log('…still processing (connection retry)', 'warn');
+            log(`…still processing (connection retry: ${errMsg})`, 'warn');
         }
-    }, [finishImportFailure, handleJobStatus, log]);
+    }, [finishImportFailure, handleJobStatus, log, stopPolling]);
 
     const startAsyncImport = useCallback((jobId: number) => {
+        stopPolling();
         activeJobIdRef.current = jobId;
         consecutivePollFailuresRef.current = 0;
         lastPhaseRef.current = null;
         stallWarnedRef.current = false;
         log(`🚀 Import started (job #${jobId}) — processing on server...`, 'info');
         prog(10, 'Waiting for server…');
-        stopPolling();
         pollImportStatus(jobId);
-        pollTimerRef.current = setInterval(() => {
-            if (activeJobIdRef.current !== null) {
-                pollImportStatus(activeJobIdRef.current);
-            }
-        }, POLL_INTERVAL_MS);
+        pollTimerRef.current = setInterval(() => pollImportStatus(jobId), POLL_INTERVAL_MS);
     }, [log, pollImportStatus, prog, stopPolling]);
 
     const doImport = async () => {
