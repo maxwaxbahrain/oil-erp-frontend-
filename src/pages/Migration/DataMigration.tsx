@@ -33,6 +33,7 @@ const ENTITY_IMPORT_LOGS: { key: string; emoji: string; label: string }[] = [
     { key: 'suppliers', emoji: '🏭', label: 'Suppliers' },
     { key: 'invoices', emoji: '📄', label: 'Invoices' },
     { key: 'payments', emoji: '💳', label: 'Payments' },
+    { key: 'sales_returns', emoji: '↩️', label: 'Sales returns' },
     { key: 'purchase_orders', emoji: '🛒', label: 'POs' },
     { key: 'supplier_payments', emoji: '🏦', label: 'Supplier payments' },
 ];
@@ -213,17 +214,56 @@ export default function DataMigration() {
         };
         }).filter((p: any) => p.name);
 
-        const invRows = q(`SELECT date, vch_no, debit as customer_name, amount, narration FROM vouchers WHERE v_type='Sales' ORDER BY date`);
-        const invoices = invRows.map((r: any) => ({ invoice_number: String(r.vch_no || '').slice(0, 100), customer_name: String(r.customer_name || '').trim(), date: String(r.date || ''), amount: parseMigrationNum(r.amount), notes: String(r.narration || ''), status: 'paid' })).filter((i: any) => i.customer_name && i.amount > 0);
+        const invRows = q(`SELECT v_id, date, vch_no, debit as customer_name, amount, narration FROM vouchers WHERE v_type='Sales' ORDER BY date`);
+        const paidByBillVId: Record<string, number> = {};
+        const paidRows = q(`SELECT b_v_id, SUM(amount) AS paid FROM bill_receipt_payment GROUP BY b_v_id`);
+        for (const r of paidRows) {
+            const billVId = String(r.b_v_id ?? '').trim();
+            if (!billVId) continue;
+            paidByBillVId[billVId] = parseMigrationNum(r.paid);
+        }
+        const invoices = invRows.map((r: any) => {
+            const total = parseMigrationNum(r.amount);
+            const vId = String(r.v_id ?? '').trim();
+            const paid_amount = Math.min(paidByBillVId[vId] ?? 0, total);
+            const status = paid_amount >= total - 0.01 ? 'paid' : paid_amount > 0 ? 'partial' : 'unpaid';
+            return {
+                invoice_number: String(r.vch_no || '').slice(0, 100),
+                customer_name: String(r.customer_name || '').trim(),
+                date: String(r.date || ''),
+                amount: total,
+                paid_amount,
+                notes: String(r.narration || ''),
+                status,
+            };
+        }).filter((i: any) => i.customer_name && i.amount > 0);
 
         const payRows = q(`SELECT date, vch_no, credit as customer_name, amount FROM vouchers WHERE v_type='Receipt' ORDER BY date`);
         const payments = payRows.map((r: any) => ({ reference: String(r.vch_no || '').slice(0, 100), customer_name: String(r.customer_name || '').trim(), date: String(r.date || ''), amount: parseMigrationNum(r.amount) })).filter((p: any) => p.customer_name && p.amount > 0);
 
+        const debtorNameSet = new Set(customers.map((c: any) => c.name));
+        const srRows = q(`SELECT date, vch_no, debit, credit, amount, narration FROM vouchers WHERE v_type='Sales Return' ORDER BY date`);
+        const sales_returns = srRows.map((r: any) => {
+            const debit = String(r.debit || '').trim();
+            const credit = String(r.credit || '').trim();
+            const customer_name = debtorNameSet.has(credit) ? credit : debtorNameSet.has(debit) ? debit : '';
+            return {
+                reference: String(r.vch_no || '').slice(0, 100),
+                customer_name,
+                date: String(r.date || ''),
+                amount: parseMigrationNum(r.amount),
+                notes: String(r.narration || ''),
+            };
+        }).filter((sr: any) => sr.customer_name && sr.amount > 0);
+
         db.close();
         const stockedCount = products.filter((p: any) => (p.stock ?? 0) > 0).length;
-        log(`📦 ${products.length} products (${stockedCount} with stock from purchases−sales), ${suppliers.length} suppliers, ${invoices.length} invoices, ${payments.length} payments`, 'info');
+        const paidInvoices = invoices.filter((i: any) => i.status === 'paid').length;
+        const partialInvoices = invoices.filter((i: any) => i.status === 'partial').length;
+        const unpaidInvoices = invoices.filter((i: any) => i.status === 'unpaid').length;
+        log(`📦 ${products.length} products (${stockedCount} with stock from purchases−sales), ${suppliers.length} suppliers, ${invoices.length} invoices (${paidInvoices} paid / ${partialInvoices} partial / ${unpaidInvoices} unpaid), ${payments.length} payments, ${sales_returns.length} sales returns`, 'info');
         log(`🛒 ${purchase_orders.length} supplier POs, ${supplier_payments.length} supplier payments`, 'info');
-        return { customers, suppliers, products, invoices, payments, purchase_orders, supplier_payments };
+        return { customers, suppliers, products, invoices, payments, sales_returns, purchase_orders, supplier_payments };
     };
 
 
