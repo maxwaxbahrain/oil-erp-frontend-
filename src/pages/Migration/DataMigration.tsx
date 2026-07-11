@@ -1,10 +1,35 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Upload, CheckCircle, RefreshCw, Trash2, Users, Package, FileText, CreditCard, TrendingUp, Zap } from 'lucide-react';
 import api from '../../api/axios';
 
 interface LogEntry { time: string; msg: string; type: 'info' | 'success' | 'error' | 'warn'; }
-interface Results { customers?: number; products?: number; suppliers?: number; invoices?: number; supplierPurchases?: number; supplierPayments?: number; }
+interface Results {
+    customers?: number;
+    products?: number;
+    suppliers?: number;
+    invoices?: number;
+    payments?: number;
+    salesReturns?: number;
+    supplierPurchases?: number;
+    supplierPayments?: number;
+}
 interface EntityImportStats { created?: number; updated?: number; skipped?: number; failed?: number; errors?: string[]; }
+interface GlImportStats { posted?: number; skipped?: number; failed?: number; }
+interface TieOut { gl_ar?: number; customer_balances?: number; difference?: number; }
+interface ImportJobStatus {
+    job_id: number;
+    status: 'pending' | 'running' | 'completed' | 'failed';
+    phase?: string | null;
+    processed?: number;
+    total?: number;
+    results?: Record<string, EntityImportStats & { gl?: Record<string, EntityImportStats>; tie_out?: TieOut }> | null;
+    error?: string | null;
+    updated_at?: string | null;
+}
+
+const POLL_INTERVAL_MS = 2000;
+const MAX_CONSECUTIVE_POLL_FAILURES = 30;
+const STALL_MINUTES = 10;
 
 const ts = () => new Date().toLocaleTimeString();
 
@@ -27,6 +52,9 @@ const formatEntityCounts = (stats: EntityImportStats): string => {
     return parts.join(', ');
 };
 
+const formatPhaseLabel = (phase: string): string =>
+    phase.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
 const ENTITY_IMPORT_LOGS: { key: string; emoji: string; label: string }[] = [
     { key: 'customers', emoji: '👥', label: 'Customers' },
     { key: 'products', emoji: '📦', label: 'Products' },
@@ -46,13 +74,34 @@ export default function DataMigration() {
     const [step, setStep] = useState('');
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const [results, setResults] = useState<Results | null>(null);
+    const [tieOut, setTieOut] = useState<TieOut | null>(null);
     const [done, setDone] = useState(false);
+    const [importFailed, setImportFailed] = useState(false);
+
+    const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const consecutivePollFailuresRef = useRef(0);
+    const lastPhaseRef = useRef<string | null>(null);
+    const stallWarnedRef = useRef(false);
+    const activeJobIdRef = useRef<number | null>(null);
 
     const log = useCallback((msg: string, type: LogEntry['type'] = 'info') => {
         setLogs(prev => [...prev, { time: ts(), msg, type }]);
     }, []);
 
-    const prog = (p: number, s: string) => { setPct(p); setStep(s); };
+    const prog = useCallback((p: number, s: string) => {
+        setPct(p);
+        setStep(s);
+    }, []);
+
+    const stopPolling = useCallback(() => {
+        if (pollTimerRef.current) {
+            clearInterval(pollTimerRef.current);
+            pollTimerRef.current = null;
+        }
+        activeJobIdRef.current = null;
+    }, []);
+
+    useEffect(() => () => stopPolling(), [stopPolling]);
 
     const loadSqlJs = (): Promise<any> => new Promise((res, rej) => {
         if ((window as any).initSqlJs) return res((window as any).initSqlJs);
@@ -125,9 +174,6 @@ export default function DataMigration() {
         }).filter((s: any) => s.name);
         const supplierNameSet = new Set(suppliers.map((s: any) => s.name));
 
-        // ── Per-supplier PURCHASES (v_type='Purchase') ──────────────────────
-        // Vouchers in BETTANO use `debit='Purchase'` and `credit=<supplier>`.
-        // Pull the header + join the line items from the purchases table.
         const poHeaders = q(`SELECT v_id, date, vch_no, amount, credit AS supplier_name FROM vouchers WHERE v_type='Purchase'`);
         const poItemsRows = q(`SELECT v_id, item, units, cost_per_unit FROM purchases`);
         const itemsByVoucher: Record<string, any[]> = {};
@@ -165,9 +211,6 @@ export default function DataMigration() {
                 };
             });
 
-        // ── Per-supplier PAYMENTS (v_type='Payment') ────────────────────────
-        // Vouchers in BETTANO use `debit=<supplier>` (decreasing AP) and
-        // `credit=<bank account>`. Match by supplier name.
         const supplierPayRows = q(`SELECT v_id, date, vch_no, amount, debit AS supplier_name, credit AS bank, payment_reference FROM vouchers WHERE v_type='Payment'`);
         const supplier_payments = supplierPayRows
             .filter((p: any) => supplierNameSet.has(String(p.supplier_name || '').trim()))
@@ -180,7 +223,6 @@ export default function DataMigration() {
                 notes: `BETTANO import · ${String(p.bank || '').trim()}`,
             }));
 
-        // ORDER BY keeps the first row per item name deterministic when multiple UOM rows exist.
         const prodRows = q(`SELECT item, units_name, sku, item_desc, defaultsellingprice, defaultpurchaseprice FROM item_measure WHERE item IS NOT NULL AND TRIM(item) != '' ORDER BY item ASC, units_name ASC`);
         const stockNetRows = q(`
             SELECT item, SUM(u) AS net FROM (
@@ -284,48 +326,207 @@ export default function DataMigration() {
         return { customers, suppliers: [], products: [], invoices: [], payments: [] };
     };
 
+    const summarizeBackendResults = useCallback((backendResults: Record<string, any>) => {
+        for (const { key, emoji, label } of ENTITY_IMPORT_LOGS) {
+            const stats = backendResults[key] as EntityImportStats | undefined;
+            if (!stats) continue;
+            const hasErrors = (stats.errors?.length ?? 0) > 0 || (stats.failed ?? 0) > 0;
+            log(`${emoji} ${label}: ${formatEntityCounts(stats)}`, hasErrors ? 'warn' : 'success');
+            for (const err of stats.errors ?? []) {
+                log(`   ↳ ${err}`, 'error');
+            }
+        }
+
+        const gl = backendResults.gl as Record<string, GlImportStats> | undefined;
+        if (gl) {
+            const glParts = Object.entries(gl)
+                .map(([k, v]) => `${k}: ${v.posted ?? 0} posted`)
+                .join(', ');
+            if (glParts) log(`📒 GL posting — ${glParts}`, 'success');
+        }
+
+        const tie = backendResults.tie_out as TieOut | undefined;
+        if (tie && tie.gl_ar !== undefined) {
+            setTieOut(tie);
+            log(
+                `📊 AR tie-out — GL AR: $${Number(tie.gl_ar).toFixed(2)}, customer balances: $${Number(tie.customer_balances ?? 0).toFixed(2)}, diff: $${Number(tie.difference ?? 0).toFixed(2)}`,
+                Math.abs(Number(tie.difference ?? 0)) <= 0.01 ? 'success' : 'warn',
+            );
+        } else {
+            setTieOut(null);
+        }
+
+        setResults({
+            customers: (backendResults.customers?.created || 0) + (backendResults.customers?.updated || 0),
+            products: (backendResults.products?.created || 0) + (backendResults.products?.updated || 0),
+            suppliers: (backendResults.suppliers?.created || 0) + (backendResults.suppliers?.updated || 0),
+            invoices: backendResults.invoices?.created || 0,
+            payments: backendResults.payments?.created || 0,
+            salesReturns: backendResults.sales_returns?.created || 0,
+            supplierPurchases: backendResults.purchase_orders?.created || 0,
+            supplierPayments: backendResults.supplier_payments?.created || 0,
+        });
+        setDone(true);
+        setImportFailed(false);
+    }, [log]);
+
+    const finishImportSuccess = useCallback((backendResults: Record<string, any>) => {
+        prog(100, 'Done!');
+        summarizeBackendResults(backendResults);
+        log('✅ Upload complete — your data has been imported and your books are balanced.', 'success');
+    }, [log, prog, summarizeBackendResults]);
+
+    const finishImportFailure = useCallback((message: string) => {
+        stopPolling();
+        setImportFailed(true);
+        setDone(false);
+        setResults(null);
+        setTieOut(null);
+        prog(0, '');
+        log(`❌ Import failed: ${message}`, 'error');
+        log('ℹ️ Re-uploading the same file is safe — the import is idempotent.', 'info');
+        setBusy(false);
+    }, [log, prog, stopPolling]);
+
+    const runSyncImport = useCallback(async (data: Record<string, unknown>) => {
+        log('⬆️ Using synchronous import (async endpoint unavailable)...', 'warn');
+        prog(20, 'Importing to ERP...');
+        const { data: importResponse } = await api.post<{ success: boolean; results: Record<string, EntityImportStats> }>(
+            '/api/migrate/full-import',
+            data,
+        );
+        finishImportSuccess(importResponse.results ?? {});
+        setBusy(false);
+    }, [finishImportSuccess, log, prog]);
+
+    const handleJobStatus = useCallback((job: ImportJobStatus) => {
+        const processed = job.processed ?? 0;
+        const total = job.total ?? 0;
+        const phase = job.phase || job.status;
+
+        if (phase && phase !== lastPhaseRef.current) {
+            const label = formatPhaseLabel(phase);
+            log(`⚙️ Importing ${label}… (${processed}/${total || '?'})`, 'info');
+            lastPhaseRef.current = phase;
+        }
+
+        if (job.status === 'running' || job.status === 'pending') {
+            const jobPct = total > 0
+                ? Math.min(99, Math.round((processed / total) * 100))
+                : job.status === 'running' ? 15 : 10;
+            prog(jobPct, `Importing ${formatPhaseLabel(phase)}… (${processed}/${total || '?'})`);
+
+            if (job.status === 'running' && job.updated_at && !stallWarnedRef.current) {
+                const ageMs = Date.now() - new Date(job.updated_at).getTime();
+                if (ageMs > STALL_MINUTES * 60 * 1000) {
+                    log('⚠️ Job appears stalled — re-uploading is safe.', 'warn');
+                    stallWarnedRef.current = true;
+                }
+            }
+            return;
+        }
+
+        stopPolling();
+
+        if (job.status === 'completed') {
+            finishImportSuccess((job.results ?? {}) as Record<string, any>);
+            setBusy(false);
+            return;
+        }
+
+        if (job.status === 'failed') {
+            finishImportFailure(job.error || 'Unknown server error');
+        }
+    }, [finishImportFailure, finishImportSuccess, log, prog, stopPolling]);
+
+    const pollImportStatus = useCallback(async (jobId: number) => {
+        try {
+            const { data: job } = await api.get<ImportJobStatus>(`/api/migrate/import-status/${jobId}`);
+            consecutivePollFailuresRef.current = 0;
+            handleJobStatus(job);
+        } catch (e: any) {
+            consecutivePollFailuresRef.current += 1;
+            if (consecutivePollFailuresRef.current >= MAX_CONSECUTIVE_POLL_FAILURES) {
+                finishImportFailure(
+                    e?.response?.data?.detail || e?.message || 'Lost connection to import status',
+                );
+                return;
+            }
+            log('…still processing (connection retry)', 'warn');
+        }
+    }, [finishImportFailure, handleJobStatus, log]);
+
+    const startAsyncImport = useCallback((jobId: number) => {
+        activeJobIdRef.current = jobId;
+        consecutivePollFailuresRef.current = 0;
+        lastPhaseRef.current = null;
+        stallWarnedRef.current = false;
+        log(`🚀 Import started (job #${jobId}) — processing on server...`, 'info');
+        prog(10, 'Waiting for server…');
+        stopPolling();
+        pollImportStatus(jobId);
+        pollTimerRef.current = setInterval(() => {
+            if (activeJobIdRef.current !== null) {
+                pollImportStatus(activeJobIdRef.current);
+            }
+        }, POLL_INTERVAL_MS);
+    }, [log, pollImportStatus, prog, stopPolling]);
+
     const doImport = async () => {
         if (!file) return;
-        setBusy(true); setPct(0); setLogs([]); setResults(null); setDone(false);
+        stopPolling();
+        setBusy(true);
+        setPct(0);
+        setLogs([]);
+        setResults(null);
+        setTieOut(null);
+        setDone(false);
+        setImportFailed(false);
+        consecutivePollFailuresRef.current = 0;
+        lastPhaseRef.current = null;
+        stallWarnedRef.current = false;
+
         try {
             prog(5, 'Reading file...');
             const ext = file.name.toLowerCase().split('.').pop() || '';
-            let data: any;
-            if (ext === 'db' || ext === 'sqlite') { prog(10, 'Opening database...'); log('📂 Opening BETTANO database...', 'info'); data = await extractAllData(await file.arrayBuffer()); }
-            else if (ext === 'csv' || ext === 'txt') { prog(15, 'Parsing CSV...'); data = await parseCsv(await file.text()); log(`📋 Found ${data.customers.length} customers in CSV`, 'info'); }
-            else throw new Error('For Excel: Save As → CSV first, then upload');
-
-            prog(50, 'Importing to ERP...');
-            log('⬆️ Sending to ERP backend...', 'info');
-            const { data: importResponse } = await api.post<{ success: boolean; results: Record<string, EntityImportStats> }>(
-                '/api/migrate/full-import',
-                data,
-            );
-            const backendResults = importResponse.results ?? {};
-
-            for (const { key, emoji, label } of ENTITY_IMPORT_LOGS) {
-                const stats = backendResults[key];
-                if (!stats) continue;
-                const hasErrors = (stats.errors?.length ?? 0) > 0 || (stats.failed ?? 0) > 0;
-                log(`${emoji} ${label}: ${formatEntityCounts(stats)}`, hasErrors ? 'warn' : 'success');
-                for (const err of stats.errors ?? []) {
-                    log(`   ↳ ${err}`, 'error');
-                }
+            let data: Record<string, unknown>;
+            if (ext === 'db' || ext === 'sqlite') {
+                prog(8, 'Opening database...');
+                log('📂 Opening BETTANO database...', 'info');
+                data = await extractAllData(await file.arrayBuffer());
+            } else if (ext === 'csv' || ext === 'txt') {
+                prog(8, 'Parsing CSV...');
+                data = await parseCsv(await file.text());
+                log(`📋 Found ${(data.customers as unknown[])?.length ?? 0} customers in CSV`, 'info');
+            } else {
+                throw new Error('For Excel: Save As → CSV first, then upload');
             }
 
-            prog(100, 'Done!');
-            setDone(true);
-            setResults({
-                customers: (backendResults.customers?.created || 0) + (backendResults.customers?.updated || 0),
-                products: (backendResults.products?.created || 0) + (backendResults.products?.updated || 0),
-                suppliers: (backendResults.suppliers?.created || 0) + (backendResults.suppliers?.updated || 0),
-                invoices: backendResults.invoices?.created || 0,
-                supplierPurchases: backendResults.purchase_orders?.created || 0,
-                supplierPayments: backendResults.supplier_payments?.created || 0,
-            });
-            log('🎉 Migration complete! Suppliers populated with their POs and payments.', 'success');
-        } catch (e: any) { log(`❌ ${e.message}`, 'error'); prog(0, ''); }
-        finally { setBusy(false); }
+            prog(12, 'Starting server import...');
+            log('⬆️ Sending to ERP backend...', 'info');
+
+            try {
+                const { data: asyncStart } = await api.post<{ job_id: number; status: string }>(
+                    '/api/migrate/full-import-async',
+                    data,
+                );
+                if (asyncStart?.job_id) {
+                    startAsyncImport(asyncStart.job_id);
+                    return;
+                }
+                throw new Error('Async import did not return a job id');
+            } catch (asyncErr: any) {
+                if (asyncErr?.response?.status === 404) {
+                    await runSyncImport(data);
+                    return;
+                }
+                throw asyncErr;
+            }
+        } catch (e: any) {
+            stopPolling();
+            const msg = e?.response?.data?.detail || e?.message || 'Import failed';
+            finishImportFailure(typeof msg === 'string' ? msg : JSON.stringify(msg));
+        }
     };
 
     const clearAll = async () => {
@@ -334,7 +535,7 @@ export default function DataMigration() {
         try {
             const { data } = await api.delete<{ deleted: number }>('/api/migrate/clear-all');
             log(`✅ Cleared ${data.deleted} customers`, 'success');
-            setResults(null); setDone(false);
+            setResults(null); setDone(false); setTieOut(null); setImportFailed(false);
         } catch (e: any) { log(`❌ ${e.message}`, 'error'); }
         finally { setBusy(false); }
     };
@@ -380,10 +581,10 @@ export default function DataMigration() {
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
                 <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-3">Upload Your File</p>
                 <div onDragOver={e => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
-                    onDrop={e => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files[0]; if (f) { setFile(f); setResults(null); setDone(false); setLogs([]); } }}
+                    onDrop={e => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files[0]; if (f) { setFile(f); setResults(null); setDone(false); setLogs([]); setImportFailed(false); setTieOut(null); } }}
                     onClick={() => document.getElementById('mig-ai-file')?.click()}
                     className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all ${drag ? 'border-blue-400 bg-blue-50' : file ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200 hover:border-orange-400 hover:bg-orange-50'}`}>
-                    <input id="mig-ai-file" type="file" accept=".db,.sqlite,.csv,.xlsx,.xls,.txt" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) { setFile(f); setResults(null); setDone(false); setLogs([]); } }} />
+                    <input id="mig-ai-file" type="file" accept=".db,.sqlite,.csv,.xlsx,.xls,.txt" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) { setFile(f); setResults(null); setDone(false); setLogs([]); setImportFailed(false); setTieOut(null); } }} />
                     {file ? (
                         <div>
                             <div className="text-4xl mb-2">{isDb ? '🗄️' : '📋'}</div>
@@ -411,7 +612,7 @@ export default function DataMigration() {
                     <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                         <div className="h-full bg-gradient-to-r from-orange-400 to-orange-600 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
                     </div>
-                    <p className="text-xs text-gray-400 mt-2">Please wait — do not close this tab</p>
+                    <p className="text-xs text-gray-400 mt-2">Please wait — do not close this tab (import continues on the server)</p>
                 </div>
             )}
 
@@ -426,19 +627,36 @@ export default function DataMigration() {
                 </div>
             )}
 
+            {importFailed && (
+                <div className="bg-red-50 border border-red-200 rounded-2xl p-5">
+                    <p className="font-black text-red-800 text-base">Import did not complete</p>
+                    <p className="text-sm text-red-700 mt-1">Check the log above for details. Re-uploading the same file is safe.</p>
+                </div>
+            )}
+
             {done && results && (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5">
                     <div className="flex items-center gap-3 mb-4">
                         <CheckCircle size={22} className="text-emerald-600" />
                         <div>
-                            <p className="font-black text-emerald-800 text-base">🎉 Migration Complete!</p>
+                            <p className="font-black text-emerald-800 text-base">✅ Upload complete — your data has been imported and your books are balanced.</p>
                             <p className="text-xs text-emerald-600 mt-0.5">Real outstanding balances imported correctly</p>
                         </div>
                     </div>
+                    {tieOut && tieOut.gl_ar !== undefined && (
+                        <div className="mb-4 rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm text-emerald-900">
+                            <p className="font-black text-xs uppercase tracking-widest text-emerald-700 mb-1">AR tie-out</p>
+                            <p>GL Accounts Receivable: <strong>${Number(tieOut.gl_ar).toFixed(2)}</strong></p>
+                            <p>Customer balances: <strong>${Number(tieOut.customer_balances ?? 0).toFixed(2)}</strong></p>
+                            <p>Difference: <strong>${Number(tieOut.difference ?? 0).toFixed(2)}</strong></p>
+                        </div>
+                    )}
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-4">
                         {(results.customers ?? 0) > 0 && <div className="bg-white rounded-xl p-3 text-center border border-emerald-100"><p className="text-2xl font-black">{results.customers?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Customers</p></div>}
                         {(results.products ?? 0) > 0 && <div className="bg-white rounded-xl p-3 text-center border border-emerald-100"><p className="text-2xl font-black">{results.products?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Products</p></div>}
                         {(results.invoices ?? 0) > 0 && <div className="bg-white rounded-xl p-3 text-center border border-emerald-100"><p className="text-2xl font-black">{results.invoices?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Invoices</p></div>}
+                        {(results.payments ?? 0) > 0 && <div className="bg-white rounded-xl p-3 text-center border border-emerald-100"><p className="text-2xl font-black">{results.payments?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Payments</p></div>}
+                        {(results.salesReturns ?? 0) > 0 && <div className="bg-white rounded-xl p-3 text-center border border-emerald-100"><p className="text-2xl font-black">{results.salesReturns?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Sales Returns</p></div>}
                         {(results.suppliers ?? 0) > 0 && <div className="bg-white rounded-xl p-3 text-center border border-emerald-100"><p className="text-2xl font-black">{results.suppliers?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Suppliers</p></div>}
                         {(results.supplierPurchases ?? 0) > 0 && <div className="bg-white rounded-xl p-3 text-center border border-emerald-100"><p className="text-2xl font-black">{results.supplierPurchases?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Supplier POs</p></div>}
                         {(results.supplierPayments ?? 0) > 0 && <div className="bg-white rounded-xl p-3 text-center border border-emerald-100"><p className="text-2xl font-black">{results.supplierPayments?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Supplier Pays</p></div>}
