@@ -181,22 +181,37 @@ export default function DataMigration() {
 
         // ORDER BY keeps the first row per item name deterministic when multiple UOM rows exist.
         const prodRows = q(`SELECT item, units_name, sku, item_desc, defaultsellingprice, defaultpurchaseprice FROM item_measure WHERE item IS NOT NULL AND TRIM(item) != '' ORDER BY item ASC, units_name ASC`);
+        const stockNetRows = q(`
+            SELECT item, SUM(u) AS net FROM (
+                SELECT item, units AS u FROM purchases
+                UNION ALL SELECT item, -units AS u FROM sales
+            ) GROUP BY item
+        `);
+        const stockByItem: Record<string, number> = {};
+        for (const r of stockNetRows) {
+            const itemName = String(r.item || '').trim();
+            if (!itemName) continue;
+            stockByItem[itemName] = Math.max(0, Math.round(parseMigrationNum(r.net)));
+        }
         const productByName = new Map<string, Record<string, unknown>>();
         for (const r of prodRows) {
             const name = String(r.item || '').trim().slice(0, 150);
             if (!name || productByName.has(name)) continue;
             productByName.set(name, r);
         }
-        const products = Array.from(productByName.values()).map((r: any) => ({
-            name: String(r.item || '').trim().slice(0, 150),
+        const products = Array.from(productByName.values()).map((r: any) => {
+            const name = String(r.item || '').trim().slice(0, 150);
+            return {
+            name,
             sku: String(r.sku || '').replace('SKU:', '').trim().slice(0, 100),
             description: String(r.item_desc || r.units_name || '').slice(0, 300),
             price: parseMigrationNum(r.defaultsellingprice),
             cost: parseMigrationNum(r.defaultpurchaseprice),
-            stock: 0,
+            stock: stockByItem[name] ?? 0,
             category: 'Imported',
             unit: String(r.units_name || 'unit').slice(0, 50),
-        })).filter((p: any) => p.name);
+        };
+        }).filter((p: any) => p.name);
 
         const invRows = q(`SELECT date, vch_no, debit as customer_name, amount, narration FROM vouchers WHERE v_type='Sales' ORDER BY date`);
         const invoices = invRows.map((r: any) => ({ invoice_number: String(r.vch_no || '').slice(0, 100), customer_name: String(r.customer_name || '').trim(), date: String(r.date || ''), amount: parseMigrationNum(r.amount), notes: String(r.narration || ''), status: 'paid' })).filter((i: any) => i.customer_name && i.amount > 0);
@@ -205,7 +220,8 @@ export default function DataMigration() {
         const payments = payRows.map((r: any) => ({ reference: String(r.vch_no || '').slice(0, 100), customer_name: String(r.customer_name || '').trim(), date: String(r.date || ''), amount: parseMigrationNum(r.amount) })).filter((p: any) => p.customer_name && p.amount > 0);
 
         db.close();
-        log(`📦 ${products.length} products, ${suppliers.length} suppliers, ${invoices.length} invoices, ${payments.length} payments`, 'info');
+        const stockedCount = products.filter((p: any) => (p.stock ?? 0) > 0).length;
+        log(`📦 ${products.length} products (${stockedCount} with stock from purchases−sales), ${suppliers.length} suppliers, ${invoices.length} invoices, ${payments.length} payments`, 'info');
         log(`🛒 ${purchase_orders.length} supplier POs, ${supplier_payments.length} supplier payments`, 'info');
         return { customers, suppliers, products, invoices, payments, purchase_orders, supplier_payments };
     };
