@@ -1,6 +1,6 @@
 import { type FormEvent, useState } from 'react';
 import { Navigate, Link, useNavigate } from 'react-router-dom';
-import { Loader2, Lock, User, UserCircle } from 'lucide-react';
+import { Loader2, Lock, User } from 'lucide-react';
 import PasswordInput from '../components/ui/PasswordInput';
 import { useAuth } from '../contexts/AuthContext';
 import { isStaging } from '../config/appEnv';
@@ -42,7 +42,6 @@ export default function LoginPage() {
   const [userFocused, setUserFocused] = useState(false);
   const [passFocused, setPassFocused] = useState(false);
   const [signInHover, setSignInHover] = useState(false);
-  const [guestHover, setGuestHover] = useState(false);
 
   if (!isLoading && isAuthenticated) {
     return <Navigate to="/" replace />;
@@ -57,19 +56,6 @@ export default function LoginPage() {
       navigate('/', { replace: true });
     } catch (err) {
       setError(loginErrorMessage(err, 'Invalid username or password'));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleGuestLogin = async () => {
-    setError('');
-    setSubmitting(true);
-    try {
-      await login('demo', 'demo');
-      navigate('/', { replace: true });
-    } catch (err) {
-      setError(loginErrorMessage(err, 'Guest login is unavailable right now'));
     } finally {
       setSubmitting(false);
     }
@@ -255,35 +241,6 @@ export default function LoginPage() {
             Sign In
           </button>
         </form>
-
-        <div className="flex items-center" style={{ margin: '18px 0' }}>
-          <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.1)' }} />
-          <span style={{ padding: '0 12px', fontSize: '13px', color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>or</span>
-          <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.1)' }} />
-        </div>
-
-        <button
-          type="button"
-          onClick={handleGuestLogin}
-          disabled={submitting || isLoading}
-          onMouseEnter={() => setGuestHover(true)}
-          onMouseLeave={() => setGuestHover(false)}
-          className="flex w-full items-center justify-center disabled:opacity-60"
-          style={{
-            background: guestHover ? 'rgba(79,107,244,0.08)' : 'transparent',
-            color: '#85B7EB',
-            border: `1px solid ${guestHover ? 'rgba(79,107,244,0.8)' : 'rgba(79,107,244,0.5)'}`,
-            borderRadius: '9px',
-            padding: '13px',
-            fontSize: '15px',
-            fontWeight: 500,
-            gap: '8px',
-            transition: 'background-color 0.15s, border-color 0.15s',
-          }}
-        >
-          <UserCircle size={18} />
-          Sign in as Guest
-        </button>
 
         {!isStaging && (
           <>

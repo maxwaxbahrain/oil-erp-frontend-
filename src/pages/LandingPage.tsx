@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 const C = {
   bgMain: '#06080f',
@@ -205,9 +205,9 @@ export default function LandingPage() {
         )}
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <a href="https://app.soltol.com/login" style={{ fontSize: 11, color: C.accentLight, border: '1px solid rgba(79,107,244,0.4)', background: 'rgba(79,107,244,0.08)', borderRadius: 7, padding: '6px 14px', textDecoration: 'none' }}>
+          <Link to="/login" style={{ fontSize: 11, color: C.accentLight, border: '1px solid rgba(79,107,244,0.4)', background: 'rgba(79,107,244,0.08)', borderRadius: 7, padding: '6px 14px', textDecoration: 'none' }}>
             Sign in
-          </a>
+          </Link>
           {!isMobile && (
             <button type="button" onClick={() => scrollToId('waitlist')} style={{ fontSize: 11, color: C.textPrimary, background: C.accent, border: 'none', borderRadius: 7, padding: '7px 16px', fontWeight: 500, cursor: 'pointer', fontFamily: font }}>
               Get free demo
@@ -264,6 +264,35 @@ export default function LandingPage() {
           Voice invoicing, AI forecasting, driver app, credit intelligence — speak in your language, run your business your way.
         </p>
 
+        <div style={{ maxWidth: 420, margin: '0 auto 28px' }}>
+          <Link
+            to="/signup"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: isMobile ? '100%' : 'auto',
+              minHeight: 52,
+              margin: '0 auto',
+              padding: '14px 36px',
+              background: C.accent,
+              color: C.textPrimary,
+              border: 'none',
+              borderRadius: 10,
+              fontSize: 16,
+              fontWeight: 700,
+              textDecoration: 'none',
+              fontFamily: font,
+              boxSizing: 'border-box',
+            }}
+          >
+            Start free trial
+          </Link>
+          <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', marginTop: 10, marginBottom: 0 }}>
+            Free 7-day trial · No credit card · Cancel anytime
+          </p>
+        </div>
+
         <p style={{ fontSize: 12, color: C.textTertiary, marginBottom: 8 }}>I am a</p>
         <div style={{ display: 'flex', justifyContent: 'center', gap: 5, flexWrap: 'wrap', marginBottom: 16 }}>
           {PERSONA_TABS.map((tab, idx) => {
@@ -300,22 +329,51 @@ export default function LandingPage() {
         </div>
 
         <div style={{ maxWidth: 420, margin: '0 auto' }}>
-          <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'center', gap: 6, marginBottom: 8 }}>
+          <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'center', alignItems: 'center', gap: 6, marginBottom: 8 }}>
             <input
               type="email"
               value={heroEmail}
               onChange={(e) => setHeroEmail(e.target.value)}
               placeholder="Enter your work email"
-              style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, padding: '12px 16px', fontSize: 14, color: C.textPrimary, width: isMobile ? '100%' : 260, boxSizing: 'border-box', fontFamily: font }}
+              style={{ background: 'transparent', border: '1px solid rgba(79,107,244,0.35)', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: C.textPrimary, width: isMobile ? '100%' : 220, boxSizing: 'border-box', fontFamily: font }}
             />
-            <button type="button" onClick={() => joinWaitlist(heroEmail, () => scrollToId('waitlist'))} style={{ background: C.accent, color: C.textPrimary, border: 'none', borderRadius: 8, padding: '13px 28px', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: font, whiteSpace: 'nowrap', minWidth: 190 }}>
+            <button
+              type="button"
+              onClick={() => joinWaitlist(heroEmail, () => scrollToId('waitlist'))}
+              style={{
+                background: 'transparent',
+                color: C.accentLight,
+                border: '1px solid rgba(79,107,244,0.45)',
+                borderRadius: 8,
+                padding: '10px 18px',
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: 'pointer',
+                fontFamily: font,
+                whiteSpace: 'nowrap',
+              }}
+            >
               Join waitlist free
             </button>
-            <button type="button" onClick={() => scrollToId('voice')} style={{ background: 'transparent', color: 'rgba(255,255,255,0.5)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, padding: '10px 14px', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, fontFamily: font }}>
-              <TablerIcon name="player-play" size={12} /> Demo
-            </button>
           </div>
-          <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', marginBottom: 14 }}>Free 7-day trial at launch · No credit card · Cancel any time</p>
+          <button
+            type="button"
+            onClick={() => scrollToId('voice')}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'rgba(255,255,255,0.45)',
+              fontSize: 12,
+              cursor: 'pointer',
+              fontFamily: font,
+              marginBottom: 14,
+              padding: 0,
+              textDecoration: 'underline',
+              textUnderlineOffset: 3,
+            }}
+          >
+            <TablerIcon name="player-play" size={11} /> Demo
+          </button>
           <div style={{ display: 'flex', justifyContent: 'center', gap: 14, flexWrap: 'wrap', marginBottom: 20 }}>
             {['Go live in days', 'Switch from QuickBooks easily', '100% private data', '36+ languages'].map((t) => (
               <span key={t} style={{ fontSize: 15, color: C.textSecondary, display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -471,7 +529,7 @@ export default function LandingPage() {
             </div>
           ))}
         </div>
-        <button type="button" style={{ fontSize: 12, color: C.textSecondary, border: '0.5px solid rgba(255,255,255,0.15)', borderRadius: 8, padding: '8px 20px', background: 'transparent', cursor: 'pointer', fontFamily: font }}>
+        <button type="button" onClick={() => scrollToId('features')} style={{ fontSize: 12, color: C.textSecondary, border: '0.5px solid rgba(255,255,255,0.15)', borderRadius: 8, padding: '8px 20px', background: 'transparent', cursor: 'pointer', fontFamily: font }}>
           View all 80+ features →
         </button>
       </section>
@@ -735,10 +793,10 @@ export default function LandingPage() {
         <div style={{ background: 'rgba(79,107,244,0.1)', border: '1px solid rgba(79,107,244,0.25)', borderRadius: 20, padding: '5px 12px', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.accentLight }}>
           <div style={{ width: 5, height: 5, borderRadius: '50%', background: C.green }} /> Live support
         </div>
-        <div style={{ display: 'flex', gap: 14, fontSize: 12, color: 'rgba(255,255,255,0.22)' }}>
-          <span>Privacy</span>
-          <span>Terms</span>
-          <span>Contact</span>
+        <div style={{ display: 'flex', gap: 14, fontSize: 12, color: 'rgba(255,255,255,0.22)', cursor: 'default' }}>
+          <span style={{ cursor: 'default' }}>Privacy</span>
+          <span style={{ cursor: 'default' }}>Terms</span>
+          <span style={{ cursor: 'default' }}>Contact</span>
         </div>
       </footer>
     </div>
