@@ -42,6 +42,7 @@ export default function LoginPage() {
   const [userFocused, setUserFocused] = useState(false);
   const [passFocused, setPassFocused] = useState(false);
   const [signInHover, setSignInHover] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
 
   if (!isLoading && isAuthenticated) {
     return <Navigate to="/" replace />;
@@ -52,7 +53,7 @@ export default function LoginPage() {
     setError('');
     setSubmitting(true);
     try {
-      await login(username.trim(), password);
+      await login(username.trim(), password, rememberMe);
       navigate('/', { replace: true });
     } catch (err) {
       setError(loginErrorMessage(err, 'Invalid username or password'));
@@ -213,6 +214,24 @@ export default function LoginPage() {
               </Link>
             </div>
           </div>
+
+          <label
+            className="flex cursor-pointer items-center gap-2.5"
+            style={{ fontSize: '13px', color: 'rgba(255,255,255,0.65)' }}
+          >
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              style={{
+                width: '16px',
+                height: '16px',
+                accentColor: '#4F6BF4',
+                cursor: 'pointer',
+              }}
+            />
+            Keep me signed in for 7 days
+          </label>
 
           {error && (
             <p className="rounded-lg px-3 py-2 text-sm" style={{ background: 'rgba(239,68,68,0.12)', color: '#FCA5A5' }}>

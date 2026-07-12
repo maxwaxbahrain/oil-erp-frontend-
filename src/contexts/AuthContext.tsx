@@ -32,7 +32,7 @@ interface AuthContextValue {
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (username: string, password: string) => Promise<void>;
+  login: (username: string, password: string, rememberMe?: boolean) => Promise<void>;
   logout: () => void;
   hasRole: (...roles: AuthRole[]) => boolean;
 }
@@ -104,8 +104,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void restoreSession();
   }, [restoreSession]);
 
-  const login = useCallback(async (username: string, password: string) => {
-    const { data } = await api.post<LoginResponse>('/api/auth/login', { username, password });
+  const login = useCallback(async (username: string, password: string, rememberMe = false) => {
+    const { data } = await api.post<LoginResponse>('/api/auth/login', {
+      username,
+      password,
+      remember_me: rememberMe,
+    });
     const nextUser: AuthUser = {
       username: data.username,
       full_name: data.full_name,
