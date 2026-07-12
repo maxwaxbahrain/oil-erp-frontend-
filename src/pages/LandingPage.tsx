@@ -794,7 +794,7 @@ export default function LandingPage() {
           <div style={{ width: 5, height: 5, borderRadius: '50%', background: C.green }} /> Live support
         </div>
         <div style={{ display: 'flex', gap: 14, fontSize: 12, color: 'rgba(255,255,255,0.22)', cursor: 'default' }}>
-          <span style={{ cursor: 'default' }}>Privacy</span>
+          <Link to="/privacy" style={{ color: 'rgba(255,255,255,0.22)', textDecoration: 'none' }}>Privacy</Link>
           <span style={{ cursor: 'default' }}>Terms</span>
           <span style={{ cursor: 'default' }}>Contact</span>
         </div>

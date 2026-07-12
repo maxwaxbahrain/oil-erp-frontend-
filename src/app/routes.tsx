@@ -10,6 +10,7 @@ import SignupPage from '../pages/SignupPage';
 import ForgotPasswordPage from '../pages/ForgotPasswordPage';
 import ResetPasswordPage from '../pages/ResetPasswordPage';
 import LandingPage from '../pages/LandingPage';
+import PrivacyPolicy from '../pages/PrivacyPolicy';
 import BillingPage from '../pages/BillingPage';
 import BillingCheckoutSuccess from '../pages/Billing/BillingCheckoutSuccess';
 import BillingCheckoutCancel from '../pages/Billing/BillingCheckoutCancel';
@@ -172,6 +173,7 @@ export const AppRoutes = () => {
     return (
         <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/privacy" element={<PrivacyPolicy />} />
             <Route path="/signup" element={isStaging ? <Navigate to="/login" replace /> : <SignupPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
