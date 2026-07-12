@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Search, Trash2, Loader2, ShoppingCart, Copy, Plus, UserPlus, X } from 'lucide-react';
-import { getCustomers, getProducts, getCustomerInvoices, type Customer, type Product, type Invoice } from '../../services/api';
+import { ArrowLeft, Search, Trash2, Loader2, ShoppingCart, Copy, Plus, UserPlus, X, Truck } from 'lucide-react';
+import { getCustomers, getProducts, getCustomerInvoices, getVans, type Customer, type Product, type Invoice, type Van } from '../../services/api';
 import { getCustomer, getCustomerPayments, type Payment } from '../../services/customerService';
 import { createSalesOrder, getSalesOrders, type SalesOrderItem, type SalesOrderStatus, type SalesOrder } from '../../services/salesService';
 // ITEM 12 — Salesman dropdown + inline quick-add (mirror of ITEM 7A on
@@ -158,14 +158,30 @@ export default function SalesOrderFormPage() {
   const [panelInvoices, setPanelInvoices] = useState<Invoice[]>([]);
   const [panelPayments, setPanelPayments] = useState<Payment[]>([]);
 
+  const [vans, setVans] = useState<Van[]>([]);
+  const [selectedVanId, setSelectedVanId] = useState('');
+
+  const activeVans = useMemo(
+    () => vans.filter((v) => (v.status || 'active') === 'active'),
+    [vans]
+  );
+
+  const confirmVanReady =
+    activeVans.length === 1 || (activeVans.length > 1 && !!selectedVanId);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [c, p] = await Promise.all([getCustomers(), getProducts()]);
+        const [c, p, v] = await Promise.all([getCustomers(), getProducts(), getVans()]);
         if (!cancelled) {
           setCustomers(c);
           setProducts(p);
+          const active = (Array.isArray(v) ? v : []).filter(
+            (van) => (van.status || 'active') === 'active'
+          );
+          setVans(active);
+          if (active.length === 1) setSelectedVanId(active[0].id);
           if (preCustomerId) {
             const found = c.find((x) => String(x.id) === String(preCustomerId));
             if (found) setSelectedCustomer(found);
@@ -381,6 +397,16 @@ export default function SalesOrderFormPage() {
       alert('Add at least one product');
       return;
     }
+    if (status === 'confirmed') {
+      if (activeVans.length === 0) {
+        alert('No active vans available. Add a van before confirming.');
+        return;
+      }
+      if (activeVans.length > 1 && !selectedVanId) {
+        alert('Select a van for delivery');
+        return;
+      }
+    }
 
     setSubmitting(true);
     setSubmittingStatus(status);
@@ -395,7 +421,10 @@ export default function SalesOrderFormPage() {
         status,
         // ITEM 12 — resolve the selected salesman id → name for the API payload.
         salesman_name: salesmen.find(s => s.id === salesmanId)?.name || undefined,
-        van_id: null,
+        van_id:
+          status === 'confirmed'
+            ? selectedVanId || activeVans[0]?.id || null
+            : null,
         payment_status: 'unpaid',
         subtotal,
         tax,
@@ -785,6 +814,55 @@ export default function SalesOrderFormPage() {
         );
       })()}
 
+      <div className={`${sectionCard}`}>
+        <div className="flex items-center gap-2 mb-2">
+          <Truck size={16} style={{ color: THEME_PRIMARY }} />
+          <label className="block text-xs font-black text-gray-500 ">Deliver by van</label>
+        </div>
+        {activeVans.length === 0 ? (
+          <p className="min-h-[52px] flex items-center px-4 rounded-xl border border-amber-200 bg-amber-50 text-sm font-bold text-amber-900">
+            No active vans available
+          </p>
+        ) : activeVans.length === 1 ? (
+          <div
+            className="min-h-[52px] rounded-xl px-4 py-3 flex items-center gap-3"
+            style={{
+              background: 'var(--color-background-secondary)',
+              border: '0.5px solid var(--color-border-info)',
+            }}
+          >
+            <Truck size={20} style={{ color: THEME_PRIMARY, flexShrink: 0 }} />
+            <div className="min-w-0">
+              <p className="font-black text-gray-900 text-base truncate">
+                {activeVans[0].van_number}
+              </p>
+              <p className="text-xs font-bold text-gray-500 truncate">
+                {activeVans[0].driver_name}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <select
+              value={selectedVanId}
+              onChange={(e) => setSelectedVanId(e.target.value)}
+              className="w-full min-h-[56px] rounded-xl border-2 border-gray-200 px-4 text-base font-bold bg-white shadow-sm focus:ring-2 focus:ring-[#4F8EF7]/25 focus:border-[#4F8EF7] outline-none appearance-none"
+              style={{ WebkitAppearance: 'none' }}
+            >
+              <option value="">Select a van…</option>
+              {activeVans.map((van) => (
+                <option key={van.id} value={van.id}>
+                  {van.van_number} — {van.driver_name}
+                </option>
+              ))}
+            </select>
+            {!selectedVanId && (
+              <p className="text-sm font-bold text-amber-700 px-1">Select a van before confirming</p>
+            )}
+          </div>
+        )}
+      </div>
+
       <div className={`${sectionCard} relative z-20`}>
         <label className="block text-xs font-black text-gray-500 ">Add products</label>
         <div className="relative">
@@ -972,7 +1050,11 @@ export default function SalesOrderFormPage() {
           </button>
           <button
             type="button"
-            disabled={submitting && submittingStatus !== 'confirmed'}
+            disabled={
+              (submitting && submittingStatus !== 'confirmed') ||
+              activeVans.length === 0 ||
+              !confirmVanReady
+            }
             aria-busy={submittingStatus === 'confirmed'}
             onClick={() => submit('confirmed')}
             style={{
@@ -984,8 +1066,16 @@ export default function SalesOrderFormPage() {
                 padding: '9px 14px',
                 fontSize: 12,
                 fontWeight: 600,
-                cursor: submitting ? 'not-allowed' : 'pointer',
-                opacity: (submitting && submittingStatus !== 'confirmed') ? 0.5 : 1,
+                cursor:
+                  submitting || activeVans.length === 0 || !confirmVanReady
+                    ? 'not-allowed'
+                    : 'pointer',
+                opacity:
+                  (submitting && submittingStatus !== 'confirmed') ||
+                  activeVans.length === 0 ||
+                  !confirmVanReady
+                    ? 0.5
+                    : 1,
                 fontFamily: 'inherit',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}
