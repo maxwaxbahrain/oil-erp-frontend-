@@ -249,7 +249,7 @@ export default function Sidebar({
 
                 {canSeeManagement && (
                 <>
-                {/* EXPENSES — admin + manager + accountant */}
+                {/* EXPENSES + REPORTS — admin + manager + accountant only */}
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
                     Expenses
                 </div>
@@ -271,13 +271,6 @@ export default function Sidebar({
                     )}
                 </div>
 
-                <div className="h-px bg-white/5 my-3 mx-2" />
-                </>
-                )}
-
-                {canSeeManagement && (
-                <>
-                {/* REPORTS — admin + manager + accountant */}
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
                     Reports
                 </div>
@@ -296,11 +289,11 @@ export default function Sidebar({
                             <NavItem to="/reports/aged-receivable" icon={Clock} label="Aged Receivable" />
                             <NavItem to="/reports/aged-payable" icon={Clock} label="Aged Payable" />
                             <NavItem to="/reports/outstanding-bills" icon={FileText} label="Outstanding Bills" />
+                            <NavItem to="/reports/sales" icon={TrendingUp} label="Profitability Reports" />
+                            <NavItem to="/reports/demand-forecast" icon={TrendingUp} label="Demand Forecast" />
                         </div>
                     )}
                 </div>
-
-                <NavItem to="/reports/sales" icon={TrendingUp} label="Profitability Reports" />
 
                 <div className="h-px bg-white/5 my-3 mx-2" />
                 </>
@@ -399,7 +392,6 @@ export default function Sidebar({
                             <NavItem to="/ai/anomaly" icon={AlertTriangle} label="Anomaly Detection" />
                             <NavItem to="/ai/customer-forecast" icon={Users} label="Customer Forecast" />
                             <NavItem to="/ai/revenue-forecast" icon={DollarSign} label="Revenue Forecast" />
-                            <NavItem to="/reports/demand-forecast" icon={TrendingUp} label="Demand Forecast" />
                         </div>
                     )}
                 </div>

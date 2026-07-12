@@ -280,6 +280,7 @@ export const AppRoutes = () => {
             <Route path="/reports/day-book" element={<DayBook />} />
             <Route path="/reports/trial-balance" element={<TrialBalance />} />
             <Route path="/reports/financial" element={<ProfitabilityReports />} />
+            <Route path="/reports/demand-forecast" element={<AccountingSetupRequired />} />
             <Route path="/reports" element={<ReportsDashboard />} />
             <Route path="/reports/*" element={<ReportsDashboard />} />
             </Route>
@@ -329,7 +330,6 @@ export const AppRoutes = () => {
             <Route path="/marketing/segments" element={<CustomerSegments />} />
             <Route path="/marketing/campaigns" element={<CampaignManager />} />
             <Route path="/marketing/analytics" element={<MarketingAnalytics />} />
-            <Route path="/reports/demand-forecast" element={<AccountingSetupRequired />} />
             </Route>
 
             {/* Employee Portal - Module 15 */}
