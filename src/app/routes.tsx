@@ -2,7 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { Construction } from 'lucide-react';
 import ProtectedRoute from '../components/ProtectedRoute';
 import ProductionLockedRoute from './ProductionLockedRoute';
-import { FINANCE_ROLES, MANAGEMENT_ROLES, SALES_PREMIUM_ROLES } from '../utils/rbac';
+import { FINANCE_ROLES, MANAGEMENT_ROLES, SALES_INTEL_ROLES, SPOD_AI_ROLES, SPOD_COMMON_ROLES, SALES_TOOL_ROLES, DRIVER_TOOL_ROLES, INTERNAL_WEB_ROLES, SALES_VOICE_ROLES } from '../utils/rbac';
 import { isStaging } from '../config/appEnv';
 import AccountingSetupRequired from '../components/common/AccountingSetupRequired';
 import LoginPage from '../pages/LoginPage';
@@ -179,41 +179,28 @@ export const AppRoutes = () => {
             <Route path="/" element={<LandingPage />} />
 
             <Route element={<ProtectedRoute />}>
+            {/* SPOD common — core self-service, catalog read, PULSE */}
+            <Route element={<ProtectedRoute roles={SPOD_COMMON_ROLES} />}>
             <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/sales/dashboard" element={<SalesDashboard />} />
-            <Route path="/warehouse/dashboard" element={<WarehouseDashboard />} />
-
+            <Route path="/portal" element={<EmployeePortal />} />
             <Route path="/products" element={<ProductManagement />} />
-            <Route path="/products/new" element={<ProductForm />} />
             <Route path="/products/:id" element={<ProductOverview />} />
-            <Route path="/products/edit/:id" element={<ProductForm />} />
-            <Route path="/products/import" element={<InvoiceImport />} />
+            <Route path="/pulse" element={<Pulse />} />
+            <Route path="/pulse/notes" element={<MeetingNotes />} />
+            </Route>
 
-            <Route path="/inventory" element={<Navigate to="/products" replace />} />
-            <Route path="/inventory/transfer" element={<StockTransfer />} />
-            <Route path="/inventory/ai-stock-control" element={<AIStockControl />} />
-
-            {/* Procurement */}
-            <Route path="/purchases" element={<PurchasesDashboard />} />
-            <Route path="/purchases/new" element={<PurchaseOrderForm />} />
-            <Route path="/purchases/suppliers" element={<SupplierList />} />
-            <Route path="/suppliers/new" element={<SupplierForm />} />
-            <Route path="/suppliers/:id" element={<SupplierDetail />} />
-            <Route path="/suppliers/edit/:id" element={<SupplierForm />} />
-            <Route path="/receiving" element={<GoodsReceivedList />} />
-            <Route path="/receiving/new" element={<GoodsReceivedForm />} />
-            <Route path="/receiving/:id" element={<GoodsReceivedForm />} />
-
-            {/* Sales & Revenue */}
-            <Route path="/sales" element={<SalesOverview />} />
+            {/* Sales SPOD tools — sales + internal staff (not driver) */}
+            <Route element={<ProtectedRoute roles={SALES_TOOL_ROLES} />}>
+            <Route path="/customers" element={<CustomerList />} />
+            <Route path="/customers/new" element={<CustomerFormPage />} />
+            <Route path="/customers/edit/:id" element={<CustomerEditPage />} />
+            <Route path="/customers/:id" element={<CustomerOverview />} />
             <Route path="/sales/orders" element={<SalesOrdersWorkflow />} />
             <Route path="/sales/orders/new" element={<SalesOrderFormPage />} />
             <Route path="/sales/orders/:id" element={<SalesOrderDetailPage />} />
             <Route path="/sales/quotations" element={<Quotations />} />
             <Route path="/sales/quotations/new" element={<QuotationFormPage />} />
             <Route path="/sales/quotations/:id" element={<QuotationFormPage />} />
-            <Route path="/sales/estimates" element={<PlaceholderPage title="Sales Estimates" />} />
-            <Route path="/sales/delivery-notes" element={<PlaceholderPage title="Delivery Notes" />} />
             <Route path="/sales/invoices" element={<Invoices />} />
             <Route path="/sales/invoices/new" element={<InvoiceFormPage />} />
             <Route path="/sales/invoices/:id" element={<InvoiceFormPage />} />
@@ -225,28 +212,78 @@ export const AppRoutes = () => {
             <Route path="/sales/credit-notes/new" element={<CreditNoteFormPage />} />
             <Route path="/sales/credit-notes/edit/:id" element={<CreditNoteFormPage />} />
             <Route path="/sales/credit-notes/:id" element={<CreditNoteDetailPage />} />
-            <Route path="/sales/receipts" element={<PlaceholderPage title="Customer Receipts" />} />
-            <Route path="/sales/payments" element={<PlaceholderPage title="Payments Received" />} />
             <Route path="/sales/price-lists" element={<CustomerPriceLists />} />
             <Route path="/sales/recurring" element={<RecurringInvoices />} />
+            </Route>
 
+            {/* Driver SPOD tools — logistics (not sales) */}
+            <Route element={<ProtectedRoute roles={DRIVER_TOOL_ROLES} />}>
+            <Route path="/logistics/pod" element={<DriverApp />} />
+            <Route path="/pod/driver" element={<DriverApp />} />
+            <Route path="/logistics/operations" element={<VanOperations />} />
+            <Route path="/logistics/routes" element={<RouteNavigator />} />
+            <Route path="/routes" element={<Navigate to="/logistics/routes" replace />} />
+            </Route>
+
+            {/* SPOD AI subset — ARIA, Marcus, AI Hub, news */}
+            <Route element={<ProductionLockedRoute />}>
+            <Route element={<ProtectedRoute roles={SPOD_AI_ROLES} />}>
+            <Route path="/agents/customer-service" element={<CustomerServiceAgent />} />
+            <Route path="/agents/business-advisor" element={<BusinessAdvisorAgent />} />
+            <Route path="/ai/hub" element={<AIHubDashboard />} />
+            <Route path="/news" element={<NewsIntelligence />} />
+            </Route>
+            </Route>
+
+            {/* Sales voice — not for driver */}
+            <Route element={<ProductionLockedRoute />}>
+            <Route element={<ProtectedRoute roles={SALES_VOICE_ROLES} />}>
+            <Route path="/voice" element={<Navigate to="/voice/dashboard" replace />} />
+            <Route path="/voice/dashboard" element={<VoiceDashboard />} />
+            <Route path="/voice/calls" element={<VoiceCallHistory />} />
+            <Route path="/voice/calls/:callId" element={<VoiceCallDetail />} />
+            </Route>
+            </Route>
+
+            <Route path="/settings/password" element={<ChangePassword />} />
+
+            {/* Internal web staff — full ERP modules */}
+            <Route element={<ProtectedRoute roles={INTERNAL_WEB_ROLES} />}>
+            <Route path="/sales/dashboard" element={<SalesDashboard />} />
+            <Route path="/warehouse/dashboard" element={<WarehouseDashboard />} />
+            <Route path="/products/new" element={<ProductForm />} />
+            <Route path="/products/edit/:id" element={<ProductForm />} />
+            <Route path="/products/import" element={<InvoiceImport />} />
+            <Route path="/inventory" element={<Navigate to="/products" replace />} />
+            <Route path="/inventory/transfer" element={<StockTransfer />} />
+            <Route path="/inventory/ai-stock-control" element={<AIStockControl />} />
+            <Route path="/purchases" element={<PurchasesDashboard />} />
+            <Route path="/purchases/new" element={<PurchaseOrderForm />} />
+            <Route path="/purchases/suppliers" element={<SupplierList />} />
+            <Route path="/suppliers/new" element={<SupplierForm />} />
+            <Route path="/suppliers/:id" element={<SupplierDetail />} />
+            <Route path="/suppliers/edit/:id" element={<SupplierForm />} />
+            <Route path="/receiving" element={<GoodsReceivedList />} />
+            <Route path="/receiving/new" element={<GoodsReceivedForm />} />
+            <Route path="/receiving/:id" element={<GoodsReceivedForm />} />
+            <Route path="/sales" element={<SalesOverview />} />
+            <Route path="/sales/estimates" element={<PlaceholderPage title="Sales Estimates" />} />
+            <Route path="/sales/delivery-notes" element={<PlaceholderPage title="Delivery Notes" />} />
+            <Route path="/sales/receipts" element={<PlaceholderPage title="Customer Receipts" />} />
+            <Route path="/sales/payments" element={<PlaceholderPage title="Payments Received" />} />
             <Route path="/sales/by-product" element={<SalesByProduct />} />
             <Route path="/sales/by-customer" element={<SalesByCustomer />} />
             <Route path="/sales/by-salesman" element={<SalesBySalesman />} />
             <Route path="/sales/profit-analysis" element={<ProfitAnalysis />} />
             <Route path="/sales/van-performance" element={<VanPerformance />} />
-
-            {/* Van Sales Module */}
             <Route path="/van-sales" element={<VanSalesDashboard />} />
             <Route path="/van-sales/new" element={<VanSalesForm />} />
             <Route path="/van-sales/history" element={<VanSalesHistory />} />
             <Route path="/van-sales/manage-vans" element={<VanManagement />} />
-
-            {/* Customers — static paths before :id so /customers/new is not treated as an id */}
-            <Route path="/customers" element={<CustomerList />} />
-            <Route path="/customers/new" element={<CustomerFormPage />} />
-            <Route path="/customers/edit/:id" element={<CustomerEditPage />} />
-            <Route path="/customers/:id" element={<CustomerOverview />} />
+            <Route path="/pod/management" element={<ManagementDashboard />} />
+            <Route path="/pod/test" element={<Navigate to="/pod/management" replace />} />
+            <Route path="/accounts" element={<Navigate to="/finance/accounting" replace />} />
+            </Route>
 
             {/* Finance — admin + accountant only (backend require_finance) */}
             <Route element={<ProtectedRoute roles={FINANCE_ROLES} />}>
@@ -285,20 +322,25 @@ export const AppRoutes = () => {
             <Route path="/reports/*" element={<ReportsDashboard />} />
             </Route>
 
-            {/* Premium / AI features — locked on production via ProductionLockedRoute */}
+            {/* Premium / AI — internal staff only (production lock retained) */}
             <Route element={<ProductionLockedRoute />}>
-            <Route path="/ai/hub" element={<AIHubDashboard />} />
+            <Route element={<ProtectedRoute roles={INTERNAL_WEB_ROLES} />}>
             <Route path="/ai" element={<AIHub />} />
             <Route path="/ai/auto-po" element={<AutoPOGeneration />} />
             <Route path="/ai/anomaly" element={<AnomalyDetection />} />
             <Route path="/ai/customer-forecast" element={<AccountingSetupRequired />} />
             <Route path="/ai/revenue-forecast" element={<AccountingSetupRequired />} />
             <Route path="/agents" element={<AgentHub />} />
-            <Route path="/agents/customer-service" element={<CustomerServiceAgent />} />
-            <Route path="/agents/business-advisor" element={<BusinessAdvisorAgent />} />
             <Route path="/agents/email-reply" element={<EmailReplyAgent />} />
-            <Route path="/news" element={<NewsIntelligence />} />
-            <Route element={<ProtectedRoute roles={SALES_PREMIUM_ROLES} />}>
+            <Route path="/voice/analytics" element={<VoiceAnalytics />} />
+            <Route path="/voice/coaching-rules" element={<VoiceCoachingRules />} />
+            <Route path="/marketing" element={<MarketingHub />} />
+            <Route path="/marketing/studio" element={<AIContentStudio />} />
+            <Route path="/marketing/segments" element={<CustomerSegments />} />
+            <Route path="/marketing/campaigns" element={<CampaignManager />} />
+            <Route path="/marketing/analytics" element={<MarketingAnalytics />} />
+            </Route>
+            <Route element={<ProtectedRoute roles={SALES_INTEL_ROLES} />}>
             <Route path="/credit" element={<CreditIntelligence />} />
             <Route path="/crm" element={<CRMPage />} />
             <Route path="/amazon" element={<AmazonIntegration />} />
@@ -317,36 +359,7 @@ export const AppRoutes = () => {
             <Route path="/tax/advisor" element={<TaxAdvisor />} />
             <Route path="/tax/dashboard" element={<TaxDashboard />} />
             </Route>
-            <Route path="/pulse" element={<Pulse />} />
-            <Route path="/pulse/notes" element={<MeetingNotes />} />
-            <Route path="/voice" element={<Navigate to="/voice/dashboard" replace />} />
-            <Route path="/voice/dashboard" element={<VoiceDashboard />} />
-            <Route path="/voice/calls" element={<VoiceCallHistory />} />
-            <Route path="/voice/calls/:callId" element={<VoiceCallDetail />} />
-            <Route path="/voice/analytics" element={<VoiceAnalytics />} />
-            <Route path="/voice/coaching-rules" element={<VoiceCoachingRules />} />
-            <Route path="/marketing" element={<MarketingHub />} />
-            <Route path="/marketing/studio" element={<AIContentStudio />} />
-            <Route path="/marketing/segments" element={<CustomerSegments />} />
-            <Route path="/marketing/campaigns" element={<CampaignManager />} />
-            <Route path="/marketing/analytics" element={<MarketingAnalytics />} />
             </Route>
-
-            {/* Employee Portal - Module 15 */}
-            <Route path="/portal" element={<EmployeePortal />} />
-
-            <Route path="/accounts" element={<Navigate to="/finance/accounting" replace />} />
-
-            {/* Logistics & Delivery */}
-            <Route path="/logistics/pod" element={<DriverApp />} />
-            <Route path="/pod/driver" element={<DriverApp />} />
-            <Route path="/pod/management" element={<ManagementDashboard />} />
-            <Route path="/pod/test" element={<Navigate to="/pod/management" replace />} />
-            <Route path="/logistics/operations" element={<VanOperations />} />
-            <Route path="/logistics/routes" element={<RouteNavigator />} />
-            <Route path="/routes" element={<Navigate to="/logistics/routes" replace />} />
-
-            <Route path="/settings/password" element={<ChangePassword />} />
 
             {/* Admin-only routes (tenant admin role) */}
             <Route element={<ProtectedRoute roles={['admin']} />}>

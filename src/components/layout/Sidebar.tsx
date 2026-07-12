@@ -7,7 +7,8 @@ import {
     DELIVERY_ROLES,
     FINANCE_ROLES,
     MANAGEMENT_ROLES,
-    SALES_PREMIUM_ROLES,
+    SALES_INTEL_ROLES,
+    isSidebarPathAllowed,
 } from '../../utils/rbac';
 import {
     LayoutDashboard,
@@ -47,13 +48,14 @@ export default function Sidebar({
     const canSeeFinance = hasRole(...FINANCE_ROLES);
     const canSeeManagement = hasRole(...MANAGEMENT_ROLES);
     const canSeeDeliveries = hasRole(...DELIVERY_ROLES);
-    const canSeeSalesPremium = hasRole(...SALES_PREMIUM_ROLES);
+    const canSeeSalesIntel = hasRole(...SALES_INTEL_ROLES);
     const canSeeAdmin = hasRole(...ADMIN_ROLES);
+
+    const showNav = (path: string) => isSidebarPathAllowed(user?.role, path);
 
     const roleLabel = user?.role
         ? user.role.charAt(0).toUpperCase() + user.role.slice(1)
         : 'User';
-    // State for collapsible sections
     const [sections, setSections] = useState<{ [key: string]: boolean }>({
         sales: true,
         purchase: true,
@@ -72,6 +74,8 @@ export default function Sidebar({
     };
 
     const NavItem = ({ to, icon: Icon, label }: { to: string, icon: any, label: string }) => {
+        if (!showNav(to)) return null;
+
         const isActive = location.pathname === to || (to !== '/' && location.pathname.startsWith(to));
         const showLock = isProduction && isRouteLocked(to);
         return (
@@ -107,44 +111,52 @@ export default function Sidebar({
         </button>
     );
 
+    const showSalesSection = showNav('/customers') || showNav('/sales/orders');
+    const showProcurement = showNav('/purchases/suppliers') || showNav('/receiving');
+    const showPremium = showNav('/pulse') || showNav('/pulse/notes');
+    const showAgentsSection = showNav('/agents') || showNav('/agents/customer-service')
+        || showNav('/agents/business-advisor') || showNav('/agents/email-reply');
+    const showMarketing = showNav('/marketing');
+    const showVoiceSection = showNav('/voice/dashboard') || showNav('/voice/calls')
+        || showNav('/voice/analytics') || showNav('/voice/coaching-rules') || showNav('/voice/onboard');
+    const showAiIntelligence = showNav('/ai/hub') || showNav('/ai') || showNav('/ai/auto-po')
+        || showNav('/ai/anomaly') || showNav('/ai/customer-forecast') || showNav('/ai/revenue-forecast');
+
     return (
         <aside className="w-[260px] bg-redwood-midnight text-white flex flex-col z-40 border-r border-white/5 shadow-2xl h-full print:hidden">
-            {/* Sidebar Header */}
             <div className="h-[64px] flex items-center px-4 border-b border-white/5 bg-redwood-midnight/50 backdrop-blur-md shrink-0">
                 <div className="flex items-center gap-3 w-full">
-                    {/* SOLTOL ONE Logo */}
                     <div className="w-9 h-9 bg-redwood-brand rounded-sm flex items-center justify-center text-white font-black text-sm shadow-lg rotate-3 flex-shrink-0">
                         <span className="drop-shadow-sm">S</span>
                     </div>
                     <div className="flex flex-col min-w-0">
-                        {/* Software brand — always fixed */}
                         <span className="text-[11px] font-black tracking-widest leading-none text-redwood-brand uppercase">SOLTOL ONE</span>
-                        {/* Client company name — changes per customer */}
                         <span className="text-[13px] font-black tracking-tight leading-tight text-white uppercase truncate mt-0.5">{getCompanyProfile().name || 'Your Company'}</span>
                     </div>
                 </div>
             </div>
 
-            {/* Navigation Content */}
             <nav className="flex-1 mt-4 px-3 space-y-1 overflow-y-auto scrollbar-hide pb-10">
 
-                {/* CORE */}
+                {(showNav('/') || showNav('/portal') || (canSeeAdmin && showNav('/migrate'))) && (
+                <>
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-1">
                     Core
                 </div>
                 <NavItem to="/" icon={LayoutDashboard} label="Dashboard" />
                 {canSeeAdmin && <NavItem to="/migrate" icon={Database} label="📥 Data Migration" />}
                 <NavItem to="/portal" icon={User} label="Employee Portal" />
-
                 <div className="h-px bg-white/5 my-3 mx-2" />
+                </>
+                )}
 
-                {/* SALES — all authenticated roles */}
+                {showSalesSection && (
+                <>
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
                     Sales
                 </div>
                 <NavItem to="/customers" icon={Users} label="Customers" />
                 <NavItem to="/sales/orders" icon={FileText} label="Orders" />
-
                 <div>
                     <SectionHeader
                         label="Sales Orders"
@@ -162,24 +174,24 @@ export default function Sidebar({
                         </div>
                     )}
                 </div>
-
                 <div className="h-px bg-white/5 my-3 mx-2" />
+                </>
+                )}
 
-                {canSeeDeliveries && (
+                {canSeeDeliveries && (showNav('/logistics/pod') || showNav('/logistics/operations') || showNav('/logistics/routes')) && (
                 <>
-                {/* LOGISTICS */}
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
                     Logistics & Delivery
                 </div>
                 <NavItem to="/logistics/pod" icon={BarChart2} label="POD - Driver App" />
                 <NavItem to="/logistics/operations" icon={Truck} label="Van Operations" />
                 <NavItem to="/logistics/routes" icon={MapPin} label="Route Navigator" />
-
                 <div className="h-px bg-white/5 my-3 mx-2" />
                 </>
                 )}
 
-                {/* PRODUCTS & INVENTORY — catalog for all; adjustments for management */}
+                {showNav('/products') && (
+                <>
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
                     Inventory Control
                 </div>
@@ -190,16 +202,17 @@ export default function Sidebar({
                         <NavItem to="/inventory/adjustments" icon={Package} label="Stock Adjustment" />
                     </>
                 )}
-
                 <div className="h-px bg-white/5 my-3 mx-2" />
+                </>
+                )}
 
-                {/* PURCHASE */}
+                {showProcurement && (
+                <>
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
                     Procurement
                 </div>
                 <NavItem to="/purchases/suppliers" icon={Users} label="Suppliers" />
                 <NavItem to="/receiving" icon={Inbox} label="Material Receipt (GRN)" />
-
                 <div>
                     <SectionHeader
                         label="Purchase Orders"
@@ -213,12 +226,12 @@ export default function Sidebar({
                         </div>
                     )}
                 </div>
-
                 <div className="h-px bg-white/5 my-3 mx-2" />
+                </>
+                )}
 
                 {canSeeFinance && (
                 <>
-                {/* FINANCE — admin + accountant only */}
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
                     Finance
                 </div>
@@ -235,21 +248,18 @@ export default function Sidebar({
                         </div>
                     )}
                 </div>
-
                 <NavItem to="/finance/banking" icon={Globe} label="Banking" />
                 <NavItem to="/finance/chart-of-accounts" icon={BookOpen} label="Chart of Accounts" />
                 <NavItem to="/finance/all-ledger" icon={BookOpen} label="All-Accounts Ledger" />
                 <NavItem to="/finance/financial-statement" icon={FileText} label="Financial Statement" />
                 <NavItem to="/finance/journal-voucher" icon={FileText} label="Journal Voucher (JV)" />
                 <NavItem to="/finance/bad-debts" icon={AlertTriangle} label="Bad Debts Write-Off" />
-
                 <div className="h-px bg-white/5 my-3 mx-2" />
                 </>
                 )}
 
                 {canSeeManagement && (
                 <>
-                {/* EXPENSES + REPORTS — admin + manager + accountant only */}
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
                     Expenses
                 </div>
@@ -270,7 +280,6 @@ export default function Sidebar({
                         </div>
                     )}
                 </div>
-
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
                     Reports
                 </div>
@@ -294,33 +303,33 @@ export default function Sidebar({
                         </div>
                     )}
                 </div>
-
                 <div className="h-px bg-white/5 my-3 mx-2" />
                 </>
                 )}
 
-                {/* PREMIUM — locked on production */}
+                {showPremium && (
+                <>
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-amber-400/70 px-4 py-2 mt-1">
                     Premium
                 </div>
                 <NavItem to="/pulse" icon={Send} label="PULSE — Team Chat" />
                 <NavItem to="/pulse/notes" icon={FileText} label="Meeting Notes" />
-
-                {canSeeSalesPremium && (
+                {canSeeSalesIntel && (
                 <>
                 <NavItem to="/credit" icon={Shield} label="Credit Intelligence" />
                 <NavItem to="/crm" icon={BarChart2} label="CRM Pipeline" />
                 <NavItem to="/amazon" icon={Package} label="Amazon" />
                 </>
                 )}
-
                 {canSeeFinance && (
                 <NavItem to="/tax" icon={Calculator} label="Tax Management" />
                 )}
-
                 <div className="h-px bg-white/5 my-3 mx-2" />
+                </>
+                )}
 
-                {/* AGENTS */}
+                {showAgentsSection && (
+                <>
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-blue-400/80 px-4 py-2 mt-1 flex items-center gap-1.5">
                     <span>🤖</span> AI Agents
                 </div>
@@ -335,12 +344,18 @@ export default function Sidebar({
                         </div>
                     )}
                 </div>
+                </>
+                )}
 
-                {/* NEWS */}
+                {showNav('/news') && (
+                <>
                 <NewsTicker />
                 <NavItem to="/news" icon={Newspaper} label="Business News" />
+                </>
+                )}
 
-                {/* MARKETING */}
+                {showMarketing && (
+                <>
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-pink-400/80 px-4 py-2 mt-1 flex items-center gap-1.5">
                     <span>📣</span> Marketing
                 </div>
@@ -356,8 +371,11 @@ export default function Sidebar({
                         </div>
                     )}
                 </div>
+                </>
+                )}
 
-                {/* SOLTOL VOICE */}
+                {showVoiceSection && (
+                <>
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-emerald-400/80 px-4 py-2 mt-1 flex items-center gap-1.5">
                     <span>🎤</span> Soltol Voice
                 </div>
@@ -373,8 +391,11 @@ export default function Sidebar({
                         </div>
                     )}
                 </div>
+                </>
+                )}
 
-                {/* AI INTELLIGENCE */}
+                {showAiIntelligence && (
+                <>
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-orange-400/80 px-4 py-2 mt-1 flex items-center gap-1.5">
                     <span>⚡</span> AI Intelligence
                 </div>
@@ -395,12 +416,12 @@ export default function Sidebar({
                         </div>
                     )}
                 </div>
-
                 <div className="h-px bg-white/5 my-3 mx-2" />
+                </>
+                )}
 
                 {canSeeAdmin && (
                 <>
-                {/* SETTINGS (at bottom) */}
                 <NavItem to="/access-management" icon={Shield} label="User Access Management" />
                 <NavItem to="/settings" icon={Settings} label="Settings" />
                 <NavItem to="/settings/users" icon={UserCheck} label="User Management" />
@@ -409,7 +430,6 @@ export default function Sidebar({
 
             </nav>
 
-            {/* Footer Info */}
             <div className="p-4 border-t border-white/5 text-[10px] text-redwood-text-muted bg-redwood-midnight/50">
                 {user && (
                     <div className="mb-3">
