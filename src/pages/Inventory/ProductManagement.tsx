@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTracking } from '../../hooks/useTracking';
+import { useAuth } from '../../contexts/AuthContext';
+import { MANAGEMENT_ROLES } from '../../utils/rbac';
 import ProductCatalog from './ProductCatalog';
 import Categories, { type CategoriesHandle } from './Categories';
 import LowStockAlerts from './LowStockAlerts';
@@ -26,6 +28,8 @@ function getTotalStock(p: Product): number {
 
 export default function ProductManagement() {
     const navigate = useNavigate();
+    const { hasRole } = useAuth();
+    const canManageInventory = hasRole(...MANAGEMENT_ROLES);
     const { trackPage } = useTracking();
     useEffect(() => { trackPage('inventory'); }, [trackPage]);
     const categoriesRef = useRef<CategoriesHandle>(null);
@@ -33,6 +37,12 @@ export default function ProductManagement() {
     const [lowStockCount, setLowStockCount] = useState(0);
     const amazonIssueCount = 0;
     const isCategoriesTab = activeTab === 'Categories';
+
+    useEffect(() => {
+        if (!canManageInventory && activeTab === 'Stock Adjustment') {
+            setActiveTab('Products');
+        }
+    }, [canManageInventory, activeTab]);
 
     useEffect(() => {
         getProducts().then((products) => {
@@ -56,7 +66,7 @@ export default function ProductManagement() {
     const tabs: { id: TabType; label: string; badge?: number; badgeColor?: string; accent?: boolean }[] = [
         { id: 'Products', label: 'All products' },
         { id: 'Categories', label: 'Categories' },
-        { id: 'Stock Adjustment', label: 'Stock adjustment' },
+        ...(canManageInventory ? [{ id: 'Stock Adjustment' as TabType, label: 'Stock adjustment' }] : []),
         { id: 'Low Stock', label: 'Low stock alerts', badge: lowStockCount, badgeColor: C.red },
         { id: 'Amazon Listings', label: '📦 Amazon listings', badge: amazonIssueCount, badgeColor: C.orange, accent: true },
     ];
@@ -244,7 +254,7 @@ export default function ProductManagement() {
             <div style={{ padding: '12px 16px', background: C.bg }}>
                 {activeTab === 'Products' && <ProductCatalog />}
                 {activeTab === 'Categories' && <Categories ref={categoriesRef} />}
-                {activeTab === 'Stock Adjustment' && <StockAdjustmentManager />}
+                {activeTab === 'Stock Adjustment' && canManageInventory && <StockAdjustmentManager />}
                 {activeTab === 'Low Stock' && <LowStockAlerts />}
             </div>
         </div>

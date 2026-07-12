@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { Construction } from 'lucide-react';
 import ProtectedRoute from '../components/ProtectedRoute';
 import ProductionLockedRoute from './ProductionLockedRoute';
+import { FINANCE_ROLES, MANAGEMENT_ROLES, SALES_PREMIUM_ROLES } from '../utils/rbac';
 import { isStaging } from '../config/appEnv';
 import AccountingSetupRequired from '../components/common/AccountingSetupRequired';
 import LoginPage from '../pages/LoginPage';
@@ -187,11 +188,9 @@ export const AppRoutes = () => {
             <Route path="/products/:id" element={<ProductOverview />} />
             <Route path="/products/edit/:id" element={<ProductForm />} />
             <Route path="/products/import" element={<InvoiceImport />} />
-            <Route path="/products/reports" element={<InventoryReports />} />
 
             <Route path="/inventory" element={<Navigate to="/products" replace />} />
             <Route path="/inventory/transfer" element={<StockTransfer />} />
-            <Route path="/inventory/adjustments" element={<InventoryAdjustment />} />
             <Route path="/inventory/ai-stock-control" element={<AIStockControl />} />
 
             {/* Procurement */}
@@ -228,6 +227,8 @@ export const AppRoutes = () => {
             <Route path="/sales/credit-notes/:id" element={<CreditNoteDetailPage />} />
             <Route path="/sales/receipts" element={<PlaceholderPage title="Customer Receipts" />} />
             <Route path="/sales/payments" element={<PlaceholderPage title="Payments Received" />} />
+            <Route path="/sales/price-lists" element={<CustomerPriceLists />} />
+            <Route path="/sales/recurring" element={<RecurringInvoices />} />
 
             <Route path="/sales/by-product" element={<SalesByProduct />} />
             <Route path="/sales/by-customer" element={<SalesByCustomer />} />
@@ -247,27 +248,40 @@ export const AppRoutes = () => {
             <Route path="/customers/edit/:id" element={<CustomerEditPage />} />
             <Route path="/customers/:id" element={<CustomerOverview />} />
 
-            {/* Finance & Operations — admin/accountant only (matches backend finance write RBAC) */}
-            <Route element={<ProtectedRoute roles={['admin', 'accountant']} />}>
+            {/* Finance — admin + accountant only (backend require_finance) */}
+            <Route element={<ProtectedRoute roles={FINANCE_ROLES} />}>
             <Route path="/finance/dashboard" element={<FinanceDashboard />} />
-            <Route path="/finance/expenses" element={<ExpenseManagement />} />
-            <Route path="/finance/expenses/bulk-upload" element={<ExpensesBulkUpload />} />
-            <Route path="/finance/expenses/approvals" element={<ExpenseApprovals />} />
-            <Route path="/finance/expenses/mileage" element={<ExpenseMileageTracker />} />
-            <Route path="/finance/expenses/reports" element={<ExpenseReports />} />
-            <Route path="/finance/expenses/settings" element={<ExpenseSettingsPage />} />
             <Route path="/finance/payroll" element={<PayrollManagement />} />
             <Route path="/finance/accounting" element={<AccountsDashboard />} />
             <Route path="/finance/opening-balances" element={<OpeningBalances />} />
             <Route path="/finance/banking" element={<Banking />} />
             <Route path="/finance/chart-of-accounts" element={<ChartOfAccounts />} />
             <Route path="/finance/journal-voucher" element={<JournalVoucher />} />
-            {/* ITEM 11 — Central All-Accounts Ledger. */}
             <Route path="/finance/all-ledger" element={<AllAccountsLedger />} />
-            {/* TC-69 — Financial Statement (P&L, Balance Sheet, Cash Flow). */}
             <Route path="/finance/financial-statement" element={<FinancialStatement />} />
             <Route path="/finance/payment-edit" element={<PaymentEdit />} />
             <Route path="/finance/bad-debts" element={<BadDebtsJV />} />
+            </Route>
+
+            {/* Management — admin + manager + accountant (backend require_management) */}
+            <Route element={<ProtectedRoute roles={MANAGEMENT_ROLES} />}>
+            <Route path="/finance/expenses" element={<ExpenseManagement />} />
+            <Route path="/finance/expenses/bulk-upload" element={<ExpensesBulkUpload />} />
+            <Route path="/finance/expenses/approvals" element={<ExpenseApprovals />} />
+            <Route path="/finance/expenses/mileage" element={<ExpenseMileageTracker />} />
+            <Route path="/finance/expenses/reports" element={<ExpenseReports />} />
+            <Route path="/finance/expenses/settings" element={<ExpenseSettingsPage />} />
+            <Route path="/products/reports" element={<InventoryReports />} />
+            <Route path="/inventory/adjustments" element={<InventoryAdjustment />} />
+            <Route path="/reports/sales" element={<ProfitabilityReports />} />
+            <Route path="/reports/aged-receivable" element={<AgedReceivable />} />
+            <Route path="/reports/aged-payable" element={<AgedPayable />} />
+            <Route path="/reports/outstanding-bills" element={<OutstandingBills />} />
+            <Route path="/reports/day-book" element={<DayBook />} />
+            <Route path="/reports/trial-balance" element={<TrialBalance />} />
+            <Route path="/reports/financial" element={<ProfitabilityReports />} />
+            <Route path="/reports" element={<ReportsDashboard />} />
+            <Route path="/reports/*" element={<ReportsDashboard />} />
             </Route>
 
             {/* Premium / AI features — locked on production via ProductionLockedRoute */}
@@ -283,8 +297,12 @@ export const AppRoutes = () => {
             <Route path="/agents/business-advisor" element={<BusinessAdvisorAgent />} />
             <Route path="/agents/email-reply" element={<EmailReplyAgent />} />
             <Route path="/news" element={<NewsIntelligence />} />
+            <Route element={<ProtectedRoute roles={SALES_PREMIUM_ROLES} />}>
             <Route path="/credit" element={<CreditIntelligence />} />
             <Route path="/crm" element={<CRMPage />} />
+            <Route path="/amazon" element={<AmazonIntegration />} />
+            </Route>
+            <Route element={<ProtectedRoute roles={FINANCE_ROLES} />}>
             <Route path="/tax" element={<TaxSettings />} />
             <Route path="/tax/engine" element={<TaxEngine />} />
             <Route path="/tax/calculator" element={<TaxCalculatorPage />} />
@@ -297,7 +315,7 @@ export const AppRoutes = () => {
             <Route path="/tax/forms" element={<TaxFormsLibrary />} />
             <Route path="/tax/advisor" element={<TaxAdvisor />} />
             <Route path="/tax/dashboard" element={<TaxDashboard />} />
-            <Route path="/amazon" element={<AmazonIntegration />} />
+            </Route>
             <Route path="/pulse" element={<Pulse />} />
             <Route path="/pulse/notes" element={<MeetingNotes />} />
             <Route path="/voice" element={<Navigate to="/voice/dashboard" replace />} />
@@ -327,24 +345,6 @@ export const AppRoutes = () => {
             <Route path="/logistics/operations" element={<VanOperations />} />
             <Route path="/logistics/routes" element={<RouteNavigator />} />
             <Route path="/routes" element={<Navigate to="/logistics/routes" replace />} />
-
-            {/* Reports */}
-            <Route path="/reports/sales" element={<ProfitabilityReports />} />
-            <Route path="/sales/price-lists" element={<CustomerPriceLists />} />
-            <Route path="/sales/recurring" element={<RecurringInvoices />} />
-            <Route path="/reports/aged-receivable" element={<AgedReceivable />} />
-            <Route path="/reports/aged-payable" element={<AgedPayable />} />
-            <Route path="/reports/outstanding-bills" element={<OutstandingBills />} />
-            <Route path="/reports/day-book" element={<DayBook />} />
-            <Route path="/reports/trial-balance" element={<TrialBalance />} />
-            {/* TC-69 — Sidebar links "Financial Statements" → /reports/financial.
-                Point it at ProfitabilityReports, which already contains a
-                Financial Statements section with working Day Book + Trial
-                Balance navigation.  Must be declared BEFORE the catch-all
-                /reports/* below. */}
-            <Route path="/reports/financial" element={<ProfitabilityReports />} />
-            <Route path="/reports" element={<ReportsDashboard />} />
-            <Route path="/reports/*" element={<ReportsDashboard />} />
 
             <Route path="/settings/password" element={<ChangePassword />} />
 

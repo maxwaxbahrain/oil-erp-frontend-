@@ -17,6 +17,7 @@ import {
 } from '../../services/employeeService';
 import { getCurrentUser } from '../../store/authStore';
 import { useAuth } from '../../contexts/AuthContext';
+import { FINANCE_ROLES, MANAGEMENT_ROLES } from '../../utils/rbac';
 import {
   getLeaveBalanceSummary,
   getLeaveRequests,
@@ -381,9 +382,15 @@ export default function EmployeePortal() {
   const payslipsSectionRef = useRef<HTMLDivElement>(null);
   const currentUser = useMemo(() => getCurrentUser(), []);
   const { hasRole } = useAuth();
+  const canManageEmployees = hasRole(...MANAGEMENT_ROLES);
+  const canRunPayroll = hasRole(...FINANCE_ROLES);
   const canApproveLeave = hasRole('admin', 'manager');
 
   const loadEmployees = useCallback(async () => {
+    if (!canManageEmployees) {
+      setState(s => ({ ...s, employees: [], employeesLoading: false }));
+      return;
+    }
     setState(s => ({ ...s, employeesLoading: true, pageError: '' }));
     try {
       const rows = await getEmployees();
@@ -399,7 +406,7 @@ export default function EmployeePortal() {
         pageError: err instanceof Error ? err.message : 'Failed to load employees',
       }));
     }
-  }, []);
+  }, [canManageEmployees]);
 
   const loadLeaveData = useCallback(async (employeeId: string) => {
     setState(s => ({ ...s, leaveLoading: true, pageError: '' }));
@@ -1076,7 +1083,8 @@ export default function EmployeePortal() {
                 background: '#4F8EF7', color: '#fff', border: 'none',
                 borderRadius: 8, padding: '6px 13px', fontSize: 11,
                 fontWeight: 600, cursor: 'pointer',
-                display: 'flex', alignItems: 'center', gap: 5,
+                display: canManageEmployees ? 'flex' : 'none',
+                alignItems: 'center', gap: 5,
                 fontFamily: 'inherit',
               }}
             >
@@ -1286,10 +1294,13 @@ export default function EmployeePortal() {
           </div>
         </div>
 
-        {/* SECTION 3 — Team snapshot */}
+        {/* SECTION 3 — Team snapshot (management only) */}
+        {canManageEmployees && (
         <div ref={teamTableRef}>
           <SectionDivider label="TEAM SNAPSHOT — PAYROLL & HOURS" />
         </div>
+        )}
+        {canManageEmployees && (
         <div style={{
           background: C.bg3, border: `1px solid ${C.br2}`,
           borderRadius: 12, overflow: 'hidden',
@@ -1407,6 +1418,7 @@ export default function EmployeePortal() {
             </table>
           </div>
         </div>
+        )}
 
         {/* SECTION 4 — Payslips + Leave */}
         <SectionDivider label="PAYSLIPS · LEAVE · ANNOUNCEMENTS · HOLIDAYS" />
@@ -1718,8 +1730,8 @@ export default function EmployeePortal() {
           </>
         )}
 
-        {/* SECTION 4c — Payroll admin (admin/manager only) */}
-        {canApproveLeave && (
+        {/* SECTION 4c — Payroll admin (finance roles only) */}
+        {canRunPayroll && (
           <>
             <SectionDivider label="PAYROLL · RUN PAYROLL" />
             <div style={{ ...card, marginBottom: 4 }}>
@@ -1732,8 +1744,8 @@ export default function EmployeePortal() {
           </>
         )}
 
-        {/* SECTION 4d — Commission report (admin/manager only) */}
-        {canApproveLeave && (
+        {/* SECTION 4d — Commission report (management only) */}
+        {canManageEmployees && (
           <>
             <SectionDivider label="COMMISSION · OWED" />
             <div style={{ ...card, marginBottom: 4 }}>

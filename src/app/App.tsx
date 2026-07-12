@@ -30,6 +30,8 @@ import {
 } from 'lucide-react';
 import { AppRoutes } from './routes';
 import Sidebar from '../components/layout/Sidebar';
+import { useAuth } from '../contexts/AuthContext';
+import { ADMIN_ROLES, DELIVERY_ROLES, FINANCE_ROLES } from '../utils/rbac';
 import AIAssistant from '../components/AIAssistant';
 import SatisfactionSurvey from '../components/SatisfactionSurvey';
 import VoiceAssistant from '../components/VoiceAssistant/VoiceAssistant';
@@ -72,6 +74,10 @@ function roleIndexForPath(pathname: string): number {
 
 function App() {
   const location = useLocation();
+  const { hasRole } = useAuth();
+  const canSeeFinance = hasRole(...FINANCE_ROLES);
+  const canSeeDeliveries = hasRole(...DELIVERY_ROLES);
+  const canSeeAdmin = hasRole(...ADMIN_ROLES);
   const [aiCtx, setAiCtx] = useState<any>({ invoices: [], customers: [], products: [], payments: [], purchaseOrders: [] });
   // sidebarOpen drives the full drawer overlay. A separate 54px icon
   // rail (rendered below) is ALWAYS visible on lg+ and isn't affected
@@ -753,14 +759,14 @@ function App() {
         {/* Tab row — broad navigation categories with route mapping */}
         <div className="bg-redwood-midnight border-b border-[rgba(255,255,255,0.07)] px-3 flex items-end overflow-x-auto hide-scrollbar print:hidden">
           {[
-            { key: 'overview',  label: 'Overview',       route: '/dashboard',          icon: LayoutDashboard, prefix: ['/'] },
-            { key: 'finance',   label: 'Finance & Tax',  route: '/finance/dashboard',  icon: Receipt,         prefix: ['/finance', '/tax'] },
-            { key: 'warehouse', label: 'Warehouse',      route: '/warehouse/dashboard',icon: Package,         prefix: ['/warehouse', '/products', '/inventory'] },
-            { key: 'mobile',    label: 'Field & Mobile', route: '/logistics/pod',      icon: Smartphone,      prefix: ['/logistics', '/pod', '/van-sales'] },
-            { key: 'security',  label: 'Security',       route: '/settings/users',     icon: Shield,          prefix: ['/settings/users'] },
-            { key: 'sales',     label: 'Sales & CRM',    route: '/sales/dashboard',    icon: TrendingUp,      prefix: ['/sales', '/customers', '/crm'] },
-            { key: 'ai',        label: 'AI Hub',         route: '/ai/hub',             icon: Sparkles,        prefix: ['/ai', '/agents'] },
-          ].map((t) => {
+            { key: 'overview',  label: 'Overview',       route: '/dashboard',          icon: LayoutDashboard, prefix: ['/'], show: true },
+            { key: 'finance',   label: 'Finance & Tax',  route: '/finance/dashboard',  icon: Receipt,         prefix: ['/finance', '/tax'], show: canSeeFinance },
+            { key: 'warehouse', label: 'Warehouse',      route: '/warehouse/dashboard',icon: Package,         prefix: ['/warehouse', '/products', '/inventory'], show: true },
+            { key: 'mobile',    label: 'Field & Mobile', route: '/logistics/pod',      icon: Smartphone,      prefix: ['/logistics', '/pod', '/van-sales'], show: canSeeDeliveries },
+            { key: 'security',  label: 'Security',       route: '/settings/users',     icon: Shield,          prefix: ['/settings/users'], show: canSeeAdmin },
+            { key: 'sales',     label: 'Sales & CRM',    route: '/sales/dashboard',    icon: TrendingUp,      prefix: ['/sales', '/customers', '/crm'], show: true },
+            { key: 'ai',        label: 'AI Hub',         route: '/ai/hub',             icon: Sparkles,        prefix: ['/ai', '/agents'], show: true },
+          ].filter((t) => t.show).map((t) => {
             const Icon = t.icon;
             const isActive = t.key === 'overview'
               ? location.pathname === '/'
@@ -830,12 +836,12 @@ function App() {
         aria-label="Mobile navigation"
       >
         {[
-          { key: 'home',    label: 'Home',    icon: Home,            route: '/',                   prefix: ['/']                                      },
-          { key: 'finance', label: 'Finance', icon: Receipt,         route: '/finance/dashboard',  prefix: ['/finance', '/tax']                       },
-          { key: 'invoice', label: 'Invoice', icon: FileText,        route: '/sales/invoices',     prefix: ['/sales/invoices']                        },
-          { key: 'stock',   label: 'Stock',   icon: Package,         route: '/products',           prefix: ['/products', '/inventory', '/warehouse']  },
-          { key: 'menu',    label: 'Menu',    icon: Menu,            route: null,                  prefix: []                          },
-        ].map((item) => {
+          { key: 'home',    label: 'Home',    icon: Home,            route: '/',                   prefix: ['/'], show: true },
+          { key: 'finance', label: 'Finance', icon: Receipt,         route: '/finance/dashboard',  prefix: ['/finance', '/tax'], show: canSeeFinance },
+          { key: 'invoice', label: 'Invoice', icon: FileText,        route: '/sales/invoices',     prefix: ['/sales/invoices'], show: true },
+          { key: 'stock',   label: 'Stock',   icon: Package,         route: '/products',           prefix: ['/products', '/inventory', '/warehouse'], show: true },
+          { key: 'menu',    label: 'Menu',    icon: Menu,            route: null,                  prefix: [], show: true },
+        ].filter((item) => item.show).map((item) => {
           const Icon = item.icon;
           const isActive = item.key === 'home'
             ? location.pathname === '/'

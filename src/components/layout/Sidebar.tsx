@@ -3,6 +3,13 @@ import { Link, useLocation } from 'react-router-dom';
 import NewsTicker from '../NewsTicker';
 import { useAuth } from '../../contexts/AuthContext';
 import {
+    ADMIN_ROLES,
+    DELIVERY_ROLES,
+    FINANCE_ROLES,
+    MANAGEMENT_ROLES,
+    SALES_PREMIUM_ROLES,
+} from '../../utils/rbac';
+import {
     LayoutDashboard,
     Package,
     Truck,
@@ -37,11 +44,11 @@ export default function Sidebar({
     const location = useLocation();
     const { user, hasRole, logout } = useAuth();
 
-    const canSeeFinance = hasRole('admin', 'accountant');
-    const canSeeDeliveries = hasRole('admin', 'manager', 'driver');
-    const canSeeSales = hasRole('admin', 'manager', 'sales');
-    const canSeeInventory = hasRole('admin', 'manager');
-    const canSeeAdmin = hasRole('admin');
+    const canSeeFinance = hasRole(...FINANCE_ROLES);
+    const canSeeManagement = hasRole(...MANAGEMENT_ROLES);
+    const canSeeDeliveries = hasRole(...DELIVERY_ROLES);
+    const canSeeSalesPremium = hasRole(...SALES_PREMIUM_ROLES);
+    const canSeeAdmin = hasRole(...ADMIN_ROLES);
 
     const roleLabel = user?.role
         ? user.role.charAt(0).toUpperCase() + user.role.slice(1)
@@ -126,14 +133,12 @@ export default function Sidebar({
                     Core
                 </div>
                 <NavItem to="/" icon={LayoutDashboard} label="Dashboard" />
-                <NavItem to="/migrate" icon={Database} label="📥 Data Migration" />
+                {canSeeAdmin && <NavItem to="/migrate" icon={Database} label="📥 Data Migration" />}
                 <NavItem to="/portal" icon={User} label="Employee Portal" />
 
                 <div className="h-px bg-white/5 my-3 mx-2" />
 
-                {canSeeSales && (
-                <>
-                {/* SALES */}
+                {/* SALES — all authenticated roles */}
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
                     Sales
                 </div>
@@ -149,17 +154,16 @@ export default function Sidebar({
                     {sections.sales && (
                         <div className="space-y-0.5 pl-2 border-l-2 border-white/5 ml-2">
                             <NavItem to="/sales/quotations" icon={FileText} label="Quotations" />
-                            {/* POD moved to Logistics */}
                             <NavItem to="/sales/invoices" icon={FileText} label="Invoices" />
                             <NavItem to="/sales/returns" icon={RefreshCw} label="Sales Returns" />
                             <NavItem to="/sales/credit-notes" icon={FileText} label="Credit Notes" />
+                            <NavItem to="/sales/price-lists" icon={Tag} label="Customer Price Lists" />
+                            <NavItem to="/sales/recurring" icon={RefreshCw} label="Recurring Invoices" />
                         </div>
                     )}
                 </div>
 
                 <div className="h-px bg-white/5 my-3 mx-2" />
-                </>
-                )}
 
                 {canSeeDeliveries && (
                 <>
@@ -175,32 +179,19 @@ export default function Sidebar({
                 </>
                 )}
 
-                {canSeeInventory && (
-                <>
-                {/* PRODUCTS & INVENTORY */}
+                {/* PRODUCTS & INVENTORY — catalog for all; adjustments for management */}
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
                     Inventory Control
                 </div>
-
-
-                <div>
-                    <SectionHeader
-                        label="Product & Catalog"
-                        isOpen={sections.products}
-                        onClick={() => toggleSection('products')}
-                    />
-                    {sections.products && (
-                        <div className="space-y-0.5 pl-2 border-l-2 border-white/5 ml-2">
-                            <NavItem to="/products" icon={Package} label="Product Catalog" />
-                            <NavItem to="/products/reports" icon={PieChart} label="Inventory Reports" />
-                <NavItem to="/inventory/adjustments" icon={Package} label="Stock Adjustment" />
-                        </div>
-                    )}
-                </div>
+                <NavItem to="/products" icon={Package} label="Product Catalog" />
+                {canSeeManagement && (
+                    <>
+                        <NavItem to="/products/reports" icon={PieChart} label="Inventory Reports" />
+                        <NavItem to="/inventory/adjustments" icon={Package} label="Stock Adjustment" />
+                    </>
+                )}
 
                 <div className="h-px bg-white/5 my-3 mx-2" />
-                </>
-                )}
 
                 {/* PURCHASE */}
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
@@ -227,7 +218,7 @@ export default function Sidebar({
 
                 {canSeeFinance && (
                 <>
-                {/* FINANCE */}
+                {/* FINANCE — admin + accountant only */}
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
                     Finance
                 </div>
@@ -245,11 +236,26 @@ export default function Sidebar({
                     )}
                 </div>
 
-                {/* TASK 1 — Expenses module as its own collapsible with all sub-pages
-                    visible. Matches the Sales Orders / Purchase Orders pattern. */}
+                <NavItem to="/finance/banking" icon={Globe} label="Banking" />
+                <NavItem to="/finance/chart-of-accounts" icon={BookOpen} label="Chart of Accounts" />
+                <NavItem to="/finance/all-ledger" icon={BookOpen} label="All-Accounts Ledger" />
+                <NavItem to="/finance/financial-statement" icon={FileText} label="Financial Statement" />
+                <NavItem to="/finance/journal-voucher" icon={FileText} label="Journal Voucher (JV)" />
+                <NavItem to="/finance/bad-debts" icon={AlertTriangle} label="Bad Debts Write-Off" />
+
+                <div className="h-px bg-white/5 my-3 mx-2" />
+                </>
+                )}
+
+                {canSeeManagement && (
+                <>
+                {/* EXPENSES — admin + manager + accountant */}
+                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
+                    Expenses
+                </div>
                 <div>
                     <SectionHeader
-                        label="Expenses"
+                        label="Expense Management"
                         isOpen={sections.expenses}
                         onClick={() => toggleSection('expenses')}
                     />
@@ -265,20 +271,13 @@ export default function Sidebar({
                     )}
                 </div>
 
-                <NavItem to="/finance/banking" icon={Globe} label="Banking" />
-                <NavItem to="/finance/chart-of-accounts" icon={BookOpen} label="Chart of Accounts" />
-                {/* ITEM 11 — Central All-Accounts Ledger. */}
-                <NavItem to="/finance/all-ledger" icon={BookOpen} label="All-Accounts Ledger" />
-                {/* TC-69 — Financial Statement (P&L, Balance Sheet, Cash Flow). */}
-                <NavItem to="/finance/financial-statement" icon={FileText} label="Financial Statement" />
-                <NavItem to="/finance/journal-voucher" icon={FileText} label="Journal Voucher (JV)" />
-                <NavItem to="/finance/bad-debts" icon={AlertTriangle} label="Bad Debts Write-Off" />
-
                 <div className="h-px bg-white/5 my-3 mx-2" />
                 </>
                 )}
 
-                {/* REPORTS */}
+                {canSeeManagement && (
+                <>
+                {/* REPORTS — admin + manager + accountant */}
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
                     Reports
                 </div>
@@ -302,10 +301,10 @@ export default function Sidebar({
                 </div>
 
                 <NavItem to="/reports/sales" icon={TrendingUp} label="Profitability Reports" />
-                <NavItem to="/sales/price-lists" icon={Tag} label="Customer Price Lists" />
-                <NavItem to="/sales/recurring" icon={RefreshCw} label="Recurring Invoices" />
 
                 <div className="h-px bg-white/5 my-3 mx-2" />
+                </>
+                )}
 
                 {/* PREMIUM — locked on production */}
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-amber-400/70 px-4 py-2 mt-1">
@@ -314,7 +313,7 @@ export default function Sidebar({
                 <NavItem to="/pulse" icon={Send} label="PULSE — Team Chat" />
                 <NavItem to="/pulse/notes" icon={FileText} label="Meeting Notes" />
 
-                {canSeeSales && (
+                {canSeeSalesPremium && (
                 <>
                 <NavItem to="/credit" icon={Shield} label="Credit Intelligence" />
                 <NavItem to="/crm" icon={BarChart2} label="CRM Pipeline" />
