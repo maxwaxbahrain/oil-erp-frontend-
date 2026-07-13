@@ -37,9 +37,11 @@ type TrackedVan = VanLocation & {
 
 function createVanIcon(color: string, label: string, selected = false) {
   const ring = selected ? C.blue : '#ffffff';
+  const fill = selected ? C.blue : color;
   const svg = `
     <svg width="40" height="40" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="20" cy="20" r="18" fill="${color}" stroke="${ring}" stroke-width="${selected ? 3.5 : 2.5}"/>
+      <circle cx="20" cy="20" r="18" fill="${fill}" stroke="${ring}" stroke-width="${selected ? 3.5 : 2.5}"/>
+      ${selected ? `<circle cx="20" cy="20" r="19" fill="none" stroke="${C.blue}" stroke-width="2" opacity="0.5"/>` : ''}
       <text x="20" y="24" font-size="11" font-weight="bold" text-anchor="middle" fill="white">${label.slice(0, 2)}</text>
     </svg>
   `;
@@ -127,6 +129,13 @@ export default function VanTracking() {
       <style>{`
         .van-tracking-map .leaflet-container {
           background: ${C.bg};
+        }
+        .van-tracking-map .van-map-base-layer {
+          filter: hue-rotate(198deg) saturate(1.55) brightness(0.78) contrast(1.14);
+        }
+        .van-tracking-map .van-map-label-layer {
+          filter: brightness(0.88) contrast(0.92);
+          opacity: 0.82;
         }
         .van-tracking-map .leaflet-popup-content-wrapper {
           background: ${C.bg2};
@@ -318,12 +327,14 @@ export default function VanTracking() {
               style={{ height: '100%', minHeight: '420px', background: C.bg }}
             >
               <TileLayer
+                className="van-map-base-layer"
                 attribution={CARTO_ATTR}
-                url="https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png"
+                url="https://{s}.basemaps.cartocdn.com/dark_matter_nolabels/{z}/{x}/{y}{r}.png"
               />
               <TileLayer
+                className="van-map-label-layer"
                 attribution=""
-                url="https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png"
+                url="https://{s}.basemaps.cartocdn.com/dark_matter_only_labels/{z}/{x}/{y}{r}.png"
                 pane="overlayPane"
               />
               <MapFocus target={focusTarget} />
