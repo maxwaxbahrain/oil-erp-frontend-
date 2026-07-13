@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { type Customer, getCustomerLedger, type LedgerEntry } from '../../services/customerService';
+import { type Customer } from '../../services/customerService';
+import { getCustomerLedger, type PartyLedgerRow } from '../../services/api';
 
 interface CustomerLedgerProps {
   customer: Customer;
@@ -7,12 +8,17 @@ interface CustomerLedgerProps {
 }
 
 export default function CustomerLedger({ customer, onBack }: CustomerLedgerProps) {
-  const [ledger, setLedger] = useState<LedgerEntry[]>([]);
+  const [rows, setRows] = useState<PartyLedgerRow[]>([]);
+  const [openingBalance, setOpeningBalance] = useState<number | null>(null);
+  const [closingBalance, setClosingBalance] = useState<number | null>(null);
 
   useEffect(() => {
-    if (customer.id) {
-      getCustomerLedger(customer.id).then(setLedger);
-    }
+    if (!customer.id) return;
+    getCustomerLedger(customer.id).then((ledger) => {
+      setOpeningBalance(ledger.opening_balance);
+      setClosingBalance(ledger.closing_balance);
+      setRows(ledger.rows);
+    });
   }, [customer]);
 
   return (
@@ -22,7 +28,10 @@ export default function CustomerLedger({ customer, onBack }: CustomerLedgerProps
         <button onClick={onBack}>Back to List</button>
       </div>
 
-      <p>Balance: <strong>{customer.balance || 0}</strong></p>
+      <p>
+        Outstanding balance:{' '}
+        <strong>{closingBalance != null ? closingBalance.toFixed(2) : '—'}</strong>
+      </p>
 
       <table border={1} style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px', background: 'white' }}>
         <thead style={{ background: '#eee', color: '#000' }}>
@@ -37,17 +46,29 @@ export default function CustomerLedger({ customer, onBack }: CustomerLedgerProps
           </tr>
         </thead>
         <tbody>
-          {ledger.map((entry) => (
+          {openingBalance != null && (
+            <tr style={{ background: '#f5f5f5', color: '#000' }}>
+              <td colSpan={6} style={{ padding: '8px', fontWeight: 700 }}>Opening balance</td>
+              <td style={{ padding: '8px', fontWeight: 700 }}>{openingBalance.toFixed(2)}</td>
+            </tr>
+          )}
+          {rows.map((entry) => (
             <tr key={entry.id} style={{ color: '#000' }}>
-              <td style={{ padding: '8px' }}>{new Date(entry.date).toLocaleDateString()}</td>
-              <td style={{ padding: '8px' }}>{entry.description}</td>
+              <td style={{ padding: '8px' }}>{entry.date ? new Date(entry.date).toLocaleDateString() : '—'}</td>
+              <td style={{ padding: '8px' }}>{entry.description || entry.type}</td>
               <td style={{ padding: '8px' }}>{entry.van_number || '-'}</td>
               <td style={{ padding: '8px' }}>{entry.salesman_name || '-'}</td>
-              <td style={{ padding: '8px' }}>{(entry.type === 'invoice' || entry.type === 'debit' || entry.type === 'van_sale') ? entry.amount.toFixed(2) : '-'}</td>
-              <td style={{ padding: '8px' }}>{(entry.type === 'payment' || entry.type === 'credit') ? entry.amount.toFixed(2) : '-'}</td>
-              <td style={{ padding: '8px' }}>{entry.balance.toFixed(2)}</td>
+              <td style={{ padding: '8px' }}>{entry.debit > 0 ? entry.debit.toFixed(2) : '-'}</td>
+              <td style={{ padding: '8px' }}>{entry.credit > 0 ? entry.credit.toFixed(2) : '-'}</td>
+              <td style={{ padding: '8px' }}>{Number(entry.running_balance).toFixed(2)}</td>
             </tr>
           ))}
+          {closingBalance != null && (
+            <tr style={{ background: '#f5f5f5', color: '#000' }}>
+              <td colSpan={6} style={{ padding: '8px', fontWeight: 700 }}>Closing balance</td>
+              <td style={{ padding: '8px', fontWeight: 700 }}>{closingBalance.toFixed(2)}</td>
+            </tr>
+          )}
         </tbody>
       </table>
     </div>

@@ -466,15 +466,13 @@ export async function getCustomerLedger(customerId: string): Promise<LedgerEntry
         throw new Error('Failed to fetch customer ledger');
 
     const raw = await response.json();
-    const chronological = [...raw].sort((a: { date?: string; id?: string | number }, b: { date?: string; id?: string | number }) =>
-        compareLedgerByDateAsc(
-            { date: a.date, id: a.id },
-            { date: b.date, id: b.id },
-        ),
-    );
+    const rows: any[] = Array.isArray(raw)
+        ? raw
+        : Array.isArray(raw?.rows)
+            ? raw.rows
+            : [];
 
-    let runningBalance = 0;
-    const entries: LedgerEntry[] = chronological.map((entry: any) => {
+    const entries: LedgerEntry[] = rows.map((entry: any) => {
         const debit = Number(entry.debit) || 0;
         const credit = Number(entry.credit) || 0;
         const isCreditType =
@@ -483,7 +481,6 @@ export async function getCustomerLedger(customerId: string): Promise<LedgerEntry
             entry.type === 'credit_note' ||
             entry.type === 'return_credit' ||
             entry.type === 'credit_adjustment';
-        runningBalance = runningBalance + debit - credit;
         return {
             id: String(entry.id),
             customer_id: String(customerId),
@@ -491,9 +488,9 @@ export async function getCustomerLedger(customerId: string): Promise<LedgerEntry
             description: entry.description || '',
             type: entry.type || 'transaction',
             amount: isCreditType ? credit : debit,
-            debit: debit,
-            credit: credit,
-            balance: runningBalance,
+            debit,
+            credit,
+            balance: Number(entry.running_balance) || 0,
             reference: entry.reference || '',
             invoice_number: entry.reference || '',
             van_number: entry.van_number || '',
@@ -506,7 +503,7 @@ export async function getCustomerLedger(customerId: string): Promise<LedgerEntry
         };
     });
 
-    return [...entries].sort(compareLedgerByDateDesc);
+    return [...entries].sort(compareLedgerByDateAsc);
 }
 
 export async function addLedgerEntry(entry: Omit<LedgerEntry, 'id'>): Promise<LedgerEntry> {

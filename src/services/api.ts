@@ -46,6 +46,8 @@ export interface PartyLedgerRow {
   running_balance: number;
   invoice_id?: number | null;
   purchase_order_id?: number | null;
+  van_number?: string;
+  salesman_name?: string;
 }
 export interface PartyLedger {
   opening_balance: number;

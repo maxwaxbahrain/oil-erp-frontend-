@@ -33,7 +33,7 @@ import {
 import {
     getCustomers,
     getCustomerPayments,
-    compareLedgerByDateDesc,
+    compareLedgerByDateAsc,
     type Customer,
     type Payment
 } from '../../services/customerService';
@@ -336,7 +336,8 @@ export default function CustomerOverview() {
                 throw new Error('Invalid ledger response (expected opening_balance, rows, closing_balance)');
             }
             const rows = data.rows.map(mapPartyRowToDisplay);
-            setLedger([...rows].sort(compareLedgerByDateDesc));
+            // Chronological order so running_balance decreases on payments as you read down.
+            setLedger([...rows].sort(compareLedgerByDateAsc));
             setLedgerOpeningBalance(data.opening_balance);
             setLedgerClosingBalance(data.closing_balance);
         } catch (error) {
@@ -376,8 +377,8 @@ export default function CustomerOverview() {
             const ledgerEntries: LedgerEntry[] = fullLedger.rows.map(mapPartyRowToDisplay);
 
             // Calculate real stats from actual data.
-            // (1) Outstanding balance = the server-side customer.balance — same source
-            //     the Customers list shows. Single source of truth.
+            // (1) Outstanding balance = ledger closing_balance from GET .../ledger
+            //     (backend-computed; do not use stale customer.balance).
             // (2) Total sales = sum of every debit entry in the ledger (invoices +
             //     opening balance + van sales + debit notes). For BETTANO legacy
             //     customers whose invoice rows are encoded as ledger opening
@@ -390,7 +391,7 @@ export default function CustomerOverview() {
             //     date, not whatever happened to be at the end of the array. Guard
             //     date math so 'NaN days ago' never appears.
             const today = new Date();
-            const outstandingBalance = Number(customer?.balance) || 0;
+            const outstandingBalance = Number(fullLedger.closing_balance) || 0;
             const totalSales = ledgerEntries.reduce((sum, e) => sum + (Number(e.debit) || 0), 0);
             const creditLimit = customer?.credit_limit || 0;
 
@@ -1735,14 +1736,16 @@ export default function CustomerOverview() {
                                             </>
                                         )}
                                     </tbody>
-                                    {(ledgerDateFrom || ledgerDateTo) && ledgerClosingBalance !== null && (
+                                    {ledgerClosingBalance !== null && ledger.length > 0 && (
                                         <tfoot>
                                             <tr style={{ fontWeight: 700, background: 'rgba(79,142,247,.08)' }}>
                                                 <td colSpan={6} style={{ ...ledgerTfootStyle, textAlign: 'right', fontSize: 10, color: 'var(--t,#EEF2FF)', textTransform: 'uppercase', letterSpacing: '.6px' }}>
                                                     Closing balance
+                                                    {(ledgerDateFrom || ledgerDateTo) && (
                                                     <span style={{ marginLeft: 8, fontWeight: 600, color: 'var(--t2,#8BA3C7)', textTransform: 'none' }}>
                                                         (as at {ledgerDateTo || 'today'})
                                                     </span>
+                                                    )}
                                                 </td>
                                                 <td style={{ ...ledgerTfootStyle, textAlign: 'right', fontFamily: 'monospace', color: 'var(--t,#EEF2FF)' }}>
                                                     {ledgerClosingBalance.toLocaleString()}
