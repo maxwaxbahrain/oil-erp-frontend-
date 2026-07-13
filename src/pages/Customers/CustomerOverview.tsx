@@ -188,37 +188,7 @@ function mapPartyRowToDisplay(row: PartyLedgerRow): LedgerEntry {
     };
 }
 
-// ─── Document vault constants (visual-only, outside component) ──────────
-// Part of the Customer Overview V3 spec. Pure UI mockup — no service
-// calls, just renders inside the new vault panel.
-
-const DOC_FILTER_OPTIONS = ['All', 'Tax forms', 'Agreements', 'ID & compliance'] as const;
-type DocFilter = typeof DOC_FILTER_OPTIONS[number];
-
-interface CustomerDoc {
-  id: string;
-  name: string;
-  docType: string;
-  status: 'ok' | 'missing' | 'expiring';
-  uploadDate: string;
-  note: string;
-}
-
-const CUSTOMER_DOCS: CustomerDoc[] = [
-  { id: 'd1', name: 'W-9 Form',         docType: 'Tax forms',       status: 'ok',       uploadDate: '14 Jan 2024', note: 'Tax ID declaration' },
-  { id: 'd2', name: '1120 — Corp tax',  docType: 'Tax forms',       status: 'missing',  uploadDate: '',            note: 'Required for credit limit' },
-  { id: 'd3', name: 'Trade licence',    docType: 'ID & compliance', status: 'expiring', uploadDate: '3 Mar 2024',  note: 'Expires Aug 2026' },
-  { id: 'd4', name: 'Credit agreement', docType: 'Agreements',      status: 'ok',       uploadDate: '22 Jan 2024', note: 'Signed credit terms' },
-  { id: 'd5', name: 'Passport copy',    docType: 'ID & compliance', status: 'ok',       uploadDate: '14 Jan 2024', note: 'Owner ID on file' },
-  { id: 'd6', name: 'Bank letter',      docType: 'Agreements',      status: 'ok',       uploadDate: '5 Feb 2024',  note: 'Account confirmation' },
-];
-
-// Computed once — outside component, never re-runs on render.
-const DOCS_MISSING_COUNT: number = CUSTOMER_DOCS.filter(d => d.status === 'missing').length;
-
-const DOC_ICONS: Record<string, string> = {
-  d1: '📋', d2: '📄', d3: '🏢', d4: '🤝', d5: '🪪', d6: '🏦',
-};
+import DocumentVault from './DocumentVault';
 
 // Visual-only date helper (Month YYYY).
 function _fmtMonthYear(dateStr: string | undefined | null): string {
@@ -312,9 +282,8 @@ export default function CustomerOverview() {
     } | null>(null);
     const [selectedCurrency, setSelectedCurrency] = useState(WORLD_CURRENCIES[0]); // Default to USD
 
-    // V3 spec — document vault toggle + filter (visual-only).
+    // V3 spec — document vault toggle.
     const [showDocVault, setShowDocVault] = useState<boolean>(false);
-    const [docFilter, setDocFilter] = useState<DocFilter>('All');
 
     // Check for tab parameter in URL
     useEffect(() => {
@@ -884,14 +853,6 @@ export default function CustomerOverview() {
                         }}
                     >
                         📁 Documents
-                        {DOCS_MISSING_COUNT > 0 && (
-                            <span style={{
-                                background: 'rgba(239,68,68,.2)', color: '#B91C1C',
-                                fontSize: 9, padding: '1px 5px', borderRadius: 6, fontWeight: 700,
-                            }}>
-                                {DOCS_MISSING_COUNT} missing
-                            </span>
-                        )}
                     </button>
                 </div>
             </div>
@@ -973,139 +934,9 @@ export default function CustomerOverview() {
                 );
             })()}
 
-            {/* ── V3 Document vault — conditional, between stats and tabs ── */}
-            {showDocVault && (
-                <div style={{ background: 'var(--bg0,#060f1c)' }}>
-                    <div style={{
-                        background: 'var(--bg2,#0a1726)',
-                        border: '1px solid rgba(250,204,21,.25)', borderRadius: 12,
-                        overflow: 'hidden',
-                    }}>
-                        <div style={{
-                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                            padding: '12px 14px', borderBottom: '1px solid rgba(250,204,21,.15)',
-                        }}>
-                            <div>
-                                <div style={{
-                                    display: 'flex', alignItems: 'center', gap: 7,
-                                    fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)', marginBottom: 2,
-                                }}>
-                                    📁 Document vault — {customer.name}
-                                    <span style={{
-                                        background: '#FEF9C3', color: '#713F12', fontSize: 9,
-                                        fontWeight: 700, padding: '2px 7px', borderRadius: 8,
-                                    }}>
-                                        {CUSTOMER_DOCS.length} docs · {DOCS_MISSING_COUNT} missing
-                                    </span>
-                                </div>
-                                <div style={{ fontSize: 10, color: 'var(--t3,#3E5678)' }}>
-                                    Click any document to view or replace
-                                </div>
-                            </div>
-                            <button
-                                type="button"
-                                style={{
-                                    background: '#FEF08A', color: '#713F12', border: '1px solid #FACC15',
-                                    borderRadius: 8, padding: '5px 11px', fontSize: 10,
-                                    fontWeight: 600, cursor: 'pointer',
-                                }}
-                            >
-                                📤 Upload
-                            </button>
-                        </div>
-
-                        <div style={{ display: 'flex', gap: 5, padding: '8px 12px 4px', flexWrap: 'wrap' }}>
-                            {DOC_FILTER_OPTIONS.map(tag => (
-                                <span
-                                    key={tag}
-                                    onClick={() => setDocFilter(tag)}
-                                    style={{
-                                        fontSize: 10, padding: '2px 8px', borderRadius: 20, cursor: 'pointer',
-                                        background: docFilter === tag ? '#FEF9C3' : 'rgba(255,255,255,.05)',
-                                        border: docFilter === tag ? '1px solid #FACC15' : '1px solid rgba(255,255,255,.07)',
-                                        color: docFilter === tag ? '#713F12' : 'var(--t2,#8BA3C7)',
-                                    }}
-                                >
-                                    {tag}{tag === 'All' ? ` (${CUSTOMER_DOCS.length})` : ''}
-                                </span>
-                            ))}
-                        </div>
-
-                        <div style={{
-                            display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(158px,1fr))',
-                            gap: 8, padding: '8px 12px 14px',
-                        }}>
-                            {CUSTOMER_DOCS
-                                .filter(doc => docFilter === 'All' || doc.docType === docFilter)
-                                .map(doc => {
-                                    const normalBorder = doc.status === 'missing'
-                                        ? 'rgba(239,68,68,.3)' : 'rgba(255,255,255,.07)';
-                                    const badgeBg = doc.status === 'ok' ? 'rgba(34,197,94,.12)'
-                                        : doc.status === 'missing' ? 'rgba(239,68,68,.12)' : '#FEF9C3';
-                                    const badgeColor = doc.status === 'ok' ? '#16A34A'
-                                        : doc.status === 'missing' ? '#B91C1C' : '#92400E';
-                                    const badgeLabel = doc.status === 'ok' ? '✓ On file'
-                                        : doc.status === 'missing' ? '⚠ Missing' : '↻ Expiring';
-                                    return (
-                                        <div
-                                            key={doc.id}
-                                            style={{
-                                                background: 'var(--bg3,#0f1f33)', border: `1px solid ${normalBorder}`,
-                                                borderRadius: 10, padding: '10px 12px', cursor: 'pointer',
-                                                transition: 'border-color .15s',
-                                            }}
-                                            onMouseEnter={(e: React.MouseEvent<HTMLDivElement>) => { e.currentTarget.style.borderColor = '#FACC15'; }}
-                                            onMouseLeave={(e: React.MouseEvent<HTMLDivElement>) => { e.currentTarget.style.borderColor = normalBorder; }}
-                                        >
-                                            <div style={{
-                                                width: 36, height: 36, borderRadius: 8, background: '#FEF9C3',
-                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                fontSize: 17, marginBottom: 7,
-                                            }}>
-                                                {DOC_ICONS[doc.id] ?? '📄'}
-                                            </div>
-                                            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--t,#EEF2FF)', marginBottom: 2 }}>
-                                                {doc.name}
-                                            </div>
-                                            <div style={{ fontSize: 10, color: 'var(--t2,#8BA3C7)' }}>{doc.note}</div>
-                                            <div style={{
-                                                fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 8,
-                                                display: 'inline-block', marginTop: 4,
-                                                background: badgeBg, color: badgeColor,
-                                            }}>
-                                                {badgeLabel}
-                                            </div>
-                                            {doc.uploadDate && (
-                                                <div style={{ fontSize: 10, color: 'var(--t3,#3E5678)', marginTop: 3 }}>
-                                                    {doc.uploadDate}
-                                                </div>
-                                            )}
-                                        </div>
-                                    );
-                                })}
-
-                            <div
-                                style={{
-                                    background: 'rgba(250,204,21,.04)', border: '1px dashed rgba(250,204,21,.3)',
-                                    borderRadius: 10, padding: '10px 12px', cursor: 'pointer', display: 'flex',
-                                    flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                                    gap: 5, textAlign: 'center', minHeight: 92,
-                                }}
-                                onMouseEnter={(e: React.MouseEvent<HTMLDivElement>) => {
-                                    e.currentTarget.style.borderColor = '#FACC15';
-                                    e.currentTarget.style.background = 'rgba(250,204,21,.1)';
-                                }}
-                                onMouseLeave={(e: React.MouseEvent<HTMLDivElement>) => {
-                                    e.currentTarget.style.borderColor = 'rgba(250,204,21,.3)';
-                                    e.currentTarget.style.background = 'rgba(250,204,21,.04)';
-                                }}
-                            >
-                                <span style={{ fontSize: 20 }}>☁</span>
-                                <div style={{ fontSize: 11, color: 'var(--t2,#8BA3C7)' }}>Upload new document</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+            {/* ── V3 Document vault — API-backed ── */}
+            {showDocVault && id && (
+                <DocumentVault customerId={id} customerName={customer.name} />
             )}
 
             {/* Tabs — V3 dark theme */}
