@@ -178,11 +178,13 @@ export default function Sidebar({
                 </>
                 )}
 
-                {canSeeDeliveries && (showNav('/logistics/pod') || showNav('/logistics/operations') || showNav('/logistics/routes')) && (
+                {((canSeeDeliveries && (showNav('/logistics/pod') || showNav('/logistics/operations') || showNav('/logistics/routes')))
+                  || (canSeeManagement && showNav('/logistics/tracking'))) && (
                 <>
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
                     Logistics & Delivery
                 </div>
+                {canSeeManagement && <NavItem to="/logistics/tracking" icon={MapPin} label="Live Van Tracking" />}
                 <NavItem to="/logistics/pod" icon={BarChart2} label="POD - Driver App" />
                 <NavItem to="/logistics/operations" icon={Truck} label="Van Operations" />
                 <NavItem to="/logistics/routes" icon={MapPin} label="Route Navigator" />

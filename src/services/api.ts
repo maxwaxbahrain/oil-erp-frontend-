@@ -64,6 +64,17 @@ export interface Van {
   created_at?: string;
 }
 
+export interface VanLocation {
+  van_id: string;
+  latitude: number;
+  longitude: number;
+  heading?: number;
+  speed?: number;
+  recorded_at?: string;
+  van_number?: string;
+  driver_name?: string;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -622,6 +633,7 @@ export async function voidPayment(p: {
 
 // Van APIs
 export const getVans = (): Promise<Van[]> => apiRequest<Van[]>('/vans');
+export const getVanLocations = (): Promise<VanLocation[]> => apiRequest<VanLocation[]>('/vans/locations');
 export const getVan = (id: string): Promise<Van> => apiRequest<Van>(`/vans/${id}`);
 export const createVan = (data: Partial<Van>): Promise<Van> => apiRequest<Van>('/vans', { method: 'POST', body: JSON.stringify(data) });
 export const updateVan = (id: string, data: Partial<Van>): Promise<Van> => apiRequest<Van>(`/vans/${id}`, { method: 'PUT', body: JSON.stringify(data) });
