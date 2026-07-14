@@ -144,3 +144,70 @@ export const searchRouteCustomers = (params: {
   if (params.limit) qs.set('limit', String(params.limit));
   return getJson<RouteStop[]>(`/customers/route?${qs.toString()}`);
 };
+
+// --- Weekly route planner (canonical customers) ---
+
+export interface RouteWeekCustomer {
+  customer_id: number;
+  name: string;
+  address?: string | null;
+  phone?: string | null;
+  gps_location?: string | null;
+  balance: number;
+  credit_limit: number;
+  credit_left: number;
+  line_name?: string | null;
+  visit_day?: number | null;
+  visited: boolean;
+  visited_at?: string | null;
+  visited_by?: number | null;
+  pending_from_last_week: boolean;
+}
+
+export interface RouteWeekDay {
+  visit_day: number;
+  day_name: string;
+  total_count: number;
+  visited_count: number;
+  remaining_count: number;
+  customers: RouteWeekCustomer[];
+}
+
+export interface RouteWeekResponse {
+  week_start: string;
+  collected_today: number;
+  days: RouteWeekDay[];
+}
+
+export interface RouteAssignInput {
+  customer_id: number;
+  visit_day?: number | null;
+  line_name?: string | null;
+}
+
+export interface RouteAssignResult {
+  customer_id: number;
+  visit_day: number | null;
+  line_name: string | null;
+}
+
+export const getRouteWeek = () => getJson<RouteWeekResponse>('/routes/week');
+
+export const assignRouteCustomer = async (data: RouteAssignInput): Promise<RouteAssignResult> => {
+  const response = await authFetch(`${routeApiBase()}/routes/assign`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    let message = `Assign failed (${response.status})`;
+    try {
+      const err = await response.json();
+      if (typeof err?.detail === 'string') message = err.detail;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(message);
+  }
+  return response.json();
+};

@@ -27,7 +27,7 @@ import {
     TrendingUp,
     User,
     MapPin
-, Tag , BookOpen , Scale , Clock , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 , Mail , LogOut , Sparkles , Lock , Activity , Inbox } from 'lucide-react';
+, CalendarDays , Tag , BookOpen , Scale , Clock , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 , Mail , LogOut , Sparkles , Lock , Activity , Inbox } from 'lucide-react';
 import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
 import { isProduction } from '../../config/appEnv';
@@ -179,12 +179,13 @@ export default function Sidebar({
                 )}
 
                 {((canSeeDeliveries && (showNav('/logistics/pod') || showNav('/logistics/operations') || showNav('/logistics/routes')))
-                  || (canSeeManagement && showNav('/logistics/tracking'))) && (
+                  || (canSeeManagement && (showNav('/logistics/tracking') || showNav('/logistics/route-planning')))) && (
                 <>
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
                     Logistics & Delivery
                 </div>
                 {canSeeManagement && <NavItem to="/logistics/tracking" icon={MapPin} label="Live Van Tracking" />}
+                {canSeeManagement && <NavItem to="/logistics/route-planning" icon={CalendarDays} label="Route Planning" />}
                 <NavItem to="/logistics/pod" icon={BarChart2} label="POD - Driver App" />
                 <NavItem to="/logistics/operations" icon={Truck} label="Van Operations" />
                 <NavItem to="/logistics/routes" icon={MapPin} label="Route Navigator" />
