@@ -36,20 +36,21 @@ type TrackedVan = VanLocation & {
 };
 
 function createVanIcon(color: string, label: string, selected = false) {
-  const ring = selected ? C.blue : '#ffffff';
   const fill = selected ? C.blue : color;
+  const glowOpacity = selected ? 0.7 : 0.45;
   const svg = `
-    <svg width="40" height="40" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="20" cy="20" r="18" fill="${fill}" stroke="${ring}" stroke-width="${selected ? 3.5 : 2.5}"/>
-      ${selected ? `<circle cx="20" cy="20" r="19" fill="none" stroke="${C.blue}" stroke-width="2" opacity="0.5"/>` : ''}
-      <text x="20" y="24" font-size="11" font-weight="bold" text-anchor="middle" fill="white">${label.slice(0, 2)}</text>
+    <svg width="44" height="44" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="22" cy="22" r="20" fill="${C.blue}" opacity="${glowOpacity}"/>
+      <circle cx="22" cy="22" r="21" fill="none" stroke="${C.blue}" stroke-width="2" opacity="${selected ? 0.55 : 0.3}"/>
+      <circle cx="22" cy="22" r="16" fill="${fill}" stroke="#ffffff" stroke-width="${selected ? 3.5 : 2.5}"/>
+      <text x="22" y="26" font-size="11" font-weight="bold" text-anchor="middle" fill="white">${label.slice(0, 2)}</text>
     </svg>
   `;
   return new Icon({
     iconUrl: `data:image/svg+xml;base64,${btoa(svg)}`,
-    iconSize: [40, 40],
-    iconAnchor: [20, 20],
-    popupAnchor: [0, -20],
+    iconSize: [44, 44],
+    iconAnchor: [22, 22],
+    popupAnchor: [0, -22],
   });
 }
 
@@ -131,11 +132,11 @@ export default function VanTracking() {
           background: ${C.bg};
         }
         .van-tracking-map .van-map-base-layer {
-          filter: hue-rotate(198deg) saturate(1.55) brightness(0.78) contrast(1.14);
+          filter: hue-rotate(195deg) saturate(1.5) brightness(1.08) contrast(1.02);
         }
         .van-tracking-map .van-map-label-layer {
-          filter: brightness(0.88) contrast(0.92);
-          opacity: 0.82;
+          filter: brightness(1.05) contrast(1.0);
+          opacity: 0.9;
         }
         .van-tracking-map .leaflet-popup-content-wrapper {
           background: ${C.bg2};
