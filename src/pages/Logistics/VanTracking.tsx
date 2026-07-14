@@ -28,29 +28,30 @@ const C = {
   border: 'rgba(255,255,255,.07)',
 };
 
-const CARTO_ATTR =
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>';
+const OSM_ATTR =
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
 type TrackedVan = VanLocation & {
   liveStatus: VanLiveStatus;
 };
 
-function createVanIcon(color: string, label: string, selected = false) {
-  const fill = selected ? C.blue : color;
-  const glowOpacity = selected ? 0.7 : 0.45;
+function createVanIcon(_color: string, label: string, selected = false) {
+  const size = selected ? 48 : 40;
+  const radius = selected ? 18 : 15;
+  const strokeWidth = selected ? 3.5 : 2.5;
+  const cx = size / 2;
+  const cy = size / 2;
   const svg = `
-    <svg width="44" height="44" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="22" cy="22" r="20" fill="${C.blue}" opacity="${glowOpacity}"/>
-      <circle cx="22" cy="22" r="21" fill="none" stroke="${C.blue}" stroke-width="2" opacity="${selected ? 0.55 : 0.3}"/>
-      <circle cx="22" cy="22" r="16" fill="${fill}" stroke="#ffffff" stroke-width="${selected ? 3.5 : 2.5}"/>
-      <text x="22" y="26" font-size="11" font-weight="bold" text-anchor="middle" fill="white">${label.slice(0, 2)}</text>
+    <svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="${cx}" cy="${cy}" r="${radius}" fill="${C.blue}" stroke="#ffffff" stroke-width="${strokeWidth}"/>
+      <text x="${cx}" y="${cy + 4}" font-size="${selected ? 12 : 11}" font-weight="bold" text-anchor="middle" fill="white">${label.slice(0, 2)}</text>
     </svg>
   `;
   return new Icon({
     iconUrl: `data:image/svg+xml;base64,${btoa(svg)}`,
-    iconSize: [44, 44],
-    iconAnchor: [22, 22],
-    popupAnchor: [0, -22],
+    iconSize: [size, size],
+    iconAnchor: [cx, cy],
+    popupAnchor: [0, -cy],
   });
 }
 
@@ -129,14 +130,7 @@ export default function VanTracking() {
     >
       <style>{`
         .van-tracking-map .leaflet-container {
-          background: ${C.bg};
-        }
-        .van-tracking-map .van-map-base-layer {
-          filter: hue-rotate(195deg) saturate(1.5) brightness(1.08) contrast(1.02);
-        }
-        .van-tracking-map .van-map-label-layer {
-          filter: brightness(1.05) contrast(1.0);
-          opacity: 0.9;
+          background: #e8eef4;
         }
         .van-tracking-map .leaflet-popup-content-wrapper {
           background: ${C.bg2};
@@ -153,13 +147,13 @@ export default function VanTracking() {
           background: ${C.bg2};
         }
         .van-tracking-map .leaflet-control-attribution {
-          background: rgba(6,15,28,.85) !important;
-          color: ${C.dim} !important;
+          background: rgba(255,255,255,.88) !important;
+          color: #4b5563 !important;
           border-radius: 6px 0 0 0;
           font-size: 10px;
         }
         .van-tracking-map .leaflet-control-attribution a {
-          color: ${C.muted} !important;
+          color: #2563eb !important;
         }
       `}</style>
 
@@ -325,18 +319,11 @@ export default function VanTracking() {
               center={mapCenter}
               zoom={11}
               className="h-full w-full z-0"
-              style={{ height: '100%', minHeight: '420px', background: C.bg }}
+              style={{ height: '100%', minHeight: '420px', background: '#e8eef4' }}
             >
               <TileLayer
-                className="van-map-base-layer"
-                attribution={CARTO_ATTR}
-                url="https://{s}.basemaps.cartocdn.com/dark_matter_nolabels/{z}/{x}/{y}{r}.png"
-              />
-              <TileLayer
-                className="van-map-label-layer"
-                attribution=""
-                url="https://{s}.basemaps.cartocdn.com/dark_matter_only_labels/{z}/{x}/{y}{r}.png"
-                pane="overlayPane"
+                attribution={OSM_ATTR}
+                url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
               <MapFocus target={focusTarget} />
               {trackedVans.map((van) => {
