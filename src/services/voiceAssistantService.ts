@@ -99,7 +99,6 @@ const ROUTE_CATALOG = [
     '/finance/financial-statement       Financial statement',
     '/finance/bad-debts                 Bad debts write-off',
     // Reports
-    '/reports                           All reports',
     '/reports/sales                     Profitability reports',
     '/reports/demand-forecast           Demand forecast',
     '/reports/aged-receivable           Aged receivable',

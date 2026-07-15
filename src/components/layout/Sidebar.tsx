@@ -294,7 +294,6 @@ export default function Sidebar({
                     />
                     {sections.reports && (
                         <div className="space-y-0.5 pl-2 border-l-2 border-white/5 ml-2">
-                            <NavItem to="/reports" icon={BarChart2} label="All Reports" />
                             <NavItem to="/reports/financial" icon={PieChart} label="Financial Statements" />
                             <NavItem to="/reports/day-book" icon={BookOpen} label="Day Book" />
                             <NavItem to="/reports/trial-balance" icon={Scale} label="Trial Balance" />
