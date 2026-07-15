@@ -126,6 +126,14 @@ export function yearStartISO(): string {
   return `${y}-01-01`;
 }
 
+/** First day of the current month, YYYY-MM-DD (for MTD GL ranges). */
+export function monthStartISO(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}-01`;
+}
+
 export function isGLEmpty(bs: GLBalanceSheet): boolean {
   return bs.total_assets === 0 && bs.net_income === 0 && bs.total_liabilities === 0;
 }
