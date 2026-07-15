@@ -16,6 +16,7 @@ import {
     type Invoice, type Product,
 } from '../../services/api';
 import { getPurchaseOrders } from '../../services/purchasesService';
+import { getCustomerStats, type CustomerStats } from '../../services/customerService';
 import { useEscape } from '../../hooks/useEscape';
 import { calculateReceivables } from '../../utils/arMetrics';
 
@@ -71,7 +72,9 @@ export default function Dashboard() {
     const [salesOrdersData, setSalesOrdersData] = useState<any[]>([]);
     const [vansData, setVansData] = useState<any[]>([]);
     const [paymentsData, setPaymentsData] = useState<any[]>([]);
-    const [customersCount, setCustomersCount] = useState(0);
+    // DASH-4b — honest "Active customers" from GET /customers/stats
+    // (is_active AND has a non-cancelled invoice), not the total count.
+    const [customerStats, setCustomerStats] = useState<CustomerStats | null>(null);
     const [customersData, setCustomersData] = useState<any[]>([]);
     const [newCustomersThisMonth, setNewCustomersThisMonth] = useState(0);
     const [, setDataError] = useState(false);
@@ -106,7 +109,7 @@ export default function Dashboard() {
     async function loadDashboardData() {
         setRefreshing(true);
         try {
-            const [inv, prod, orders, vans, customers, pays, pos] = await Promise.all([
+            const [inv, prod, orders, vans, customers, pays, pos, stats] = await Promise.all([
                 getInvoices().catch(() => []),
                 getProducts().catch(() => []),
                 getSalesOrders().catch(() => []),
@@ -114,7 +117,9 @@ export default function Dashboard() {
                 getCustomers().catch(() => []),
                 getPayments().catch(() => []),
                 getPurchaseOrders().catch(() => []),
+                getCustomerStats().catch(() => null), // non-fatal: "Active" shows "—" if unavailable
             ]);
+            setCustomerStats(stats);
             // `pos` (purchase orders) still loaded for parity with original;
             // not surfaced in V2 layout but kept so the service call signature
             // and downstream consumers (if any) remain intact.
@@ -125,7 +130,6 @@ export default function Dashboard() {
             setVansData(Array.isArray(vans) ? vans : []);
             setPaymentsData(Array.isArray(pays) ? pays : []);
             const custList = Array.isArray(customers) ? customers : [];
-            setCustomersCount(custList.length);
             setCustomersData(custList);
 
             const now = new Date();
@@ -372,7 +376,7 @@ export default function Dashboard() {
         },
         {
             label: 'Active Customers',
-            value: String(customersCount),
+            value: customerStats ? customerStats.active_customers.toLocaleString() : '—',
             color: C.blue,
             sub: `${newCustomersThisMonth} new this month`,
         },
@@ -553,7 +557,7 @@ export default function Dashboard() {
                             { label: 'Total outstanding AR', value: `$${totalOutstanding.toLocaleString()}`,   color: C.amber },
                             { label: 'Cash collected today', value: `$${cashCollectedToday.toLocaleString()}`, color: C.green },
                             { label: 'Pending orders',       value: String(pendingOrderCount),                  color: C.blue  },
-                            { label: 'Active customers',     value: String(customersCount),                     color: C.blue  },
+                            { label: 'Active customers',     value: customerStats ? customerStats.active_customers.toLocaleString() : '—', color: C.blue  },
                             { label: 'Low stock alerts',     value: String(lowStockItems.length),               color: lowStockItems.length > 0 ? C.amber : C.green },
                             { label: 'Overdue invoices',     value: String(overdueCount),                       color: overdueCount > 0 ? C.red : C.green },
                             { label: 'Van routes today',     value: String(vansData.length),                    color: C.blue  },
