@@ -18,6 +18,10 @@ import {
 import { getPurchaseOrders } from '../../services/purchasesService';
 import { useEscape } from '../../hooks/useEscape';
 import { calculateReceivables } from '../../utils/arMetrics';
+import {
+    getGLProfitLoss, getGLBalanceSheet, isGLEmpty,
+    todayISO, monthStartISO, yearStartISO,
+} from '../../services/glService';
 
 // ── Spec colour tokens (fallback hex matches V2 mockup) ─────────
 const C = {
@@ -74,6 +78,9 @@ export default function Dashboard() {
     const [customersCount, setCustomersCount] = useState(0);
     const [customersData, setCustomersData] = useState<any[]>([]);
     const [newCustomersThisMonth, setNewCustomersThisMonth] = useState(0);
+    // DASH-5(B) — posted GL revenue (ties to P&L), shown ALONGSIDE the invoiced
+    // document totals. null = GL not set up / unavailable → displays "—".
+    const [glRevenue, setGlRevenue] = useState<{ mtd: number | null; ytd: number | null } | null>(null);
     const [, setDataError] = useState(false);
 
     // UI state
@@ -106,7 +113,7 @@ export default function Dashboard() {
     async function loadDashboardData() {
         setRefreshing(true);
         try {
-            const [inv, prod, orders, vans, customers, pays, pos] = await Promise.all([
+            const [inv, prod, orders, vans, customers, pays, pos, glBs, glPlMtd, glPlYtd] = await Promise.all([
                 getInvoices().catch(() => []),
                 getProducts().catch(() => []),
                 getSalesOrders().catch(() => []),
@@ -114,11 +121,22 @@ export default function Dashboard() {
                 getCustomers().catch(() => []),
                 getPayments().catch(() => []),
                 getPurchaseOrders().catch(() => []),
+                // DASH-5(B) — GL revenue (posted P&L). Balance sheet drives the
+                // "is GL set up?" guard, matching FinancialStatement/ProfitabilityReports.
+                getGLBalanceSheet(todayISO()).catch(() => null),
+                getGLProfitLoss(monthStartISO(), todayISO()).catch(() => null),
+                getGLProfitLoss(yearStartISO(), todayISO()).catch(() => null),
             ]);
             // `pos` (purchase orders) still loaded for parity with original;
             // not surfaced in V2 layout but kept so the service call signature
             // and downstream consumers (if any) remain intact.
             void pos;
+            const glEmpty = !glBs || isGLEmpty(glBs);
+            setGlRevenue(
+                glEmpty
+                    ? null
+                    : { mtd: glPlMtd ? glPlMtd.revenue : null, ytd: glPlYtd ? glPlYtd.revenue : null },
+            );
             setInvoices(Array.isArray(inv) ? inv : []);
             setProducts(Array.isArray(prod) ? prod : []);
             setSalesOrdersData(Array.isArray(orders) ? orders : []);
@@ -181,13 +199,16 @@ export default function Dashboard() {
             const keyYear = d.getFullYear();
             const keyMonth = d.getMonth();
             const monthLabel = d.toLocaleDateString(undefined, { month: 'short' });
-            const revenue = filteredInvoices
+            const invoiced = filteredInvoices
                 .filter((inv) => {
+                    // DASH-5(A) — exclude cancelled so the trend matches the MTD/YTD
+                    // invoiced figures (previously counted cancelled).
+                    if (String(inv.status || '').toLowerCase() === 'cancelled') return false;
                     const date = new Date(inv.invoiceDate || inv.createdAt);
                     return date.getFullYear() === keyYear && date.getMonth() === keyMonth;
                 })
                 .reduce((sum, inv) => sum + (Number(inv.grandTotal) || 0), 0);
-            points.push({ month: monthLabel, revenue });
+            points.push({ month: monthLabel, revenue: invoiced });
         }
         return points;
     }, [filteredInvoices, chartRange]);
@@ -268,17 +289,18 @@ export default function Dashboard() {
         return d === _todayStr ? sum + (Number(p.amount) || 0) : sum;
     }, 0);
 
-    const totalSalesYTD = invoices.reduce((sum, inv) => {
-        if (String(inv.status || '').toLowerCase() === 'cancelled') return sum;
+    // DASH-5(A) — YTD invoiced (non-cancelled), plus a YTD-scoped average so the
+    // "Avg invoice" tile ties to the "Invoiced YTD" beside it (was all-time,
+    // all-status ÷ all-invoice-count, which read as YTD but wasn't).
+    const ytdInvoices = invoices.filter((inv) => {
+        if (String(inv.status || '').toLowerCase() === 'cancelled') return false;
         const d = new Date(inv.invoiceDate || inv.createdAt || 0);
-        if (d.getFullYear() !== _curYear) return sum;
-        return sum + (Number(inv.grandTotal) || 0);
-    }, 0);
+        return d.getFullYear() === _curYear;
+    });
+    const totalSalesYTD = ytdInvoices.reduce((sum, inv) => sum + (Number(inv.grandTotal) || 0), 0);
 
     const totalOrderCount = invoices.length;
-    const avgOrderValue = totalOrderCount > 0
-        ? invoices.reduce((s, i) => s + (Number(i.grandTotal) || 0), 0) / totalOrderCount
-        : 0;
+    const avgInvoiceYTD = ytdInvoices.length > 0 ? totalSalesYTD / ytdInvoices.length : 0;
 
     const collectedYTD = paymentsData.reduce((sum: number, p: any) => {
         const d = p.payment_date ?? p.date ?? p.createdAt;
@@ -338,13 +360,18 @@ export default function Dashboard() {
         ? Math.max(...sortedPayments.map((p: any) => Number(p.amount) || 0), 1)
         : 1;
 
+    // DASH-5(B) — GL revenue display strings ("—" when GL isn't set up).
+    const fmtUsd0 = (n: number) => `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+    const glRevMtdStr = glRevenue && glRevenue.mtd != null ? fmtUsd0(glRevenue.mtd) : '—';
+    const glRevYtdStr = glRevenue && glRevenue.ytd != null ? fmtUsd0(glRevenue.ytd) : '—';
+
     // ── 6-cell stats row data ──────────────────────────────────
     const statCells: Array<{ label: string; value: string; color: string; sub: string }> = [
         {
-            label: 'Total Revenue (MTD)',
+            label: 'Invoiced (MTD)',
             value: `$${totalRevenueMTD.toLocaleString()}`,
             color: C.green,
-            sub: 'this month',
+            sub: 'gross invoiced',
         },
         {
             label: 'Outstanding AR',
@@ -549,7 +576,9 @@ export default function Dashboard() {
                             <span style={{ fontSize: 10, color: C.t2 }}>live</span>
                         </div>
                         {[
-                            { label: 'Revenue this month',   value: `$${totalRevenueMTD.toLocaleString()}`,    color: C.green },
+                            { label: 'Invoiced this month',  value: `$${totalRevenueMTD.toLocaleString()}`,    color: C.green },
+                            { label: 'Revenue MTD (GL)',     value: glRevMtdStr,                               color: C.green },
+                            { label: 'Revenue YTD (GL)',     value: glRevYtdStr,                               color: C.green },
                             { label: 'Total outstanding AR', value: `$${totalOutstanding.toLocaleString()}`,   color: C.amber },
                             { label: 'Cash collected today', value: `$${cashCollectedToday.toLocaleString()}`, color: C.green },
                             { label: 'Pending orders',       value: String(pendingOrderCount),                  color: C.blue  },
@@ -681,7 +710,7 @@ export default function Dashboard() {
                     <div style={{ background: C.bg3, border: `1px solid ${C.br}`, borderRadius: 12, padding: 14 }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                             <span style={{ fontSize: 12, fontWeight: 700, color: C.t }}>
-                                📈 Revenue trend — last {chartRange === '3m' ? '3' : chartRange === '6m' ? '6' : chartRange === '1y' ? '12' : `${_now.getMonth() + 1}`} months
+                                📈 Invoiced trend — last {chartRange === '3m' ? '3' : chartRange === '6m' ? '6' : chartRange === '1y' ? '12' : `${_now.getMonth() + 1}`} months
                             </span>
                             <div style={{ display: 'flex', gap: 4 }}>
                                 {(['3m', '6m', 'ytd', '1y'] as const).map(r => {
@@ -754,9 +783,9 @@ export default function Dashboard() {
                                     {/* 3 mini stats below chart */}
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6, marginTop: 8 }}>
                                         {[
-                                            { val: `$${totalSalesYTD.toLocaleString()}`, lbl: 'YTD revenue', color: C.green },
+                                            { val: `$${totalSalesYTD.toLocaleString()}`, lbl: 'Invoiced YTD', color: C.green },
                                             { val: String(totalOrderCount),               lbl: 'Orders',     color: C.blue },
-                                            { val: `$${avgOrderValue.toFixed(0)}`,        lbl: 'Avg order',  color: C.purple },
+                                            { val: `$${avgInvoiceYTD.toFixed(0)}`,        lbl: 'Avg invoice (YTD)',  color: C.purple },
                                         ].map(s => (
                                             <div key={s.lbl} style={{
                                                 background: C.bg4, borderRadius: 8, padding: 8,
