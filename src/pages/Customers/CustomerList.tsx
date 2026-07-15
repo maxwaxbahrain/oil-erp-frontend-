@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Loader2, Users } from 'lucide-react';
-import { type Customer, type ArSummary, getCustomers, getArSummary, deleteCustomer } from '../../services/customerService';
+import { type Customer, type ArSummary, type CustomerStats, getCustomers, getArSummary, getCustomerStats, deleteCustomer } from '../../services/customerService';
 
 /* Visual tokens only (layout/CSS) — mockup exact */
 const ROW_GRID =
@@ -290,6 +290,9 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   // DASH-3 — authoritative AR from GET /customers/ar-summary (ledger-consistent).
   const [arSummary, setArSummary] = useState<ArSummary | null>(null);
+  // DASH-4b — honest "Active" count from GET /customers/stats (is_active AND
+  // has a non-cancelled invoice). Replaces the dead c.status computation.
+  const [customerStats, setCustomerStats] = useState<CustomerStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -301,12 +304,14 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
     setLoading(true);
     setError(null);
     try {
-      const [data, ar] = await Promise.all([
+      const [data, ar, stats] = await Promise.all([
         getCustomers(),
         getArSummary().catch(() => null), // non-fatal: fall back to per-customer c.balance
+        getCustomerStats().catch(() => null), // non-fatal: "Active" shows "—" if unavailable
       ]);
       setCustomers(data);
       setArSummary(ar);
+      setCustomerStats(stats);
     } catch (err) {
       console.error('Failed to fetch customers:', err);
       setError(
@@ -323,13 +328,15 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
       try {
         setLoading(true);
         setError(null);
-        const [data, ar] = await Promise.all([
+        const [data, ar, stats] = await Promise.all([
           getCustomers(),
           getArSummary().catch(() => null), // non-fatal: fall back to per-customer c.balance
+          getCustomerStats().catch(() => null), // non-fatal: "Active" shows "—" if unavailable
         ]);
         if (!cancelled) {
           setCustomers(data);
           setArSummary(ar);
+          setCustomerStats(stats);
           setLoading(false);
         }
       } catch (err) {
@@ -354,8 +361,12 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
       if (now - lastSilentLoadAtRef.current < 5000) return;
       lastSilentLoadAtRef.current = now;
       try {
-        const data = await getCustomers();
+        const [data, stats] = await Promise.all([
+          getCustomers(),
+          getCustomerStats().catch(() => null),
+        ]);
         setCustomers(data);
+        if (stats) setCustomerStats(stats);
       } catch {
         /* keep previous snapshot */
       }
@@ -410,10 +421,9 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
       : customers.reduce((sum, c) => sum + Math.max(0, balanceOf(c)), 0);
     const owingCount = customers.filter((c) => balanceOf(c) > 0).length;
     const creditCount = customers.filter((c) => balanceOf(c) < 0).length;
-    const activeCount = customers.filter(
-      (c) => c.status !== 'Inactive' && c.status !== 'Suspended'
-    ).length;
-    return { total, outstandingTotal, owingCount, creditCount, activeCount };
+    // "Active" no longer derived here — comes from the backend stats endpoint
+    // (see customerStats.active_customers below).
+    return { total, outstandingTotal, owingCount, creditCount };
   }, [customers, arSummary, balanceOf]);
 
   const q = searchTerm.toLowerCase().trim();
@@ -549,9 +559,9 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
           <div style={STAT_CARD_STYLE}>
             <p style={STAT_LABEL}>Active Customers</p>
             <p style={{ margin: '6px 0 0', fontSize: 22, fontWeight: 600, color: '#34d399', fontVariantNumeric: 'tabular-nums' }}>
-              {stats.activeCount}
+              {customerStats ? customerStats.active_customers.toLocaleString() : '—'}
             </p>
-            <p style={STAT_SUB}>not inactive</p>
+            <p style={STAT_SUB}>has invoiced</p>
           </div>
         </div>
 
