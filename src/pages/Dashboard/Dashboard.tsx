@@ -18,6 +18,7 @@ import {
 import { getPurchaseOrders } from '../../services/purchasesService';
 import { useEscape } from '../../hooks/useEscape';
 import { calculateReceivables } from '../../utils/arMetrics';
+import { getArSummary, type ArSummary } from '../../services/customerService';
 
 // ── Spec colour tokens (fallback hex matches V2 mockup) ─────────
 const C = {
@@ -73,6 +74,8 @@ export default function Dashboard() {
     const [paymentsData, setPaymentsData] = useState<any[]>([]);
     const [customersCount, setCustomersCount] = useState(0);
     const [customersData, setCustomersData] = useState<any[]>([]);
+    // DASH-3 — authoritative Outstanding AR from GET /customers/ar-summary.
+    const [arSummary, setArSummary] = useState<ArSummary | null>(null);
     const [newCustomersThisMonth, setNewCustomersThisMonth] = useState(0);
     const [, setDataError] = useState(false);
 
@@ -106,7 +109,7 @@ export default function Dashboard() {
     async function loadDashboardData() {
         setRefreshing(true);
         try {
-            const [inv, prod, orders, vans, customers, pays, pos] = await Promise.all([
+            const [inv, prod, orders, vans, customers, pays, pos, ar] = await Promise.all([
                 getInvoices().catch(() => []),
                 getProducts().catch(() => []),
                 getSalesOrders().catch(() => []),
@@ -114,7 +117,9 @@ export default function Dashboard() {
                 getCustomers().catch(() => []),
                 getPayments().catch(() => []),
                 getPurchaseOrders().catch(() => []),
+                getArSummary().catch(() => null), // non-fatal: fall back to client-side calc
             ]);
+            setArSummary(ar);
             // `pos` (purchase orders) still loaded for parity with original;
             // not surfaced in V2 layout but kept so the service call signature
             // and downstream consumers (if any) remain intact.
@@ -219,11 +224,16 @@ export default function Dashboard() {
         return sum + (Number(inv.grandTotal) || 0);
     }, 0);
 
+    // Kept client-side: buckets, unpaid-invoice list, and top-outstanding
+    // customers all need per-invoice detail the ar-summary endpoint doesn't return.
     const receivables = useMemo(
         () => calculateReceivables(invoices, paymentsData, _now),
         [invoices, paymentsData],
     );
-    const totalOutstanding = receivables.total;
+    // DASH-3 — the "Outstanding AR" headline uses the authoritative,
+    // ledger-consistent endpoint total when available; falls back to the
+    // client-side receivables total if the endpoint failed to load.
+    const totalOutstanding = arSummary ? arSummary.total_outstanding : receivables.total;
     const unpaidInvoiceCount = receivables.invoices.length;
     const overdueTotal = receivables.days30 + receivables.days60 + receivables.days90;
     const overdueCount = receivables.invoices.filter(r => r.bucket !== 'current').length;
