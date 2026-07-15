@@ -29,6 +29,7 @@ import { getSuppliers } from '../../services/purchasesService';
 import { getCompanyProfile } from '../../services/settingsService';
 import { getExpensesSnapshot, type Expense } from '../../services/expenseService';
 import { calculateReceivables } from '../../utils/arMetrics';
+import { getArSummary } from '../../services/customerService';
 import { authFetch } from '../../api/axios';
 import { formatDateOnly } from '../../utils/formatters';
 import { getOilErpApiBase } from '../../config/apiBase';
@@ -334,6 +335,9 @@ interface SupplierPaymentRow {
 export default function Banking() {
     const [payments, setPayments] = useState<Payment[]>([]);
     const [invoices, setInvoices] = useState<Invoice[]>([]);
+    // DASH-3b — authoritative Outstanding AR from GET /customers/ar-summary
+    // (null until loaded / if unavailable → falls back to client-side calc).
+    const [arTotal, setArTotal] = useState<number | null>(null);
     // Supplier payments (cash going OUT). Fetched per-supplier and aggregated.
     const [supplierPayments, setSupplierPayments] = useState<{ row: SupplierPaymentRow; supplierName: string }[]>([]);
     const [loading, setLoading] = useState(true);
@@ -409,14 +413,16 @@ export default function Banking() {
         if (isRefresh) setRefreshing(true);
         else setLoading(true);
         try {
-            const [p, i, suppliers, exp] = await Promise.all([
+            const [p, i, suppliers, exp, ar] = await Promise.all([
                 getPayments().catch(() => []),
                 getInvoices().catch(() => []),
                 getSuppliers().catch(() => []),
                 getExpensesSnapshot().catch(() => ({ expenses: [], stale: true })),
+                getArSummary().catch(() => null), // non-fatal: fall back to client-side calc
             ]);
             setPayments(p);
             setInvoices(i);
+            setArTotal(ar ? ar.total_outstanding : null);
             setExpenseDataUnavailable(exp.stale);
             setExpenses(exp.stale ? [] : exp.expenses);
             const supPayLists = await Promise.all(
@@ -622,7 +628,9 @@ export default function Banking() {
     const bankDebits = allTransactions.filter(t => t.channel === 'Bank' && t.type === 'Debit').reduce((s, t) => s + t.amount, 0);
     const bankBalance = bankCredits - bankDebits;
 
-    const outstandingAR = calculateReceivables(invoices, payments).total;
+    // DASH-3b — authoritative endpoint total; falls back to the client-side
+    // calc when the ar-summary endpoint is unavailable.
+    const outstandingAR = arTotal ?? calculateReceivables(invoices, payments).total;
 
     const filtered = ledgerWithBalance.filter(t => {
         if (dateFrom && t.date < dateFrom) return false;
