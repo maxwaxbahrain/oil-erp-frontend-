@@ -117,6 +117,22 @@ export interface CustomerStats {
     average_order_value: number;
 }
 
+/** DASH-2/3 — authoritative AR summary from GET /customers/ar-summary.
+ * total_outstanding is ledger-consistent (matches the Aged Receivable report);
+ * per_customer[].balance is each customer's ledger closing balance. */
+export interface ArCustomerBalance {
+    id: number;
+    name: string;
+    balance: number;
+}
+
+export interface ArSummary {
+    as_of: string;
+    total_outstanding: number;
+    customer_count: number;
+    per_customer: ArCustomerBalance[];
+}
+
 // ============================================
 // MOCK DATA HELPERS
 // ============================================
@@ -652,6 +668,13 @@ export async function getCustomerStats(): Promise<CustomerStats> {
     return response.json();
 }
 
+/** DASH-3 — authoritative Outstanding AR (one backend source of truth). */
+export async function getArSummary(): Promise<ArSummary> {
+    const response = await authFetch(apiUrl('customers/ar-summary'));
+    if (!response.ok) throw new Error('Failed to fetch AR summary');
+    return response.json();
+}
+
 export async function searchCustomers(query: string): Promise<Customer[]> {
     if (USE_MOCK) {
         await delay(300);
@@ -706,6 +729,7 @@ export default {
     // Analytics
     getOverdueCustomers,
     getCustomerStats,
+    getArSummary,
     searchCustomers,
 
     syncRoutePriorityToCustomers,

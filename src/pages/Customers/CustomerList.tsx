@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Loader2, Users } from 'lucide-react';
-import { type Customer, getCustomers, deleteCustomer } from '../../services/customerService';
+import { type Customer, type ArSummary, getCustomers, getArSummary, deleteCustomer } from '../../services/customerService';
 
 /* Visual tokens only (layout/CSS) — mockup exact */
 const ROW_GRID =
@@ -85,7 +85,7 @@ function formatRelativeDate(d?: string): string {
   }
 }
 
-function statusBadge(c: Customer): { label: string; style: React.CSSProperties } {
+function statusBadge(c: Customer, bal: number): { label: string; style: React.CSSProperties } {
   const base: React.CSSProperties = {
     display: 'inline-block',
     fontSize: 10,
@@ -93,7 +93,6 @@ function statusBadge(c: Customer): { label: string; style: React.CSSProperties }
     padding: '2px 10px',
     borderRadius: 9999,
   };
-  const bal = Number(c.balance ?? 0);
   if (c.status === 'Suspended')
     return {
       label: 'Suspended',
@@ -163,13 +162,13 @@ function formatOutstanding(bal: number): { text: string; style: React.CSSPropert
   };
 }
 
-function exportCustomersCsv(rows: Customer[]) {
+function exportCustomersCsv(rows: Customer[], balanceOf: (c: Customer) => number) {
   const escape = (v: string) => `"${String(v).replace(/"/g, '""')}"`;
   const lines = [
     ['Name', 'ID', 'Phone', 'Outstanding', 'Status'].join(','),
     ...rows.map((c) => {
-      const bal = Number(c.balance ?? 0);
-      const badge = statusBadge(c);
+      const bal = balanceOf(c);
+      const badge = statusBadge(c, bal);
       return [
         escape(c.name),
         escape(c.code ?? `CUST-${c.id}`),
@@ -289,6 +288,8 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const [customers, setCustomers] = useState<Customer[]>([]);
+  // DASH-3 — authoritative AR from GET /customers/ar-summary (ledger-consistent).
+  const [arSummary, setArSummary] = useState<ArSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -300,8 +301,12 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
     setLoading(true);
     setError(null);
     try {
-      const data = await getCustomers();
+      const [data, ar] = await Promise.all([
+        getCustomers(),
+        getArSummary().catch(() => null), // non-fatal: fall back to per-customer c.balance
+      ]);
       setCustomers(data);
+      setArSummary(ar);
     } catch (err) {
       console.error('Failed to fetch customers:', err);
       setError(
@@ -318,9 +323,13 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
       try {
         setLoading(true);
         setError(null);
-        const data = await getCustomers();
+        const [data, ar] = await Promise.all([
+          getCustomers(),
+          getArSummary().catch(() => null), // non-fatal: fall back to per-customer c.balance
+        ]);
         if (!cancelled) {
           setCustomers(data);
+          setArSummary(ar);
           setLoading(false);
         }
       } catch (err) {
@@ -377,16 +386,35 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
     }
   }
 
+  // DASH-3 — authoritative per-customer balance keyed by id (ledger closing
+  // balance from /customers/ar-summary), with fallback to the row's own
+  // c.balance when a customer isn't in the summary (or the summary failed).
+  const arBalanceById = useMemo(() => {
+    const m = new Map<string, number>();
+    arSummary?.per_customer.forEach((p) => m.set(String(p.id), p.balance));
+    return m;
+  }, [arSummary]);
+  const balanceOf = useCallback(
+    (c: Customer) => {
+      const key = String(c.id);
+      return arBalanceById.has(key) ? arBalanceById.get(key)! : Number(c.balance ?? 0);
+    },
+    [arBalanceById]
+  );
+
   const stats = useMemo(() => {
     const total = customers.length;
-    const outstandingTotal = customers.reduce((sum, c) => sum + Math.max(0, Number(c.balance ?? 0)), 0);
-    const owingCount = customers.filter((c) => Number(c.balance ?? 0) > 0).length;
-    const creditCount = customers.filter((c) => Number(c.balance ?? 0) < 0).length;
+    // Header total is the authoritative endpoint value when available.
+    const outstandingTotal = arSummary
+      ? arSummary.total_outstanding
+      : customers.reduce((sum, c) => sum + Math.max(0, balanceOf(c)), 0);
+    const owingCount = customers.filter((c) => balanceOf(c) > 0).length;
+    const creditCount = customers.filter((c) => balanceOf(c) < 0).length;
     const activeCount = customers.filter(
       (c) => c.status !== 'Inactive' && c.status !== 'Suspended'
     ).length;
     return { total, outstandingTotal, owingCount, creditCount, activeCount };
-  }, [customers]);
+  }, [customers, arSummary, balanceOf]);
 
   const q = searchTerm.toLowerCase().trim();
   const filteredCustomers = useMemo(() => {
@@ -400,7 +428,7 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
         !q || name.includes(q) || idStr.includes(q) || code.includes(q) || addr.includes(q) || city.includes(q);
       if (!matchesSearch) return false;
 
-      const bal = Number(customer.balance ?? 0);
+      const bal = balanceOf(customer);
       if (statusFilter === 'pending') return bal > 0;
       if (statusFilter === 'clear') return bal === 0;
       if (statusFilter === 'credit') return bal < 0;
@@ -408,14 +436,14 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
         return customer.status === 'Inactive' || customer.status === 'Suspended';
       return true;
     });
-  }, [customers, q, statusFilter]);
+  }, [customers, q, statusFilter, balanceOf]);
 
   const sortedCustomers = useMemo(() => {
     const list = [...filteredCustomers];
     if (sortByBalance) {
       list.sort((a, b) => {
-        const ba = Number(a.balance ?? 0);
-        const bb = Number(b.balance ?? 0);
+        const ba = balanceOf(a);
+        const bb = balanceOf(b);
         if (ba > 0 && bb <= 0) return -1;
         if (bb > 0 && ba <= 0) return 1;
         return bb - ba;
@@ -424,7 +452,7 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
       list.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
     }
     return list;
-  }, [filteredCustomers, sortByBalance]);
+  }, [filteredCustomers, sortByBalance, balanceOf]);
 
   const filterLabel =
     statusFilter === 'all'
@@ -645,7 +673,7 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
             </button>
             <button
               type="button"
-              onClick={() => exportCustomersCsv(sortedCustomers)}
+              onClick={() => exportCustomersCsv(sortedCustomers, balanceOf)}
               disabled={sortedCustomers.length === 0}
               style={{ ...TOOL_BTN_STYLE, opacity: sortedCustomers.length === 0 ? 0.4 : 1 }}
             >
@@ -771,9 +799,9 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
                     {sortedCustomers.map((c) => {
                       const colors = avatarColors(c.id);
-                      const bal = Number(c.balance ?? 0);
+                      const bal = balanceOf(c);
                       const out = formatOutstanding(bal);
-                      const badge = statusBadge(c);
+                      const badge = statusBadge(c, bal);
                       return (
                         <div
                           key={c.id}
