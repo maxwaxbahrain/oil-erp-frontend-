@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { Upload, CheckCircle, RefreshCw, Trash2, Users, Package, FileText, CreditCard, TrendingUp, Zap } from 'lucide-react';
+import { Upload, CheckCircle, RefreshCw, Trash2, Users, Package, FileText, CreditCard, TrendingUp, Zap, AlertTriangle } from 'lucide-react';
 import api from '../../api/axios';
 
 interface LogEntry { time: string; msg: string; type: 'info' | 'success' | 'error' | 'warn'; }
@@ -16,13 +16,25 @@ interface Results {
 interface EntityImportStats { created?: number; updated?: number; skipped?: number; failed?: number; errors?: string[]; }
 interface GlImportStats { posted?: number; skipped?: number; failed?: number; }
 interface TieOut { gl_ar?: number; customer_balances?: number; difference?: number; }
+interface CompletenessCheck { count?: number; sample?: string[]; difference?: number; ok?: boolean; gl_ar?: number; customer_balances?: number; }
+interface ImportCompleteness {
+    complete: boolean;
+    checks: Record<string, CompletenessCheck>;
+    warnings: string[];
+}
+interface BackendImportResults {
+    gl?: Record<string, GlImportStats>;
+    tie_out?: TieOut;
+    completeness?: ImportCompleteness;
+    [key: string]: EntityImportStats | ImportCompleteness | TieOut | Record<string, GlImportStats> | undefined;
+}
 interface ImportJobStatus {
     job_id: number;
     status: 'pending' | 'running' | 'completed' | 'failed';
     phase?: string | null;
     processed?: number;
     total?: number;
-    results?: Record<string, EntityImportStats & { gl?: Record<string, EntityImportStats>; tie_out?: TieOut }> | null;
+    results?: BackendImportResults | null;
     error?: string | null;
     updated_at?: string | null;
 }
@@ -75,6 +87,7 @@ export default function DataMigration() {
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const [results, setResults] = useState<Results | null>(null);
     const [tieOut, setTieOut] = useState<TieOut | null>(null);
+    const [completeness, setCompleteness] = useState<ImportCompleteness | null>(null);
     const [done, setDone] = useState(false);
     const [importFailed, setImportFailed] = useState(false);
 
@@ -326,7 +339,7 @@ export default function DataMigration() {
         return { customers, suppliers: [], products: [], invoices: [], payments: [] };
     };
 
-    const summarizeBackendResults = useCallback((backendResults: Record<string, any>) => {
+    const summarizeBackendResults = useCallback((backendResults: BackendImportResults) => {
         for (const { key, emoji, label } of ENTITY_IMPORT_LOGS) {
             const stats = backendResults[key] as EntityImportStats | undefined;
             if (!stats) continue;
@@ -345,35 +358,59 @@ export default function DataMigration() {
             if (glParts) log(`📒 GL posting — ${glParts}`, 'success');
         }
 
-        const tie = backendResults.tie_out as TieOut | undefined;
-        if (tie && tie.gl_ar !== undefined) {
-            setTieOut(tie);
+        const tie = backendResults.tie_out;
+        const completenessResult = backendResults.completeness;
+        setCompleteness(completenessResult ?? null);
+
+        const arTieOut = completenessResult?.checks?.ar_tie_out;
+        const tieForDisplay: TieOut | undefined = arTieOut?.gl_ar !== undefined
+            ? {
+                gl_ar: arTieOut.gl_ar,
+                customer_balances: arTieOut.customer_balances,
+                difference: arTieOut.difference,
+            }
+            : tie;
+
+        if (tieForDisplay && tieForDisplay.gl_ar !== undefined) {
+            setTieOut(tieForDisplay);
             log(
-                `📊 AR tie-out — GL AR: $${Number(tie.gl_ar).toFixed(2)}, customer balances: $${Number(tie.customer_balances ?? 0).toFixed(2)}, diff: $${Number(tie.difference ?? 0).toFixed(2)}`,
-                Math.abs(Number(tie.difference ?? 0)) <= 0.01 ? 'success' : 'warn',
+                `📊 AR tie-out — GL AR: $${Number(tieForDisplay.gl_ar).toFixed(2)}, customer balances: $${Number(tieForDisplay.customer_balances ?? 0).toFixed(2)}, diff: $${Number(tieForDisplay.difference ?? 0).toFixed(2)}`,
+                Math.abs(Number(tieForDisplay.difference ?? 0)) <= 0.01 ? 'success' : 'warn',
             );
         } else {
             setTieOut(null);
         }
 
+        if (completenessResult && !completenessResult.complete) {
+            for (const warning of completenessResult.warnings) {
+                log(`⚠️ ${warning}`, 'warn');
+            }
+        }
+
         setResults({
-            customers: (backendResults.customers?.created || 0) + (backendResults.customers?.updated || 0),
-            products: (backendResults.products?.created || 0) + (backendResults.products?.updated || 0),
-            suppliers: (backendResults.suppliers?.created || 0) + (backendResults.suppliers?.updated || 0),
-            invoices: backendResults.invoices?.created || 0,
-            payments: backendResults.payments?.created || 0,
-            salesReturns: backendResults.sales_returns?.created || 0,
-            supplierPurchases: backendResults.purchase_orders?.created || 0,
-            supplierPayments: backendResults.supplier_payments?.created || 0,
+            customers: ((backendResults.customers as EntityImportStats | undefined)?.created || 0) + ((backendResults.customers as EntityImportStats | undefined)?.updated || 0),
+            products: ((backendResults.products as EntityImportStats | undefined)?.created || 0) + ((backendResults.products as EntityImportStats | undefined)?.updated || 0),
+            suppliers: ((backendResults.suppliers as EntityImportStats | undefined)?.created || 0) + ((backendResults.suppliers as EntityImportStats | undefined)?.updated || 0),
+            invoices: (backendResults.invoices as EntityImportStats | undefined)?.created || 0,
+            payments: (backendResults.payments as EntityImportStats | undefined)?.created || 0,
+            salesReturns: (backendResults.sales_returns as EntityImportStats | undefined)?.created || 0,
+            supplierPurchases: (backendResults.purchase_orders as EntityImportStats | undefined)?.created || 0,
+            supplierPayments: (backendResults.supplier_payments as EntityImportStats | undefined)?.created || 0,
         });
         setDone(true);
         setImportFailed(false);
     }, [log]);
 
-    const finishImportSuccess = useCallback((backendResults: Record<string, any>) => {
+    const finishImportSuccess = useCallback((backendResults: BackendImportResults) => {
         prog(100, 'Done!');
         summarizeBackendResults(backendResults);
-        log('✅ Upload complete — your data has been imported and your books are balanced.', 'success');
+        const completenessResult = backendResults.completeness;
+        if (completenessResult && !completenessResult.complete) {
+            const n = completenessResult.warnings.length;
+            log(`⚠️ Import completed with ${n} warning(s) — review before going live.`, 'warn');
+        } else {
+            log('✅ Upload complete — your data has been imported and your books are balanced.', 'success');
+        }
     }, [log, prog, summarizeBackendResults]);
 
     const finishImportFailure = useCallback((message: string) => {
@@ -382,6 +419,7 @@ export default function DataMigration() {
         setDone(false);
         setResults(null);
         setTieOut(null);
+        setCompleteness(null);
         prog(0, '');
         log(`❌ Import failed: ${message}`, 'error');
         log('ℹ️ Re-uploading the same file is safe — the import is idempotent.', 'info');
@@ -391,7 +429,7 @@ export default function DataMigration() {
     const runSyncImport = useCallback(async (data: Record<string, unknown>) => {
         log('⬆️ Using synchronous import (async endpoint unavailable)...', 'warn');
         prog(20, 'Importing to ERP...');
-        const { data: importResponse } = await api.post<{ success: boolean; results: Record<string, EntityImportStats> }>(
+        const { data: importResponse } = await api.post<{ success: boolean; results: BackendImportResults }>(
             '/api/migrate/full-import',
             data,
         );
@@ -427,7 +465,7 @@ export default function DataMigration() {
         }
 
         if (job.status === 'completed') {
-            finishImportSuccess((job.results ?? {}) as Record<string, any>);
+            finishImportSuccess((job.results ?? {}) as BackendImportResults);
             setBusy(false);
             return;
         }
@@ -491,6 +529,7 @@ export default function DataMigration() {
         setLogs([]);
         setResults(null);
         setTieOut(null);
+        setCompleteness(null);
         setDone(false);
         setImportFailed(false);
         consecutivePollFailuresRef.current = 0;
@@ -546,13 +585,15 @@ export default function DataMigration() {
         try {
             const { data } = await api.delete<{ deleted: number }>('/api/migrate/clear-all');
             log(`✅ Cleared ${data.deleted} customers`, 'success');
-            setResults(null); setDone(false); setTieOut(null); setImportFailed(false);
+            setResults(null); setDone(false); setTieOut(null); setCompleteness(null); setImportFailed(false);
         } catch (e: any) { log(`❌ ${e.message}`, 'error'); }
         finally { setBusy(false); }
     };
 
     const fileExt = file?.name.toLowerCase().split('.').pop() || '';
     const isDb = fileExt === 'db' || fileExt === 'sqlite';
+    const importFullyComplete = !completeness || completeness.complete;
+    const tieOutDiff = Math.abs(Number(tieOut?.difference ?? 0));
 
     return (
         <div className="max-w-3xl mx-auto px-4 pb-16 pt-4 space-y-4 animate-in fade-in duration-300">
@@ -592,10 +633,10 @@ export default function DataMigration() {
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
                 <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-3">Upload Your File</p>
                 <div onDragOver={e => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
-                    onDrop={e => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files[0]; if (f) { setFile(f); setResults(null); setDone(false); setLogs([]); setImportFailed(false); setTieOut(null); } }}
+                    onDrop={e => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files[0]; if (f) { setFile(f); setResults(null); setDone(false); setLogs([]); setImportFailed(false); setTieOut(null); setCompleteness(null); } }}
                     onClick={() => document.getElementById('mig-ai-file')?.click()}
                     className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all ${drag ? 'border-blue-400 bg-blue-50' : file ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200 hover:border-orange-400 hover:bg-orange-50'}`}>
-                    <input id="mig-ai-file" type="file" accept=".db,.sqlite,.csv,.xlsx,.xls,.txt" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) { setFile(f); setResults(null); setDone(false); setLogs([]); setImportFailed(false); setTieOut(null); } }} />
+                    <input id="mig-ai-file" type="file" accept=".db,.sqlite,.csv,.xlsx,.xls,.txt" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) { setFile(f); setResults(null); setDone(false); setLogs([]); setImportFailed(false); setTieOut(null); setCompleteness(null); } }} />
                     {file ? (
                         <div>
                             <div className="text-4xl mb-2">{isDb ? '🗄️' : '📋'}</div>
@@ -646,34 +687,57 @@ export default function DataMigration() {
             )}
 
             {done && results && (
-                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5">
-                    <div className="flex items-center gap-3 mb-4">
-                        <CheckCircle size={22} className="text-emerald-600" />
+                <div className={`rounded-2xl p-5 border ${importFullyComplete ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
+                    <div className="flex items-start gap-3 mb-4">
+                        {importFullyComplete
+                            ? <CheckCircle size={22} className="text-emerald-600 flex-shrink-0 mt-0.5" />
+                            : <AlertTriangle size={22} className="text-amber-600 flex-shrink-0 mt-0.5" />}
                         <div>
-                            <p className="font-black text-emerald-800 text-base">✅ Upload complete — your data has been imported and your books are balanced.</p>
-                            <p className="text-xs text-emerald-600 mt-0.5">Real outstanding balances imported correctly</p>
+                            {importFullyComplete ? (
+                                <>
+                                    <p className="font-black text-emerald-800 text-base">✅ Upload complete — your data has been imported and your books are balanced.</p>
+                                    <p className="text-xs text-emerald-600 mt-0.5">Real outstanding balances imported correctly</p>
+                                </>
+                            ) : (
+                                <>
+                                    <p className="font-black text-amber-900 text-base">
+                                        ⚠️ Import completed with {completeness?.warnings.length ?? 0} warning(s) — review before going live
+                                    </p>
+                                    <p className="text-xs text-amber-700 mt-0.5">Data was imported successfully; the items below need attention before you rely on the books.</p>
+                                    {completeness && completeness.warnings.length > 0 && (
+                                        <ul className="mt-2 space-y-1 text-sm text-amber-900 list-disc list-inside">
+                                            {completeness.warnings.map((warning, idx) => (
+                                                <li key={idx}>{warning}</li>
+                                            ))}
+                                        </ul>
+                                    )}
+                                    <p className="text-xs text-amber-700 mt-2">
+                                        Tip: review <a href="/reports/trial-balance" className="font-bold underline hover:text-amber-900">Trial Balance</a> and ask your admin to run the GL integrity health check.
+                                    </p>
+                                </>
+                            )}
                         </div>
                     </div>
                     {tieOut && tieOut.gl_ar !== undefined && (
-                        <div className="mb-4 rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm text-emerald-900">
-                            <p className="font-black text-xs uppercase tracking-widest text-emerald-700 mb-1">AR tie-out</p>
+                        <div className={`mb-4 rounded-xl border bg-white px-4 py-3 text-sm ${importFullyComplete && tieOutDiff <= 0.01 ? 'border-emerald-200 text-emerald-900' : 'border-amber-200 text-amber-900'}`}>
+                            <p className={`font-black text-xs uppercase tracking-widest mb-1 ${importFullyComplete && tieOutDiff <= 0.01 ? 'text-emerald-700' : 'text-amber-700'}`}>AR tie-out</p>
                             <p>GL Accounts Receivable: <strong>${Number(tieOut.gl_ar).toFixed(2)}</strong></p>
                             <p>Customer balances: <strong>${Number(tieOut.customer_balances ?? 0).toFixed(2)}</strong></p>
                             <p>Difference: <strong>${Number(tieOut.difference ?? 0).toFixed(2)}</strong></p>
                         </div>
                     )}
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-4">
-                        {(results.customers ?? 0) > 0 && <div className="bg-white rounded-xl p-3 text-center border border-emerald-100"><p className="text-2xl font-black">{results.customers?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Customers</p></div>}
-                        {(results.products ?? 0) > 0 && <div className="bg-white rounded-xl p-3 text-center border border-emerald-100"><p className="text-2xl font-black">{results.products?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Products</p></div>}
-                        {(results.invoices ?? 0) > 0 && <div className="bg-white rounded-xl p-3 text-center border border-emerald-100"><p className="text-2xl font-black">{results.invoices?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Invoices</p></div>}
-                        {(results.payments ?? 0) > 0 && <div className="bg-white rounded-xl p-3 text-center border border-emerald-100"><p className="text-2xl font-black">{results.payments?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Payments</p></div>}
-                        {(results.salesReturns ?? 0) > 0 && <div className="bg-white rounded-xl p-3 text-center border border-emerald-100"><p className="text-2xl font-black">{results.salesReturns?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Sales Returns</p></div>}
-                        {(results.suppliers ?? 0) > 0 && <div className="bg-white rounded-xl p-3 text-center border border-emerald-100"><p className="text-2xl font-black">{results.suppliers?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Suppliers</p></div>}
-                        {(results.supplierPurchases ?? 0) > 0 && <div className="bg-white rounded-xl p-3 text-center border border-emerald-100"><p className="text-2xl font-black">{results.supplierPurchases?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Supplier POs</p></div>}
-                        {(results.supplierPayments ?? 0) > 0 && <div className="bg-white rounded-xl p-3 text-center border border-emerald-100"><p className="text-2xl font-black">{results.supplierPayments?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Supplier Pays</p></div>}
+                        {(results.customers ?? 0) > 0 && <div className={`bg-white rounded-xl p-3 text-center border ${importFullyComplete ? 'border-emerald-100' : 'border-amber-100'}`}><p className="text-2xl font-black">{results.customers?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Customers</p></div>}
+                        {(results.products ?? 0) > 0 && <div className={`bg-white rounded-xl p-3 text-center border ${importFullyComplete ? 'border-emerald-100' : 'border-amber-100'}`}><p className="text-2xl font-black">{results.products?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Products</p></div>}
+                        {(results.invoices ?? 0) > 0 && <div className={`bg-white rounded-xl p-3 text-center border ${importFullyComplete ? 'border-emerald-100' : 'border-amber-100'}`}><p className="text-2xl font-black">{results.invoices?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Invoices</p></div>}
+                        {(results.payments ?? 0) > 0 && <div className={`bg-white rounded-xl p-3 text-center border ${importFullyComplete ? 'border-emerald-100' : 'border-amber-100'}`}><p className="text-2xl font-black">{results.payments?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Payments</p></div>}
+                        {(results.salesReturns ?? 0) > 0 && <div className={`bg-white rounded-xl p-3 text-center border ${importFullyComplete ? 'border-emerald-100' : 'border-amber-100'}`}><p className="text-2xl font-black">{results.salesReturns?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Sales Returns</p></div>}
+                        {(results.suppliers ?? 0) > 0 && <div className={`bg-white rounded-xl p-3 text-center border ${importFullyComplete ? 'border-emerald-100' : 'border-amber-100'}`}><p className="text-2xl font-black">{results.suppliers?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Suppliers</p></div>}
+                        {(results.supplierPurchases ?? 0) > 0 && <div className={`bg-white rounded-xl p-3 text-center border ${importFullyComplete ? 'border-emerald-100' : 'border-amber-100'}`}><p className="text-2xl font-black">{results.supplierPurchases?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Supplier POs</p></div>}
+                        {(results.supplierPayments ?? 0) > 0 && <div className={`bg-white rounded-xl p-3 text-center border ${importFullyComplete ? 'border-emerald-100' : 'border-amber-100'}`}><p className="text-2xl font-black">{results.supplierPayments?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Supplier Pays</p></div>}
                     </div>
                     <div className="flex gap-2 flex-wrap">
-                        <a href="/customers" className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-black hover:bg-emerald-700">→ View Customers</a>
+                        <a href="/customers" className={`px-4 py-2 text-white rounded-xl text-xs font-black ${importFullyComplete ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'}`}>→ View Customers</a>
                         <a href="/invoices" className="px-4 py-2 bg-gray-800 text-white rounded-xl text-xs font-black hover:bg-gray-700">→ View Invoices</a>
                         <a href="/product-catalog" className="px-4 py-2 bg-gray-800 text-white rounded-xl text-xs font-black hover:bg-gray-700">→ View Products</a>
                     </div>

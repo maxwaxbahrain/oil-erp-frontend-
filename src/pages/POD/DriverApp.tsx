@@ -98,6 +98,9 @@ function countLeaveDays(start: string, end: string): number {
 }
 type PaymentMode = 'CASH' | 'CREDIT' | 'CHEQUE';
 
+/** Bottom padding that clears Android/iOS system navigation bars in WebView/Capacitor. */
+const SAFE_AREA_BOTTOM = 'calc(12px + env(safe-area-inset-bottom, 0px))';
+
 type DeliveryItem = {
   description: string;
   quantity: number;
@@ -109,6 +112,7 @@ type DeliveryStop = {
   id: string;
   customerId: string;
   customerName: string;
+  customerPhone?: string;
   address: string;
   items: DeliveryItem[];
   amount: number;
@@ -137,6 +141,8 @@ export default function DriverApp() {
   const [notes, setNotes] = useState('');
   const [signatureData, setSignatureData] = useState<string>('');
   const [isSigning, setIsSigning] = useState(false);
+  const [showSignatureScreen, setShowSignatureScreen] = useState(false);
+  const signatureSnapshotRef = useRef('');
   const [recipientName, setRecipientName] = useState('');
   const [deliveryPhoto, setDeliveryPhoto] = useState('');
   const [photoError, setPhotoError] = useState<string | null>(null);
@@ -298,6 +304,11 @@ export default function DriverApp() {
 
   async function loadStopsForVan(van: Van) {
     try {
+      const customers = await getCustomers();
+      const phoneByCustomerId = new Map(
+        customers.map((c) => [String(c.id), (c.phone || '').trim()])
+      );
+
       // Primary: real sales orders for this van
       const orders = await getSalesOrders();
       const vanOrders = orders.filter(
@@ -308,6 +319,7 @@ export default function DriverApp() {
           id: `so-${o.id}`,
           customerId: String(o.customerId),
           customerName: o.customerName,
+          customerPhone: phoneByCustomerId.get(String(o.customerId)) || undefined,
           address: 'Customer address from order profile',
           items: o.lineItems.map((li) => ({
             description: li.product || li.description || 'Item',
@@ -341,6 +353,7 @@ export default function DriverApp() {
         id: `route-${r.id}`,
         customerId: '',
         customerName: r.name,
+        customerPhone: (r.phone || '').trim() || undefined,
         address: r.address,
         items: [{ description: 'Delivery items', quantity: 0, rate: 0, amount: 0 }],
         amount: 0,
@@ -413,6 +426,62 @@ export default function DriverApp() {
 
   function openNavigate(address: string) {
     window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`, '_blank');
+  }
+
+  function openCall(phone?: string) {
+    const digits = (phone || '').replace(/[^\d+]/g, '');
+    if (!digits) return;
+    window.location.href = `tel:${digits}`;
+  }
+
+  function initSignatureCanvas(snapshot?: string) {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const w = Math.max(rect.width, 320);
+    const h = Math.max(rect.height, 280);
+    canvas.width = w * 2;
+    canvas.height = h * 2;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.scale(2, 2);
+    ctx.clearRect(0, 0, w, h);
+    ctx.strokeStyle = '#1a1a1a';
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
+    if (snapshot) {
+      const img = new Image();
+      img.onload = () => {
+        ctx.drawImage(img, 0, 0, w, h);
+        setIsSigning(true);
+      };
+      img.src = snapshot;
+    } else {
+      setIsSigning(false);
+    }
+  }
+
+  function openSignatureScreen() {
+    signatureSnapshotRef.current = signatureData;
+    setShowSignatureScreen(true);
+    setTimeout(() => initSignatureCanvas(signatureData || undefined), 50);
+  }
+
+  function cancelSignatureScreen() {
+    setSignatureData(signatureSnapshotRef.current);
+    setIsSigning(!!signatureSnapshotRef.current);
+    setShowSignatureScreen(false);
+  }
+
+  function saveSignatureScreen() {
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const data = canvas.toDataURL();
+      setSignatureData(data);
+      setIsSigning(!!data && data.length > 30);
+    }
+    setShowSignatureScreen(false);
   }
 
   function openConfirm(stop: DeliveryStop) {
@@ -514,7 +583,8 @@ export default function DriverApp() {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     setSignatureData('');
     setIsSigning(false);
   }
@@ -1338,158 +1408,218 @@ export default function DriverApp() {
   }
 
   if (step === 'confirm' && selectedStop) {
-    return (
-      <div className="min-h-screen bg-[#f9fafb] p-4">
-        <div className="max-w-md mx-auto space-y-4">
-          <button className="text-sm font-bold text-[#800020]" onClick={() => setStep('dashboard')}>
-            Back
-          </button>
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <h2 className="text-xl font-black text-gray-900">{selectedStop.customerName}</h2>
-            <p className="text-base text-gray-600 mt-1">{selectedStop.address}</p>
-          </div>
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <div className="text-sm font-black uppercase text-gray-500 mb-2">Products</div>
-            {selectedStop.items.map((i, idx) => (
-              <div key={idx} className="text-base py-1 flex justify-between">
-                <span>{i.description}</span>
-                <span>
-                  {i.quantity} x {i.rate.toFixed(2)}
-                </span>
-              </div>
-            ))}
-            <div className="text-lg font-black mt-3">Total: ${selectedStop.amount.toFixed(2)}</div>
-          </div>
-          <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
-            <div className="text-sm font-black uppercase text-gray-500">Payment Method</div>
-            <div className="grid grid-cols-3 gap-2">
-              {(['CASH', 'CREDIT', 'CHEQUE'] as PaymentMode[]).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setPaymentMethod(m)}
-                  className={`min-h-12 rounded-lg border text-sm font-black ${paymentMethod === m ? 'bg-[#800020] text-white border-[#800020]' : 'bg-white text-gray-700 border-gray-300'}`}
-                >
-                  {m}
-                </button>
-              ))}
-            </div>
-            <input
-              type="number"
-              className="w-full min-h-12 border rounded-lg px-3 text-base"
-              value={amountReceived}
-              onChange={(e) => setAmountReceived(Number(e.target.value) || 0)}
-              placeholder="Amount received"
+    const signatureFullscreen = showSignatureScreen ? (
+      <div
+        className="fixed inset-0 z-[200] flex flex-col bg-white"
+        style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
+      >
+        <div className="flex-1 flex flex-col min-h-0 px-4 pt-4 pb-2">
+          <h2 className="text-lg font-black text-gray-900 uppercase tracking-wide">Customer Signature</h2>
+          <p className="text-sm font-semibold text-gray-500 mt-1 mb-3">Have the customer sign below</p>
+          <div
+            className="relative flex-1 min-h-[240px] border-2 border-dashed border-gray-300 rounded-xl bg-gray-50 overflow-hidden"
+            style={{ touchAction: 'none' }}
+          >
+            <canvas
+              ref={canvasRef}
+              className="absolute inset-0 w-full h-full block"
+              style={{ touchAction: 'none' }}
+              onMouseDown={startDraw}
+              onMouseMove={draw}
+              onMouseUp={endDraw}
+              onMouseLeave={endDraw}
+              onTouchStart={startDraw}
+              onTouchMove={draw}
+              onTouchEnd={endDraw}
             />
-            <input
-              type="text"
-              className="w-full min-h-12 border rounded-lg px-3 text-base"
-              value={recipientName}
-              onChange={(e) => setRecipientName(e.target.value)}
-              placeholder="Recipient name"
-            />
-            <textarea
-              rows={3}
-              className="w-full border rounded-lg px-3 py-2 text-base"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Delivery / customer notes (optional)"
-            />
-            {/* Signature Pad */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-sm font-black uppercase text-gray-500">Customer Signature</div>
-                {isSigning && (
-                  <button onClick={clearSignature} className="text-xs font-bold text-red-500 underline">Clear</button>
-                )}
-              </div>
-              <div className="relative border-2 border-dashed border-gray-300 rounded-xl bg-gray-50 overflow-hidden" style={{touchAction:'none'}}>
-                <canvas
-                  ref={canvasRef}
-                  width={340}
-                  height={150}
-                  className="w-full block"
-                  style={{touchAction:'none'}}
-                  onMouseDown={startDraw}
-                  onMouseMove={draw}
-                  onMouseUp={endDraw}
-                  onMouseLeave={endDraw}
-                  onTouchStart={startDraw}
-                  onTouchMove={draw}
-                  onTouchEnd={endDraw}
-                />
-                {!isSigning && (
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <p className="text-gray-400 text-sm font-bold">✍️ Customer signs here</p>
-                  </div>
-                )}
-              </div>
-              {!isSigning && (
-                <p className="text-xs text-orange-600 font-bold mt-1">⚠️ Signature required for proof of delivery</p>
-              )}
-            </div>
-            {/* Delivery Photo */}
-            <div>
-              <div className="text-sm font-black uppercase text-gray-500 mb-2">Delivery Photo</div>
-              <label className="min-h-12 rounded-lg border border-gray-300 bg-gray-50 flex items-center justify-center gap-2 text-sm font-black text-gray-700 cursor-pointer">
-                <Camera size={16} />
-                {deliveryPhoto ? 'Retake / replace photo' : 'Capture delivery photo'}
-                <input
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  className="hidden"
-                  onChange={(e) => {
-                    void handlePhotoCapture(e.target.files?.[0]);
-                    e.currentTarget.value = '';
-                  }}
-                />
-              </label>
-              {photoError && <p className="text-xs text-red-600 font-bold mt-1">{photoError}</p>}
-              {deliveryPhoto && (
-                <img src={deliveryPhoto} alt="Delivery proof" className="mt-2 w-full max-h-48 object-cover rounded-lg border border-gray-200" />
-              )}
-            </div>
-            {/* GPS */}
-            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <div className="text-sm font-black uppercase text-gray-500">GPS Location</div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {gpsStatus === 'captured' && gpsLocation
-                      ? `${gpsLocation.latitude.toFixed(5)}, ${gpsLocation.longitude.toFixed(5)}`
-                      : gpsStatus === 'loading'
-                      ? 'Capturing location...'
-                      : gpsStatus === 'denied'
-                      ? 'Location permission denied. Delivery can still continue.'
-                      : gpsStatus === 'unavailable'
-                      ? 'Location unavailable. Delivery can still continue.'
-                      : 'Not captured yet.'}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={captureGps}
-                  className="px-3 py-2 rounded-lg bg-white border border-gray-300 text-xs font-black text-gray-700"
-                >
-                  {gpsStatus === 'loading' ? '...' : 'Retry'}
-                </button>
-              </div>
-            </div>
-            {podWarning && (
-              <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm font-bold text-orange-700">
-                {podWarning}
+            {!isSigning && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <p className="text-gray-400 text-sm font-bold">✍️ Customer signs here</p>
               </div>
             )}
+          </div>
+        </div>
+        <div
+          className="grid grid-cols-3 gap-2 px-4 pt-3 border-t border-gray-200 bg-white shrink-0"
+          style={{ paddingBottom: SAFE_AREA_BOTTOM }}
+        >
+          <button
+            type="button"
+            onClick={cancelSignatureScreen}
+            className="min-h-[52px] rounded-xl border-2 border-gray-300 text-gray-700 font-black text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={clearSignature}
+            className="min-h-[52px] rounded-xl border-2 border-gray-300 text-gray-700 font-black text-sm"
+          >
+            Clear
+          </button>
+          <button
+            type="button"
+            onClick={saveSignatureScreen}
+            disabled={!isSigning}
+            className="min-h-[52px] rounded-xl bg-[#800020] text-white font-black text-sm disabled:opacity-50"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    ) : null;
+
+    return (
+      <>
+        {signatureFullscreen}
+        <div
+          className="min-h-screen bg-[#f9fafb] p-4"
+          style={{ paddingBottom: `calc(88px + env(safe-area-inset-bottom, 0px))` }}
+        >
+          <div className="max-w-md mx-auto space-y-4">
+            <button className="text-sm font-bold text-[#800020]" onClick={() => setStep('dashboard')}>
+              Back
+            </button>
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <h2 className="text-xl font-black text-gray-900">{selectedStop.customerName}</h2>
+              <p className="text-base text-gray-600 mt-1">{selectedStop.address}</p>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="text-sm font-black uppercase text-gray-500 mb-2">Products</div>
+              {selectedStop.items.map((i, idx) => (
+                <div key={idx} className="text-base py-1 flex justify-between">
+                  <span>{i.description}</span>
+                  <span>
+                    {i.quantity} x {i.rate.toFixed(2)}
+                  </span>
+                </div>
+              ))}
+              <div className="text-lg font-black mt-3">Total: ${selectedStop.amount.toFixed(2)}</div>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
+              <div className="text-sm font-black uppercase text-gray-500">Payment Method</div>
+              <div className="grid grid-cols-3 gap-2">
+                {(['CASH', 'CREDIT', 'CHEQUE'] as PaymentMode[]).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setPaymentMethod(m)}
+                    className={`min-h-12 rounded-lg border text-sm font-black ${paymentMethod === m ? 'bg-[#800020] text-white border-[#800020]' : 'bg-white text-gray-700 border-gray-300'}`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+              <input
+                type="number"
+                className="w-full min-h-12 border rounded-lg px-3 text-base"
+                value={amountReceived}
+                onChange={(e) => setAmountReceived(Number(e.target.value) || 0)}
+                placeholder="Amount received"
+              />
+              <input
+                type="text"
+                className="w-full min-h-12 border rounded-lg px-3 text-base"
+                value={recipientName}
+                onChange={(e) => setRecipientName(e.target.value)}
+                placeholder="Recipient name"
+              />
+              <textarea
+                rows={3}
+                className="w-full border rounded-lg px-3 py-2 text-base"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Delivery / customer notes (optional)"
+              />
+              <div>
+                <div className="text-sm font-black uppercase text-gray-500 mb-2">Customer Signature</div>
+                {signatureData ? (
+                  <img
+                    src={signatureData}
+                    alt="Customer signature preview"
+                    className="w-full max-h-28 object-contain border border-gray-200 rounded-lg bg-white mb-2"
+                  />
+                ) : (
+                  <p className="text-xs text-orange-600 font-bold mb-2">⚠️ Signature required for proof of delivery</p>
+                )}
+                <button
+                  type="button"
+                  onClick={openSignatureScreen}
+                  className="w-full min-h-12 rounded-lg border-2 border-[#800020] text-[#800020] font-black text-sm"
+                >
+                  {signatureData ? 'Re-sign customer' : 'Get customer signature'}
+                </button>
+              </div>
+              {/* Delivery Photo */}
+              <div>
+                <div className="text-sm font-black uppercase text-gray-500 mb-2">Delivery Photo</div>
+                <label className="min-h-12 rounded-lg border border-gray-300 bg-gray-50 flex items-center justify-center gap-2 text-sm font-black text-gray-700 cursor-pointer">
+                  <Camera size={16} />
+                  {deliveryPhoto ? 'Retake / replace photo' : 'Capture delivery photo'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={(e) => {
+                      void handlePhotoCapture(e.target.files?.[0]);
+                      e.currentTarget.value = '';
+                    }}
+                  />
+                </label>
+                {photoError && <p className="text-xs text-red-600 font-bold mt-1">{photoError}</p>}
+                {deliveryPhoto && (
+                  <img src={deliveryPhoto} alt="Delivery proof" className="mt-2 w-full max-h-48 object-cover rounded-lg border border-gray-200" />
+                )}
+              </div>
+              {/* GPS */}
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <div className="text-sm font-black uppercase text-gray-500">GPS Location</div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {gpsStatus === 'captured' && gpsLocation
+                        ? `${gpsLocation.latitude.toFixed(5)}, ${gpsLocation.longitude.toFixed(5)}`
+                        : gpsStatus === 'loading'
+                        ? 'Capturing location...'
+                        : gpsStatus === 'denied'
+                        ? 'Location permission denied. Delivery can still continue.'
+                        : gpsStatus === 'unavailable'
+                        ? 'Location unavailable. Delivery can still continue.'
+                        : 'Not captured yet.'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={captureGps}
+                    className="px-3 py-2 rounded-lg bg-white border border-gray-300 text-xs font-black text-gray-700"
+                  >
+                    {gpsStatus === 'loading' ? '...' : 'Retry'}
+                  </button>
+                </div>
+              </div>
+              {podWarning && (
+                <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm font-bold text-orange-700">
+                  {podWarning}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+        <div
+          className="fixed bottom-0 left-0 right-0 z-[50] bg-[#f9fafb] border-t border-gray-200 px-4 pt-3"
+          style={{ paddingBottom: SAFE_AREA_BOTTOM }}
+        >
+          <div className="max-w-md mx-auto">
             <button
               onClick={confirmDelivery}
               disabled={loading || !signatureData}
-              className="w-full min-h-12 bg-green-600 text-white rounded-lg text-lg font-black disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full min-h-[52px] bg-green-600 text-white rounded-lg text-lg font-black disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? 'Confirming...' : !isSigning ? 'GET SIGNATURE FIRST' : 'Save & Confirm Delivery ✓'}
+              {loading ? 'Confirming...' : 'Confirm delivery ✓'}
             </button>
           </div>
         </div>
-      </div>
+      </>
     );
   }
 
@@ -1600,7 +1730,19 @@ export default function DriverApp() {
               <p className="text-base text-gray-700 mt-1">
                 💰 ${s.amount.toFixed(2)} | {s.paymentMethod}
               </p>
-              <div className="grid grid-cols-2 gap-2 mt-3">
+              <div className="grid grid-cols-3 gap-2 mt-3">
+                <button
+                  type="button"
+                  onClick={() => openCall(s.customerPhone)}
+                  disabled={!s.customerPhone}
+                  className={`min-h-12 rounded-lg border font-black text-sm ${
+                    s.customerPhone
+                      ? 'border-gray-300 text-gray-700'
+                      : 'border-gray-200 text-gray-400 bg-gray-50 cursor-not-allowed opacity-60'
+                  }`}
+                >
+                  📞 Call
+                </button>
                 <button
                   onClick={() => openNavigate(s.address)}
                   className="min-h-12 rounded-lg border border-gray-300 text-gray-700 font-black"

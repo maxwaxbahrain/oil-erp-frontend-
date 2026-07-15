@@ -145,6 +145,8 @@ import DriverApp from '../pages/POD/DriverApp';
 import ManagementDashboard from '../pages/POD/ManagementDashboard';
 import VanOperations from '../pages/Logistics/VanOperations';
 import RouteNavigator from '../pages/Logistics/RouteNavigator';
+import RoutePlanning from '../pages/Logistics/RoutePlanning';
+import VanTracking from '../pages/Logistics/VanTracking';
 import PublicInvoice from '../pages/PublicInvoice';
 
 import OrganizationChart from '../pages/UserManagement/OrganizationChart';
@@ -322,6 +324,8 @@ export const AppRoutes = () => {
             <Route path="/reports/demand-forecast" element={<AccountingSetupRequired />} />
             <Route path="/reports" element={<ReportsDashboard />} />
             <Route path="/reports/*" element={<ReportsDashboard />} />
+            <Route path="/logistics/tracking" element={<VanTracking />} />
+            <Route path="/logistics/route-planning" element={<RoutePlanning />} />
             </Route>
 
             {/* Premium / AI — internal staff only (production lock retained) */}

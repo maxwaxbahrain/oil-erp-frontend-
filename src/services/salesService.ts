@@ -238,6 +238,7 @@ export async function patchSalesOrder(
   body: Partial<{
     status: SalesOrderStatus;
     notes: string;
+    van_id: string | null;
     pod_confirmed: boolean;
     signature_confirmed: boolean;
     payment_status: string;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -13,6 +13,7 @@ import {
   FileText,
 } from 'lucide-react';
 import clsx from 'clsx';
+import { getVans, type Van } from '../../services/api';
 import {
   getSalesOrder,
   patchSalesOrder,
@@ -58,6 +59,18 @@ export default function SalesOrderDetailPage() {
     total: number;
     customerId: string;
   } | null>(null);
+  const [showVanPicker, setShowVanPicker] = useState(false);
+  const [vans, setVans] = useState<Van[]>([]);
+  const [vansLoading, setVansLoading] = useState(false);
+  const [selectedVanId, setSelectedVanId] = useState('');
+
+  const activeVans = useMemo(
+    () => vans.filter((v) => (v.status || 'active') === 'active'),
+    [vans]
+  );
+
+  const confirmVanReady =
+    activeVans.length === 1 || (activeVans.length > 1 && !!selectedVanId);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -92,17 +105,66 @@ export default function SalesOrderDetailPage() {
     }
   }
 
-  async function patchStatus(next: SalesOrderStatus) {
+  async function patchStatus(next: SalesOrderStatus, vanId?: string | null) {
     if (!id) return;
     setSaving(true);
     try {
-      await patchSalesOrder(id, { status: next });
+      const body: { status: SalesOrderStatus; van_id?: string | null } = { status: next };
+      if (vanId != null && vanId !== '') body.van_id = vanId;
+      await patchSalesOrder(id, body);
       await load();
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : 'Update failed');
     } finally {
       setSaving(false);
     }
+  }
+
+  async function loadActiveVans(): Promise<Van[]> {
+    setVansLoading(true);
+    try {
+      const list = await getVans();
+      const active = (Array.isArray(list) ? list : []).filter(
+        (v) => (v.status || 'active') === 'active'
+      );
+      setVans(active);
+      if (active.length === 1) setSelectedVanId(active[0].id);
+      return active;
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Could not load vans');
+      return [];
+    } finally {
+      setVansLoading(false);
+    }
+  }
+
+  async function handleConfirmDraft() {
+    if (!order) return;
+    if (order.van_id) {
+      await patchStatus('confirmed');
+      return;
+    }
+
+    const active = await loadActiveVans();
+    if (active.length === 0) {
+      alert('No active vans available. Add a van before confirming.');
+      return;
+    }
+    if (active.length === 1) {
+      await patchStatus('confirmed', active[0].id);
+      return;
+    }
+
+    setSelectedVanId('');
+    setShowVanPicker(true);
+  }
+
+  async function confirmDraftWithVan() {
+    if (!confirmVanReady) return;
+    const vanId = selectedVanId || activeVans[0]?.id;
+    if (!vanId) return;
+    setShowVanPicker(false);
+    await patchStatus('confirmed', vanId);
   }
 
   async function handleConvert() {
@@ -315,7 +377,7 @@ export default function SalesOrderDetailPage() {
             <button
               type="button"
               disabled={saving}
-              onClick={() => patchStatus('confirmed')}
+              onClick={() => handleConfirmDraft()}
               className="w-full min-h-[52px] rounded-xl text-white font-black text-sm uppercase tracking-widest hover:brightness-110 disabled:opacity-50 flex items-center justify-center gap-2 shadow-md transition-all"
               style={{ backgroundColor: THEME_PRIMARY }}
             >
@@ -347,6 +409,68 @@ export default function SalesOrderDetailPage() {
               Convert to invoice
             </button>
           )}
+        </div>
+      )}
+
+      {showVanPicker && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-gray-200/80">
+            <div className="px-5 py-4 flex items-start justify-between gap-3 border-b border-gray-100">
+              <div className="flex items-center gap-3 min-w-0">
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                  style={{ backgroundColor: `${THEME_PRIMARY}18` }}
+                >
+                  <Truck size={22} style={{ color: THEME_PRIMARY }} />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-sm font-black text-gray-900 uppercase tracking-wide">Deliver by van</h2>
+                  <p className="text-xs font-semibold text-gray-500 mt-1">Choose which van will deliver this order</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Close"
+                className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
+                onClick={() => setShowVanPicker(false)}
+              >
+                <X size={22} />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              {vansLoading ? (
+                <div className="min-h-[56px] flex items-center justify-center">
+                  <Loader2 className="animate-spin" style={{ color: THEME_PRIMARY }} size={28} />
+                </div>
+              ) : (
+                <select
+                  value={selectedVanId}
+                  onChange={(e) => setSelectedVanId(e.target.value)}
+                  className="w-full min-h-[56px] rounded-xl border-2 border-gray-200 px-4 text-base font-bold bg-white shadow-sm focus:ring-2 focus:ring-[#800020]/20 focus:border-[#800020] outline-none"
+                >
+                  <option value="">Select a van…</option>
+                  {activeVans.map((van) => (
+                    <option key={van.id} value={van.id}>
+                      {van.van_number} — {van.driver_name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {!confirmVanReady && !vansLoading && (
+                <p className="text-sm font-bold text-amber-700">Select a van to confirm this order</p>
+              )}
+              <button
+                type="button"
+                disabled={saving || vansLoading || !confirmVanReady}
+                onClick={() => confirmDraftWithVan()}
+                className="w-full min-h-[52px] rounded-xl text-white font-black text-sm uppercase tracking-widest hover:brightness-110 disabled:opacity-50 flex items-center justify-center gap-2 shadow-md transition-all"
+                style={{ backgroundColor: THEME_PRIMARY }}
+              >
+                {saving ? <Loader2 className="animate-spin" size={22} /> : <ClipboardCheck size={22} />}
+                Confirm order
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
