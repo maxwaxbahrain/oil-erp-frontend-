@@ -9,7 +9,7 @@ import {
     Brain, Users, AlertTriangle, Star, Package, Bell,
     Printer, Bot, Sparkles, Mic, Send, ChevronDown, ChevronUp,
     Search, ChevronRight, TrendingDown,
-    FileText, Calendar, Receipt, BookOpen, Scale, Landmark, ShoppingCart, Boxes, Shield, Clock, ArrowRight,
+    FileText, Calendar, Receipt, BookOpen, Scale, Landmark, ShoppingCart, Boxes, Shield, Clock, ArrowRight, Lock,
 } from 'lucide-react';
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -91,7 +91,6 @@ const PERIOD_PILLS: { key: PeriodKey; label: string }[] = [
 const AI_STRATEGIC_INSIGHTS: Array<{ dot: string; title: string; body: string; reasoning: string; actions: string[] }> = [];
 const AI_SUGGESTED_ACTIONS: Array<{ priority: string; title: string; detail: string; color: string }> = [];
 const AI_PROMPTS: string[] = [];
-const PL_AI_PROMPTS: string[] = [];
 
 type CfCurrency = 'usd' | 'aed';
 type CfCompare = 'prior' | 'budget';
@@ -130,13 +129,6 @@ type BsCompare = 'apr' | 'prior';
 
 type PlCurrency = 'usd' | 'aed';
 type PlCompare = 'apr' | 'budget' | 'prior';
-
-const PL_EXPENSE_COLORS: Record<string, string> = {
-    COGS: '#EF4444',
-    Salaries: '#F59E0B',
-    Rent: '#A78BFA',
-    Other: '#4F8EF7',
-};
 
 function formatUsdFull(n: number): string {
     const abs = Math.abs(n);
@@ -714,84 +706,6 @@ export default function ProfitabilityReports() {
 
     const priorUnavailableText = monthCompare.hasPrior ? '—' : 'No prior-period data';
 
-    const plExpenseLineCount = useMemo(() => {
-        if (!plData) return 0;
-        return [
-            plData.cogs.totalCOGS,
-            plData.operatingExpenses.salariesWages,
-            plData.operatingExpenses.rentUtilities,
-            plData.operatingExpenses.administrative,
-            plData.operatingExpenses.marketing,
-            plData.operatingExpenses.transportation,
-            plData.operatingExpenses.other,
-        ].filter((v) => v > 0).length;
-    }, [plData]);
-
-    const plExpenseBreakdown = useMemo(() => {
-        if (!plData) return [];
-        return [
-            { name: 'COGS', value: plData.cogs.totalCOGS, color: PL_EXPENSE_COLORS.COGS },
-            { name: 'Salaries', value: plData.operatingExpenses.salariesWages, color: PL_EXPENSE_COLORS.Salaries },
-            { name: 'Rent', value: plData.operatingExpenses.rentUtilities, color: PL_EXPENSE_COLORS.Rent },
-            {
-                name: 'Other',
-                value:
-                    plData.operatingExpenses.marketing +
-                    plData.operatingExpenses.transportation +
-                    plData.operatingExpenses.administrative +
-                    plData.operatingExpenses.other,
-                color: PL_EXPENSE_COLORS.Other,
-            },
-        ].filter((e) => e.value > 0);
-    }, [plData]);
-
-    const plExpenseTotal = useMemo(
-        () => plExpenseBreakdown.reduce((s, e) => s + e.value, 0),
-        [plExpenseBreakdown],
-    );
-
-    const marginTrendData = useMemo(() => {
-        const slice = monthlyData.slice(-6);
-        return slice.filter((m) => m.profit !== null).map((m) => ({
-            month: m.month.split(' ')[0],
-            margin: m.revenue > 0 && m.profit !== null ? (m.profit / m.revenue) * 100 : 0,
-        }));
-    }, [monthlyData]);
-
-    const marginTrendImprovement = useMemo(() => {
-        if (marginTrendData.length < 2) return 'No prior-period data';
-        const curr = marginTrendData[marginTrendData.length - 1].margin;
-        const prev = marginTrendData[marginTrendData.length - 2].margin;
-        const diff = curr - prev;
-        return `${diff >= 0 ? '+' : ''}${diff.toFixed(1)}pp ${diff >= 0 ? 'improvement' : 'decline'}`;
-    }, [marginTrendData]);
-
-    const plPeriodLabel = plData?.period.label || 'MTD May 2026';
-    const plCurrentCol = plPeriodLabel.includes('May') ? 'MAY 2026' : plPeriodLabel.toUpperCase();
-    const plPriorCol = 'APR 2026';
-
-    const handleExportPlCsv = () => {
-        if (!plData) return;
-        const rows: string[][] = [
-            ['Line Item', plCurrentCol, plPriorCol, 'Change'],
-            ['Product sales', String(plData.revenue.productSales), '—', '—'],
-            ['Service revenue', plData.revenue.serviceRevenue === null ? '—' : String(plData.revenue.serviceRevenue), '—', '—'],
-            ['Other revenue', plData.revenue.otherRevenue === null ? '—' : String(plData.revenue.otherRevenue), '—', '—'],
-            ['Total revenue', String(plData.revenue.totalRevenue), monthCompare.lastMonthRevenue === null ? '—' : String(monthCompare.lastMonthRevenue), monthCompare.revenuePct ?? '—'],
-            ['Cost of products sold', isPlCogsPartial ? '—' : String(plData.cogs.totalCOGS), monthCompare.lastMonthCogs === null ? '—' : String(monthCompare.lastMonthCogs), monthCompare.expensePct ?? '—'],
-            ['Gross profit', isPlCogsPartial ? '—' : String(plData.grossProfit.amount), '—', '—'],
-            ['Total operating expenses', String(plData.operatingExpenses.totalOpEx), '—', '—'],
-            ['Net profit', isPlCogsPartial ? '—' : String(plData.netProfit.afterTax), monthCompare.lastMonthProfit === null ? '—' : String(monthCompare.lastMonthProfit), monthCompare.profitPct ?? '—'],
-        ];
-        const csv = rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n');
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'profit-loss-statement.csv';
-        a.click();
-        URL.revokeObjectURL(url);
-    };
 
     const handleExportBsCsv = () => {
         if (!balanceSheetData) return;
@@ -1777,495 +1691,6 @@ export default function ProfitabilityReports() {
                 {activeTab === 'pl' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         {glPlSection}
-                        <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-redwood-text-subtle)', margin: '4px 2px 0' }}>
-                            Operational estimate (pre-GL)
-                        </div>
-                        <div
-                            style={{
-                                display: 'grid',
-                                gridTemplateColumns: cols.twoCol ? '1.35fr 1fr' : '1fr',
-                                gap: 8,
-                            }}
-                        >
-                            {/* LEFT — P&L Statement Table */}
-                            <div
-                                style={{
-                                    background: 'var(--color-redwood-bg-surface)',
-                                    border: '1px solid var(--color-redwood-border)',
-                                    borderRadius: 10,
-                                    overflow: 'hidden',
-                                }}
-                            >
-                                <div
-                                    style={{
-                                        padding: '10px 14px',
-                                        borderBottom: '1px solid var(--color-redwood-border)',
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'flex-start',
-                                        gap: 10,
-                                        flexWrap: 'wrap',
-                                    }}
-                                >
-                                    <div>
-                                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)', fontFamily: "'Syne',sans-serif" }}>
-                                            Profit &amp; Loss statement
-                                        </div>
-                                        <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', marginTop: 3 }}>
-                                            {plPeriodLabel} · {invoiceCount > 0 ? `${invoiceCount} invoices` : 'MTD'} · {plExpenseLineCount} expenses
-                                        </div>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={handleExportPlCsv}
-                                        style={{
-                                            ...ghostBtn,
-                                            color: '#93C5FD',
-                                            borderColor: 'rgba(79,142,247,.35)',
-                                            background: 'rgba(79,142,247,.1)',
-                                        }}
-                                    >
-                                        <Download size={11} /> Export CSV
-                                    </button>
-                                </div>
-                                <div style={{ overflowX: 'auto' }}>
-                                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                        <thead>
-                                            <tr>
-                                                {['LINE ITEM', plCurrentCol, plPriorCol, 'CHANGE'].map((h, hi) => (
-                                                    <th
-                                                        key={h}
-                                                        style={{
-                                                            fontSize: 8,
-                                                            fontWeight: 600,
-                                                            textTransform: 'uppercase',
-                                                            color: 'var(--color-redwood-text-subtle)',
-                                                            padding: '6px 10px',
-                                                            borderBottom: '1px solid var(--color-redwood-border)',
-                                                            textAlign: hi === 0 ? 'left' : 'right',
-                                                            background: 'rgba(255,255,255,.02)',
-                                                        }}
-                                                    >
-                                                        {h}
-                                                    </th>
-                                                ))}
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {(() => {
-                                                const pill = (text: string, color: string) => (
-                                                    <span
-                                                        style={{
-                                                            fontSize: 7,
-                                                            fontWeight: 700,
-                                                            padding: '1px 6px',
-                                                            borderRadius: 999,
-                                                            background: `${color}18`,
-                                                            color,
-                                                            border: `1px solid ${color}40`,
-                                                            marginLeft: 6,
-                                                        }}
-                                                    >
-                                                        {text}
-                                                    </span>
-                                                );
-                                                const amtCell = (v: number | null, color?: string, bold?: boolean) => (
-                                                    <td
-                                                        style={{
-                                                            fontSize: 10,
-                                                            padding: '5px 10px',
-                                                            textAlign: 'right',
-                                                            borderBottom: '1px solid var(--color-redwood-border)',
-                                                            color: color || 'var(--color-redwood-text-main)',
-                                                            fontWeight: bold ? 700 : 500,
-                                                            fontFamily: bold ? "'Syne',sans-serif" : 'inherit',
-                                                        }}
-                                                    >
-                                                        {formatOptionalCurrency(v)}
-                                                    </td>
-                                                );
-                                                const chgCell = (current: number | null, prior: number | null, invert?: boolean) => {
-                                                    if (current === null || prior === null) {
-                                                        return (
-                                                            <td
-                                                                style={{
-                                                                    fontSize: 9,
-                                                                    padding: '5px 10px',
-                                                                    textAlign: 'right',
-                                                                    borderBottom: '1px solid var(--color-redwood-border)',
-                                                                    color: 'var(--color-redwood-text-muted)',
-                                                                    fontWeight: 600,
-                                                                }}
-                                                            >
-                                                                —
-                                                            </td>
-                                                        );
-                                                    }
-                                                    const pct = pctChange(current, prior);
-                                                    const up = current >= prior;
-                                                    const good = invert ? !up : up;
-                                                    const color = good ? '#22C55E' : '#EF4444';
-                                                    return (
-                                                        <td
-                                                            style={{
-                                                                fontSize: 9,
-                                                                padding: '5px 10px',
-                                                                textAlign: 'right',
-                                                                borderBottom: '1px solid var(--color-redwood-border)',
-                                                                color,
-                                                                fontWeight: 600,
-                                                            }}
-                                                        >
-                                                            {pct}
-                                                        </td>
-                                                    );
-                                                };
-                                                const sectionRow = (label: string) => (
-                                                    <tr key={label}>
-                                                        <td
-                                                            colSpan={4}
-                                                            style={{
-                                                                fontSize: 8,
-                                                                fontWeight: 700,
-                                                                textTransform: 'uppercase',
-                                                                letterSpacing: '0.06em',
-                                                                color: 'var(--color-redwood-text-subtle)',
-                                                                padding: '8px 10px 4px',
-                                                                background: 'rgba(255,255,255,.02)',
-                                                            }}
-                                                        >
-                                                            {label}
-                                                        </td>
-                                                    </tr>
-                                                );
-                                                const lineRow = (
-                                                    key: string,
-                                                    label: string,
-                                                    may: number | null,
-                                                    apr: number | null,
-                                                    opts?: { indent?: boolean; invertChange?: boolean; pillText?: string; pillColor?: string; valueColor?: string },
-                                                ) => (
-                                                    <tr key={key} style={{ background: 'transparent' }}>
-                                                        <td
-                                                            style={{
-                                                                fontSize: 10,
-                                                                padding: '5px 10px',
-                                                                paddingLeft: opts?.indent ? 22 : 10,
-                                                                borderBottom: '1px solid var(--color-redwood-border)',
-                                                                color: 'var(--color-redwood-text-main)',
-                                                            }}
-                                                        >
-                                                            {label}
-                                                            {opts?.pillText && pill(opts.pillText, opts.pillColor || '#22C55E')}
-                                                        </td>
-                                                        {amtCell(may, opts?.valueColor)}
-                                                        {amtCell(apr, 'var(--color-redwood-text-muted)')}
-                                                        {chgCell(may, apr, opts?.invertChange)}
-                                                    </tr>
-                                                );
-                                                const totalRow = (
-                                                    key: string,
-                                                    label: string,
-                                                    may: number | null,
-                                                    apr: number | null,
-                                                    opts: { color: string; pillText?: string; subtext?: string; large?: boolean },
-                                                ) => (
-                                                    <tr key={key} style={{ background: `${opts.color}08` }}>
-                                                        <td
-                                                            style={{
-                                                                fontSize: opts.large ? 11 : 10,
-                                                                fontWeight: 700,
-                                                                padding: opts.large ? '10px' : '6px 10px',
-                                                                borderBottom: '1px solid var(--color-redwood-border)',
-                                                                color: opts.color,
-                                                            }}
-                                                        >
-                                                            {label}
-                                                            {opts.subtext && (
-                                                                <div style={{ fontSize: 8, fontWeight: 500, color: 'var(--color-redwood-text-muted)', marginTop: 2 }}>
-                                                                    {opts.subtext}
-                                                                </div>
-                                                            )}
-                                                            {opts.pillText && pill(opts.pillText, opts.color)}
-                                                        </td>
-                                                        {amtCell(may, opts.color, true)}
-                                                        {amtCell(apr, 'var(--color-redwood-text-muted)', true)}
-                                                        {chgCell(may, apr, key.includes('cogs') || key.includes('opex'))}
-                                                    </tr>
-                                                );
-
-                                                if (!plData) {
-                                                    return (
-                                                        <tr>
-                                                            <td colSpan={4} style={{ padding: 24, textAlign: 'center', color: 'var(--color-redwood-text-muted)', fontSize: 10 }}>
-                                                                Loading P&amp;L data…
-                                                            </td>
-                                                        </tr>
-                                                    );
-                                                }
-
-                                                const revPrior = monthCompare.lastMonthRevenue;
-                                                const cogsCurrent = isPlCogsPartial ? null : plData.cogs.totalCOGS;
-                                                const cogsPrior = monthCompare.lastMonthCogs;
-                                                const gpCurrent = isPlCogsPartial ? null : plData.grossProfit.amount;
-                                                const netCurrent = isPlCogsPartial ? null : plData.netProfit.afterTax;
-                                                const netPrior = monthCompare.lastMonthProfit;
-
-                                                return (
-                                                    <>
-                                                        {sectionRow('Revenue')}
-                                                        {lineRow('ps', 'Product sales', plData.revenue.productSales, null, { indent: true })}
-                                                        {lineRow('svc', 'Service revenue', plData.revenue.serviceRevenue, null, { indent: true })}
-                                                        {lineRow('othrev', 'Other revenue', plData.revenue.otherRevenue, null, { indent: true })}
-                                                        {totalRow('rev', 'Total revenue', plData.revenue.totalRevenue, revPrior, { color: '#22C55E', pillText: monthCompare.revenuePct ?? undefined })}
-                                                        {sectionRow('COGS')}
-                                                        {lineRow('cogs', 'Cost of products sold', cogsCurrent, cogsPrior, { indent: true, invertChange: true, valueColor: '#EF4444' })}
-                                                        {totalRow('tcogs', 'Total COGS', cogsCurrent, cogsPrior, { color: '#EF4444' })}
-                                                        {totalRow('gp', 'Gross profit', gpCurrent, null, {
-                                                            color: '#22C55E',
-                                                            subtext: isPlCogsPartial ? 'COGS partial: missing product costs' : `${plData.grossProfit.margin.toFixed(1)}% margin`,
-                                                        })}
-                                                        {sectionRow('Operating expenses')}
-                                                        {lineRow('sal', 'Salaries', plData.operatingExpenses.salariesWages, null, { indent: true, invertChange: true, valueColor: '#EF4444' })}
-                                                        {lineRow('rent', 'Rent', plData.operatingExpenses.rentUtilities, null, { indent: true, invertChange: true, valueColor: '#EF4444' })}
-                                                        {lineRow('sw', 'Administrative', plData.operatingExpenses.administrative, null, { indent: true, invertChange: true, valueColor: '#EF4444' })}
-                                                        {(plData.operatingExpenses.marketing > 0 || plData.operatingExpenses.transportation > 0) &&
-                                                            lineRow('mkt', 'Marketing & logistics', plData.operatingExpenses.marketing + plData.operatingExpenses.transportation, null, { indent: true, invertChange: true, valueColor: '#EF4444' })}
-                                                        {plData.operatingExpenses.other > 0 &&
-                                                            lineRow('oth', 'Other', plData.operatingExpenses.other, null, { indent: true, invertChange: true, valueColor: '#EF4444' })}
-                                                        {totalRow('opex', 'Total operating expenses', plData.operatingExpenses.totalOpEx, null, { color: '#F59E0B' })}
-                                                        {totalRow('net', 'Net profit', netCurrent, netPrior, {
-                                                            color: '#00D4AA',
-                                                            pillText: monthCompare.profitPct ?? undefined,
-                                                            large: true,
-                                                        })}
-                                                    </>
-                                                );
-                                            })()}
-                                        </tbody>
-                                    </table>
-                                </div>
-                                <div
-                                    style={{
-                                        padding: '8px 14px',
-                                        borderTop: '1px solid var(--color-redwood-border)',
-                                        fontSize: 8.5,
-                                        color: 'var(--color-redwood-text-muted)',
-                                        background: 'rgba(34,197,94,.06)',
-                                    }}
-                                >
-                                    {plData && !isPlCogsPartial ? `${plData.netProfit.margin.toFixed(1)}% net margin` : '—'}
-                                </div>
-                            </div>
-
-                            {/* RIGHT — stacked cards */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                {/* Expense Breakdown */}
-                                <div style={panel}>
-                                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: 10 }}>
-                                        Expense Breakdown
-                                    </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                                        <div style={{ position: 'relative', width: 96, height: 96, flexShrink: 0 }}>
-                                            <svg viewBox="0 0 36 36" width="96" height="96">
-                                                {(() => {
-                                                    let angle = -90;
-                                                    return plExpenseBreakdown.map((seg) => {
-                                                        const pct = plExpenseTotal > 0 ? (seg.value / plExpenseTotal) * 100 : 0;
-                                                        const dash = (pct / 100) * 100;
-                                                        const el = (
-                                                            <circle
-                                                                key={seg.name}
-                                                                cx="18"
-                                                                cy="18"
-                                                                r="14"
-                                                                fill="none"
-                                                                stroke={seg.color}
-                                                                strokeWidth="5"
-                                                                strokeDasharray={`${dash} ${100 - dash}`}
-                                                                strokeDashoffset={String(-angle * (100 / 360) * (360 / 100))}
-                                                                transform="rotate(-90 18 18)"
-                                                                style={{ opacity: 0.95 }}
-                                                            />
-                                                        );
-                                                        angle += (pct / 100) * 360;
-                                                        return el;
-                                                    });
-                                                })()}
-                                            </svg>
-                                            <div
-                                                style={{
-                                                    position: 'absolute',
-                                                    inset: 0,
-                                                    display: 'flex',
-                                                    flexDirection: 'column',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    pointerEvents: 'none',
-                                                }}
-                                            >
-                                                <span style={{ fontSize: 14, fontWeight: 700, color: '#EF4444', fontFamily: "'Syne',sans-serif" }}>
-                                                    {plExpenseTotal > 0 && plData
-                                                        ? `${((plData.cogs.totalCOGS / plExpenseTotal) * 100).toFixed(0)}%`
-                                                        : '—'}
-                                                </span>
-                                                <span style={{ fontSize: 7, color: 'var(--color-redwood-text-subtle)', fontWeight: 600 }}>COGS</span>
-                                            </div>
-                                        </div>
-                                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                            {plExpenseBreakdown.map((seg) => {
-                                                const pct = plExpenseTotal > 0 ? (seg.value / plExpenseTotal) * 100 : 0;
-                                                return (
-                                                    <div key={seg.name}>
-                                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 8.5, marginBottom: 3 }}>
-                                                            <span style={{ color: 'var(--color-redwood-text-muted)', display: 'flex', alignItems: 'center', gap: 5 }}>
-                                                                <span style={{ width: 8, height: 8, borderRadius: 2, background: seg.color, flexShrink: 0 }} />
-                                                                {seg.name}
-                                                            </span>
-                                                            <span style={{ color: 'var(--color-redwood-text-main)', fontWeight: 600 }}>{pct.toFixed(0)}%</span>
-                                                        </div>
-                                                        <div style={{ height: 4, background: 'rgba(255,255,255,.06)', borderRadius: 999, overflow: 'hidden' }}>
-                                                            <div style={{ height: '100%', width: `${pct}%`, background: seg.color, borderRadius: 999 }} />
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Margin Trend */}
-                                <div style={panel}>
-                                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <span>Margin Trend</span>
-                                        <span style={{ fontSize: 10, fontWeight: 700, color: '#00D4AA', fontFamily: "'Syne',sans-serif" }}>
-                                            {plData ? `${plData.netProfit.margin.toFixed(1)}%` : '—'}
-                                        </span>
-                                    </div>
-                                    <div style={{ height: 100, position: 'relative' }}>
-                                        <svg viewBox="0 0 280 80" width="100%" height="100%" preserveAspectRatio="none">
-                                            <defs>
-                                                <linearGradient id="plMarginGrad" x1="0" y1="0" x2="0" y2="1">
-                                                    <stop offset="0%" stopColor="#00D4AA" stopOpacity="0.35" />
-                                                    <stop offset="100%" stopColor="#00D4AA" stopOpacity="0" />
-                                                </linearGradient>
-                                            </defs>
-                                            {[0, 1, 2, 3].map((i) => (
-                                                <line key={i} x1="0" y1={10 + i * 20} x2="280" y2={10 + i * 20} stroke="rgba(255,255,255,.06)" strokeWidth="0.5" />
-                                            ))}
-                                            {(() => {
-                                                const pts = marginTrendData.length > 0 ? marginTrendData : [
-                                                    { month: 'Dec', margin: 23 },
-                                                    { month: 'Jan', margin: 24 },
-                                                    { month: 'Feb', margin: 25 },
-                                                    { month: 'Mar', margin: 26 },
-                                                    { month: 'Apr', margin: 26.5 },
-                                                    { month: 'May', margin: plData?.netProfit.margin ?? 27.5 },
-                                                ];
-                                                const maxM = Math.max(...pts.map((p) => p.margin), 30);
-                                                const minM = Math.min(...pts.map((p) => p.margin), 15);
-                                                const range = maxM - minM || 1;
-                                                const coords = pts.map((p, i) => {
-                                                    const x = pts.length > 1 ? (i / (pts.length - 1)) * 270 + 5 : 140;
-                                                    const y = 70 - ((p.margin - minM) / range) * 55;
-                                                    return `${x},${y}`;
-                                                });
-                                                const area = `M5,70 L${coords.join(' L')} L275,70 Z`;
-                                                return (
-                                                    <>
-                                                        <path d={area} fill="url(#plMarginGrad)" />
-                                                        <polyline points={coords.join(' ')} fill="none" stroke="#00D4AA" strokeWidth="2" strokeLinejoin="round" />
-                                                        {pts.map((p, i) => {
-                                                            const x = pts.length > 1 ? (i / (pts.length - 1)) * 270 + 5 : 140;
-                                                            const y = 70 - ((p.margin - minM) / range) * 55;
-                                                            return <circle key={p.month} cx={x} cy={y} r="2.5" fill="#00D4AA" />;
-                                                        })}
-                                                    </>
-                                                );
-                                            })()}
-                                        </svg>
-                                    </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-                                        {(marginTrendData.length > 0 ? marginTrendData : [{ month: 'Dec' }, { month: 'Jan' }, { month: 'Feb' }, { month: 'Mar' }, { month: 'Apr' }, { month: 'May' }]).map((p) => (
-                                            <span key={p.month} style={{ fontSize: 7.5, color: 'var(--color-redwood-text-subtle)' }}>
-                                                {p.month}
-                                            </span>
-                                        ))}
-                                    </div>
-                                    <div style={{ fontSize: 8.5, color: '#22C55E', marginTop: 6, fontWeight: 600 }}>{marginTrendImprovement}</div>
-                                </div>
-
-                                {/* AI P&L Analysis */}
-                                <div
-                                    style={{
-                                        ...panel,
-                                        background: 'linear-gradient(135deg, rgba(15,23,42,.95) 0%, rgba(30,27,75,.85) 100%)',
-                                        borderColor: 'rgba(124,58,237,.25)',
-                                    }}
-                                >
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                                        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                            <Brain size={14} style={{ color: '#A78BFA' }} />
-                                            AI P&amp;L Analysis
-                                        </div>
-                                        <span
-                                            style={{
-                                                fontSize: 7,
-                                                fontWeight: 700,
-                                                padding: '2px 7px',
-                                                borderRadius: 999,
-                                                background: 'rgba(34,197,94,.12)',
-                                                color: '#22C55E',
-                                                border: '1px solid rgba(34,197,94,.28)',
-                                            }}
-                                        >
-                                            grounded
-                                        </span>
-                                    </div>
-                                    <p style={{ fontSize: 9.5, color: 'var(--color-redwood-text-muted)', lineHeight: 1.55, margin: 0 }}>
-                                        {plData ? (
-                                            <>
-                                                Revenue reached{' '}
-                                                <span style={{ color: '#22C55E', fontWeight: 700 }}>{formatCurrency(plData.revenue.totalRevenue)}</span>
-                                                {' '}({monthCompare.revenuePct ?? 'No prior-period data'}), with gross margin at{' '}
-                                                <span style={{ color: '#22C55E', fontWeight: 700 }}>{isPlCogsPartial ? '—' : `${plData.grossProfit.margin.toFixed(1)}%`}</span>.
-                                                Net profit of{' '}
-                                                <span style={{ color: '#00D4AA', fontWeight: 700 }}>{isPlCogsPartial ? '—' : formatCurrency(plData.netProfit.afterTax)}</span>
-                                                {' '}({isPlCogsPartial ? '—' : `${plData.netProfit.margin.toFixed(1)}% margin`}, {monthCompare.profitPct ?? 'No prior-period data'} MoM) reflects OpEx at{' '}
-                                                <span style={{ color: '#F59E0B', fontWeight: 700 }}>{formatCurrency(plData.operatingExpenses.totalOpEx)}</span>.
-                                            </>
-                                        ) : (
-                                            'Analysing P&L trends from your latest financial data…'
-                                        )}
-                                    </p>
-                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
-                                        {PL_AI_PROMPTS.map((p) => (
-                                            <button
-                                                key={p}
-                                                type="button"
-                                                onClick={() => setAiQuestion(p)}
-                                                style={{
-                                                    padding: '3px 8px',
-                                                    borderRadius: 999,
-                                                    fontSize: 8.5,
-                                                    border: '1px solid rgba(124,58,237,.25)',
-                                                    background: 'rgba(124,58,237,.1)',
-                                                    color: '#C4B5FD',
-                                                    cursor: 'pointer',
-                                                    fontFamily: 'inherit',
-                                                }}
-                                            >
-                                                {p}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <p style={{ fontSize: 8, color: 'var(--color-redwood-text-subtle)', margin: '4px 2px 0', textAlign: 'center' }}>
-                            Hover or click any line item to drill down into invoices, expenses, or channel detail (preview)
-                        </p>
                     </div>
                 )}
                 {activeTab === 'cashflow' && cfDisplay && false && (
@@ -4370,55 +3795,79 @@ export default function ProfitabilityReports() {
                         iconColor: string;
                         tag?: { label: string; variant: 'new' | 'beta' | 'ai' };
                         path?: string;
+                        // 'locked' = report not built yet: shown dimmed, click disabled, "Coming soon" badge.
+                        // Flip to 'live' (or remove) once the report route/component exists to unlock.
+                        status?: 'live' | 'locked';
                     };
-                    const reportCard = (r: ReportCardDef, key: string) => (
-                        <div key={key} style={rptCard}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                                <div style={{ width: 34, height: 34, borderRadius: 8, background: r.iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                    {r.icon}
-                                </div>
-                                {r.tag ? statusTag(r.tag.label, r.tag.variant) : <span />}
-                            </div>
-                            <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: 11, fontWeight: 600, color: '#EEF2FF', marginBottom: 4 }}>{r.title}</div>
-                                <div style={{ fontSize: 9, color: '#8BA3C7', lineHeight: 1.45 }}>{r.desc}</div>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => (r.path ? navigate(r.path) : openReportPreview(r.title))}
-                                style={{
-                                    background: 'none',
-                                    border: 'none',
-                                    padding: 0,
-                                    cursor: 'pointer',
-                                    fontSize: 9,
-                                    fontWeight: 600,
-                                    color: '#93C5FD',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 4,
-                                    fontFamily: 'inherit',
-                                    alignSelf: 'flex-start',
-                                }}
-                            >
-                                Open report <ArrowRight size={11} />
-                            </button>
-                        </div>
+                    const lockedBadge = (
+                        <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(148,163,184,.12)', color: '#94A3B8', border: '1px solid rgba(148,163,184,.28)', display: 'inline-flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap' }}>
+                            <Lock size={8} /> Coming soon
+                        </span>
                     );
-                    const sectionBlock = (title: string, desc: string, count: number, cards: ReportCardDef[], gridCols = 'repeat(auto-fill, minmax(220px, 1fr))') => (
-                        <div style={{ ...rptPanel, padding: '12px 14px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-                                <div>
-                                    <div style={{ fontSize: 12, fontWeight: 600, color: '#EEF2FF', fontFamily: "'Syne',sans-serif" }}>{title}</div>
-                                    <div style={{ fontSize: 9, color: '#3E5678', marginTop: 2 }}>{desc}</div>
+                    const reportCard = (r: ReportCardDef, key: string) => {
+                        const locked = r.status === 'locked';
+                        return (
+                            <div key={key} style={{ ...rptCard, opacity: locked ? 0.55 : 1 }} title={locked ? 'Coming soon' : undefined}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                                    <div style={{ width: 34, height: 34, borderRadius: 8, background: r.iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                        {r.icon}
+                                    </div>
+                                    {locked ? lockedBadge : (r.tag ? statusTag(r.tag.label, r.tag.variant) : <span />)}
                                 </div>
-                                {countBadge(`${count} report${count === 1 ? '' : 's'}`)}
+                                <div style={{ flex: 1 }}>
+                                    <div style={{ fontSize: 11, fontWeight: 600, color: '#EEF2FF', marginBottom: 4 }}>{r.title}</div>
+                                    <div style={{ fontSize: 9, color: '#8BA3C7', lineHeight: 1.45 }}>{r.desc}</div>
+                                </div>
+                                {locked ? (
+                                    <span style={{ fontSize: 9, fontWeight: 600, color: '#5A6B85', display: 'inline-flex', alignItems: 'center', gap: 4, alignSelf: 'flex-start', cursor: 'not-allowed' }}>
+                                        <Lock size={11} /> Coming soon
+                                    </span>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        onClick={() => (r.path ? navigate(r.path) : openReportPreview(r.title))}
+                                        style={{
+                                            background: 'none',
+                                            border: 'none',
+                                            padding: 0,
+                                            cursor: 'pointer',
+                                            fontSize: 9,
+                                            fontWeight: 600,
+                                            color: '#93C5FD',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: 4,
+                                            fontFamily: 'inherit',
+                                            alignSelf: 'flex-start',
+                                        }}
+                                    >
+                                        Open report <ArrowRight size={11} />
+                                    </button>
+                                )}
                             </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 10 }}>
-                                {cards.map((c, i) => reportCard(c, `${title}-${i}`))}
+                        );
+                    };
+                    const sectionBlock = (title: string, desc: string, cards: ReportCardDef[], gridCols = 'repeat(auto-fill, minmax(220px, 1fr))') => {
+                        const liveCount = cards.filter((c) => c.status !== 'locked').length;
+                        const lockedCount = cards.length - liveCount;
+                        const badgeText = lockedCount > 0
+                            ? `${liveCount} available · ${lockedCount} coming soon`
+                            : `${liveCount} report${liveCount === 1 ? '' : 's'}`;
+                        return (
+                            <div style={{ ...rptPanel, padding: '12px 14px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                                    <div>
+                                        <div style={{ fontSize: 12, fontWeight: 600, color: '#EEF2FF', fontFamily: "'Syne',sans-serif" }}>{title}</div>
+                                        <div style={{ fontSize: 9, color: '#3E5678', marginTop: 2 }}>{desc}</div>
+                                    </div>
+                                    {countBadge(badgeText)}
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 10 }}>
+                                    {cards.map((c, i) => reportCard(c, `${title}-${i}`))}
+                                </div>
                             </div>
-                        </div>
-                    );
+                        );
+                    };
 
                     const arReports: ReportCardDef[] = [
                         { title: 'AR aging report', desc: 'Customers grouped by 0–30, 31–60, 61–90, 90+ days overdue · USD ($)', icon: <Calendar size={16} style={{ color: '#F87171' }} />, iconBg: 'rgba(239,68,68,.12)', iconColor: '#F87171', tag: { label: 'New', variant: 'new' }, path: '/reports/aged-receivable' },
@@ -4428,27 +3877,27 @@ export default function ProfitabilityReports() {
                     const financialReports: ReportCardDef[] = [
                         { title: 'Journal report', desc: 'Every transaction for any selected date — navigate day by day · USD ($)', icon: <BookOpen size={16} style={{ color: '#A78BFA' }} />, iconBg: 'rgba(124,58,237,.15)', iconColor: '#A78BFA', tag: { label: 'New', variant: 'new' }, path: '/reports/day-book' },
                         { title: 'Trial balance', desc: 'All debits vs credits for month/quarter/year — shows if books are balanced · USD ($)', icon: <Scale size={16} style={{ color: '#818CF8' }} />, iconBg: 'rgba(99,102,241,.15)', iconColor: '#818CF8', tag: { label: 'New', variant: 'new' }, path: '/reports/trial-balance' },
-                        { title: 'General ledger', desc: 'Complete chart of accounts with running balances and drill-down · USD ($)', icon: <Layers size={16} style={{ color: '#60A5FA' }} />, iconBg: 'rgba(79,142,247,.12)', iconColor: '#60A5FA', tag: { label: 'New', variant: 'new' } },
-                        { title: 'Bank reconciliation', desc: 'Match bank statements to ledger entries and flag unreconciled items · USD ($)', icon: <Landmark size={16} style={{ color: '#34D399' }} />, iconBg: 'rgba(52,211,153,.12)', iconColor: '#34D399', tag: { label: 'New', variant: 'new' } },
+                        { title: 'General ledger', status: 'locked', desc: 'Complete chart of accounts with running balances and drill-down · USD ($)', icon: <Layers size={16} style={{ color: '#60A5FA' }} />, iconBg: 'rgba(79,142,247,.12)', iconColor: '#60A5FA', tag: { label: 'New', variant: 'new' } },
+                        { title: 'Bank reconciliation', status: 'locked', desc: 'Match bank statements to ledger entries and flag unreconciled items · USD ($)', icon: <Landmark size={16} style={{ color: '#34D399' }} />, iconBg: 'rgba(52,211,153,.12)', iconColor: '#34D399', tag: { label: 'New', variant: 'new' } },
                     ];
                     const salesReports: ReportCardDef[] = [
-                        { title: 'Sales by product', desc: 'Revenue, units, and margin by SKU with period comparison · USD ($)', icon: <Package size={16} style={{ color: '#4ADE80' }} />, iconBg: 'rgba(34,197,94,.12)', iconColor: '#4ADE80', tag: { label: 'New', variant: 'new' } },
-                        { title: 'Sales by customer', desc: 'Top accounts, concentration risk, and receivable exposure · USD ($)', icon: <Users size={16} style={{ color: '#38BDF8' }} />, iconBg: 'rgba(56,189,248,.12)', iconColor: '#38BDF8', tag: { label: 'New', variant: 'new' } },
-                        { title: 'Revenue summary', desc: 'Consolidated revenue by channel, region, and product line · USD ($)', icon: <ShoppingCart size={16} style={{ color: '#F472B6' }} />, iconBg: 'rgba(244,114,182,.12)', iconColor: '#F472B6', tag: { label: 'New', variant: 'new' } },
+                        { title: 'Sales by product', status: 'locked', desc: 'Revenue, units, and margin by SKU with period comparison · USD ($)', icon: <Package size={16} style={{ color: '#4ADE80' }} />, iconBg: 'rgba(34,197,94,.12)', iconColor: '#4ADE80', tag: { label: 'New', variant: 'new' } },
+                        { title: 'Sales by customer', status: 'locked', desc: 'Top accounts, concentration risk, and receivable exposure · USD ($)', icon: <Users size={16} style={{ color: '#38BDF8' }} />, iconBg: 'rgba(56,189,248,.12)', iconColor: '#38BDF8', tag: { label: 'New', variant: 'new' } },
+                        { title: 'Revenue summary', status: 'locked', desc: 'Consolidated revenue by channel, region, and product line · USD ($)', icon: <ShoppingCart size={16} style={{ color: '#F472B6' }} />, iconBg: 'rgba(244,114,182,.12)', iconColor: '#F472B6', tag: { label: 'New', variant: 'new' } },
                     ];
                     const inventoryReports: ReportCardDef[] = [
-                        { title: 'Inventory valuation', desc: 'Stock on hand valued at FIFO/average cost with aging buckets · USD ($)', icon: <Boxes size={16} style={{ color: '#A78BFA' }} />, iconBg: 'rgba(124,58,237,.12)', iconColor: '#A78BFA' },
-                        { title: 'Stock movement report', desc: 'Inbound, outbound, and adjustment activity by warehouse · USD ($)', icon: <TrendingUp size={16} style={{ color: '#22D3EE' }} />, iconBg: 'rgba(34,211,238,.12)', iconColor: '#22D3EE' },
+                        { title: 'Inventory valuation', status: 'locked', desc: 'Stock on hand valued at FIFO/average cost with aging buckets · USD ($)', icon: <Boxes size={16} style={{ color: '#A78BFA' }} />, iconBg: 'rgba(124,58,237,.12)', iconColor: '#A78BFA' },
+                        { title: 'Stock movement report', status: 'locked', desc: 'Inbound, outbound, and adjustment activity by warehouse · USD ($)', icon: <TrendingUp size={16} style={{ color: '#22D3EE' }} />, iconBg: 'rgba(34,211,238,.12)', iconColor: '#22D3EE' },
                     ];
                     const taxReports: ReportCardDef[] = [
-                        { title: 'Tax liability report', desc: 'Output vs input VAT and estimated liability for filing periods · USD ($)', icon: <Shield size={16} style={{ color: '#F59E0B' }} />, iconBg: 'rgba(245,158,11,.12)', iconColor: '#F59E0B', tag: { label: 'New', variant: 'new' } },
-                        { title: 'Budget vs actual', desc: 'Variance analysis by department and GL account vs approved budget · USD ($)', icon: <BarChart3 size={16} style={{ color: '#60A5FA' }} />, iconBg: 'rgba(79,142,247,.12)', iconColor: '#60A5FA', tag: { label: 'New', variant: 'new' } },
-                        { title: 'Audit trail', desc: 'Immutable log of user actions, approvals, and data changes · USD ($)', icon: <Filter size={16} style={{ color: '#FB923C' }} />, iconBg: 'rgba(251,146,60,.12)', iconColor: '#FB923C', tag: { label: 'Beta', variant: 'beta' } },
+                        { title: 'Tax liability report', status: 'locked', desc: 'Output vs input VAT and estimated liability for filing periods · USD ($)', icon: <Shield size={16} style={{ color: '#F59E0B' }} />, iconBg: 'rgba(245,158,11,.12)', iconColor: '#F59E0B', tag: { label: 'New', variant: 'new' } },
+                        { title: 'Budget vs actual', status: 'locked', desc: 'Variance analysis by department and GL account vs approved budget · USD ($)', icon: <BarChart3 size={16} style={{ color: '#60A5FA' }} />, iconBg: 'rgba(79,142,247,.12)', iconColor: '#60A5FA', tag: { label: 'New', variant: 'new' } },
+                        { title: 'Audit trail', status: 'locked', desc: 'Immutable log of user actions, approvals, and data changes · USD ($)', icon: <Filter size={16} style={{ color: '#FB923C' }} />, iconBg: 'rgba(251,146,60,.12)', iconColor: '#FB923C', tag: { label: 'Beta', variant: 'beta' } },
                     ];
                     const aiReports = [
-                        { title: 'AI monthly summary', desc: 'Executive narrative of P&L, cash, AR, and key variances for the period · USD ($)' },
-                        { title: 'AI anomaly report', desc: 'Flags unusual transactions, margin swings, and collection outliers · USD ($)' },
-                        { title: 'AI cash flow forecast', desc: 'Projected closing balance with scenario assumptions · USD ($)' },
+                        { title: 'AI monthly summary', status: 'locked', desc: 'Executive narrative of P&L, cash, AR, and key variances for the period · USD ($)' },
+                        { title: 'AI anomaly report', status: 'locked', desc: 'Flags unusual transactions, margin swings, and collection outliers · USD ($)' },
+                        { title: 'AI cash flow forecast', status: 'locked', desc: 'Projected closing balance with scenario assumptions · USD ($)' },
                     ];
                     const REPORTS_PERIOD_PILLS = [
                         { key: 'may', label: 'Period May 2026', active: false },
@@ -4470,7 +3919,7 @@ export default function ProfitabilityReports() {
                                         <div>
                                             <div style={{ fontSize: 17, fontWeight: 500, color: '#EEF2FF', fontFamily: "'Syne',sans-serif" }}>All reports</div>
                                             <div style={{ fontSize: 11, color: '#8BA3C7', marginTop: 1 }}>
-                                                Comprehensive list · 18 reports · AR · financial statements · sales · inventory · tax · AI
+                                                Comprehensive list · 5 available · 13 coming soon · AR · financial statements · sales · inventory · tax · AI
                                             </div>
                                         </div>
                                     </div>
@@ -4585,11 +4034,11 @@ export default function ProfitabilityReports() {
                                 </div>
                             </div>
 
-                            {sectionBlock('Accounts & receivables', 'Track who owes you and what you owe suppliers · USD ($)', 3, arReports)}
-                            {sectionBlock('Financial statements', 'Core accounting reports for month-end and audits · USD ($)', 4, financialReports, 'repeat(auto-fill, minmax(200px, 1fr))')}
-                            {sectionBlock('Sales & revenue', 'Product, customer, and channel performance · USD ($)', 3, salesReports)}
-                            {sectionBlock('Inventory', 'Stock valuation and movement across warehouses · USD ($)', 2, inventoryReports, 'repeat(auto-fill, minmax(240px, 1fr))')}
-                            {sectionBlock('Tax & compliance', 'Filing, budget variance, and audit readiness · USD ($)', 3, taxReports)}
+                            {sectionBlock('Accounts & receivables', 'Track who owes you and what you owe suppliers · USD ($)', arReports)}
+                            {sectionBlock('Financial statements', 'Core accounting reports for month-end and audits · USD ($)', financialReports, 'repeat(auto-fill, minmax(200px, 1fr))')}
+                            {sectionBlock('Sales & revenue', 'Product, customer, and channel performance · USD ($)', salesReports)}
+                            {sectionBlock('Inventory', 'Stock valuation and movement across warehouses · USD ($)', inventoryReports, 'repeat(auto-fill, minmax(240px, 1fr))')}
+                            {sectionBlock('Tax & compliance', 'Filing, budget variance, and audit readiness · USD ($)', taxReports)}
 
                             {/* AI-generated reports */}
                             <div style={{ ...rptPanel, padding: '12px 14px', background: 'rgba(124,58,237,.06)', border: '1px solid rgba(124,58,237,.22)' }}>
@@ -4600,7 +4049,7 @@ export default function ProfitabilityReports() {
                                     <div>
                                         <div style={{ fontSize: 12, fontWeight: 600, color: '#EEF2FF', fontFamily: "'Syne',sans-serif", display: 'flex', alignItems: 'center', gap: 6 }}>
                                             AI-generated reports
-                                            {countBadge('3 reports')}
+                                            {countBadge('3 coming soon')}
                                         </div>
                                         <div style={{ fontSize: 9, color: '#8BA3C7', marginTop: 4, lineHeight: 1.45 }}>
                                             Narratives and forecasts powered by OpenAI — grounded in your ledger, AR, and inventory data · USD ($)
@@ -4609,31 +4058,21 @@ export default function ProfitabilityReports() {
                                 </div>
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
                                     {aiReports.map((r) => (
-                                        <div key={r.title} style={{ ...rptCard, background: 'rgba(15,23,42,.65)', border: '1px solid rgba(124,58,237,.2)' }}>
+                                        <div key={r.title} style={{ ...rptCard, background: 'rgba(15,23,42,.65)', border: '1px solid rgba(124,58,237,.2)', opacity: 0.55 }} title="Coming soon">
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                                                 <div style={{ width: 34, height: 34, borderRadius: 8, background: 'rgba(124,58,237,.18)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                                     <Bot size={16} style={{ color: '#C4B5FD' }} />
                                                 </div>
-                                                {statusTag('AI', 'ai')}
+                                                {lockedBadge}
                                             </div>
                                             <div>
                                                 <div style={{ fontSize: 11, fontWeight: 600, color: '#EEF2FF', marginBottom: 4 }}>{r.title}</div>
                                                 <div style={{ fontSize: 9, color: '#8BA3C7', lineHeight: 1.45 }}>{r.desc}</div>
                                             </div>
-                                            <button
-                                                type="button"
-                                                onClick={() => alert(`Generate: ${r.title}\n\nConnect OpenAI endpoint to produce this report. Amounts in USD ($).`)}
-                                                style={{
-                                                    ...ghostBtn,
-                                                    alignSelf: 'flex-start',
-                                                    color: '#C4B5FD',
-                                                    borderColor: 'rgba(124,58,237,.35)',
-                                                    background: 'rgba(124,58,237,.15)',
-                                                    fontSize: 9,
-                                                }}
-                                            >
-                                                <Sparkles size={11} /> Generate report
-                                            </button>
+                                            {/* AI generation locked until the OpenAI endpoint is wired — preserve intent, disable click. */}
+                                            <span style={{ fontSize: 9, fontWeight: 600, color: '#5A6B85', display: 'inline-flex', alignItems: 'center', gap: 4, alignSelf: 'flex-start', cursor: 'not-allowed' }}>
+                                                <Lock size={11} /> Coming soon
+                                            </span>
                                         </div>
                                     ))}
                                 </div>
