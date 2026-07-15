@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Users, Plus, FileText, Receipt, AlertCircle, Filter, ArrowLeft, Download } from 'lucide-react';
-import { type Customer, getCustomers } from '../../services/customerService';
+import { type Customer, getCustomers, getArSummary } from '../../services/customerService';
 import { getInvoices, getPayments } from '../../services/api';
 import { calculateReceivables } from '../../utils/arMetrics';
 import CustomerListPage from './CustomerList';  // ← FIXED: Changed from CustomerList to CustomerListPage
@@ -22,9 +22,10 @@ export default function CustomerDashboard() {
   });
 
   useEffect(() => {
-    Promise.all([getInvoices(), getPayments(), getCustomers()])
-      .then(([invoices, payments, customers]) => {
-        const receivables = calculateReceivables(invoices, payments).total;
+    Promise.all([getInvoices(), getPayments(), getCustomers(), getArSummary().catch(() => null)])
+      .then(([invoices, payments, customers, ar]) => {
+        // DASH-3b — authoritative endpoint total; fall back to client-side calc.
+        const receivables = ar ? ar.total_outstanding : calculateReceivables(invoices, payments).total;
         const overLimit = customers.filter((c: any) => {
           const balance = Number(c?.balance) || 0;
           const limit = Number(c?.credit_limit ?? c?.creditLimit) || 0;
