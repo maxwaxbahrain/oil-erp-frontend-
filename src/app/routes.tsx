@@ -62,7 +62,6 @@ import ExpenseReports from '../pages/Accounts/ExpenseReports';
 // STEP 10 — Expense Settings (new route).
 import ExpenseSettingsPage from '../pages/Accounts/ExpenseSettingsPage';
 import PayrollManagement from '../pages/Accounts/PayrollManagement';
-import ReportsDashboard from '../pages/Reports/ReportsDashboard';
 import PurchasesDashboard from '../pages/Purchases/PurchasesDashboard';
 import PurchaseOrderForm from '../pages/Purchases/PurchaseOrderForm';
 import SupplierForm from '../pages/Purchases/SupplierForm';
@@ -322,8 +321,6 @@ export const AppRoutes = () => {
             <Route path="/reports/trial-balance" element={<TrialBalance />} />
             <Route path="/reports/financial" element={<ProfitabilityReports />} />
             <Route path="/reports/demand-forecast" element={<AccountingSetupRequired />} />
-            <Route path="/reports" element={<ReportsDashboard />} />
-            <Route path="/reports/*" element={<ReportsDashboard />} />
             <Route path="/logistics/tracking" element={<VanTracking />} />
             <Route path="/logistics/route-planning" element={<RoutePlanning />} />
             </Route>
