@@ -43,6 +43,10 @@ const POLL_INTERVAL_MS = 2000;
 const MAX_CONSECUTIVE_POLL_FAILURES = 30;
 const STALL_MINUTES = 10;
 
+/** BETTANO.db self-check: Receipt→Sales rows in bill_receipt_payment (verified offline). */
+const PAYMENT_ALLOCATION_EXPECTED_ROWS = 983;
+const PAYMENT_ALLOCATION_EXPECTED_TOTAL = 379814.03;
+
 const ts = () => new Date().toLocaleTimeString();
 
 /** Parse BETTANO numeric strings; strips comma thousands separators. */
@@ -146,7 +150,11 @@ export default function DataMigration() {
             const name = String(r.aname || '').trim();
             if (!name) continue;
             const safe = name.replace(/'/g, "''");
-            const res = q(`SELECT ROUND(SUM(CASE WHEN v_type='Sales' AND debit='${safe}' THEN amount ELSE 0 END) - SUM(CASE WHEN v_type='Receipt' AND credit='${safe}' THEN amount ELSE 0 END), 2) as bal FROM vouchers`);
+            const res = q(`SELECT ROUND(
+                SUM(CASE WHEN debit='${safe}' THEN amount ELSE 0 END)
+              - SUM(CASE WHEN credit='${safe}' THEN amount ELSE 0 END), 2) AS bal
+              FROM vouchers
+              WHERE v_type IN ('Sales','Receipt','Journal','Sales Return')`);
             balMap[name] = parseMigrationNum(res[0]?.bal);
         }
 
@@ -296,6 +304,40 @@ export default function DataMigration() {
         const payRows = q(`SELECT date, vch_no, credit as customer_name, amount FROM vouchers WHERE v_type='Receipt' ORDER BY date`);
         const payments = payRows.map((r: any) => ({ reference: String(r.vch_no || '').slice(0, 100), customer_name: String(r.customer_name || '').trim(), date: String(r.date || ''), amount: parseMigrationNum(r.amount) })).filter((p: any) => p.customer_name && p.amount > 0);
 
+        const receiptVchByVId: Record<string, string> = {};
+        for (const r of q(`SELECT v_id, vch_no FROM vouchers WHERE v_type='Receipt'`)) {
+            const vid = String(r.v_id ?? '').trim();
+            if (!vid) continue;
+            receiptVchByVId[vid] = String(r.vch_no || '').slice(0, 100);
+        }
+        const invVchByVId: Record<string, string> = {};
+        for (const r of q(`SELECT v_id, vch_no FROM vouchers WHERE v_type='Sales'`)) {
+            const vid = String(r.v_id ?? '').trim();
+            if (!vid) continue;
+            invVchByVId[vid] = String(r.vch_no || '').slice(0, 100);
+        }
+        const payment_allocations = q(`SELECT r_p_v_id, b_v_id, amount FROM bill_receipt_payment`)
+            .map((r: any) => {
+                const rpv = String(r.r_p_v_id ?? '').trim();
+                const bvid = String(r.b_v_id ?? '').trim();
+                const receiptRef = receiptVchByVId[rpv];
+                const invoiceNo = invVchByVId[bvid];
+                const amount = parseMigrationNum(r.amount);
+                if (!receiptRef || !invoiceNo || amount <= 0) return null;
+                return { payment_reference: receiptRef, invoice_number: invoiceNo, amount };
+            })
+            .filter((a: any): a is { payment_reference: string; invoice_number: string; amount: number } => a !== null);
+        const paymentAllocTotal = payment_allocations.reduce((sum, a) => sum + a.amount, 0);
+        log(
+            `💳 ${payment_allocations.length} payment allocation rows ($${paymentAllocTotal.toFixed(2)} total; expected ${PAYMENT_ALLOCATION_EXPECTED_ROWS} rows / $${PAYMENT_ALLOCATION_EXPECTED_TOTAL.toFixed(2)})`,
+            payment_allocations.length === PAYMENT_ALLOCATION_EXPECTED_ROWS ? 'success' : 'error',
+        );
+        if (payment_allocations.length !== PAYMENT_ALLOCATION_EXPECTED_ROWS) {
+            throw new Error(
+                `payment_allocations self-check failed: expected exactly ${PAYMENT_ALLOCATION_EXPECTED_ROWS} Receipt→Sales rows, got ${payment_allocations.length}. This may not be the verified BETTANO.db — import stopped.`,
+            );
+        }
+
         const debtorNameSet = new Set(customers.map((c: any) => c.name));
         const srRows = q(`SELECT date, vch_no, debit, credit, amount, narration FROM vouchers WHERE v_type='Sales Return' ORDER BY date`);
         const sales_returns = srRows.map((r: any) => {
@@ -318,7 +360,7 @@ export default function DataMigration() {
         const unpaidInvoices = invoices.filter((i: any) => i.status === 'unpaid').length;
         log(`📦 ${products.length} products (${stockedCount} with stock from purchases−sales), ${suppliers.length} suppliers, ${invoices.length} invoices (${paidInvoices} paid / ${partialInvoices} partial / ${unpaidInvoices} unpaid), ${payments.length} payments, ${sales_returns.length} sales returns`, 'info');
         log(`🛒 ${purchase_orders.length} supplier POs, ${supplier_payments.length} supplier payments`, 'info');
-        return { customers, suppliers, products, invoices, payments, sales_returns, purchase_orders, supplier_payments };
+        return { customers, suppliers, products, invoices, payments, payment_allocations, sales_returns, purchase_orders, supplier_payments };
     };
 
 
@@ -608,7 +650,7 @@ export default function DataMigration() {
                     </div>
                     <button onClick={clearAll} disabled={busy} className="flex items-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-xl text-sm font-black transition-all"><Trash2 size={14} /> Clear All</button>
                 </div>
-                <div className="mt-3 bg-green-500/10 border border-green-500/20 rounded-xl px-4 py-2 text-green-300 text-xs font-bold">✅ Correct balance = Total Sales − Total Payments received</div>
+                <div className="mt-3 bg-green-500/10 border border-green-500/20 rounded-xl px-4 py-2 text-green-300 text-xs font-bold">✅ Correct balance = Full customer ledger (all voucher types)</div>
             </div>
 
             <div className="grid grid-cols-5 gap-2">
