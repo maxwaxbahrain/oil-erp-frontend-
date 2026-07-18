@@ -327,7 +327,7 @@ export default function DataMigration() {
                 return { payment_reference: receiptRef, invoice_number: invoiceNo, amount };
             })
             .filter((a: any): a is { payment_reference: string; invoice_number: string; amount: number } => a !== null);
-        const paymentAllocTotal = payment_allocations.reduce((sum, a) => sum + a.amount, 0);
+        const paymentAllocTotal = payment_allocations.reduce((sum: number, a: { payment_reference: string; invoice_number: string; amount: number }) => sum + a.amount, 0);
         log(
             `💳 ${payment_allocations.length} payment allocation rows ($${paymentAllocTotal.toFixed(2)} total; expected ${PAYMENT_ALLOCATION_EXPECTED_ROWS} rows / $${PAYMENT_ALLOCATION_EXPECTED_TOTAL.toFixed(2)})`,
             payment_allocations.length === PAYMENT_ALLOCATION_EXPECTED_ROWS ? 'success' : 'error',
