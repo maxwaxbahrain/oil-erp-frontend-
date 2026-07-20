@@ -14,7 +14,15 @@ interface Results {
     supplierPayments?: number;
 }
 interface EntityImportStats { created?: number; updated?: number; skipped?: number; failed?: number; errors?: string[]; }
-interface GlImportStats { posted?: number; skipped?: number; failed?: number; }
+interface GlFailureSample { source_type: string; source_id: string; message: string; }
+interface GlImportStats {
+    posted?: number;
+    skipped?: number;
+    skipped_already_posted?: number;
+    skipped_ineligible?: number;
+    failed?: number;
+    failure_samples?: GlFailureSample[];
+}
 interface TieOut { gl_ar?: number; customer_balances?: number; difference?: number; }
 interface CompletenessCheck { count?: number; sample?: string[]; difference?: number; ok?: boolean; gl_ar?: number; customer_balances?: number; }
 interface ImportCompleteness {
@@ -71,6 +79,21 @@ const formatEntityCounts = (stats: EntityImportStats): string => {
 const formatPhaseLabel = (phase: string): string =>
     phase.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
+const formatGlEntityLabel = (key: string): string =>
+    key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+const formatGlEntitySummary = (stats: GlImportStats): string => {
+    const parts: string[] = [];
+    if (stats.posted) parts.push(`${stats.posted} posted`);
+    if (stats.skipped_already_posted) parts.push(`${stats.skipped_already_posted} already posted`);
+    if (stats.skipped_ineligible) parts.push(`${stats.skipped_ineligible} ineligible`);
+    if (stats.skipped && !stats.skipped_already_posted && !stats.skipped_ineligible) {
+        parts.push(`${stats.skipped} skipped`);
+    }
+    if (stats.failed) parts.push(`${stats.failed} failed`);
+    return parts.length ? parts.join(', ') : '0 posted';
+};
+
 const ENTITY_IMPORT_LOGS: { key: string; emoji: string; label: string }[] = [
     { key: 'customers', emoji: '👥', label: 'Customers' },
     { key: 'products', emoji: '📦', label: 'Products' },
@@ -91,6 +114,7 @@ export default function DataMigration() {
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const [results, setResults] = useState<Results | null>(null);
     const [tieOut, setTieOut] = useState<TieOut | null>(null);
+    const [glResults, setGlResults] = useState<Record<string, GlImportStats> | null>(null);
     const [completeness, setCompleteness] = useState<ImportCompleteness | null>(null);
     const [done, setDone] = useState(false);
     const [importFailed, setImportFailed] = useState(false);
@@ -302,7 +326,7 @@ export default function DataMigration() {
         }).filter((i: any) => i.customer_name && i.amount > 0);
 
         const payRows = q(`SELECT date, vch_no, credit as customer_name, amount FROM vouchers WHERE v_type='Receipt' ORDER BY date`);
-        const payments = payRows.map((r: any) => ({ reference: String(r.vch_no || '').slice(0, 100), customer_name: String(r.customer_name || '').trim(), date: String(r.date || ''), amount: parseMigrationNum(r.amount) })).filter((p: any) => p.customer_name && p.amount > 0);
+        const payments = payRows.map((r: any) => ({ reference: String(r.vch_no || '').slice(0, 100), customer_name: String(r.customer_name || '').trim(), date: String(r.date || ''), amount: parseMigrationNum(r.amount) })).filter((p: any) => p.customer_name && p.amount !== 0);
 
         const receiptVchByVId: Record<string, string> = {};
         for (const r of q(`SELECT v_id, vch_no FROM vouchers WHERE v_type='Receipt'`)) {
@@ -393,11 +417,21 @@ export default function DataMigration() {
         }
 
         const gl = backendResults.gl as Record<string, GlImportStats> | undefined;
+        setGlResults(gl ?? null);
         if (gl) {
-            const glParts = Object.entries(gl)
-                .map(([k, v]) => `${k}: ${v.posted ?? 0} posted`)
-                .join(', ');
-            if (glParts) log(`📒 GL posting — ${glParts}`, 'success');
+            for (const [entity, stats] of Object.entries(gl)) {
+                const summary = formatGlEntitySummary(stats);
+                const hasFailures = (stats.failed ?? 0) > 0 || (stats.failure_samples?.length ?? 0) > 0;
+                log(`📒 GL ${formatGlEntityLabel(entity)} — ${summary}`, hasFailures ? 'warn' : 'success');
+                for (const sample of stats.failure_samples ?? []) {
+                    log(
+                        `   ↳ ${sample.source_type} ${sample.source_id}: ${sample.message}`,
+                        'error',
+                    );
+                }
+            }
+        } else {
+            setGlResults(null);
         }
 
         const tie = backendResults.tie_out;
@@ -461,10 +495,11 @@ export default function DataMigration() {
         setDone(false);
         setResults(null);
         setTieOut(null);
+        setGlResults(null);
         setCompleteness(null);
         prog(0, '');
         log(`❌ Import failed: ${message}`, 'error');
-        log('ℹ️ Re-uploading the same file is safe — the import is idempotent.', 'info');
+        log('ℹ️ Do not re-upload the same file — invoices and payments can duplicate. Only payment allocations are idempotent. Check back or contact support.', 'warn');
         setBusy(false);
     }, [log, prog, stopPolling]);
 
@@ -499,7 +534,7 @@ export default function DataMigration() {
             if (job.status === 'running' && job.updated_at && !stallWarnedRef.current) {
                 const ageMs = Date.now() - new Date(job.updated_at).getTime();
                 if (ageMs > STALL_MINUTES * 60 * 1000) {
-                    log('⚠️ Job appears stalled — re-uploading is safe.', 'warn');
+                    log('⚠️ No progress update for 10+ minutes — the job may still be running on the server. Do NOT re-upload (invoices/payments can duplicate). Check back later or contact support.', 'warn');
                     stallWarnedRef.current = true;
                 }
             }
@@ -571,6 +606,7 @@ export default function DataMigration() {
         setLogs([]);
         setResults(null);
         setTieOut(null);
+        setGlResults(null);
         setCompleteness(null);
         setDone(false);
         setImportFailed(false);
@@ -627,7 +663,7 @@ export default function DataMigration() {
         try {
             const { data } = await api.delete<{ deleted: number }>('/api/migrate/clear-all');
             log(`✅ Cleared ${data.deleted} customers`, 'success');
-            setResults(null); setDone(false); setTieOut(null); setCompleteness(null); setImportFailed(false);
+            setResults(null); setDone(false); setTieOut(null); setGlResults(null); setCompleteness(null); setImportFailed(false);
         } catch (e: any) { log(`❌ ${e.message}`, 'error'); }
         finally { setBusy(false); }
     };
@@ -636,6 +672,12 @@ export default function DataMigration() {
     const isDb = fileExt === 'db' || fileExt === 'sqlite';
     const importFullyComplete = !completeness || completeness.complete;
     const tieOutDiff = Math.abs(Number(tieOut?.difference ?? 0));
+    const tieOutBalanced = tieOutDiff < 0.01;
+    const glFailureSamples = glResults
+        ? Object.entries(glResults).flatMap(([entity, stats]) =>
+            (stats.failure_samples ?? []).map((sample) => ({ entity, ...sample })),
+        )
+        : [];
 
     return (
         <div className="max-w-3xl mx-auto px-4 pb-16 pt-4 space-y-4 animate-in fade-in duration-300">
@@ -675,10 +717,10 @@ export default function DataMigration() {
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
                 <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-3">Upload Your File</p>
                 <div onDragOver={e => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
-                    onDrop={e => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files[0]; if (f) { setFile(f); setResults(null); setDone(false); setLogs([]); setImportFailed(false); setTieOut(null); setCompleteness(null); } }}
+                    onDrop={e => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files[0]; if (f) { setFile(f); setResults(null); setDone(false); setLogs([]); setImportFailed(false); setTieOut(null); setGlResults(null); setCompleteness(null); } }}
                     onClick={() => document.getElementById('mig-ai-file')?.click()}
                     className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all ${drag ? 'border-blue-400 bg-blue-50' : file ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200 hover:border-orange-400 hover:bg-orange-50'}`}>
-                    <input id="mig-ai-file" type="file" accept=".db,.sqlite,.csv,.xlsx,.xls,.txt" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) { setFile(f); setResults(null); setDone(false); setLogs([]); setImportFailed(false); setTieOut(null); setCompleteness(null); } }} />
+                    <input id="mig-ai-file" type="file" accept=".db,.sqlite,.csv,.xlsx,.xls,.txt" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) { setFile(f); setResults(null); setDone(false); setLogs([]); setImportFailed(false); setTieOut(null); setGlResults(null); setCompleteness(null); } }} />
                     {file ? (
                         <div>
                             <div className="text-4xl mb-2">{isDb ? '🗄️' : '📋'}</div>
@@ -724,7 +766,7 @@ export default function DataMigration() {
             {importFailed && (
                 <div className="bg-red-50 border border-red-200 rounded-2xl p-5">
                     <p className="font-black text-red-800 text-base">Import did not complete</p>
-                    <p className="text-sm text-red-700 mt-1">Check the log above for details. Re-uploading the same file is safe.</p>
+                    <p className="text-sm text-red-700 mt-1">Check the log above for details. Do not re-upload the same file — invoices and payments can duplicate. Only payment allocations are idempotent.</p>
                 </div>
             )}
 
@@ -761,11 +803,58 @@ export default function DataMigration() {
                         </div>
                     </div>
                     {tieOut && tieOut.gl_ar !== undefined && (
-                        <div className={`mb-4 rounded-xl border bg-white px-4 py-3 text-sm ${importFullyComplete && tieOutDiff <= 0.01 ? 'border-emerald-200 text-emerald-900' : 'border-amber-200 text-amber-900'}`}>
-                            <p className={`font-black text-xs uppercase tracking-widest mb-1 ${importFullyComplete && tieOutDiff <= 0.01 ? 'text-emerald-700' : 'text-amber-700'}`}>AR tie-out</p>
+                        <div
+                            className="mb-4 rounded-xl border px-4 py-3 text-sm"
+                            style={{
+                                backgroundColor: tieOutBalanced ? 'rgba(79, 142, 247, 0.08)' : 'rgba(245, 158, 11, 0.12)',
+                                borderColor: tieOutBalanced ? '#4F8EF7' : '#F59E0B',
+                                color: '#060f1c',
+                            }}
+                        >
+                            <p className="font-black text-xs uppercase tracking-widest mb-2" style={{ color: tieOutBalanced ? '#4F8EF7' : '#F59E0B' }}>
+                                AR tie-out {tieOutBalanced ? '✓' : '⚠'}
+                            </p>
                             <p>GL Accounts Receivable: <strong>${Number(tieOut.gl_ar).toFixed(2)}</strong></p>
                             <p>Customer balances: <strong>${Number(tieOut.customer_balances ?? 0).toFixed(2)}</strong></p>
-                            <p>Difference: <strong>${Number(tieOut.difference ?? 0).toFixed(2)}</strong></p>
+                            <p>
+                                Difference: <strong>${Number(tieOut.difference ?? 0).toFixed(2)}</strong>
+                                {tieOutBalanced
+                                    ? <span className="ml-2 font-black" style={{ color: '#4F8EF7' }}>✓ balanced</span>
+                                    : <span className="ml-2 font-black" style={{ color: '#F59E0B' }}>review required</span>}
+                            </p>
+                        </div>
+                    )}
+                    {glResults && Object.keys(glResults).length > 0 && (
+                        <div className="mb-4 rounded-xl border p-4 text-sm" style={{ backgroundColor: '#060f1c', borderColor: '#1e293b', color: '#e2e8f0' }}>
+                            <p className="font-black text-xs uppercase tracking-widest mb-3" style={{ color: '#4F8EF7' }}>General ledger posting</p>
+                            <div className="space-y-2">
+                                {Object.entries(glResults).map(([entity, stats]) => (
+                                    <div key={entity} className="rounded-lg px-3 py-2" style={{ backgroundColor: 'rgba(79, 142, 247, 0.08)' }}>
+                                        <p className="font-black text-white">{formatGlEntityLabel(entity)}</p>
+                                        <p className="text-xs mt-1" style={{ color: '#94a3b8' }}>{formatGlEntitySummary(stats)}</p>
+                                        <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                                            <span>Posted: <strong className="text-white">{stats.posted ?? 0}</strong></span>
+                                            <span>Failed: <strong style={{ color: (stats.failed ?? 0) > 0 ? '#F59E0B' : '#e2e8f0' }}>{stats.failed ?? 0}</strong></span>
+                                            <span>Already posted: <strong className="text-white">{stats.skipped_already_posted ?? 0}</strong></span>
+                                            <span>Ineligible: <strong className="text-white">{stats.skipped_ineligible ?? 0}</strong></span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                            {glFailureSamples.length > 0 && (
+                                <div className="mt-3 pt-3 border-t" style={{ borderColor: '#1e293b' }}>
+                                    <p className="font-black text-xs uppercase tracking-widest mb-2" style={{ color: '#F59E0B' }}>GL failure samples</p>
+                                    <ul className="space-y-1.5 text-xs max-h-40 overflow-y-auto">
+                                        {glFailureSamples.slice(0, 10).map((sample, idx) => (
+                                            <li key={`${sample.entity}-${sample.source_type}-${sample.source_id}-${idx}`} style={{ color: '#fcd34d' }}>
+                                                <span className="font-bold text-white">{formatGlEntityLabel(sample.entity)}</span>
+                                                {' · '}
+                                                {sample.source_type} {sample.source_id}: {sample.message}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
                         </div>
                     )}
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-4">
