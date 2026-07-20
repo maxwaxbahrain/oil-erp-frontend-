@@ -23,7 +23,17 @@ interface GlImportStats {
     failed?: number;
     failure_samples?: GlFailureSample[];
 }
-interface TieOut { gl_ar?: number; customer_balances?: number; difference?: number; }
+interface TieOut {
+    gl_ar?: number;
+    customer_balances?: number;
+    difference?: number;
+    ar_ok?: boolean;
+    gl_ap?: number;
+    operational_ap?: number;
+    ap_difference?: number;
+    ap_ok?: boolean;
+    gl_bank?: number;
+}
 interface CompletenessCheck { count?: number; sample?: string[]; difference?: number; ok?: boolean; gl_ar?: number; customer_balances?: number; }
 interface ImportCompleteness {
     complete: boolean;
@@ -34,7 +44,8 @@ interface BackendImportResults {
     gl?: Record<string, GlImportStats>;
     tie_out?: TieOut;
     completeness?: ImportCompleteness;
-    [key: string]: EntityImportStats | ImportCompleteness | TieOut | Record<string, GlImportStats> | undefined;
+    cogs_trueup_amount?: number;
+    [key: string]: EntityImportStats | ImportCompleteness | TieOut | Record<string, GlImportStats> | number | undefined;
 }
 interface ImportJobStatus {
     job_id: number;
@@ -66,6 +77,26 @@ const parseMigrationNum = (raw: unknown, fallback = 0): number => {
     const n = Number(cleaned);
     return Number.isFinite(n) ? n : fallback;
 };
+
+const GL_DISPLAY_ORDER = [
+    'opening_balances',
+    'grn',
+    'invoices',
+    'payments',
+    'sales_returns',
+    'supplier_payments',
+    'cogs_trueup',
+];
+
+const sortGlResultEntries = (gl: Record<string, GlImportStats>): [string, GlImportStats][] =>
+    Object.entries(gl).sort(([a], [b]) => {
+        const ia = GL_DISPLAY_ORDER.indexOf(a);
+        const ib = GL_DISPLAY_ORDER.indexOf(b);
+        const rankA = ia === -1 ? GL_DISPLAY_ORDER.length : ia;
+        const rankB = ib === -1 ? GL_DISPLAY_ORDER.length : ib;
+        if (rankA !== rankB) return rankA - rankB;
+        return a.localeCompare(b);
+    });
 
 const formatEntityCounts = (stats: EntityImportStats): string => {
     const parts: string[] = [];
@@ -114,6 +145,7 @@ export default function DataMigration() {
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const [results, setResults] = useState<Results | null>(null);
     const [tieOut, setTieOut] = useState<TieOut | null>(null);
+    const [cogsTrueupAmount, setCogsTrueupAmount] = useState<number | null>(null);
     const [glResults, setGlResults] = useState<Record<string, GlImportStats> | null>(null);
     const [completeness, setCompleteness] = useState<ImportCompleteness | null>(null);
     const [done, setDone] = useState(false);
@@ -439,22 +471,44 @@ export default function DataMigration() {
         setCompleteness(completenessResult ?? null);
 
         const arTieOut = completenessResult?.checks?.ar_tie_out;
-        const tieForDisplay: TieOut | undefined = arTieOut?.gl_ar !== undefined
-            ? {
+        let tieForDisplay: TieOut | undefined = tie ? { ...tie } : undefined;
+        if (arTieOut?.gl_ar !== undefined) {
+            tieForDisplay = {
+                ...(tieForDisplay ?? {}),
                 gl_ar: arTieOut.gl_ar,
                 customer_balances: arTieOut.customer_balances,
                 difference: arTieOut.difference,
-            }
-            : tie;
+                ar_ok: arTieOut.ok,
+            };
+        }
+
+        const cogsAmount = parseMigrationNum(backendResults.cogs_trueup_amount, 0);
+        setCogsTrueupAmount(cogsAmount > 0 ? cogsAmount : null);
 
         if (tieForDisplay && tieForDisplay.gl_ar !== undefined) {
             setTieOut(tieForDisplay);
+            const arBalanced = tieForDisplay.ar_ok ?? Math.abs(Number(tieForDisplay.difference ?? 0)) <= 0.01;
             log(
                 `📊 AR tie-out — GL AR: $${Number(tieForDisplay.gl_ar).toFixed(2)}, customer balances: $${Number(tieForDisplay.customer_balances ?? 0).toFixed(2)}, diff: $${Number(tieForDisplay.difference ?? 0).toFixed(2)}`,
-                Math.abs(Number(tieForDisplay.difference ?? 0)) <= 0.01 ? 'success' : 'warn',
+                arBalanced ? 'success' : 'warn',
             );
+            if (tieForDisplay.gl_ap !== undefined) {
+                const apBalanced = tieForDisplay.ap_ok ?? Math.abs(Number(tieForDisplay.ap_difference ?? 0)) <= 0.01;
+                log(
+                    `📊 AP tie-out — GL AP: $${Number(tieForDisplay.gl_ap).toFixed(2)}, operational AP: $${Number(tieForDisplay.operational_ap ?? 0).toFixed(2)}, diff: $${Number(tieForDisplay.ap_difference ?? 0).toFixed(2)}`,
+                    apBalanced ? 'success' : 'warn',
+                );
+            }
+            if (tieForDisplay.gl_bank !== undefined) {
+                log(`🏦 Bank (GL): $${Number(tieForDisplay.gl_bank).toFixed(2)}`, 'success');
+            }
         } else {
             setTieOut(null);
+            setCogsTrueupAmount(null);
+        }
+
+        if (cogsAmount > 0) {
+            log(`🧾 COGS true-up posted: $${cogsAmount.toFixed(2)}`, 'success');
         }
 
         if (completenessResult && !completenessResult.complete) {
@@ -495,6 +549,7 @@ export default function DataMigration() {
         setDone(false);
         setResults(null);
         setTieOut(null);
+        setCogsTrueupAmount(null);
         setGlResults(null);
         setCompleteness(null);
         prog(0, '');
@@ -606,6 +661,7 @@ export default function DataMigration() {
         setLogs([]);
         setResults(null);
         setTieOut(null);
+        setCogsTrueupAmount(null);
         setGlResults(null);
         setCompleteness(null);
         setDone(false);
@@ -663,7 +719,7 @@ export default function DataMigration() {
         try {
             const { data } = await api.delete<{ deleted: number }>('/api/migrate/clear-all');
             log(`✅ Cleared ${data.deleted} customers`, 'success');
-            setResults(null); setDone(false); setTieOut(null); setGlResults(null); setCompleteness(null); setImportFailed(false);
+            setResults(null); setDone(false); setTieOut(null); setCogsTrueupAmount(null); setGlResults(null); setCompleteness(null); setImportFailed(false);
         } catch (e: any) { log(`❌ ${e.message}`, 'error'); }
         finally { setBusy(false); }
     };
@@ -672,7 +728,9 @@ export default function DataMigration() {
     const isDb = fileExt === 'db' || fileExt === 'sqlite';
     const importFullyComplete = !completeness || completeness.complete;
     const tieOutDiff = Math.abs(Number(tieOut?.difference ?? 0));
-    const tieOutBalanced = tieOutDiff < 0.01;
+    const tieOutBalanced = tieOut?.ar_ok ?? tieOutDiff < 0.01;
+    const apTieOutDiff = Math.abs(Number(tieOut?.ap_difference ?? 0));
+    const apTieOutBalanced = tieOut?.ap_ok ?? apTieOutDiff < 0.01;
     const glFailureSamples = glResults
         ? Object.entries(glResults).flatMap(([entity, stats]) =>
             (stats.failure_samples ?? []).map((sample) => ({ entity, ...sample })),
@@ -717,10 +775,10 @@ export default function DataMigration() {
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
                 <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-3">Upload Your File</p>
                 <div onDragOver={e => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
-                    onDrop={e => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files[0]; if (f) { setFile(f); setResults(null); setDone(false); setLogs([]); setImportFailed(false); setTieOut(null); setGlResults(null); setCompleteness(null); } }}
+                    onDrop={e => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files[0]; if (f) { setFile(f); setResults(null); setDone(false); setLogs([]); setImportFailed(false); setTieOut(null); setCogsTrueupAmount(null); setGlResults(null); setCompleteness(null); } }}
                     onClick={() => document.getElementById('mig-ai-file')?.click()}
                     className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all ${drag ? 'border-blue-400 bg-blue-50' : file ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200 hover:border-orange-400 hover:bg-orange-50'}`}>
-                    <input id="mig-ai-file" type="file" accept=".db,.sqlite,.csv,.xlsx,.xls,.txt" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) { setFile(f); setResults(null); setDone(false); setLogs([]); setImportFailed(false); setTieOut(null); setGlResults(null); setCompleteness(null); } }} />
+                    <input id="mig-ai-file" type="file" accept=".db,.sqlite,.csv,.xlsx,.xls,.txt" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) { setFile(f); setResults(null); setDone(false); setLogs([]); setImportFailed(false); setTieOut(null); setCogsTrueupAmount(null); setGlResults(null); setCompleteness(null); } }} />
                     {file ? (
                         <div>
                             <div className="text-4xl mb-2">{isDb ? '🗄️' : '📋'}</div>
@@ -824,11 +882,45 @@ export default function DataMigration() {
                             </p>
                         </div>
                     )}
+                    {tieOut && tieOut.gl_ap !== undefined && (
+                        <div
+                            className="mb-4 rounded-xl border px-4 py-3 text-sm"
+                            style={{
+                                backgroundColor: apTieOutBalanced ? 'rgba(79, 142, 247, 0.08)' : 'rgba(245, 158, 11, 0.12)',
+                                borderColor: apTieOutBalanced ? '#4F8EF7' : '#F59E0B',
+                                color: '#060f1c',
+                            }}
+                        >
+                            <p className="font-black text-xs uppercase tracking-widest mb-2" style={{ color: apTieOutBalanced ? '#4F8EF7' : '#F59E0B' }}>
+                                AP tie-out {apTieOutBalanced ? '✓' : '⚠'}
+                            </p>
+                            <p>GL Accounts Payable: <strong>${Number(tieOut.gl_ap).toFixed(2)}</strong></p>
+                            <p>Operational AP: <strong>${Number(tieOut.operational_ap ?? 0).toFixed(2)}</strong></p>
+                            <p>
+                                Difference: <strong>${Number(tieOut.ap_difference ?? 0).toFixed(2)}</strong>
+                                {apTieOutBalanced
+                                    ? <span className="ml-2 font-black" style={{ color: '#4F8EF7' }}>✓ balanced</span>
+                                    : <span className="ml-2 font-black" style={{ color: '#F59E0B' }}>review required</span>}
+                            </p>
+                        </div>
+                    )}
+                    {(tieOut?.gl_bank !== undefined || cogsTrueupAmount !== null) && (
+                        <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-800">
+                            {tieOut?.gl_bank !== undefined && (
+                                <p>🏦 Bank (GL): <strong>${Number(tieOut.gl_bank).toFixed(2)}</strong></p>
+                            )}
+                            {cogsTrueupAmount !== null && (
+                                <p className={tieOut?.gl_bank !== undefined ? 'mt-1' : ''}>
+                                    🧾 COGS true-up posted: <strong>${cogsTrueupAmount.toFixed(2)}</strong>
+                                </p>
+                            )}
+                        </div>
+                    )}
                     {glResults && Object.keys(glResults).length > 0 && (
                         <div className="mb-4 rounded-xl border p-4 text-sm" style={{ backgroundColor: '#060f1c', borderColor: '#1e293b', color: '#e2e8f0' }}>
                             <p className="font-black text-xs uppercase tracking-widest mb-3" style={{ color: '#4F8EF7' }}>General ledger posting</p>
                             <div className="space-y-2">
-                                {Object.entries(glResults).map(([entity, stats]) => (
+                                {sortGlResultEntries(glResults).map(([entity, stats]) => (
                                     <div key={entity} className="rounded-lg px-3 py-2" style={{ backgroundColor: 'rgba(79, 142, 247, 0.08)' }}>
                                         <p className="font-black text-white">{formatGlEntityLabel(entity)}</p>
                                         <p className="text-xs mt-1" style={{ color: '#94a3b8' }}>{formatGlEntitySummary(stats)}</p>
