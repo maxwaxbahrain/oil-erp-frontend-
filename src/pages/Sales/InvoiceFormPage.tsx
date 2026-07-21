@@ -325,7 +325,7 @@ export default function InvoiceFormPage() {
             }
         ],
         subtotal: 0,
-        taxRate: 17,
+        taxRate: 0,
         taxAmount: 0,
         discount: 0,
         roundOff: 0,
@@ -523,6 +523,16 @@ export default function InvoiceFormPage() {
                     } catch {
                         /* best-effort FK restore */
                     }
+                    const storedSubtotal = Number(inv.subtotal) || 0;
+                    const storedTaxAmount = Number(inv.taxAmount) || 0;
+                    const explicitTaxRate = Number(inv.taxRate) || 0;
+                    let editTaxRate = 0;
+                    if (explicitTaxRate > 0) {
+                        editTaxRate = explicitTaxRate;
+                    } else if (storedSubtotal > 0 && storedTaxAmount > 0) {
+                        editTaxRate =
+                            Math.round((storedTaxAmount / storedSubtotal) * 100 * 1000) / 1000;
+                    }
                     setFormData({
                         customerId: String(inv.customerId || ''),
                         customerName: inv.customerName || '',
@@ -542,9 +552,9 @@ export default function InvoiceFormPage() {
                             lineDiscount: Number(item.lineDiscount ?? item.line_discount ?? 0) || 0,
                             lineTaxRate: Number(item.lineTaxRate ?? item.line_tax_rate ?? 0) || 0,
                         })),
-                        subtotal: Number(inv.subtotal) || 0,
-                        taxRate: Number(inv.taxRate) || 17,
-                        taxAmount: Number(inv.taxAmount) || 0,
+                        subtotal: storedSubtotal,
+                        taxRate: editTaxRate,
+                        taxAmount: storedTaxAmount,
                         discount: Number(inv.discount) || 0,
                         roundOff: 0,
                         grandTotal: Number(inv.grandTotal) || 0,
@@ -1527,7 +1537,7 @@ export default function InvoiceFormPage() {
                                 <div className="flex justify-between items-center group">
                                     <div className="flex items-center gap-3">
                                         <span className="text-xs font-medium text-gray-500 group-hover:text-gray-900 transition-colors">Tax rate (%)</span>
-                                        <span style={{ fontSize: 10, color: '#8BA3C7', marginLeft: 4 }}>UAE VAT</span>
+                                        <span style={{ fontSize: 10, color: '#8BA3C7', marginLeft: 4 }}>Sales Tax</span>
                                         <div className="flex items-center bg-gray-100 rounded-md px-2 border border-gray-200">
                                             <input
                                                 type="number"
