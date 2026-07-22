@@ -1,9 +1,10 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, Link } from 'react-router-dom';
 import { Construction } from 'lucide-react';
 import ProtectedRoute from '../components/ProtectedRoute';
 import ProductionLockedRoute from './ProductionLockedRoute';
 import { FINANCE_ROLES, MANAGEMENT_ROLES, SALES_INTEL_ROLES, SPOD_AI_ROLES, SPOD_COMMON_ROLES, SALES_TOOL_ROLES, DRIVER_TOOL_ROLES, INTERNAL_WEB_ROLES, SALES_VOICE_ROLES } from '../utils/rbac';
 import { isStaging } from '../config/appEnv';
+import { MODULE_FLAGS } from '../config/moduleFlags';
 import AccountingSetupRequired from '../components/common/AccountingSetupRequired';
 import LoginPage from '../pages/LoginPage';
 import SignupPage from '../pages/SignupPage';
@@ -170,6 +171,23 @@ const PlaceholderPage = ({ title }: { title: string }) => (
     </div>
 );
 
+/** D3.0.5 — shown when MODULE_FLAGS.sales_returns is false. Flip flag to restore real pages. */
+const SalesReturnsUnavailable = () => (
+    <div className="flex flex-col items-center justify-center h-[60vh] text-center p-8 bg-white rounded-xl border border-redwood-border/30">
+        <h2 className="text-xl font-black text-redwood-text-main mb-3">Sales Returns</h2>
+        <p className="text-redwood-text-muted max-w-lg mb-6">
+            Sales Returns is temporarily unavailable while we complete an accounting
+            fix. Please use Credit Notes instead.
+        </p>
+        <Link
+            to="/sales/credit-notes"
+            className="px-4 py-2 rounded-lg bg-redwood-brand text-white text-sm font-semibold hover:opacity-90"
+        >
+            Go to Credit Notes
+        </Link>
+    </div>
+);
+
 export const AppRoutes = () => {
     return (
         <Routes>
@@ -207,10 +225,10 @@ export const AppRoutes = () => {
             <Route path="/sales/invoices" element={<Invoices />} />
             <Route path="/sales/invoices/new" element={<InvoiceFormPage />} />
             <Route path="/sales/invoices/:id" element={<InvoiceFormPage />} />
-            <Route path="/sales/returns" element={<SalesReturns />} />
-            <Route path="/sales/returns/new" element={<SalesReturnFormPage />} />
-            <Route path="/sales/returns/edit/:id" element={<SalesReturnFormPage />} />
-            <Route path="/sales/returns/:id" element={<SalesReturnDetailPage />} />
+            <Route path="/sales/returns" element={MODULE_FLAGS.sales_returns ? <SalesReturns /> : <SalesReturnsUnavailable />} />
+            <Route path="/sales/returns/new" element={MODULE_FLAGS.sales_returns ? <SalesReturnFormPage /> : <SalesReturnsUnavailable />} />
+            <Route path="/sales/returns/edit/:id" element={MODULE_FLAGS.sales_returns ? <SalesReturnFormPage /> : <SalesReturnsUnavailable />} />
+            <Route path="/sales/returns/:id" element={MODULE_FLAGS.sales_returns ? <SalesReturnDetailPage /> : <SalesReturnsUnavailable />} />
             <Route path="/sales/credit-notes" element={<CreditNotes />} />
             <Route path="/sales/credit-notes/new" element={<CreditNoteFormPage />} />
             <Route path="/sales/credit-notes/edit/:id" element={<CreditNoteFormPage />} />

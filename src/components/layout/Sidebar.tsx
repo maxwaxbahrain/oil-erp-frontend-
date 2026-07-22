@@ -32,6 +32,7 @@ import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
 import { isProduction } from '../../config/appEnv';
 import { isRouteLocked } from '../../config/lockedFeatures';
+import { MODULE_FLAGS } from '../../config/moduleFlags';
 import { LockedNavIcon } from '../common/SubscriptionRequired';
 
 
@@ -167,7 +168,9 @@ export default function Sidebar({
                         <div className="space-y-0.5 pl-2 border-l-2 border-white/5 ml-2">
                             <NavItem to="/sales/quotations" icon={FileText} label="Quotations" />
                             <NavItem to="/sales/invoices" icon={FileText} label="Invoices" />
+                            {MODULE_FLAGS.sales_returns && (
                             <NavItem to="/sales/returns" icon={RefreshCw} label="Sales Returns" />
+                            )}
                             <NavItem to="/sales/credit-notes" icon={FileText} label="Credit Notes" />
                             <NavItem to="/sales/price-lists" icon={Tag} label="Customer Price Lists" />
                             <NavItem to="/sales/recurring" icon={RefreshCw} label="Recurring Invoices" />

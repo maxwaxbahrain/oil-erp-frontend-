@@ -9,6 +9,7 @@
 // ISOLATION: imports nothing from src/services/api.ts — uses shared apiBase helper.
 import { authFetch } from '../api/axios';
 import { getOilErpApiHost } from '../config/apiBase';
+import { MODULE_FLAGS } from '../config/moduleFlags';
 // ============================================
 
 export type VoiceActionType =
@@ -53,8 +54,12 @@ const ROUTE_CATALOG = [
     '/sales/quotations                  Quotations',
     '/sales/invoices                    Invoice list  (supports ?search=NUMBER)',
     '/sales/invoices/new                New invoice form',
-    '/sales/returns                     Sales returns',
-    '/sales/returns/new                 New sales return',
+    ...(MODULE_FLAGS.sales_returns
+        ? [
+            '/sales/returns                     Sales returns',
+            '/sales/returns/new                 New sales return',
+        ]
+        : []),
     '/sales/credit-notes                Credit notes',
     '/sales/credit-notes/new            New credit note',
     '/sales/by-product                  Sales by product report',

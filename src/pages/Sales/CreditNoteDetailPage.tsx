@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Printer } from 'lucide-react';
 import { getCreditNote, updateCreditNote, applyCreditNoteToInvoice, type CreditNote } from '../../services/creditNoteService';
 import { getCustomerInvoices } from '../../services/api';
+import { MODULE_FLAGS } from '../../config/moduleFlags';
 
 const THEME = '#800020';
 
@@ -189,8 +190,9 @@ export default function CreditNoteDetailPage() {
           <div className="text-xs text-gray-400 uppercase mt-3">Linked Invoice</div>
           <div className="font-black">{note.originalInvoiceNumber || '-'}</div>
           {/* TASK 7 — Backlink to the Sales Return that spawned this CN
-              (when present). Click navigates to the SR detail page. */}
-          {note.originalReturnId && (
+              (when present). Click navigates to the SR detail page.
+              Hidden while MODULE_FLAGS.sales_returns is false (D3.0.5). */}
+          {MODULE_FLAGS.sales_returns && note.originalReturnId && (
             <>
               <div className="text-xs text-gray-400 uppercase mt-3">From Sales Return</div>
               <button
