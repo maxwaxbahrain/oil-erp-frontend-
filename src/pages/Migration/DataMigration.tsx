@@ -66,6 +66,22 @@ const STALL_MINUTES = 10;
 const PAYMENT_ALLOCATION_EXPECTED_ROWS = 983;
 const PAYMENT_ALLOCATION_EXPECTED_TOTAL = 379814.03;
 
+/** C3.1a — required for correct AR books. Optional tables warn only, never block. */
+const REQUIRED_SCHEMA: Record<string, readonly string[]> = {
+    account_detail: ['aname', 'a_type', 'status'],
+    vouchers: ['v_id', 'v_type', 'amount', 'debit', 'credit', 'date', 'vch_no'],
+    bill_receipt_payment: ['r_p_v_id', 'b_v_id', 'amount'],
+};
+const OPTIONAL_SCHEMA_TABLES = ['purchases', 'sales', 'item_measure'] as const;
+
+interface SchemaProbeResult {
+    ok: boolean;
+    missingTables: string[];
+    missingColumns: Record<string, string[]>;
+    rowCounts: Record<string, number>;
+    warnings: string[];
+}
+
 const ts = () => new Date().toLocaleTimeString();
 
 /** Parse BETTANO numeric strings; strips comma thousands separators. */
@@ -197,6 +213,86 @@ export default function DataMigration() {
                 return r[0].values.map((row: any[]) => Object.fromEntries(r[0].columns.map((c: string, i: number) => [c, row[i]])));
             } catch { return []; }
         };
+
+        // C3.1a — same row mapping as q, but SQL errors throw (empty result still []).
+        const qStrict = (sql: string) => {
+            const r = db.exec(sql);
+            if (!r[0]) return [];
+            return r[0].values.map((row: any[]) => Object.fromEntries(r[0].columns.map((c: string, i: number) => [c, row[i]])));
+        };
+
+        const probeSchema = (_database: typeof db): SchemaProbeResult => {
+            const missingTables: string[] = [];
+            const missingColumns: Record<string, string[]> = {};
+            const rowCounts: Record<string, number> = {};
+            const warnings: string[] = [];
+
+            const existing = new Set(
+                qStrict(`SELECT name FROM sqlite_master WHERE type='table'`).map((row: { name?: unknown }) => String(row.name)),
+            );
+
+            for (const [table, requiredCols] of Object.entries(REQUIRED_SCHEMA)) {
+                if (!existing.has(table)) {
+                    missingTables.push(table);
+                    continue;
+                }
+                const presentCols = new Set(
+                    qStrict(`PRAGMA table_info(${table})`).map((row: { name?: unknown }) => String(row.name)),
+                );
+                const missing = requiredCols.filter((col) => !presentCols.has(col));
+                if (missing.length > 0) missingColumns[table] = missing;
+
+                const count = Number(qStrict(`SELECT COUNT(*) AS c FROM ${table}`)[0]?.c ?? 0);
+                rowCounts[table] = count;
+                if (count === 0) {
+                    warnings.push(`Table '${table}' exists but has 0 rows — import will skip that entity.`);
+                }
+            }
+
+            for (const table of OPTIONAL_SCHEMA_TABLES) {
+                if (!existing.has(table)) {
+                    warnings.push(`Optional table '${table}' is missing — related entities will be skipped.`);
+                    continue;
+                }
+                const count = Number(qStrict(`SELECT COUNT(*) AS c FROM ${table}`)[0]?.c ?? 0);
+                rowCounts[table] = count;
+                if (count === 0) {
+                    warnings.push(`Optional table '${table}' exists but has 0 rows — related entities will be skipped.`);
+                }
+            }
+
+            return {
+                ok: missingTables.length === 0 && Object.keys(missingColumns).length === 0,
+                missingTables,
+                missingColumns,
+                rowCounts,
+                warnings,
+            };
+        };
+
+        const probe = probeSchema(db);
+        if (!probe.ok) {
+            for (const table of probe.missingTables) {
+                log(`Missing required table: ${table}`, 'error');
+            }
+            for (const [table, cols] of Object.entries(probe.missingColumns)) {
+                log(`Missing columns on ${table}: ${cols.join(', ')}`, 'error');
+            }
+            const missingList = [
+                ...probe.missingTables,
+                ...Object.entries(probe.missingColumns).map(([table, cols]) => `${table}(${cols.join(', ')})`),
+            ].join(', ');
+            throw new Error(
+                `Unsupported export format. Missing: ${missingList}. SOLTOL currently supports SQLite exports from Soltol / Tally-style packages (required tables: account_detail, vouchers, bill_receipt_payment).`,
+            );
+        }
+        log('Schema OK', 'success');
+        for (const [table, count] of Object.entries(probe.rowCounts)) {
+            log(`${table}: ${count} rows`, 'info');
+        }
+        for (const warning of probe.warnings) {
+            log(warning, 'warn');
+        }
 
         log('Calculating real outstanding balances...', 'info');
         const custRows = q(`SELECT aname, address, phone, email_id, op_bal, credit_limit FROM account_detail WHERE (a_type LIKE '%Debtors%' OR a_type LIKE '%Customer%') AND status=1`);
