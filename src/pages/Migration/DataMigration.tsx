@@ -676,7 +676,7 @@ export default function DataMigration() {
             let data: Record<string, unknown>;
             if (ext === 'db' || ext === 'sqlite') {
                 prog(8, 'Opening database...');
-                log('📂 Opening BETTANO database...', 'info');
+                log(`📂 Opening ${file.name}...`, 'info');
                 data = await extractAllData(await file.arrayBuffer());
             } else if (ext === 'csv' || ext === 'txt') {
                 prog(8, 'Parsing CSV...');
@@ -766,7 +766,7 @@ export default function DataMigration() {
             <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4">
                 <p className="text-xs font-black text-blue-800 uppercase tracking-widest mb-2">Supported Formats</p>
                 <div className="space-y-1.5">
-                    <div className="flex items-center gap-2"><span className="bg-blue-600 text-white text-xs font-black px-2 py-0.5 rounded">.db / .sqlite</span><span className="text-blue-800 text-sm font-medium">Soltol / BETTANO — Full migration with correct balances</span><span className="bg-orange-400 text-white text-[9px] px-1.5 py-0.5 rounded-full font-black ml-auto">BEST</span></div>
+                    <div className="flex items-center gap-2"><span className="bg-blue-600 text-white text-xs font-black px-2 py-0.5 rounded">.db / .sqlite</span><span className="text-blue-800 text-sm font-medium">Data migration — import from a legacy accounting export</span><span className="bg-orange-400 text-white text-[9px] px-1.5 py-0.5 rounded-full font-black ml-auto">BEST</span></div>
                     <div className="flex items-center gap-2"><span className="bg-white border border-blue-200 text-blue-700 text-xs font-black px-2 py-0.5 rounded">.csv</span><span className="text-blue-700 text-sm">QuickBooks, DEAR, Cin7, Dynamics, NetSuite</span></div>
                     <div className="flex items-center gap-2"><span className="bg-white border border-blue-200 text-blue-700 text-xs font-black px-2 py-0.5 rounded">.xlsx</span><span className="text-blue-700 text-sm">Excel — save as CSV first</span></div>
                 </div>
@@ -784,7 +784,7 @@ export default function DataMigration() {
                             <div className="text-4xl mb-2">{isDb ? '🗄️' : '📋'}</div>
                             <p className="font-black text-gray-900">{file.name}</p>
                             <p className="text-sm text-gray-500 mt-1">{(file.size / 1024).toFixed(1)} KB</p>
-                            {isDb && <div className="mt-2 inline-flex items-center gap-1.5 bg-green-100 text-green-700 text-xs font-bold px-3 py-1 rounded-full">✅ BETTANO.db — correct outstanding balances</div>}
+                            {isDb && <div className="mt-2 inline-flex items-center gap-1.5 bg-green-100 text-green-700 text-xs font-bold px-3 py-1 rounded-full">SQLite database selected — {file.name}</div>}
                             <button onClick={e => { e.stopPropagation(); setFile(null); }} className="mt-3 block mx-auto text-xs text-red-400 font-bold">✕ Remove</button>
                         </div>
                     ) : (
