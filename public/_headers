@@ -1,3 +1,7 @@
+# NOTE: Render static sites do NOT read this _headers file (Netlify/Cloudflare Pages
+# format only). Retained as documentation of the intended cache policy. Live config:
+# render.yaml, render.staging.yaml (headers block), and Cloudflare dashboard rules.
+#
 /*
   Cache-Control: no-cache, no-store, must-revalidate
   Pragma: no-cache

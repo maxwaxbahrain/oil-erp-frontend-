@@ -817,7 +817,7 @@ function App() {
             <span className="text-redwood-brand whitespace-nowrap shrink-0">SOLTOL ONE</span>
             {/* Version + tagline hidden on phones to avoid footer overflow. */}
             <div className="hidden sm:block h-3 w-[1px] bg-redwood-border shrink-0" />
-            <span className="hidden sm:inline whitespace-nowrap shrink-0">Platform: v1.0.0</span>
+            <span className="hidden sm:inline whitespace-nowrap shrink-0">Platform: {__APP_BUILD_VERSION__.slice(0, 7)}</span>
           </div>
           <div className="flex items-center gap-3 sm:gap-6">
             <span className="hidden sm:flex items-center gap-2">
