@@ -1023,40 +1023,56 @@ export default function DataMigration() {
             </div>
 
             {pendingImport && (
-                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 shadow-sm">
-                    <p className="text-xs font-black text-amber-900 uppercase tracking-widest mb-3">Review before import</p>
-                    <div className="text-sm text-gray-800 space-y-3">
-                        <p><span className="font-bold">File:</span> {pendingImport.preview.fileName}</p>
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                    <p className="text-xs font-black text-orange-600 uppercase tracking-widest mb-3">Review before import</p>
+                    <div className="text-sm text-gray-900 space-y-3">
+                        <p><span className="font-bold text-gray-700">File:</span> <span className="font-semibold text-gray-900">{pendingImport.preview.fileName}</span></p>
                         <p>
-                            <span className="font-bold">Period:</span>{' '}
-                            {pendingImport.preview.dateRange.earliest ?? '—'} → {pendingImport.preview.dateRange.latest ?? '—'}
+                            <span className="font-bold text-gray-700">Period:</span>{' '}
+                            <span className="text-gray-900">{pendingImport.preview.dateRange.earliest ?? '—'} → {pendingImport.preview.dateRange.latest ?? '—'}</span>
                         </p>
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1 text-sm">
-                            <p>Customers <strong>{pendingImport.preview.counts.customers.toLocaleString()}</strong></p>
-                            <p>Invoices <strong>{pendingImport.preview.counts.invoices.toLocaleString()}</strong></p>
-                            <p>Payments <strong>{pendingImport.preview.counts.payments.toLocaleString()}</strong></p>
-                            <p>Products <strong>{pendingImport.preview.counts.products.toLocaleString()}</strong></p>
-                            <p>Suppliers <strong>{pendingImport.preview.counts.suppliers.toLocaleString()}</strong></p>
-                            <p>Allocations <strong>{pendingImport.preview.counts.paymentAllocations.toLocaleString()}</strong></p>
-                            <p>POs <strong>{pendingImport.preview.counts.purchaseOrders.toLocaleString()}</strong></p>
-                            <p>Supplier pmts <strong>{pendingImport.preview.counts.supplierPayments.toLocaleString()}</strong></p>
-                            <p>Returns <strong>{pendingImport.preview.counts.salesReturns.toLocaleString()}</strong></p>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2 text-sm">
+                            <p className="text-gray-700">Customers <strong className="text-gray-900">{pendingImport.preview.counts.customers.toLocaleString()}</strong></p>
+                            <p className="text-gray-700">Invoices <strong className="text-gray-900">{pendingImport.preview.counts.invoices.toLocaleString()}</strong></p>
+                            <p className="text-gray-700">Payments <strong className="text-gray-900">{pendingImport.preview.counts.payments.toLocaleString()}</strong></p>
+                            <p className="text-gray-700">Products <strong className="text-gray-900">{pendingImport.preview.counts.products.toLocaleString()}</strong></p>
+                            <p className="text-gray-700">Suppliers <strong className="text-gray-900">{pendingImport.preview.counts.suppliers.toLocaleString()}</strong></p>
+                            <p className="text-gray-700">Allocations <strong className="text-gray-900">{pendingImport.preview.counts.paymentAllocations.toLocaleString()}</strong></p>
+                            <p className="text-gray-700">POs <strong className="text-gray-900">{pendingImport.preview.counts.purchaseOrders.toLocaleString()}</strong></p>
+                            <p className="text-gray-700">Supplier pmts <strong className="text-gray-900">{pendingImport.preview.counts.supplierPayments.toLocaleString()}</strong></p>
+                            <p className="text-gray-700">Returns <strong className="text-gray-900">{pendingImport.preview.counts.salesReturns.toLocaleString()}</strong></p>
                         </div>
-                        <div className="border-t border-amber-200 pt-3 space-y-1">
-                            <p>Total receivable (AR): <strong>${formatMigrationMoney(pendingImport.preview.totals.totalAR)}</strong></p>
-                            <p>Total payable (AP): <strong>${formatMigrationMoney(pendingImport.preview.totals.totalAP)}</strong></p>
-                            <p>Total invoiced: <strong>${formatMigrationMoney(pendingImport.preview.totals.totalInvoiced)}</strong></p>
-                            <p>Total received: <strong>${formatMigrationMoney(pendingImport.preview.totals.totalReceived)}</strong></p>
-                            <p>Allocations total: <strong>${formatMigrationMoney(pendingImport.preview.totals.allocationTotal)}</strong></p>
+                        <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 space-y-2">
+                            <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Financial summary</p>
+                            <div className="flex items-baseline justify-between gap-3">
+                                <span className="text-sm font-bold text-gray-700">Total receivable (AR)</span>
+                                <span className="text-xl font-black text-gray-900 tabular-nums">${formatMigrationMoney(pendingImport.preview.totals.totalAR)}</span>
+                            </div>
+                            <div className="flex items-baseline justify-between gap-3">
+                                <span className="text-sm font-bold text-gray-700">Total payable (AP)</span>
+                                <span className="text-xl font-black text-gray-900 tabular-nums">${formatMigrationMoney(pendingImport.preview.totals.totalAP)}</span>
+                            </div>
+                            <div className="flex items-baseline justify-between gap-3">
+                                <span className="text-sm font-bold text-gray-700">Total invoiced</span>
+                                <span className="text-lg font-black text-gray-900 tabular-nums">${formatMigrationMoney(pendingImport.preview.totals.totalInvoiced)}</span>
+                            </div>
+                            <div className="flex items-baseline justify-between gap-3">
+                                <span className="text-sm font-bold text-gray-700">Total received</span>
+                                <span className="text-lg font-black text-gray-900 tabular-nums">${formatMigrationMoney(pendingImport.preview.totals.totalReceived)}</span>
+                            </div>
+                            <div className="flex items-baseline justify-between gap-3 border-t border-gray-200 pt-2">
+                                <span className="text-sm font-bold text-orange-700">Allocations total</span>
+                                <span className="text-2xl font-black text-orange-600 tabular-nums">${formatMigrationMoney(pendingImport.preview.totals.allocationTotal)}</span>
+                            </div>
                         </div>
                         {pendingImport.preview.probeWarnings.length > 0 && (
-                            <ul className="space-y-1 text-sm text-amber-900 list-disc list-inside">
+                            <ul className="space-y-1 text-sm text-amber-950 bg-amber-50 border border-amber-300 rounded-xl px-3 py-2 list-disc list-inside">
                                 {pendingImport.preview.probeWarnings.map((warning, idx) => (
                                     <li key={idx}>{warning}</li>
                                 ))}
                             </ul>
                         )}
-                        <p className="text-sm text-amber-900 bg-amber-100/60 border border-amber-200 rounded-xl px-3 py-2">
+                        <p className="text-sm text-gray-600 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
                             ℹ Safe to re-run: importing the SAME file again updates records instead of duplicating them.
                         </p>
                         <div className="flex flex-wrap gap-2 justify-end pt-1">
