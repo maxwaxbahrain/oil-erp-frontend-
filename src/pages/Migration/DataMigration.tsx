@@ -82,6 +82,31 @@ interface SchemaProbeResult {
     warnings: string[];
 }
 
+interface ImportPreview {
+    fileName: string;
+    counts: {
+        customers: number;
+        products: number;
+        suppliers: number;
+        invoices: number;
+        payments: number;
+        paymentAllocations: number;
+        salesReturns: number;
+        purchaseOrders: number;
+        supplierPayments: number;
+    };
+    totals: {
+        totalAR: number;
+        totalAP: number;
+        totalInvoiced: number;
+        totalReceived: number;
+        allocationTotal: number;
+    };
+    dateRange: { earliest: string | null; latest: string | null };
+    probeRowCounts: Record<string, number>;
+    probeWarnings: string[];
+}
+
 const ts = () => new Date().toLocaleTimeString();
 
 /** Parse BETTANO numeric strings; strips comma thousands separators. */
@@ -201,7 +226,7 @@ export default function DataMigration() {
         document.head.appendChild(s);
     });
 
-    const extractAllData = async (buf: ArrayBuffer) => {
+    const extractAllData = async (buf: ArrayBuffer, fileName: string) => {
         const initSqlJs = await loadSqlJs();
         const SQL = await initSqlJs({ locateFile: (fn: string) => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/${fn}` });
         const db = new SQL.Database(new Uint8Array(buf));
@@ -505,6 +530,62 @@ export default function DataMigration() {
             };
         }).filter((sr: any) => sr.customer_name && sr.amount > 0);
 
+        const dateBounds = q(
+            `SELECT MIN(date) AS earliest, MAX(date) AS latest FROM vouchers WHERE date IS NOT NULL AND TRIM(date) != ''`,
+        );
+        const earliestRaw = dateBounds[0]?.earliest;
+        const latestRaw = dateBounds[0]?.latest;
+        const earliest =
+            earliestRaw !== null && earliestRaw !== undefined && String(earliestRaw).trim()
+                ? String(earliestRaw)
+                : null;
+        const latest =
+            latestRaw !== null && latestRaw !== undefined && String(latestRaw).trim()
+                ? String(latestRaw)
+                : null;
+
+        const totalAR = customers.reduce(
+            (sum: number, c: { balance?: number }) => sum + parseMigrationNum(c.balance),
+            0,
+        );
+        const totalAP = Object.values(suppBalMap).reduce(
+            (sum: number, bal: number) => sum + parseMigrationNum(bal),
+            0,
+        );
+        const totalInvoiced = invoices.reduce(
+            (sum: number, inv: { amount?: number }) => sum + parseMigrationNum(inv.amount),
+            0,
+        );
+        const totalReceived = payments.reduce(
+            (sum: number, p: { amount?: number }) => sum + parseMigrationNum(p.amount),
+            0,
+        );
+
+        const preview: ImportPreview = {
+            fileName,
+            counts: {
+                customers: customers.length,
+                products: products.length,
+                suppliers: suppliers.length,
+                invoices: invoices.length,
+                payments: payments.length,
+                paymentAllocations: payment_allocations.length,
+                salesReturns: sales_returns.length,
+                purchaseOrders: purchase_orders.length,
+                supplierPayments: supplier_payments.length,
+            },
+            totals: {
+                totalAR: Math.round(totalAR * 100) / 100,
+                totalAP: Math.round(totalAP * 100) / 100,
+                totalInvoiced: Math.round(totalInvoiced * 100) / 100,
+                totalReceived: Math.round(totalReceived * 100) / 100,
+                allocationTotal: paymentAllocTotal,
+            },
+            dateRange: { earliest, latest },
+            probeRowCounts: { ...probe.rowCounts },
+            probeWarnings: [...probe.warnings],
+        };
+
         db.close();
         const stockedCount = products.filter((p: any) => (p.stock ?? 0) > 0).length;
         const paidInvoices = invoices.filter((i: any) => i.status === 'paid').length;
@@ -512,7 +593,22 @@ export default function DataMigration() {
         const unpaidInvoices = invoices.filter((i: any) => i.status === 'unpaid').length;
         log(`📦 ${products.length} products (${stockedCount} with stock from purchases−sales), ${suppliers.length} suppliers, ${invoices.length} invoices (${paidInvoices} paid / ${partialInvoices} partial / ${unpaidInvoices} unpaid), ${payments.length} payments, ${sales_returns.length} sales returns`, 'info');
         log(`🛒 ${purchase_orders.length} supplier POs, ${supplier_payments.length} supplier payments`, 'info');
-        return { customers, suppliers, products, invoices, payments, payment_allocations, sales_returns, purchase_orders, supplier_payments };
+        log(
+            `📊 Parsed: ${preview.counts.customers} customers, ${preview.counts.invoices} invoices, AR $${preview.totals.totalAR.toFixed(2)}, allocations $${preview.totals.allocationTotal.toFixed(2)}`,
+            'success',
+        );
+        return {
+            customers,
+            suppliers,
+            products,
+            invoices,
+            payments,
+            payment_allocations,
+            sales_returns,
+            purchase_orders,
+            supplier_payments,
+            __preview: preview,
+        };
     };
 
 
@@ -773,7 +869,10 @@ export default function DataMigration() {
             if (ext === 'db' || ext === 'sqlite') {
                 prog(8, 'Opening database...');
                 log(`📂 Opening ${file.name}...`, 'info');
-                data = await extractAllData(await file.arrayBuffer());
+                const extracted = await extractAllData(await file.arrayBuffer(), file.name);
+                const { __preview: _importPreview, ...payload } = extracted;
+                void _importPreview;
+                data = payload;
             } else if (ext === 'csv' || ext === 'txt') {
                 prog(8, 'Parsing CSV...');
                 data = await parseCsv(await file.text());
