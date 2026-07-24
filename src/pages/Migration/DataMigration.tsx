@@ -344,7 +344,7 @@ export default function DataMigration() {
         const customers = custRows.map((r: any) => {
             const name = String(r.aname || '').trim();
             const bal = balMap[name] ?? 0;
-            return { name: name.slice(0, 150), address: String(r.address || '').trim().slice(0, 300) || null, phone: String(r.phone || '').trim().slice(0, 50) || null, email: null, opening_balance: parseMigrationNum(r.op_bal), balance: bal, credit_limit: parseMigrationNum(r.credit_limit), category: 'retail', notes: `BETTANO | Owes: $${bal.toFixed(2)}` };
+            return { name: name.slice(0, 150), address: String(r.address || '').trim().slice(0, 300) || null, phone: String(r.phone || '').trim().slice(0, 50) || null, email: null, opening_balance: parseMigrationNum(r.op_bal), balance: bal, credit_limit: parseMigrationNum(r.credit_limit), category: 'retail', notes: `Legacy import | Owes: $${bal.toFixed(2)}` };
         }).filter((c: any) => c.name);
 
         log(`👥 ${customers.length} customers — real outstanding balances calculated`, 'success');
@@ -364,7 +364,7 @@ export default function DataMigration() {
             const name = String(r.aname || '').trim();
             const apBal = suppBalMap[name] ?? 0;
             const remark = String(r.remarks || '').trim();
-            const notesParts = [`BETTANO | AP: $${apBal.toFixed(2)}`];
+            const notesParts = [`Legacy import | AP: $${apBal.toFixed(2)}`];
             if (remark) notesParts.push(remark);
             return {
                 name: name.slice(0, 150),
@@ -410,7 +410,7 @@ export default function DataMigration() {
                     tax_total: 0,
                     grand_total: grand,
                     amount_paid: 0,
-                    notes: 'BETTANO import',
+                    notes: 'Legacy import',
                     items,
                 };
             });
@@ -424,7 +424,7 @@ export default function DataMigration() {
                 reference: String(p.vch_no || '').slice(0, 100),
                 amount: parseMigrationNum(p.amount),
                 payment_method: 'Bank Transfer',
-                notes: `BETTANO import · ${String(p.bank || '').trim()}`,
+                notes: `Legacy import · ${String(p.bank || '').trim()}`,
             }));
 
         const prodRows = q(`SELECT item, units_name, sku, item_desc, defaultsellingprice, defaultpurchaseprice FROM item_measure WHERE item IS NOT NULL AND TRIM(item) != '' ORDER BY item ASC, units_name ASC`);
