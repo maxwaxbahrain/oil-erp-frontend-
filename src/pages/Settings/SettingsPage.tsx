@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
     Shield,
@@ -15,9 +15,17 @@ import {
     Trash2,
     AlertTriangle,
     CheckCircle,
-    Zap
+    Zap,
+    Loader2,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { extractApiDetail } from '../Billing/billingApi';
+import {
+    fetchTenantProfile,
+    fromCompanyProfile,
+    toCompanyProfile,
+    updateTenantProfile,
+} from '../../services/tenantProfileApi';
 import {
     getCompanyProfile,
     saveCompanyProfile,
@@ -25,6 +33,7 @@ import {
     companyProfileToSettings,
     getDocumentSignature,
     saveDocumentSignature,
+    setServerCompanyProfile,
     type CompanyProfile,
     type DocumentSignature,
     getSystemSettings,
@@ -46,10 +55,47 @@ export default function SettingsPage() {
     const canSeeBilling = hasRole('admin');
     const [activeTab, setActiveTab] = useState<TabType>('company');
     const [profile, setProfile] = useState<CompanyProfile>(getCompanyProfile());
+    const [profileLoading, setProfileLoading] = useState(true);
+    const [profileSaving, setProfileSaving] = useState(false);
+    const [profileLoadNotice, setProfileLoadNotice] = useState<string | null>(null);
+    const [profileError, setProfileError] = useState<string | null>(null);
     const [signature, setSignature] = useState<DocumentSignature>(getDocumentSignature());
     const [showSuccess, setShowSuccess] = useState(false);
     const [successMsg, setSuccessMsg] = useState('');
     const [currencySettings, setCurrencySettings] = useState<SystemSettings>(getSystemSettings());
+
+    useEffect(() => {
+        let cancelled = false;
+
+        setProfileLoading(true);
+        setProfileLoadNotice(null);
+
+        void fetchTenantProfile()
+            .then((data) => {
+                if (cancelled) return;
+                const local = getCompanyProfile();
+                const server = toCompanyProfile(data);
+                setProfile({
+                    ...server,
+                    category: local.category,
+                    logo: local.logo ?? server.logo,
+                });
+            })
+            .catch(() => {
+                if (cancelled) return;
+                setProfile(getCompanyProfile());
+                setProfileLoadNotice(
+                    'Could not load company profile from the server. Showing settings saved on this device.',
+                );
+            })
+            .finally(() => {
+                if (!cancelled) setProfileLoading(false);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     const handleSaveCurrency = (e: React.FormEvent) => {
         e.preventDefault();
@@ -57,11 +103,36 @@ export default function SettingsPage() {
         notify('Currency configuration updated successfully');
     };
 
-    const handleSaveProfile = (e: React.FormEvent) => {
+    const handleSaveProfile = async (e: React.FormEvent) => {
         e.preventDefault();
-        saveCompanyProfile(profile);
-        saveCompanySettings(companyProfileToSettings(profile));
-        notify('Company profile saved successfully');
+        setProfileError(null);
+        setProfileSaving(true);
+
+        try {
+            const response = await updateTenantProfile(fromCompanyProfile(profile));
+            setServerCompanyProfile(response);
+
+            const merged: CompanyProfile = {
+                ...toCompanyProfile(response),
+                category: profile.category,
+                logo: profile.logo,
+            };
+            setProfile(merged);
+            saveCompanyProfile(merged);
+            saveCompanySettings(companyProfileToSettings(merged));
+            notify('Company profile saved successfully');
+        } catch (err: unknown) {
+            const status = (err as { response?: { status?: number } }).response?.status;
+            if (status === 403) {
+                setProfileError('Only administrators can save company profile changes.');
+            } else {
+                setProfileError(
+                    extractApiDetail(err, 'Company profile could not be saved. Please try again.'),
+                );
+            }
+        } finally {
+            setProfileSaving(false);
+        }
     };
 
     const handleSaveSignature = (e: React.FormEvent) => {
@@ -122,6 +193,11 @@ export default function SettingsPage() {
                         <CheckCircle size={14} /> {successMsg}
                     </div>
                 )}
+                {profileError && (
+                    <div className="flex items-center gap-3 bg-red-50 border border-red-200 px-4 py-2 rounded-sm text-red-700 text-[10px] font-black uppercase tracking-widest">
+                        <AlertTriangle size={14} /> {profileError}
+                    </div>
+                )}
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
@@ -168,6 +244,18 @@ export default function SettingsPage() {
                                 <p className="text-[10px] text-redwood-text-muted font-bold uppercase tracking-widest mt-1">Foundational attributes for business identity</p>
                             </div>
 
+                            {profileLoadNotice && (
+                                <div className="mx-8 mt-6 flex items-start gap-3 bg-amber-50 border border-amber-200 px-4 py-3 rounded-sm text-amber-900 text-[10px] font-bold uppercase tracking-wider">
+                                    <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+                                    <span>{profileLoadNotice}</span>
+                                </div>
+                            )}
+
+                            {profileLoading ? (
+                                <div className="flex items-center justify-center py-20">
+                                    <Loader2 size={28} className="animate-spin text-redwood-brand" />
+                                </div>
+                            ) : (
                             <form onSubmit={handleSaveProfile} className="p-8 space-y-8">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
                                     <div className="space-y-6">
@@ -193,6 +281,7 @@ export default function SettingsPage() {
                                                         Upgrade Asset
                                                     </label>
                                                     <p className="text-[9px] text-gray-400 font-bold max-w-[150px]">PNG or JPEG. Recommended: 300x120px.</p>
+                                                    <p className="text-[9px] text-amber-700 font-bold max-w-[150px]">Logo is stored on this device only until server upload is available.</p>
                                                 </div>
                                             </div>
                                         </div>
@@ -316,11 +405,16 @@ export default function SettingsPage() {
                                 </div>
 
                                 <div className="pt-8 border-t border-redwood-border flex justify-end">
-                                    <button type="submit" className="px-10 py-4 bg-redwood-brand text-white text-[12px] font-black uppercase tracking-[0.3em] rounded-sm hover:-translate-y-0.5 transition-all shadow-xl flex items-center gap-3">
-                                        <Save size={18} /> Persist Intelligence
+                                    <button
+                                        type="submit"
+                                        disabled={profileSaving}
+                                        className="px-10 py-4 bg-redwood-brand text-white text-[12px] font-black uppercase tracking-[0.3em] rounded-sm hover:-translate-y-0.5 transition-all shadow-xl flex items-center gap-3 disabled:opacity-60 disabled:hover:translate-y-0"
+                                    >
+                                        <Save size={18} /> {profileSaving ? 'Saving…' : 'Persist Intelligence'}
                                     </button>
                                 </div>
                             </form>
+                            )}
                         </section>
                     )}
 
