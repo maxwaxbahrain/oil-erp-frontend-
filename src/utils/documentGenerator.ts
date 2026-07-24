@@ -1,5 +1,5 @@
 import jsPDF from 'jspdf';
-import { getCompanyProfile, getDocumentSignature } from '../services/settingsService';
+import { formatCityLine, getCompanyProfile, getDocumentSignature } from '../services/settingsService';
 
 export const generateStandardPDF = (title: string, filename: string, contentCallback: (doc: jsPDF) => void, docType: 'invoice' | 'po' | 'ledger' | 'quotation' | 'report') => {
     const doc = new jsPDF();
@@ -31,16 +31,22 @@ export const generateStandardPDF = (title: string, filename: string, contentCall
     currentY += 25;
 
     doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
-    doc.text(profile.name, 14, currentY);
-    doc.setFont('helvetica', 'normal');
-    doc.text(profile.address1, 14, currentY + 5);
-    doc.text(`${profile.city}, ${profile.state} ${profile.postalCode}`, 14, currentY + 10);
-    doc.text(profile.country, 14, currentY + 15);
+    const cityLine = formatCityLine(profile.city, profile.state, profile.postalCode);
+    const headerLines: { text: string; bold?: boolean }[] = [];
+    if (profile.name.trim()) headerLines.push({ text: profile.name.trim(), bold: true });
+    if (profile.address1.trim()) headerLines.push({ text: profile.address1.trim() });
+    if (cityLine) headerLines.push({ text: cityLine });
+    if (profile.country.trim()) headerLines.push({ text: profile.country.trim() });
+    if (profile.phone.trim()) headerLines.push({ text: `Phone: ${profile.phone.trim()}` });
+    if (profile.email.trim()) headerLines.push({ text: `Email: ${profile.email.trim()}` });
+    if (profile.website.trim()) headerLines.push({ text: `Website: ${profile.website.trim()}` });
 
-    doc.text(`Phone: ${profile.phone}`, 14, currentY + 25);
-    doc.text(`Email: ${profile.email}`, 14, currentY + 30);
-    doc.text(`Website: ${profile.website}`, 14, currentY + 35);
+    let headerY = currentY;
+    for (const line of headerLines) {
+        doc.setFont('helvetica', line.bold ? 'bold' : 'normal');
+        doc.text(line.text, 14, headerY);
+        headerY += 5;
+    }
 
     doc.setFont('helvetica', 'bold');
     doc.text(`Date: ${new Date().toLocaleDateString()}`, 200 - doc.getTextWidth(`Date: ${new Date().toLocaleDateString()}`), currentY);

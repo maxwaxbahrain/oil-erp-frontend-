@@ -8,6 +8,11 @@ import {
   type ReactNode,
 } from 'react';
 import api, { ACCESS_TOKEN_KEY } from '../api/axios';
+import { fetchTenantProfile } from '../services/tenantProfileApi';
+import {
+  clearServerCompanyProfile,
+  setServerCompanyProfile,
+} from '../services/settingsService';
 import { syncAuthUser, clearAuthUser } from '../store/authStore';
 
 export type AuthRole = 'admin' | 'manager' | 'accountant' | 'driver' | 'sales';
@@ -57,12 +62,19 @@ function persistSession(token: string, user: AuthUser) {
   syncAuthUser(user);
 }
 
+function loadTenantProfile(): void {
+  void fetchTenantProfile()
+    .then(setServerCompanyProfile)
+    .catch(() => {});
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(() => readStoredUser());
   const [token, setToken] = useState<string | null>(() => localStorage.getItem(ACCESS_TOKEN_KEY));
   const [isLoading, setIsLoading] = useState(true);
 
   const logout = useCallback(() => {
+    clearServerCompanyProfile();
     localStorage.removeItem(ACCESS_TOKEN_KEY);
     clearAuthUser();
     setToken(null);
@@ -73,6 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const restoreSession = useCallback(async () => {
     const storedToken = localStorage.getItem(ACCESS_TOKEN_KEY);
     if (!storedToken) {
+      clearServerCompanyProfile();
       setToken(null);
       setUser(null);
       setIsLoading(false);
@@ -90,7 +103,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       };
       setUser(restored);
       syncAuthUser(restored);
+      loadTenantProfile();
     } catch {
+      clearServerCompanyProfile();
       localStorage.removeItem(ACCESS_TOKEN_KEY);
       clearAuthUser();
       setToken(null);
@@ -118,6 +133,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     persistSession(data.access_token, nextUser);
     setToken(data.access_token);
     setUser(nextUser);
+    loadTenantProfile();
   }, []);
 
   const hasRole = useCallback(
