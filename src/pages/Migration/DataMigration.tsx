@@ -2,6 +2,9 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { Upload, CheckCircle, RefreshCw, Trash2, Users, Package, FileText, CreditCard, TrendingUp, Zap, AlertTriangle, Database } from 'lucide-react';
 import api from '../../api/axios';
 
+/** Clear All hidden — backend only wipes customers, full children-first wipe deferred (Phase C). */
+const SHOW_CLEAR_ALL = false;
+
 interface LogEntry { time: string; msg: string; type: 'info' | 'success' | 'error' | 'warn'; }
 interface Results {
     customers?: number;
@@ -989,7 +992,9 @@ export default function DataMigration() {
                         <h1 className="text-2xl font-black text-redwood-text-main tracking-tighter uppercase">Data Migration</h1>
                         <p className="text-[10px] font-black text-redwood-text-muted uppercase tracking-[0.2em] mt-1">Import customers, invoices, products — with correct balances</p>
                     </div>
-                    <button onClick={clearAll} disabled={busy} className="inline-flex items-center gap-2 px-4 py-2.5 border border-redwood-border text-brand-red hover:bg-red-50 disabled:opacity-50 rounded-sm text-[10px] font-black uppercase tracking-widest transition-all"><Trash2 size={14} /> Clear All</button>
+                    {SHOW_CLEAR_ALL ? (
+                        <button onClick={clearAll} disabled={busy} className="inline-flex items-center gap-2 px-4 py-2.5 border border-redwood-border text-brand-red hover:bg-red-50 disabled:opacity-50 rounded-sm text-[10px] font-black uppercase tracking-widest transition-all"><Trash2 size={14} /> Clear All</button>
+                    ) : null}
                 </div>
                 <div className="mt-4 flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-sm px-4 py-2 text-emerald-700 text-[10px] font-black uppercase tracking-widest"><CheckCircle size={14} className="flex-shrink-0" /> Correct balance = Full customer ledger (all voucher types)</div>
             </div>
