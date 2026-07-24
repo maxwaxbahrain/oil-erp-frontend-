@@ -154,6 +154,9 @@ const formatPhaseLabel = (phase: string): string =>
 const formatGlEntityLabel = (key: string): string =>
     key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
+const formatMigrationMoney = (amount: number): string =>
+    amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 const formatGlEntitySummary = (stats: GlImportStats): string => {
     const parts: string[] = [];
     if (stats.posted) parts.push(`${stats.posted} posted`);
@@ -191,6 +194,7 @@ export default function DataMigration() {
     const [completeness, setCompleteness] = useState<ImportCompleteness | null>(null);
     const [done, setDone] = useState(false);
     const [importFailed, setImportFailed] = useState(false);
+    const [pendingImport, setPendingImport] = useState<{ data: Record<string, unknown>; preview: ImportPreview } | null>(null);
 
     const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const consecutivePollFailuresRef = useRef(0);
@@ -868,6 +872,25 @@ export default function DataMigration() {
         }
     }, [log, prog, runSyncImport, startAsyncImport]);
 
+    const confirmImport = useCallback(async () => {
+        if (!pendingImport) return;
+        const { data } = pendingImport;
+        setPendingImport(null);
+        setBusy(true);
+        try {
+            await postToBackend(data);
+        } catch (e: any) {
+            stopPolling();
+            const msg = e?.response?.data?.detail || e?.message || 'Import failed';
+            finishImportFailure(typeof msg === 'string' ? msg : JSON.stringify(msg));
+        }
+    }, [finishImportFailure, pendingImport, postToBackend, stopPolling]);
+
+    const cancelImport = useCallback(() => {
+        setPendingImport(null);
+        log('✕ Import cancelled — nothing was written.', 'info');
+    }, [log]);
+
     const doImport = async () => {
         if (!file) return;
         stopPolling();
@@ -893,13 +916,16 @@ export default function DataMigration() {
                 prog(8, 'Opening database...');
                 log(`📂 Opening ${file.name}...`, 'info');
                 const extracted = await extractAllData(await file.arrayBuffer(), file.name);
-                const { __preview: _importPreview, ...payload } = extracted;
-                void _importPreview;
-                data = payload;
+                const { __preview: importPreview, ...payload } = extracted;
+                setPendingImport({ data: payload, preview: importPreview });
+                log('⏸ Review the preview below, then Confirm to import.', 'info');
+                setBusy(false);
+                return;
             } else if (ext === 'csv' || ext === 'txt') {
                 prog(8, 'Parsing CSV...');
                 data = await parseCsv(await file.text());
                 log(`📋 Found ${(data.customers as unknown[])?.length ?? 0} customers in CSV`, 'info');
+                log('ℹ️ CSV preview not yet available — importing directly.', 'info');
             } else {
                 throw new Error('For Excel: Save As → CSV first, then upload');
             }
@@ -974,17 +1000,17 @@ export default function DataMigration() {
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
                 <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-3">Upload Your File</p>
                 <div onDragOver={e => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
-                    onDrop={e => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files[0]; if (f) { setFile(f); setResults(null); setDone(false); setLogs([]); setImportFailed(false); setTieOut(null); setCogsTrueupAmount(null); setGlResults(null); setCompleteness(null); } }}
+                    onDrop={e => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files[0]; if (f) { setFile(f); setPendingImport(null); setResults(null); setDone(false); setLogs([]); setImportFailed(false); setTieOut(null); setCogsTrueupAmount(null); setGlResults(null); setCompleteness(null); } }}
                     onClick={() => document.getElementById('mig-ai-file')?.click()}
                     className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all ${drag ? 'border-blue-400 bg-blue-50' : file ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200 hover:border-orange-400 hover:bg-orange-50'}`}>
-                    <input id="mig-ai-file" type="file" accept=".db,.sqlite,.csv,.xlsx,.xls,.txt" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) { setFile(f); setResults(null); setDone(false); setLogs([]); setImportFailed(false); setTieOut(null); setCogsTrueupAmount(null); setGlResults(null); setCompleteness(null); } }} />
+                    <input id="mig-ai-file" type="file" accept=".db,.sqlite,.csv,.xlsx,.xls,.txt" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) { setFile(f); setPendingImport(null); setResults(null); setDone(false); setLogs([]); setImportFailed(false); setTieOut(null); setCogsTrueupAmount(null); setGlResults(null); setCompleteness(null); } }} />
                     {file ? (
                         <div>
                             <div className="text-4xl mb-2">{isDb ? '🗄️' : '📋'}</div>
                             <p className="font-black text-gray-900">{file.name}</p>
                             <p className="text-sm text-gray-500 mt-1">{(file.size / 1024).toFixed(1)} KB</p>
                             {isDb && <div className="mt-2 inline-flex items-center gap-1.5 bg-green-100 text-green-700 text-xs font-bold px-3 py-1 rounded-full">SQLite database selected — {file.name}</div>}
-                            <button onClick={e => { e.stopPropagation(); setFile(null); }} className="mt-3 block mx-auto text-xs text-red-400 font-bold">✕ Remove</button>
+                            <button onClick={e => { e.stopPropagation(); setFile(null); setPendingImport(null); }} className="mt-3 block mx-auto text-xs text-red-400 font-bold">✕ Remove</button>
                         </div>
                     ) : (
                         <div>
@@ -995,6 +1021,65 @@ export default function DataMigration() {
                     )}
                 </div>
             </div>
+
+            {pendingImport && (
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 shadow-sm">
+                    <p className="text-xs font-black text-amber-900 uppercase tracking-widest mb-3">Review before import</p>
+                    <div className="text-sm text-gray-800 space-y-3">
+                        <p><span className="font-bold">File:</span> {pendingImport.preview.fileName}</p>
+                        <p>
+                            <span className="font-bold">Period:</span>{' '}
+                            {pendingImport.preview.dateRange.earliest ?? '—'} → {pendingImport.preview.dateRange.latest ?? '—'}
+                        </p>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1 text-sm">
+                            <p>Customers <strong>{pendingImport.preview.counts.customers.toLocaleString()}</strong></p>
+                            <p>Invoices <strong>{pendingImport.preview.counts.invoices.toLocaleString()}</strong></p>
+                            <p>Payments <strong>{pendingImport.preview.counts.payments.toLocaleString()}</strong></p>
+                            <p>Products <strong>{pendingImport.preview.counts.products.toLocaleString()}</strong></p>
+                            <p>Suppliers <strong>{pendingImport.preview.counts.suppliers.toLocaleString()}</strong></p>
+                            <p>Allocations <strong>{pendingImport.preview.counts.paymentAllocations.toLocaleString()}</strong></p>
+                            <p>POs <strong>{pendingImport.preview.counts.purchaseOrders.toLocaleString()}</strong></p>
+                            <p>Supplier pmts <strong>{pendingImport.preview.counts.supplierPayments.toLocaleString()}</strong></p>
+                            <p>Returns <strong>{pendingImport.preview.counts.salesReturns.toLocaleString()}</strong></p>
+                        </div>
+                        <div className="border-t border-amber-200 pt-3 space-y-1">
+                            <p>Total receivable (AR): <strong>${formatMigrationMoney(pendingImport.preview.totals.totalAR)}</strong></p>
+                            <p>Total payable (AP): <strong>${formatMigrationMoney(pendingImport.preview.totals.totalAP)}</strong></p>
+                            <p>Total invoiced: <strong>${formatMigrationMoney(pendingImport.preview.totals.totalInvoiced)}</strong></p>
+                            <p>Total received: <strong>${formatMigrationMoney(pendingImport.preview.totals.totalReceived)}</strong></p>
+                            <p>Allocations total: <strong>${formatMigrationMoney(pendingImport.preview.totals.allocationTotal)}</strong></p>
+                        </div>
+                        {pendingImport.preview.probeWarnings.length > 0 && (
+                            <ul className="space-y-1 text-sm text-amber-900 list-disc list-inside">
+                                {pendingImport.preview.probeWarnings.map((warning, idx) => (
+                                    <li key={idx}>{warning}</li>
+                                ))}
+                            </ul>
+                        )}
+                        <p className="text-sm text-amber-900 bg-amber-100/60 border border-amber-200 rounded-xl px-3 py-2">
+                            ℹ Safe to re-run: importing the SAME file again updates records instead of duplicating them.
+                        </p>
+                        <div className="flex flex-wrap gap-2 justify-end pt-1">
+                            <button
+                                type="button"
+                                onClick={cancelImport}
+                                disabled={busy}
+                                className="px-4 py-2.5 rounded-xl text-sm font-bold text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 disabled:opacity-40"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => void confirmImport()}
+                                disabled={busy}
+                                className="px-5 py-2.5 rounded-xl text-sm font-black text-white bg-gray-900 hover:bg-gray-700 disabled:opacity-40"
+                            >
+                                Confirm import
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {busy && (
                 <div className="bg-white rounded-2xl border border-gray-100 p-5">
@@ -1166,7 +1251,7 @@ export default function DataMigration() {
                 </div>
             )}
 
-            <button onClick={doImport} disabled={!file || busy}
+            <button onClick={doImport} disabled={!file || busy || pendingImport !== null}
                 className="w-full py-5 bg-gray-900 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-2xl font-black text-base transition-all flex items-center justify-center gap-3">
                 {busy ? <><RefreshCw size={20} className="animate-spin" /> Importing — please wait...</>
                     : <><Zap size={20} /> {isDb ? '🤖 Import Full Database (Correct Balances + Products + Invoices)' : '🤖 Import Data'}</>}
