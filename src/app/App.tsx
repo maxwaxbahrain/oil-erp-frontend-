@@ -812,12 +812,11 @@ function App() {
         </div>
 
         {/* Global Identity Footer */}
-        <footer className="h-10 bg-redwood-midnight border-t border-redwood-border px-3 sm:px-8 hidden lg:flex items-center justify-between text-[10px] font-bold text-redwood-text-muted uppercase tracking-[0.2em] shadow-[0_-1px_3px_rgba(0,0,0,0.02)] print:hidden">
+        <footer className="h-10 bg-redwood-midnight border-t border-redwood-border px-3 sm:px-8 flex items-center justify-between text-[10px] font-bold text-redwood-text-muted uppercase tracking-[0.2em] shadow-[0_-1px_3px_rgba(0,0,0,0.02)] print:hidden">
           <div className="flex items-center gap-4 flex-wrap min-w-0">
             <span className="text-redwood-brand whitespace-nowrap shrink-0">SOLTOL ONE</span>
-            {/* Version + tagline hidden on phones to avoid footer overflow. */}
-            <div className="hidden sm:block h-3 w-[1px] bg-redwood-border shrink-0" />
-            <span className="hidden sm:inline whitespace-nowrap shrink-0">Platform: {__APP_BUILD_VERSION__.slice(0, 7)}</span>
+            <div className="h-3 w-[1px] bg-redwood-border shrink-0" />
+            <span className="whitespace-nowrap shrink-0">Platform: {__APP_BUILD_VERSION__.slice(0, 7)}</span>
           </div>
           <div className="flex items-center gap-3 sm:gap-6">
             <span className="hidden sm:flex items-center gap-2">

@@ -5,12 +5,6 @@ import './styles/theme.css'
 import App from './app/App.tsx'
 import { AuthProvider } from './contexts/AuthContext'
 
-// App version: force cache bust on deploy.
-// The window-level assignment below ensures this version string
-// survives esbuild minification — a bare comment would be stripped
-// and the bundle's content hash wouldn't change, defeating the point.
-(window as unknown as { __APP_VERSION__?: string }).__APP_VERSION__ = '2026-05-30T22:30Z-cache-bust-1';
-
 // Root error boundary — last line of defence against render-time
 // crashes (e.g. malformed API rows that previously took the whole
 // dashboard to a black screen). Shows a readable error and a way
