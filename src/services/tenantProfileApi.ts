@@ -67,15 +67,7 @@ export function toCompanyProfile(p: TenantProfile): CompanyProfile {
 }
 
 export function toCompanySettings(p: TenantProfile): CompanySettings {
-    const profile = toCompanyProfile(p);
-    const settings = companyProfileToSettings(profile);
-
-    // Env fallback mashes state/postal into city ("Jamaica, NY 11423") — do not re-mash.
-    if (p.state == null && p.postal_code == null) {
-        settings.city = p.city ?? '';
-    }
-
-    return settings;
+    return companyProfileToSettings(toCompanyProfile(p));
 }
 
 export function fromCompanyProfile(c: CompanyProfile): TenantProfileUpdatePayload {

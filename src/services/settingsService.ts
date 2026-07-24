@@ -37,6 +37,8 @@ export interface CompanySettings {
     name: string;
     address: string;
     city: string;
+    state?: string;
+    postalCode?: string;
     country: string;
     phone: string;
     email: string;
@@ -94,13 +96,13 @@ const DEFAULT_PROFILE: CompanyProfile = {
 };
 
 const DEFAULT_SIGNATURE: DocumentSignature = {
-    signatoryName: 'AHMED KHAN',
-    signatoryTitle: 'OPERATIONS MANAGER',
-    showOnInvoices: true,
-    showOnPurchaseOrders: true,
+    signatoryName: '',
+    signatoryTitle: '',
+    showOnInvoices: false,
+    showOnPurchaseOrders: false,
     showOnLedgers: false,
-    showOnQuotations: true,
-    showOnReports: true,
+    showOnQuotations: false,
+    showOnReports: false,
 };
 
 const SETTINGS_KEY = 'zavi_system_settings';
@@ -186,12 +188,12 @@ export function formatCityLine(
 }
 
 export function companyProfileToSettings(profile: CompanyProfile): CompanySettings {
-    const cityLine = formatCityLine(profile.city, profile.state, profile.postalCode);
-
     return {
         name: profile.name || DEFAULT_COMPANY.name,
         address: profile.address1 || '',
-        city: cityLine || DEFAULT_COMPANY.city,
+        city: profile.city || '',
+        state: profile.state || '',
+        postalCode: profile.postalCode || '',
         country: profile.country || '',
         phone: profile.phone || '',
         email: profile.email || '',

@@ -433,9 +433,8 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
       const idStr = String(customer.id ?? '').toLowerCase();
       const code = (customer.code ?? '').toLowerCase();
       const addr = (customer.address ?? '').toLowerCase();
-      const city = (customer.city ?? '').toLowerCase();
       const matchesSearch =
-        !q || name.includes(q) || idStr.includes(q) || code.includes(q) || addr.includes(q) || city.includes(q);
+        !q || name.includes(q) || idStr.includes(q) || code.includes(q) || addr.includes(q);
       if (!matchesSearch) return false;
 
       const bal = balanceOf(customer);
@@ -583,7 +582,7 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search by name, ID, or city…"
+              placeholder="Search by name, ID, or address…"
               autoComplete="off"
               style={{
                 width: '100%',

@@ -16,7 +16,7 @@ import { saveAs } from 'file-saver';
 import type { Invoice } from './api';
 import { regenerateInvoiceShareToken } from './api';
 import type { CompanySettings } from './settingsService';
-import { getCompanySettings } from './settingsService';
+import { formatCityLine, getCompanySettings } from './settingsService';
 import { showToast } from '../utils/showToast';
 
 const MAROON: [number, number, number] = [128, 0, 32];
@@ -279,7 +279,8 @@ export async function generateInvoicePDF(invoice: Invoice, company: CompanySetti
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(55, 55, 55);
-  const addrLines = [company.address, company.city, company.country].filter(Boolean);
+  const cityLine = formatCityLine(company.city, company.state, company.postalCode);
+  const addrLines = [company.address, cityLine, company.country].filter(Boolean);
   for (const line of addrLines) {
     doc.text(line, 14, y);
     y += 5;
@@ -420,7 +421,8 @@ export async function generateInvoiceWord(invoice: Invoice, company: CompanySett
     }),
   ];
   if (company.address) headerBlocks.push(cellPara(company.address));
-  if (company.city) headerBlocks.push(cellPara(company.city));
+  const cityLine = formatCityLine(company.city, company.state, company.postalCode);
+  if (cityLine) headerBlocks.push(cellPara(cityLine));
   if (company.country) headerBlocks.push(cellPara(company.country));
   if (company.phone) headerBlocks.push(cellPara(`Phone: ${company.phone}`));
   if (company.email) headerBlocks.push(cellPara(`Email: ${company.email}`));

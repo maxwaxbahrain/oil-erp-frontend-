@@ -149,8 +149,10 @@ export interface PublicInvoicePayload {
   company_settings: {
     name: string;
     address: string;
-    city: string;
-    country: string;
+    city: string | null;
+    state: string | null;
+    postal_code: string | null;
+    country: string | null;
     phone: string;
     email: string;
     website: string;
