@@ -194,6 +194,7 @@ export default function DataMigration() {
     const [completeness, setCompleteness] = useState<ImportCompleteness | null>(null);
     const [done, setDone] = useState(false);
     const [importFailed, setImportFailed] = useState(false);
+    const [importFailureIdempotencyNote, setImportFailureIdempotencyNote] = useState(false);
     const [pendingImport, setPendingImport] = useState<{ data: Record<string, unknown>; preview: ImportPreview } | null>(null);
 
     const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -739,9 +740,14 @@ export default function DataMigration() {
         }
     }, [log, prog, summarizeBackendResults]);
 
-    const finishImportFailure = useCallback((message: string) => {
+    const finishImportFailure = useCallback((
+        message: string,
+        options?: { showIdempotencyNote?: boolean },
+    ) => {
+        const showIdempotencyNote = options?.showIdempotencyNote ?? true;
         stopPolling();
         setImportFailed(true);
+        setImportFailureIdempotencyNote(showIdempotencyNote);
         setDone(false);
         setResults(null);
         setTieOut(null);
@@ -750,7 +756,9 @@ export default function DataMigration() {
         setCompleteness(null);
         prog(0, '');
         log(`❌ Import failed: ${message}`, 'error');
-        log('ℹ️ Safe to re-run: re-uploading the SAME file updates existing records instead of duplicating them. Uploading a DIFFERENT file will add its records to this tenant. Check back or contact support.', 'warn');
+        if (showIdempotencyNote) {
+            log('ℹ️ Safe to re-run: re-uploading the SAME file updates existing records instead of duplicating them. Uploading a DIFFERENT file will add its records to this tenant. Check back or contact support.', 'warn');
+        }
         setBusy(false);
     }, [log, prog, stopPolling]);
 
@@ -904,10 +912,12 @@ export default function DataMigration() {
         setCompleteness(null);
         setDone(false);
         setImportFailed(false);
+        setImportFailureIdempotencyNote(false);
         consecutivePollFailuresRef.current = 0;
         lastPhaseRef.current = null;
         stallWarnedRef.current = false;
 
+        let reachedBackendPost = false;
         try {
             prog(5, 'Reading file...');
             const ext = file.name.toLowerCase().split('.').pop() || '';
@@ -930,11 +940,15 @@ export default function DataMigration() {
                 throw new Error('For Excel: Save As → CSV first, then upload');
             }
 
+            reachedBackendPost = true;
             await postToBackend(data);
         } catch (e: any) {
             stopPolling();
             const msg = e?.response?.data?.detail || e?.message || 'Import failed';
-            finishImportFailure(typeof msg === 'string' ? msg : JSON.stringify(msg));
+            finishImportFailure(
+                typeof msg === 'string' ? msg : JSON.stringify(msg),
+                { showIdempotencyNote: reachedBackendPost },
+            );
         }
     };
 
@@ -1124,7 +1138,12 @@ export default function DataMigration() {
             {importFailed && (
                 <div className="bg-red-50 border border-red-200 rounded-2xl p-5">
                     <p className="font-black text-red-800 text-base">Import did not complete</p>
-                    <p className="text-sm text-red-700 mt-1">Check the log above for details. Safe to re-run: re-uploading the SAME file updates existing records instead of duplicating them. Uploading a DIFFERENT file will add its records to this tenant.</p>
+                    <p className="text-sm text-red-700 mt-1">
+                        Check the log above for details.
+                        {importFailureIdempotencyNote && (
+                            <> Safe to re-run: re-uploading the SAME file updates existing records instead of duplicating them. Uploading a DIFFERENT file will add its records to this tenant.</>
+                        )}
+                    </p>
                 </div>
             )}
 
