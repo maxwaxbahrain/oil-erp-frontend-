@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { Upload, CheckCircle, RefreshCw, Trash2, Users, Package, FileText, CreditCard, TrendingUp, Zap, AlertTriangle } from 'lucide-react';
+import { Upload, CheckCircle, RefreshCw, Trash2, Users, Package, FileText, CreditCard, TrendingUp, Zap, AlertTriangle, Database } from 'lucide-react';
 import api from '../../api/axios';
 
 interface LogEntry { time: string; msg: string; type: 'info' | 'success' | 'error' | 'warn'; }
@@ -978,60 +978,61 @@ export default function DataMigration() {
         : [];
 
     return (
-        <div className="max-w-3xl mx-auto px-4 pb-16 pt-4 space-y-4 animate-in fade-in duration-300">
-            <div className="rounded-2xl bg-gray-900 text-white p-6">
+        <div className="max-w-5xl mx-auto px-4 pb-16 pt-4 space-y-6 animate-in fade-in duration-300">
+            <div className="bg-white p-6 border border-redwood-border rounded-sm shadow-sm">
                 <div className="flex items-start justify-between gap-4 flex-wrap">
-                    <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-xl bg-orange-500/20 flex items-center justify-center"><Zap size={24} className="text-orange-400" /></div>
-                        <div>
-                            <h1 className="text-xl font-black uppercase tracking-tight">🤖 AI Data Migration</h1>
-                            <p className="text-gray-400 text-sm mt-0.5">Import customers, invoices, products — with correct balances</p>
+                    <div>
+                        <div className="flex items-center gap-3 mb-1">
+                            <Database size={20} className="text-redwood-brand" />
+                            <span className="text-[10px] font-black text-redwood-brand uppercase tracking-[0.2em]">Legacy data import</span>
                         </div>
+                        <h1 className="text-2xl font-black text-redwood-text-main tracking-tighter uppercase">Data Migration</h1>
+                        <p className="text-[10px] font-black text-redwood-text-muted uppercase tracking-[0.2em] mt-1">Import customers, invoices, products — with correct balances</p>
                     </div>
-                    <button onClick={clearAll} disabled={busy} className="flex items-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-xl text-sm font-black transition-all"><Trash2 size={14} /> Clear All</button>
+                    <button onClick={clearAll} disabled={busy} className="inline-flex items-center gap-2 px-4 py-2.5 border border-redwood-border text-brand-red hover:bg-red-50 disabled:opacity-50 rounded-sm text-[10px] font-black uppercase tracking-widest transition-all"><Trash2 size={14} /> Clear All</button>
                 </div>
-                <div className="mt-3 bg-green-500/10 border border-green-500/20 rounded-xl px-4 py-2 text-green-300 text-xs font-bold">✅ Correct balance = Full customer ledger (all voucher types)</div>
+                <div className="mt-4 flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-sm px-4 py-2 text-emerald-700 text-[10px] font-black uppercase tracking-widest"><CheckCircle size={14} className="flex-shrink-0" /> Correct balance = Full customer ledger (all voucher types)</div>
             </div>
 
             <div className="grid grid-cols-5 gap-2">
                 {[{ icon: <Users size={14}/>, label: 'Customers', sub: 'Real balance' }, { icon: <Package size={14}/>, label: 'Products', sub: '+ Pricing' }, { icon: <FileText size={14}/>, label: 'Invoices', sub: '+ Ledger' }, { icon: <CreditCard size={14}/>, label: 'Payments', sub: '+ History' }, { icon: <TrendingUp size={14}/>, label: 'Suppliers', sub: '+ Details' }].map(item => (
-                    <div key={item.label} className="bg-white rounded-xl border border-gray-100 p-3 text-center shadow-sm">
-                        <div className="flex justify-center mb-1 text-gray-500">{item.icon}</div>
-                        <p className="text-[11px] font-black text-gray-800">{item.label}</p>
-                        <p className="text-[9px] text-orange-500 font-bold">{item.sub}</p>
+                    <div key={item.label} className="bg-white rounded-sm border border-redwood-border p-3 text-center shadow-sm">
+                        <div className="flex justify-center mb-1 text-redwood-text-muted">{item.icon}</div>
+                        <p className="text-[11px] font-black text-redwood-text-main">{item.label}</p>
+                        <p className="text-[9px] text-redwood-brand font-bold uppercase tracking-wider">{item.sub}</p>
                     </div>
                 ))}
             </div>
 
-            <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4">
-                <p className="text-xs font-black text-blue-800 uppercase tracking-widest mb-2">Supported Formats</p>
-                <div className="space-y-1.5">
-                    <div className="flex items-center gap-2"><span className="bg-blue-600 text-white text-xs font-black px-2 py-0.5 rounded">.db / .sqlite</span><span className="text-blue-800 text-sm font-medium">Data migration — import from a legacy accounting export</span><span className="bg-orange-400 text-white text-[9px] px-1.5 py-0.5 rounded-full font-black ml-auto">BEST</span></div>
-                    <div className="flex items-center gap-2"><span className="bg-white border border-blue-200 text-blue-700 text-xs font-black px-2 py-0.5 rounded">.csv</span><span className="text-blue-700 text-sm">QuickBooks, DEAR, Cin7, Dynamics, NetSuite</span></div>
-                    <div className="flex items-center gap-2"><span className="bg-white border border-blue-200 text-blue-700 text-xs font-black px-2 py-0.5 rounded">.xlsx</span><span className="text-blue-700 text-sm">Excel — save as CSV first</span></div>
+            <div className="bg-white border border-redwood-border rounded-sm p-5 shadow-sm">
+                <p className="text-[10px] font-black text-redwood-text-muted uppercase tracking-[0.2em] mb-3">Supported Formats</p>
+                <div className="space-y-2">
+                    <div className="flex items-center gap-2 flex-wrap"><span className="bg-redwood-brand text-white text-xs font-black px-2 py-0.5 rounded-sm">.db / .sqlite</span><span className="text-redwood-text-main text-sm font-medium">Data migration — import from a legacy accounting export</span><span className="bg-redwood-brand text-white text-[9px] px-1.5 py-0.5 rounded-sm font-black ml-auto uppercase tracking-wider">Best</span></div>
+                    <div className="flex items-center gap-2 flex-wrap"><span className="bg-redwood-bg-light border border-redwood-border text-redwood-text-main text-xs font-black px-2 py-0.5 rounded-sm">.csv</span><span className="text-redwood-text-muted text-sm">QuickBooks, DEAR, Cin7, Dynamics, NetSuite</span></div>
+                    <div className="flex items-center gap-2 flex-wrap"><span className="bg-redwood-bg-light border border-redwood-border text-redwood-text-main text-xs font-black px-2 py-0.5 rounded-sm">.xlsx</span><span className="text-redwood-text-muted text-sm">Excel — save as CSV first</span></div>
                 </div>
             </div>
 
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-                <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-3">Upload Your File</p>
+            <div className="bg-white rounded-sm border border-redwood-border shadow-sm p-5">
+                <p className="text-[10px] font-black text-redwood-text-muted uppercase tracking-[0.2em] mb-3">Upload Your File</p>
                 <div onDragOver={e => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
                     onDrop={e => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files[0]; if (f) { setFile(f); setPendingImport(null); setResults(null); setDone(false); setLogs([]); setImportFailed(false); setTieOut(null); setCogsTrueupAmount(null); setGlResults(null); setCompleteness(null); } }}
                     onClick={() => document.getElementById('mig-ai-file')?.click()}
-                    className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all ${drag ? 'border-blue-400 bg-blue-50' : file ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200 hover:border-orange-400 hover:bg-orange-50'}`}>
+                    className={`border-2 border-dashed rounded-sm p-10 text-center cursor-pointer transition-all ${drag ? 'border-redwood-brand bg-redwood-bg-light' : file ? 'border-brand-green bg-emerald-50' : 'border-redwood-border hover:border-redwood-brand hover:bg-redwood-bg-light'}`}>
                     <input id="mig-ai-file" type="file" accept=".db,.sqlite,.csv,.xlsx,.xls,.txt" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) { setFile(f); setPendingImport(null); setResults(null); setDone(false); setLogs([]); setImportFailed(false); setTieOut(null); setCogsTrueupAmount(null); setGlResults(null); setCompleteness(null); } }} />
                     {file ? (
                         <div>
-                            <div className="text-4xl mb-2">{isDb ? '🗄️' : '📋'}</div>
-                            <p className="font-black text-gray-900">{file.name}</p>
-                            <p className="text-sm text-gray-500 mt-1">{(file.size / 1024).toFixed(1)} KB</p>
-                            {isDb && <div className="mt-2 inline-flex items-center gap-1.5 bg-green-100 text-green-700 text-xs font-bold px-3 py-1 rounded-full">SQLite database selected — {file.name}</div>}
-                            <button onClick={e => { e.stopPropagation(); setFile(null); setPendingImport(null); }} className="mt-3 block mx-auto text-xs text-red-400 font-bold">✕ Remove</button>
+                            <div className="flex justify-center mb-2">{isDb ? <Database size={36} className="text-redwood-brand" /> : <FileText size={36} className="text-redwood-text-muted" />}</div>
+                            <p className="font-black text-redwood-text-main">{file.name}</p>
+                            <p className="text-sm text-redwood-text-muted mt-1">{(file.size / 1024).toFixed(1)} KB</p>
+                            {isDb && <div className="mt-2 inline-flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold px-3 py-1 rounded-sm">SQLite database selected — {file.name}</div>}
+                            <button onClick={e => { e.stopPropagation(); setFile(null); setPendingImport(null); }} className="mt-3 block mx-auto text-xs text-brand-red font-bold">✕ Remove</button>
                         </div>
                     ) : (
                         <div>
-                            <Upload size={36} className="text-gray-300 mx-auto mb-3" />
-                            <p className="font-black text-gray-600">Drop file here or click to browse</p>
-                            <p className="text-xs text-gray-400 mt-1">.db · .sqlite · .csv · .xlsx</p>
+                            <Upload size={36} className="text-redwood-text-muted mx-auto mb-3" />
+                            <p className="font-black text-redwood-text-main">Drop file here or click to browse</p>
+                            <p className="text-xs text-redwood-text-muted mt-1">.db · .sqlite · .csv · .xlsx</p>
                         </div>
                     )}
                 </div>
@@ -1122,15 +1123,15 @@ export default function DataMigration() {
             )}
 
             {busy && (
-                <div className="bg-white rounded-2xl border border-gray-100 p-5">
+                <div className="bg-white rounded-sm border border-redwood-border shadow-sm p-5">
                     <div className="flex items-center gap-3 mb-3">
-                        <RefreshCw size={16} className="animate-spin text-orange-500" />
-                        <span className="text-sm font-black text-gray-700">{step} {pct > 0 ? `${pct}%` : ''}</span>
+                        <RefreshCw size={16} className="animate-spin text-redwood-brand" />
+                        <span className="text-sm font-black text-redwood-text-main">{step} {pct > 0 ? `${pct}%` : ''}</span>
                     </div>
-                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-gradient-to-r from-orange-400 to-orange-600 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+                    <div className="h-2 bg-redwood-bg-light rounded-sm overflow-hidden">
+                        <div className="h-full bg-redwood-brand rounded-sm transition-all duration-500" style={{ width: `${pct}%` }} />
                     </div>
-                    <p className="text-xs text-gray-400 mt-2">Please wait — do not close this tab (import continues on the server)</p>
+                    <p className="text-xs text-redwood-text-muted mt-2">Please wait — do not close this tab (import continues on the server)</p>
                 </div>
             )}
 
@@ -1146,7 +1147,7 @@ export default function DataMigration() {
             )}
 
             {importFailed && (
-                <div className="bg-red-50 border border-red-200 rounded-2xl p-5">
+                <div className="bg-red-50 border border-red-200 rounded-sm p-5 shadow-sm">
                     <p className="font-black text-red-800 text-base">Import did not complete</p>
                     <p className="text-sm text-red-700 mt-1">
                         Check the log above for details.
