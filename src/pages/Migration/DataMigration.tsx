@@ -105,6 +105,7 @@ interface ImportPreview {
     dateRange: { earliest: string | null; latest: string | null };
     probeRowCounts: Record<string, number>;
     probeWarnings: string[];
+    fingerprint: 'bettano-verified' | 'none';
 }
 
 const ts = () => new Date().toLocaleTimeString();
@@ -510,15 +511,14 @@ export default function DataMigration() {
             })
             .filter((a: any): a is { payment_reference: string; invoice_number: string; amount: number } => a !== null);
         const paymentAllocTotal = payment_allocations.reduce((sum: number, a: { payment_reference: string; invoice_number: string; amount: number }) => sum + a.amount, 0);
+        const bettanoFingerprintMatch =
+            payment_allocations.length === PAYMENT_ALLOCATION_EXPECTED_ROWS
+            && Math.abs(paymentAllocTotal - PAYMENT_ALLOCATION_EXPECTED_TOTAL) < 0.01;
+        const fingerprint: ImportPreview['fingerprint'] = bettanoFingerprintMatch ? 'bettano-verified' : 'none';
         log(
-            `💳 ${payment_allocations.length} payment allocation rows ($${paymentAllocTotal.toFixed(2)} total; expected ${PAYMENT_ALLOCATION_EXPECTED_ROWS} rows / $${PAYMENT_ALLOCATION_EXPECTED_TOTAL.toFixed(2)})`,
-            payment_allocations.length === PAYMENT_ALLOCATION_EXPECTED_ROWS ? 'success' : 'error',
+            `💳 ${payment_allocations.length} payment allocation rows ($${paymentAllocTotal.toFixed(2)} total; Bettano reference fingerprint is ${PAYMENT_ALLOCATION_EXPECTED_ROWS} rows / $${PAYMENT_ALLOCATION_EXPECTED_TOTAL.toFixed(2)})`,
+            bettanoFingerprintMatch ? 'success' : 'info',
         );
-        if (payment_allocations.length !== PAYMENT_ALLOCATION_EXPECTED_ROWS) {
-            throw new Error(
-                `payment_allocations self-check failed: expected exactly ${PAYMENT_ALLOCATION_EXPECTED_ROWS} Receipt→Sales rows, got ${payment_allocations.length}. This may not be the verified BETTANO.db — import stopped.`,
-            );
-        }
 
         const debtorNameSet = new Set(customers.map((c: any) => c.name));
         const srRows = q(`SELECT date, vch_no, debit, credit, amount, narration FROM vouchers WHERE v_type='Sales Return' ORDER BY date`);
@@ -589,6 +589,7 @@ export default function DataMigration() {
             dateRange: { earliest, latest },
             probeRowCounts: { ...probe.rowCounts },
             probeWarnings: [...probe.warnings],
+            fingerprint,
         };
 
         db.close();
@@ -1079,6 +1080,15 @@ export default function DataMigration() {
                                 <span className="text-2xl font-black text-orange-600 tabular-nums">${formatMigrationMoney(pendingImport.preview.totals.allocationTotal)}</span>
                             </div>
                         </div>
+                        {pendingImport.preview.fingerprint === 'bettano-verified' ? (
+                            <p className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
+                                ✓ Matches the verified BETTANO reference fingerprint (983 allocations, $379,814.03).
+                            </p>
+                        ) : (
+                            <p className="text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
+                                ℹ This file does not match the Bettano reference fingerprint — expected for any other company's export. Review the totals above before confirming.
+                            </p>
+                        )}
                         {pendingImport.preview.probeWarnings.length > 0 && (
                             <ul className="space-y-1 text-sm text-amber-950 bg-amber-50 border border-amber-300 rounded-xl px-3 py-2 list-disc list-inside">
                                 {pendingImport.preview.probeWarnings.map((warning, idx) => (
