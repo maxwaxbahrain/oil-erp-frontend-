@@ -650,7 +650,7 @@ export default function DataMigration() {
         setCompleteness(null);
         prog(0, '');
         log(`❌ Import failed: ${message}`, 'error');
-        log('ℹ️ Do not re-upload the same file — invoices and payments can duplicate. Only payment allocations are idempotent. Check back or contact support.', 'warn');
+        log('ℹ️ Safe to re-run: re-uploading the SAME file updates existing records instead of duplicating them. Uploading a DIFFERENT file will add its records to this tenant. Check back or contact support.', 'warn');
         setBusy(false);
     }, [log, prog, stopPolling]);
 
@@ -685,7 +685,7 @@ export default function DataMigration() {
             if (job.status === 'running' && job.updated_at && !stallWarnedRef.current) {
                 const ageMs = Date.now() - new Date(job.updated_at).getTime();
                 if (ageMs > STALL_MINUTES * 60 * 1000) {
-                    log('⚠️ No progress update for 10+ minutes — the job may still be running on the server. Do NOT re-upload (invoices/payments can duplicate). Check back later or contact support.', 'warn');
+                    log('⚠️ No progress update for 10+ minutes — the job may still be running on the server. Do NOT re-upload while it may still be in progress. Check back later or contact support.', 'warn');
                     stallWarnedRef.current = true;
                 }
             }
@@ -920,7 +920,7 @@ export default function DataMigration() {
             {importFailed && (
                 <div className="bg-red-50 border border-red-200 rounded-2xl p-5">
                     <p className="font-black text-red-800 text-base">Import did not complete</p>
-                    <p className="text-sm text-red-700 mt-1">Check the log above for details. Do not re-upload the same file — invoices and payments can duplicate. Only payment allocations are idempotent.</p>
+                    <p className="text-sm text-red-700 mt-1">Check the log above for details. Safe to re-run: re-uploading the SAME file updates existing records instead of duplicating them. Uploading a DIFFERENT file will add its records to this tenant.</p>
                 </div>
             )}
 
