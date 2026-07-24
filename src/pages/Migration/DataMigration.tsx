@@ -845,6 +845,29 @@ export default function DataMigration() {
         pollTimerRef.current = setInterval(() => pollImportStatus(jobId), POLL_INTERVAL_MS);
     }, [log, pollImportStatus, prog, stopPolling]);
 
+    const postToBackend = useCallback(async (data: Record<string, unknown>) => {
+        prog(12, 'Starting server import...');
+        log('⬆️ Sending to ERP backend...', 'info');
+
+        try {
+            const { data: asyncStart } = await api.post<{ job_id: number; status: string }>(
+                '/api/migrate/full-import-async',
+                data,
+            );
+            if (asyncStart?.job_id) {
+                startAsyncImport(asyncStart.job_id);
+                return;
+            }
+            throw new Error('Async import did not return a job id');
+        } catch (asyncErr: any) {
+            if (asyncErr?.response?.status === 404) {
+                await runSyncImport(data);
+                return;
+            }
+            throw asyncErr;
+        }
+    }, [log, prog, runSyncImport, startAsyncImport]);
+
     const doImport = async () => {
         if (!file) return;
         stopPolling();
@@ -881,26 +904,7 @@ export default function DataMigration() {
                 throw new Error('For Excel: Save As → CSV first, then upload');
             }
 
-            prog(12, 'Starting server import...');
-            log('⬆️ Sending to ERP backend...', 'info');
-
-            try {
-                const { data: asyncStart } = await api.post<{ job_id: number; status: string }>(
-                    '/api/migrate/full-import-async',
-                    data,
-                );
-                if (asyncStart?.job_id) {
-                    startAsyncImport(asyncStart.job_id);
-                    return;
-                }
-                throw new Error('Async import did not return a job id');
-            } catch (asyncErr: any) {
-                if (asyncErr?.response?.status === 404) {
-                    await runSyncImport(data);
-                    return;
-                }
-                throw asyncErr;
-            }
+            await postToBackend(data);
         } catch (e: any) {
             stopPolling();
             const msg = e?.response?.data?.detail || e?.message || 'Import failed';
