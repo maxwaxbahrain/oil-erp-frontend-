@@ -137,7 +137,23 @@ export const saveCompanyProfile = (profile: CompanyProfile): void => {
 };
 
 export function companyProfileToSettings(profile: CompanyProfile): CompanySettings {
-    const cityLine = [profile.city, profile.state, profile.postalCode].filter(Boolean).join(', ');
+    const city = (profile.city || '').trim();
+    const state = (profile.state || '').trim();
+    const postalCode = (profile.postalCode || '').trim();
+
+    let cityLine = '';
+    if (city && state && postalCode) {
+        cityLine = `${city}, ${state} ${postalCode}`;
+    } else if (city && state) {
+        cityLine = `${city}, ${state}`;
+    } else if (city && postalCode) {
+        cityLine = `${city} ${postalCode}`;
+    } else if (city) {
+        cityLine = city;
+    } else if (state && postalCode) {
+        cityLine = `${state} ${postalCode}`;
+    }
+
     return {
         name: profile.name || DEFAULT_COMPANY.name,
         address: profile.address1 || '',
