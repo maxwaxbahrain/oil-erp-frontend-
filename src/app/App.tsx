@@ -1,4 +1,4 @@
-import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import {
   Menu,
   ChevronDown,
@@ -269,6 +269,7 @@ function App() {
   if (
     location.pathname === '/login' ||
     location.pathname === '/privacy' ||
+    location.pathname === '/terms' ||
     location.pathname === '/signup' ||
     location.pathname === '/forgot-password' ||
     location.pathname === '/reset-password'
@@ -818,12 +819,24 @@ function App() {
             <div className="h-3 w-[1px] bg-redwood-border shrink-0" />
             <span className="whitespace-nowrap shrink-0">Platform: {__APP_BUILD_VERSION__.slice(0, 7)}</span>
           </div>
-          <div className="flex items-center gap-3 sm:gap-6">
+          <div className="flex items-center gap-3 sm:gap-4 flex-wrap justify-end min-w-0">
+            <Link
+              to="/privacy"
+              className="text-redwood-text-muted hover:text-redwood-text-main normal-case tracking-normal font-medium whitespace-nowrap"
+            >
+              Privacy Policy
+            </Link>
+            <Link
+              to="/terms"
+              className="text-redwood-text-muted hover:text-redwood-text-main normal-case tracking-normal font-medium whitespace-nowrap"
+            >
+              Terms of Service
+            </Link>
             <span className="hidden sm:flex items-center gap-2">
               <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
               Powered by AI
             </span>
-            <span className="text-redwood-text-main">© 2025</span>
+            <span className="text-redwood-text-main whitespace-nowrap">© 2025</span>
           </div>
         </footer>
       </main>

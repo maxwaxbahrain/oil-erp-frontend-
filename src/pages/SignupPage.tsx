@@ -58,6 +58,8 @@ export default function SignupPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [agreedToLegal, setAgreedToLegal] = useState(false);
+  const [consentError, setConsentError] = useState('');
 
   if (!isLoading && isAuthenticated) {
     return <Navigate to="/" replace />;
@@ -66,6 +68,12 @@ export default function SignupPage() {
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setError('');
+    setConsentError('');
+
+    if (!agreedToLegal) {
+      setConsentError('You must agree to the Terms of Service and Privacy Policy to create an account.');
+      return;
+    }
 
     if (password !== confirmPassword) {
       setError('Passwords do not match');
@@ -167,6 +175,42 @@ export default function SignupPage() {
               </div>
             );
           })}
+
+          <label
+            className="flex items-start gap-3 rounded-lg px-3 py-3 text-sm"
+            style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', color: C.muted }}
+          >
+            <input
+              type="checkbox"
+              checked={agreedToLegal}
+              onChange={(e) => {
+                setAgreedToLegal(e.target.checked);
+                if (e.target.checked) setConsentError('');
+              }}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-[#4F8EF7]"
+              aria-describedby={consentError ? 'signup-consent-error' : undefined}
+            />
+            <span>
+              I agree to the{' '}
+              <Link to="/terms" target="_blank" rel="noopener noreferrer" style={{ color: C.blue }}>
+                Terms of Service
+              </Link>{' '}
+              and{' '}
+              <Link to="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: C.blue }}>
+                Privacy Policy
+              </Link>
+            </span>
+          </label>
+
+          {consentError && (
+            <p
+              id="signup-consent-error"
+              className="rounded-lg px-3 py-2 text-sm"
+              style={{ background: 'rgba(239,68,68,0.12)', color: '#FCA5A5' }}
+            >
+              {consentError}
+            </p>
+          )}
 
           {error && (
             <p className="rounded-lg px-3 py-2 text-sm" style={{ background: 'rgba(239,68,68,0.12)', color: '#FCA5A5' }}>
