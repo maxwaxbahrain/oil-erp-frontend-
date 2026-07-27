@@ -1599,18 +1599,20 @@ export default function CustomerOverview() {
                                             </tr>
                                         ) : (
                                             <>
-                                            {(ledgerDateFrom || ledgerDateTo) && ledgerOpeningBalance !== null && (
-                                                <tr style={{ background: 'rgba(79,142,247,.08)' }}>
-                                                    <td colSpan={6} style={{ ...ledgerTdStyle, fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>
-                                                        Opening balance
-                                                        <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 600, color: 'var(--t2,#8BA3C7)' }}>
-                                                            (as at {ledgerDateFrom || 'start'})
+                                            {ledgerClosingBalance !== null && ledger.length > 0 && (
+                                                <tr style={{ fontWeight: 700, background: 'rgba(79,142,247,.08)' }}>
+                                                    <td colSpan={6} style={{ ...ledgerTfootStyle, textAlign: 'right', fontSize: 10, color: 'var(--t,#EEF2FF)', textTransform: 'uppercase', letterSpacing: '.6px' }}>
+                                                        Closing balance
+                                                        {(ledgerDateFrom || ledgerDateTo) && (
+                                                        <span style={{ marginLeft: 8, fontWeight: 600, color: 'var(--t2,#8BA3C7)', textTransform: 'none' }}>
+                                                            (as at {ledgerDateTo || 'today'})
                                                         </span>
+                                                        )}
                                                     </td>
-                                                    <td style={{ ...ledgerTdStyle, textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>
-                                                        {ledgerOpeningBalance.toLocaleString()}
+                                                    <td style={{ ...ledgerTfootStyle, textAlign: 'right', fontFamily: 'monospace', color: 'var(--t,#EEF2FF)' }}>
+                                                        {ledgerClosingBalance.toLocaleString()}
                                                     </td>
-                                                    <td style={ledgerTdStyle}></td>
+                                                    <td style={ledgerTfootStyle}></td>
                                                 </tr>
                                             )}
                                             {ledger.map(entry => (
@@ -1725,6 +1727,20 @@ export default function CustomerOverview() {
                                                     </td>
                                                 </tr>
                                             ))}
+                                            {(ledgerDateFrom || ledgerDateTo) && ledgerOpeningBalance !== null && (
+                                                <tr style={{ background: 'rgba(79,142,247,.08)' }}>
+                                                    <td colSpan={6} style={{ ...ledgerTdStyle, fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>
+                                                        Opening balance
+                                                        <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 600, color: 'var(--t2,#8BA3C7)' }}>
+                                                            (as at {ledgerDateFrom || 'start'})
+                                                        </span>
+                                                    </td>
+                                                    <td style={{ ...ledgerTdStyle, textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>
+                                                        {ledgerOpeningBalance.toLocaleString()}
+                                                    </td>
+                                                    <td style={ledgerTdStyle}></td>
+                                                </tr>
+                                            )}
                                             {ledger.length === 0 && (ledgerDateFrom || ledgerDateTo) && (
                                                 <tr>
                                                     <td colSpan={8} style={{ padding: '24px 16px', textAlign: 'center', color: 'var(--t2,#8BA3C7)', fontSize: 12 }}>
@@ -1735,24 +1751,6 @@ export default function CustomerOverview() {
                                             </>
                                         )}
                                     </tbody>
-                                    {ledgerClosingBalance !== null && ledger.length > 0 && (
-                                        <tfoot>
-                                            <tr style={{ fontWeight: 700, background: 'rgba(79,142,247,.08)' }}>
-                                                <td colSpan={6} style={{ ...ledgerTfootStyle, textAlign: 'right', fontSize: 10, color: 'var(--t,#EEF2FF)', textTransform: 'uppercase', letterSpacing: '.6px' }}>
-                                                    Closing balance
-                                                    {(ledgerDateFrom || ledgerDateTo) && (
-                                                    <span style={{ marginLeft: 8, fontWeight: 600, color: 'var(--t2,#8BA3C7)', textTransform: 'none' }}>
-                                                        (as at {ledgerDateTo || 'today'})
-                                                    </span>
-                                                    )}
-                                                </td>
-                                                <td style={{ ...ledgerTfootStyle, textAlign: 'right', fontFamily: 'monospace', color: 'var(--t,#EEF2FF)' }}>
-                                                    {ledgerClosingBalance.toLocaleString()}
-                                                </td>
-                                                <td style={ledgerTfootStyle}></td>
-                                            </tr>
-                                        </tfoot>
-                                    )}
                                 </table>
                             </div>
                         </div>
