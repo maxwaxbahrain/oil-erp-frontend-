@@ -38,7 +38,7 @@ import VoiceAssistant from '../components/VoiceAssistant/VoiceAssistant';
 import CommandBar from '../components/VoiceAssistant/CommandBar';
 import AdvisorDock from '../components/advisor/AdvisorDock';
 import { SubscriptionRequiredDialog } from '../components/common/SubscriptionRequired';
-import { isProduction } from '../config/appEnv';
+import { isProduction, isStaging, appEnv } from '../config/appEnv';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { getInvoices, getCustomers, getProducts, getPayments } from '../services/api';
 import { getPurchaseOrders } from '../services/purchasesService';
@@ -817,7 +817,23 @@ function App() {
           <div className="flex items-center gap-4 flex-wrap min-w-0">
             <span className="text-redwood-brand whitespace-nowrap shrink-0">SOLTOL ONE</span>
             <div className="h-3 w-[1px] bg-redwood-border shrink-0" />
+            {isProduction ? (
             <span className="whitespace-nowrap shrink-0">Platform: {__APP_BUILD_VERSION__.slice(0, 7)}</span>
+            ) : (
+            <span className="whitespace-nowrap shrink-0 flex items-center gap-1.5 normal-case tracking-normal">
+              <span
+                className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                  isStaging
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                    : 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
+                }`}
+              >
+                {appEnv}
+              </span>
+              <span className="text-redwood-text-muted/50">·</span>
+              <span className="font-mono">{__APP_BUILD_VERSION__.slice(0, 7)}</span>
+            </span>
+            )}
           </div>
           <div className="flex items-center gap-3 sm:gap-4 flex-wrap justify-end min-w-0">
             <Link
