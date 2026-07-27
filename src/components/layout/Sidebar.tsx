@@ -58,16 +58,7 @@ export default function Sidebar({
         ? user.role.charAt(0).toUpperCase() + user.role.slice(1)
         : 'User';
     const [sections, setSections] = useState<{ [key: string]: boolean }>({
-        sales: true,
-        purchase: true,
-        products: true,
-        finance: false,
         expenses: true,
-        reports: false,
-        ai: true,
-        marketing: true,
-        agents: true,
-        voice: true,
     });
 
     const toggleSection = (section: string) => {
@@ -113,15 +104,10 @@ export default function Sidebar({
     );
 
     const showSalesSection = showNav('/customers') || showNav('/sales/orders');
+    const showDeliverySection = (canSeeDeliveries && (showNav('/logistics/pod') || showNav('/logistics/operations') || showNav('/logistics/routes')))
+        || (canSeeManagement && (showNav('/logistics/tracking') || showNav('/logistics/route-planning')));
     const showProcurement = showNav('/purchases/suppliers') || showNav('/receiving');
-    const showPremium = (MODULE_FLAGS.pulse && showNav('/pulse'))
-        || (MODULE_FLAGS.meeting_notes && showNav('/pulse/notes'))
-        || (canSeeSalesIntel && (
-            (MODULE_FLAGS.credit_intelligence && showNav('/credit'))
-            || (MODULE_FLAGS.crm_pipeline && showNav('/crm'))
-            || (MODULE_FLAGS.amazon && showNav('/amazon'))
-        ))
-        || (canSeeFinance && MODULE_FLAGS.tax_management && showNav('/tax'));
+    const showFinanceSection = canSeeFinance || canSeeManagement;
     const showAgentsSection = (MODULE_FLAGS.agent_hub && showNav('/agents'))
         || showNav('/agents/customer-service')
         || showNav('/agents/business-advisor')
@@ -137,6 +123,21 @@ export default function Sidebar({
         || (MODULE_FLAGS.anomaly_detection && showNav('/ai/anomaly'))
         || (MODULE_FLAGS.customer_forecast && showNav('/ai/customer-forecast'))
         || (MODULE_FLAGS.revenue_forecast && showNav('/ai/revenue-forecast'));
+    const showAiSection = showAgentsSection
+        || showMarketing
+        || showVoiceSection
+        || showAiIntelligence
+        || (MODULE_FLAGS.business_news && showNav('/news'))
+        || (MODULE_FLAGS.pulse && showNav('/pulse'))
+        || (MODULE_FLAGS.meeting_notes && showNav('/pulse/notes'));
+    const showSalesIntelExtras = canSeeSalesIntel && (
+        (MODULE_FLAGS.credit_intelligence && showNav('/credit'))
+        || (MODULE_FLAGS.crm_pipeline && showNav('/crm'))
+        || (MODULE_FLAGS.amazon && showNav('/amazon'))
+    );
+    const showSettingsSection = showNav('/portal')
+        || showNav('/settings/password')
+        || (canSeeAdmin && (showNav('/settings') || showNav('/settings/users') || showNav('/migrate')));
 
     return (
         <aside className="w-[260px] bg-redwood-midnight text-white flex flex-col z-40 border-r border-white/5 shadow-2xl h-full print:hidden">
@@ -154,59 +155,58 @@ export default function Sidebar({
 
             <nav className="flex-1 mt-4 px-3 space-y-1 overflow-y-auto scrollbar-hide pb-10">
 
-                {(showNav('/') || showNav('/portal') || (canSeeAdmin && showNav('/migrate'))) && (
+                {showNav('/') && (
                 <>
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-1">
-                    Core
+                    Dashboard
                 </div>
                 <NavItem to="/" icon={LayoutDashboard} label="Dashboard" />
-                {canSeeAdmin && <NavItem to="/migrate" icon={Database} label="📥 Data Migration" />}
-                <NavItem to="/portal" icon={User} label="Employee Portal" />
                 <div className="h-px bg-white/5 my-3 mx-2" />
                 </>
                 )}
 
-                {showSalesSection && (
+                {(showSalesSection || showSalesIntelExtras) && (
                 <>
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
                     Sales
                 </div>
                 <NavItem to="/customers" icon={Users} label="Customers" />
                 <NavItem to="/sales/orders" icon={FileText} label="Orders" />
-                <div>
-                    <SectionHeader
-                        label="Sales Orders"
-                        isOpen={sections.sales}
-                        onClick={() => toggleSection('sales')}
-                    />
-                    {sections.sales && (
-                        <div className="space-y-0.5 pl-2 border-l-2 border-white/5 ml-2">
-                            <NavItem to="/sales/quotations" icon={FileText} label="Quotations" />
-                            <NavItem to="/sales/invoices" icon={FileText} label="Invoices" />
-                            {MODULE_FLAGS.sales_returns && (
-                            <NavItem to="/sales/returns" icon={RefreshCw} label="Sales Returns" />
-                            )}
-                            <NavItem to="/sales/credit-notes" icon={FileText} label="Credit Notes" />
-                            <NavItem to="/sales/price-lists" icon={Tag} label="Customer Price Lists" />
-                            <NavItem to="/sales/recurring" icon={RefreshCw} label="Recurring Invoices" />
-                        </div>
-                    )}
-                </div>
+                <NavItem to="/sales/quotations" icon={FileText} label="Quotations" />
+                <NavItem to="/sales/invoices" icon={FileText} label="Invoices" />
+                {MODULE_FLAGS.sales_returns && (
+                <NavItem to="/sales/returns" icon={RefreshCw} label="Sales Returns" />
+                )}
+                <NavItem to="/sales/credit-notes" icon={FileText} label="Credit Notes" />
+                <NavItem to="/sales/price-lists" icon={Tag} label="Price Lists" />
+                <NavItem to="/sales/recurring" icon={RefreshCw} label="Recurring Invoices" />
+                {canSeeSalesIntel && (
+                <>
+                {MODULE_FLAGS.credit_intelligence && (
+                <NavItem to="/credit" icon={Shield} label="Credit Intelligence" />
+                )}
+                {MODULE_FLAGS.crm_pipeline && (
+                <NavItem to="/crm" icon={BarChart2} label="CRM Pipeline" />
+                )}
+                {MODULE_FLAGS.amazon && (
+                <NavItem to="/amazon" icon={Package} label="Amazon" />
+                )}
+                </>
+                )}
                 <div className="h-px bg-white/5 my-3 mx-2" />
                 </>
                 )}
 
-                {((canSeeDeliveries && (showNav('/logistics/pod') || showNav('/logistics/operations') || showNav('/logistics/routes')))
-                  || (canSeeManagement && (showNav('/logistics/tracking') || showNav('/logistics/route-planning')))) && (
+                {showDeliverySection && (
                 <>
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
-                    Logistics & Delivery
+                    Delivery
                 </div>
+                <NavItem to="/logistics/pod" icon={BarChart2} label="POD Driver App" />
                 {canSeeManagement && <NavItem to="/logistics/tracking" icon={MapPin} label="Live Van Tracking" />}
-                {canSeeManagement && <NavItem to="/logistics/route-planning" icon={CalendarDays} label="Route Planning" />}
-                <NavItem to="/logistics/pod" icon={BarChart2} label="POD - Driver App" />
                 <NavItem to="/logistics/operations" icon={Truck} label="Van Operations" />
-                <NavItem to="/logistics/routes" icon={MapPin} label="Route Navigator" />
+                {canSeeManagement && <NavItem to="/logistics/route-planning" icon={CalendarDays} label="Weekly Route Plan" />}
+                <NavItem to="/logistics/routes" icon={MapPin} label="Route Stops" />
                 <div className="h-px bg-white/5 my-3 mx-2" />
                 </>
                 )}
@@ -214,13 +214,13 @@ export default function Sidebar({
                 {showNav('/products') && (
                 <>
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
-                    Inventory Control
+                    Inventory
                 </div>
                 <NavItem to="/products" icon={Package} label="Product Catalog" />
                 {canSeeManagement && (
                     <>
-                        <NavItem to="/products/reports" icon={PieChart} label="Inventory Reports" />
                         <NavItem to="/inventory/adjustments" icon={Package} label="Stock Adjustment" />
+                        <NavItem to="/products/reports" icon={PieChart} label="Inventory Reports" />
                     </>
                 )}
                 <div className="h-px bg-white/5 my-3 mx-2" />
@@ -230,47 +230,27 @@ export default function Sidebar({
                 {showProcurement && (
                 <>
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
-                    Procurement
+                    Purchasing
                 </div>
                 <NavItem to="/purchases/suppliers" icon={Users} label="Suppliers" />
                 <NavItem to="/receiving" icon={Inbox} label="Material Receipt (GRN)" />
-                <div>
-                    <SectionHeader
-                        label="Purchase Orders"
-                        isOpen={sections.purchase}
-                        onClick={() => toggleSection('purchase')}
-                    />
-                    {sections.purchase && (
-                        <div className="space-y-0.5 pl-2 border-l-2 border-white/5 ml-2">
-                            <NavItem to="/purchases" icon={FileText} label="Recent Orders" />
-                            <NavItem to="/purchases/new" icon={Package} label="Create New PO" />
-                        </div>
-                    )}
-                </div>
+                <NavItem to="/purchases" icon={FileText} label="Recent Orders" />
+                <NavItem to="/purchases/new" icon={Package} label="Create New PO" />
                 <div className="h-px bg-white/5 my-3 mx-2" />
                 </>
                 )}
 
-                {canSeeFinance && (
+                {showFinanceSection && (
                 <>
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
                     Finance
                 </div>
-                <div>
-                    <SectionHeader
-                        label="Payments"
-                        isOpen={sections.finance}
-                        onClick={() => toggleSection('finance')}
-                    />
-                    {sections.finance && (
-                        <div className="space-y-0.5 pl-2 border-l-2 border-white/5 ml-2">
-                            {MODULE_FLAGS.payroll && (
-                            <NavItem to="/finance/payroll" icon={Users} label="Payroll" />
-                            )}
-                            <NavItem to="/finance/accounting" icon={Briefcase} label="Accounting" />
-                        </div>
-                    )}
-                </div>
+                {canSeeFinance && (
+                <>
+                {MODULE_FLAGS.payroll && (
+                <NavItem to="/finance/payroll" icon={Users} label="Payroll" />
+                )}
+                <NavItem to="/finance/accounting" icon={Briefcase} label="Accounting" />
                 <NavItem to="/finance/banking" icon={Globe} label="Banking" />
                 <NavItem to="/finance/chart-of-accounts" icon={BookOpen} label="Chart of Accounts" />
                 <NavItem to="/finance/all-ledger" icon={BookOpen} label="All-Accounts Ledger" />
@@ -279,18 +259,16 @@ export default function Sidebar({
                 {MODULE_FLAGS.bad_debts_writeoff && (
                 <NavItem to="/finance/bad-debts" icon={AlertTriangle} label="Bad Debts Write-Off" />
                 )}
-                <div className="h-px bg-white/5 my-3 mx-2" />
+                {MODULE_FLAGS.tax_management && (
+                <NavItem to="/tax" icon={Calculator} label="Tax Management" />
+                )}
                 </>
                 )}
-
                 {canSeeManagement && (
                 <>
-                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
-                    Expenses
-                </div>
                 <div>
                     <SectionHeader
-                        label="Expense Management"
+                        label="Expenses"
                         isOpen={sections.expenses}
                         onClick={() => toggleSection('expenses')}
                     />
@@ -305,182 +283,123 @@ export default function Sidebar({
                         </div>
                     )}
                 </div>
-                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
-                    Reports
-                </div>
-                <div>
-                    <SectionHeader
-                        label="Financial Reports"
-                        isOpen={sections.reports}
-                        onClick={() => toggleSection('reports')}
-                    />
-                    {sections.reports && (
-                        <div className="space-y-0.5 pl-2 border-l-2 border-white/5 ml-2">
-                            <NavItem to="/reports/financial" icon={PieChart} label="Financial Statements" />
-                            <NavItem to="/reports/day-book" icon={BookOpen} label="Day Book" />
-                            <NavItem to="/reports/trial-balance" icon={Scale} label="Trial Balance" />
-                            <NavItem to="/reports/aged-receivable" icon={Clock} label="Aged Receivable" />
-                            <NavItem to="/reports/aged-payable" icon={Clock} label="Aged Payable" />
-                            <NavItem to="/reports/outstanding-bills" icon={FileText} label="Outstanding Bills" />
-                            {MODULE_FLAGS.reports_profitability_sales && (
-                            <NavItem to="/reports/sales" icon={TrendingUp} label="Profitability Reports" />
-                            )}
-                            {MODULE_FLAGS.demand_forecast && (
-                            <NavItem to="/reports/demand-forecast" icon={TrendingUp} label="Demand Forecast" />
-                            )}
-                        </div>
-                    )}
-                </div>
+                <NavItem to="/reports/day-book" icon={BookOpen} label="Day Book" />
+                <NavItem to="/reports/trial-balance" icon={Scale} label="Trial Balance" />
+                <NavItem to="/reports/aged-receivable" icon={Clock} label="Aged Receivable" />
+                <NavItem to="/reports/aged-payable" icon={Clock} label="Aged Payable" />
+                <NavItem to="/reports/outstanding-bills" icon={FileText} label="Outstanding Bills" />
+                <NavItem to="/reports/financial" icon={PieChart} label="Profitability Analysis" />
+                {MODULE_FLAGS.reports_profitability_sales && (
+                <NavItem to="/reports/sales" icon={TrendingUp} label="Profitability Reports" />
+                )}
+                {MODULE_FLAGS.demand_forecast && (
+                <NavItem to="/reports/demand-forecast" icon={TrendingUp} label="Demand Forecast" />
+                )}
+                </>
+                )}
                 <div className="h-px bg-white/5 my-3 mx-2" />
                 </>
                 )}
 
-                {showPremium && (
+                {showAiSection && (
                 <>
-                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-amber-400/70 px-4 py-2 mt-1">
-                    Premium
+                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
+                    AI
                 </div>
+                {showNav('/ai/hub') && (
+                <NavItem to="/ai/hub" icon={Brain} label="AI Hub" />
+                )}
+                {showAgentsSection && (
+                <>
+                <NavItem to="/agents/customer-service" icon={Headphones} label="ARIA — Customer Service" />
+                <NavItem to="/agents/business-advisor" icon={Brain} label="Marcus — Advisor" />
+                </>
+                )}
+                {showVoiceSection && (
+                <NavItem to="/voice/calls" icon={Headphones} label="Call History" />
+                )}
                 {MODULE_FLAGS.pulse && (
                 <NavItem to="/pulse" icon={Send} label="PULSE — Team Chat" />
                 )}
                 {MODULE_FLAGS.meeting_notes && (
                 <NavItem to="/pulse/notes" icon={FileText} label="Meeting Notes" />
                 )}
-                {canSeeSalesIntel && (
-                <>
-                {MODULE_FLAGS.credit_intelligence && (
-                <NavItem to="/credit" icon={Shield} label="Credit Intelligence" />
-                )}
-                {MODULE_FLAGS.crm_pipeline && (
-                <NavItem to="/crm" icon={BarChart2} label="CRM Pipeline" />
-                )}
-                {MODULE_FLAGS.amazon && (
-                <NavItem to="/amazon" icon={Package} label="Amazon" />
-                )}
-                </>
-                )}
-                {canSeeFinance && MODULE_FLAGS.tax_management && (
-                <NavItem to="/tax" icon={Calculator} label="Tax Management" />
-                )}
-                <div className="h-px bg-white/5 my-3 mx-2" />
-                </>
-                )}
-
                 {showAgentsSection && (
                 <>
-                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-blue-400/80 px-4 py-2 mt-1 flex items-center gap-1.5">
-                    <span>🤖</span> AI Agents
-                </div>
-                <div>
-                    <SectionHeader label="Agents" isOpen={sections.agents} onClick={() => toggleSection('agents')} />
-                    {sections.agents && (
-                        <div className="space-y-0.5 pl-2 border-l-2 border-blue-500/20 ml-2">
-                            {MODULE_FLAGS.agent_hub && (
-                            <NavItem to="/agents" icon={Bot} label="Agent Hub" />
-                            )}
-                            <NavItem to="/agents/customer-service" icon={Headphones} label="ARIA — Customer Service" />
-                            <NavItem to="/agents/business-advisor" icon={Brain} label="Marcus — Advisor" />
-                            {MODULE_FLAGS.email_auto_reply && (
-                            <NavItem to="/agents/email-reply" icon={Mail} label="Email Auto-Reply" />
-                            )}
-                        </div>
-                    )}
-                </div>
+                {MODULE_FLAGS.agent_hub && (
+                <NavItem to="/agents" icon={Bot} label="Agent Hub" />
+                )}
+                {MODULE_FLAGS.email_auto_reply && (
+                <NavItem to="/agents/email-reply" icon={Mail} label="Email Auto-Reply" />
+                )}
                 </>
                 )}
-
                 {MODULE_FLAGS.business_news && showNav('/news') && (
                 <>
                 <NewsTicker />
                 <NavItem to="/news" icon={Newspaper} label="Business News" />
                 </>
                 )}
-
                 {showMarketing && (
                 <>
-                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-pink-400/80 px-4 py-2 mt-1 flex items-center gap-1.5">
-                    <span>📣</span> Marketing
-                </div>
-                <div>
-                    <SectionHeader label="AI Marketing" isOpen={sections.marketing} onClick={() => toggleSection('marketing')} />
-                    {sections.marketing && (
-                        <div className="space-y-0.5 pl-2 border-l-2 border-pink-500/20 ml-2">
-                            <NavItem to="/marketing" icon={Megaphone} label="Marketing Hub" />
-                            <NavItem to="/marketing/studio" icon={Zap} label="AI Content Studio" />
-                            <NavItem to="/marketing/segments" icon={Users} label="Customer Segments" />
-                            <NavItem to="/marketing/campaigns" icon={Send} label="Campaign Manager" />
-                            <NavItem to="/marketing/analytics" icon={BarChart2} label="Analytics" />
-                        </div>
-                    )}
-                </div>
+                <NavItem to="/marketing" icon={Megaphone} label="Marketing Hub" />
+                <NavItem to="/marketing/studio" icon={Zap} label="AI Content Studio" />
+                <NavItem to="/marketing/segments" icon={Users} label="Customer Segments" />
+                <NavItem to="/marketing/campaigns" icon={Send} label="Campaign Manager" />
+                <NavItem to="/marketing/analytics" icon={BarChart2} label="Analytics" />
                 </>
                 )}
-
                 {showVoiceSection && (
                 <>
-                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-emerald-400/80 px-4 py-2 mt-1 flex items-center gap-1.5">
-                    <span>🎤</span> Soltol Voice
-                </div>
-                <div>
-                    <SectionHeader label="Voice AI" isOpen={sections.voice} onClick={() => toggleSection('voice')} />
-                    {sections.voice && (
-                        <div className="space-y-0.5 pl-2 border-l-2 border-emerald-500/20 ml-2">
-                            {MODULE_FLAGS.voice_dashboard && (
-                            <NavItem to="/voice/dashboard" icon={LayoutDashboard} label="Voice Dashboard" />
-                            )}
-                            <NavItem to="/voice/calls" icon={Headphones} label="Call History" />
-                            {MODULE_FLAGS.voice_analytics && (
-                            <NavItem to="/voice/analytics" icon={Activity} label="Voice Analytics" />
-                            )}
-                            {MODULE_FLAGS.voice_coaching_rules && (
-                            <NavItem to="/voice/coaching-rules" icon={Brain} label="Coaching Rules" />
-                            )}
-                        </div>
-                    )}
-                </div>
+                {MODULE_FLAGS.voice_dashboard && (
+                <NavItem to="/voice/dashboard" icon={LayoutDashboard} label="Voice Dashboard" />
+                )}
+                {MODULE_FLAGS.voice_analytics && (
+                <NavItem to="/voice/analytics" icon={Activity} label="Voice Analytics" />
+                )}
+                {MODULE_FLAGS.voice_coaching_rules && (
+                <NavItem to="/voice/coaching-rules" icon={Brain} label="Coaching Rules" />
+                )}
                 </>
                 )}
-
                 {showAiIntelligence && (
                 <>
-                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-orange-400/80 px-4 py-2 mt-1 flex items-center gap-1.5">
-                    <span>⚡</span> AI Intelligence
-                </div>
-                <div>
-                    <SectionHeader
-                        label="AI Features"
-                        isOpen={sections.ai}
-                        onClick={() => toggleSection('ai')}
-                    />
-                    {sections.ai && (
-                        <div className="space-y-0.5 pl-2 border-l-2 border-orange-500/20 ml-2">
-                            <NavItem to="/ai/hub" icon={Brain} label="AI Hub" />
-                            {MODULE_FLAGS.ai_intelligence_landing && (
-                            <NavItem to="/ai" icon={Sparkles} label="AI Intelligence" />
-                            )}
-                            {MODULE_FLAGS.auto_po_generation && (
-                            <NavItem to="/ai/auto-po" icon={ShoppingCart} label="Auto PO Generation" />
-                            )}
-                            {MODULE_FLAGS.anomaly_detection && (
-                            <NavItem to="/ai/anomaly" icon={AlertTriangle} label="Anomaly Detection" />
-                            )}
-                            {MODULE_FLAGS.customer_forecast && (
-                            <NavItem to="/ai/customer-forecast" icon={Users} label="Customer Forecast" />
-                            )}
-                            {MODULE_FLAGS.revenue_forecast && (
-                            <NavItem to="/ai/revenue-forecast" icon={DollarSign} label="Revenue Forecast" />
-                            )}
-                        </div>
-                    )}
-                </div>
+                {MODULE_FLAGS.ai_intelligence_landing && (
+                <NavItem to="/ai" icon={Sparkles} label="AI Intelligence" />
+                )}
+                {MODULE_FLAGS.auto_po_generation && (
+                <NavItem to="/ai/auto-po" icon={ShoppingCart} label="Auto PO Generation" />
+                )}
+                {MODULE_FLAGS.anomaly_detection && (
+                <NavItem to="/ai/anomaly" icon={AlertTriangle} label="Anomaly Detection" />
+                )}
+                {MODULE_FLAGS.customer_forecast && (
+                <NavItem to="/ai/customer-forecast" icon={Users} label="Customer Forecast" />
+                )}
+                {MODULE_FLAGS.revenue_forecast && (
+                <NavItem to="/ai/revenue-forecast" icon={DollarSign} label="Revenue Forecast" />
+                )}
+                </>
+                )}
                 <div className="h-px bg-white/5 my-3 mx-2" />
                 </>
                 )}
 
+                {showSettingsSection && (
+                <>
+                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
+                    Settings
+                </div>
                 {canSeeAdmin && (
                 <>
                 <NavItem to="/settings" icon={Settings} label="Settings" />
                 <NavItem to="/settings/users" icon={UserCheck} label="User Management" />
+                <NavItem to="/migrate" icon={Database} label="📥 Data Migration" />
+                </>
+                )}
+                <NavItem to="/settings/password" icon={Lock} label="Change Password" />
+                <NavItem to="/portal" icon={User} label="Employee Portal" />
+                <div className="h-px bg-white/5 my-3 mx-2" />
                 </>
                 )}
 
