@@ -742,7 +742,7 @@ export default function SettingsPage() {
                                 </button>
                             </div>
                             <div className="grid grid-cols-3 gap-3">
-                                {[['🗄️','Soltol / Bettano DB','.db .sqlite'],['📊','QuickBooks','.csv .iif .xlsx'],['🔷','MS Dynamics 365','.csv .xlsx .xml'],['🔴','Oracle NetSuite','.csv .xlsx'],['📦','Cin7 Core','.csv .xlsx'],['📋','Generic CSV / Excel','.csv .xlsx .xls']].map(([icon,name,fmt],i)=>(
+                                {[['🗄️','Legacy SQLite export','.db .sqlite'],['📊','QuickBooks','.csv .iif .xlsx'],['🔷','MS Dynamics 365','.csv .xlsx .xml'],['🔴','Oracle NetSuite','.csv .xlsx'],['📦','Cin7 Core','.csv .xlsx'],['📋','Generic CSV / Excel','.csv .xlsx .xls']].map(([icon,name,fmt],i)=>(
                                     <div key={i} className="bg-white border border-gray-100 rounded-xl p-3 flex items-center gap-2 shadow-sm">
                                         <span className="text-2xl">{icon}</span>
                                         <div>

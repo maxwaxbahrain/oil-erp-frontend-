@@ -66,8 +66,19 @@ const MAX_CONSECUTIVE_POLL_FAILURES = 30;
 const STALL_MINUTES = 10;
 
 /** BETTANO.db self-check: Receipt→Sales rows in bill_receipt_payment (verified offline). */
-const PAYMENT_ALLOCATION_EXPECTED_ROWS = 983;
-const PAYMENT_ALLOCATION_EXPECTED_TOTAL = 379814.03;
+const VERIFIED_PROFILES = [
+    { id: 'legacy-sqlite-jul11', rows: 983, total: 379814.03, label: 'Verified reference file' },
+] as const;
+
+const matchVerifiedProfile = (
+    allocationRows: number,
+    allocationTotal: number,
+): (typeof VERIFIED_PROFILES)[number] | null =>
+    VERIFIED_PROFILES.find(
+        (profile) =>
+            allocationRows === profile.rows
+            && Math.abs(allocationTotal - profile.total) < 0.01,
+    ) ?? null;
 
 /** C3.1a — required for correct AR books. Optional tables warn only, never block. */
 const REQUIRED_SCHEMA: Record<string, readonly string[]> = {
@@ -87,6 +98,9 @@ interface SchemaProbeResult {
 
 interface ImportPreview {
     fileName: string;
+    sourceFormat: 'sqlite' | 'csv';
+    /** CSV only — header excluded. */
+    csvDataRows?: number;
     counts: {
         customers: number;
         products: number;
@@ -108,7 +122,8 @@ interface ImportPreview {
     dateRange: { earliest: string | null; latest: string | null };
     probeRowCounts: Record<string, number>;
     probeWarnings: string[];
-    fingerprint: 'bettano-verified' | 'none';
+    matchedProfileId: string | null;
+    matchedProfileLabel: string | null;
 }
 
 const ts = () => new Date().toLocaleTimeString();
@@ -160,6 +175,22 @@ const formatGlEntityLabel = (key: string): string =>
 
 const formatMigrationMoney = (amount: number): string =>
     amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const previewCountLabel = (
+    preview: ImportPreview,
+    key: keyof ImportPreview['counts'],
+): string => {
+    if (preview.sourceFormat === 'csv' && key !== 'customers') return '—';
+    return preview.counts[key].toLocaleString();
+};
+
+const previewMoneyLabel = (
+    preview: ImportPreview,
+    key: keyof ImportPreview['totals'],
+): string => {
+    if (preview.sourceFormat === 'csv' && key !== 'totalAR') return '—';
+    return `$${formatMigrationMoney(preview.totals[key])}`;
+};
 
 const formatGlEntitySummary = (stats: GlImportStats): string => {
     const parts: string[] = [];
@@ -514,13 +545,10 @@ export default function DataMigration() {
             })
             .filter((a: any): a is { payment_reference: string; invoice_number: string; amount: number } => a !== null);
         const paymentAllocTotal = payment_allocations.reduce((sum: number, a: { payment_reference: string; invoice_number: string; amount: number }) => sum + a.amount, 0);
-        const bettanoFingerprintMatch =
-            payment_allocations.length === PAYMENT_ALLOCATION_EXPECTED_ROWS
-            && Math.abs(paymentAllocTotal - PAYMENT_ALLOCATION_EXPECTED_TOTAL) < 0.01;
-        const fingerprint: ImportPreview['fingerprint'] = bettanoFingerprintMatch ? 'bettano-verified' : 'none';
+        const matchedProfile = matchVerifiedProfile(payment_allocations.length, paymentAllocTotal);
         log(
-            `💳 ${payment_allocations.length} payment allocation rows ($${paymentAllocTotal.toFixed(2)} total; Bettano reference fingerprint is ${PAYMENT_ALLOCATION_EXPECTED_ROWS} rows / $${PAYMENT_ALLOCATION_EXPECTED_TOTAL.toFixed(2)})`,
-            bettanoFingerprintMatch ? 'success' : 'info',
+            `💳 ${payment_allocations.length} payment allocation rows ($${paymentAllocTotal.toFixed(2)} total${matchedProfile ? `; matches verified profile "${matchedProfile.label}"` : ''})`,
+            matchedProfile ? 'success' : 'info',
         );
 
         const debtorNameSet = new Set(customers.map((c: any) => c.name));
@@ -571,6 +599,7 @@ export default function DataMigration() {
 
         const preview: ImportPreview = {
             fileName,
+            sourceFormat: 'sqlite',
             counts: {
                 customers: customers.length,
                 products: products.length,
@@ -592,7 +621,8 @@ export default function DataMigration() {
             dateRange: { earliest, latest },
             probeRowCounts: { ...probe.rowCounts },
             probeWarnings: [...probe.warnings],
-            fingerprint,
+            matchedProfileId: matchedProfile?.id ?? null,
+            matchedProfileLabel: matchedProfile?.label ?? null,
         };
 
         db.close();
@@ -621,7 +651,7 @@ export default function DataMigration() {
     };
 
 
-    const parseCsv = async (text: string) => {
+    const parseCsv = (text: string, fileName: string) => {
         const rows = text.split(/\r?\n/).filter(l => l.trim());
         if (rows.length < 2) throw new Error('CSV needs a header row + data');
         const headers = rows[0].split(',').map(h => h.trim().toLowerCase().replace(/['"]/g, ''));
@@ -635,7 +665,49 @@ export default function DataMigration() {
             const get = (f: string) => f ? v[headers.indexOf(f)] || '' : '';
             return { name: get(nf), email: null, phone: get(pf) || null, address: get(af) || null, balance: parseMigrationNum(get(bf)), opening_balance: parseMigrationNum(get(bf)), category: 'retail', notes: 'CSV import' };
         }).filter(c => c.name);
-        return { customers, suppliers: [], products: [], invoices: [], payments: [] };
+        const csvDataRows = rows.length - 1;
+        const totalAR = customers.reduce(
+            (sum, c) => sum + parseMigrationNum(c.balance),
+            0,
+        );
+        const preview: ImportPreview = {
+            fileName,
+            sourceFormat: 'csv',
+            csvDataRows,
+            counts: {
+                customers: customers.length,
+                products: 0,
+                suppliers: 0,
+                invoices: 0,
+                payments: 0,
+                paymentAllocations: 0,
+                salesReturns: 0,
+                purchaseOrders: 0,
+                supplierPayments: 0,
+            },
+            totals: {
+                totalAR: Math.round(totalAR * 100) / 100,
+                totalAP: 0,
+                totalInvoiced: 0,
+                totalReceived: 0,
+                allocationTotal: 0,
+            },
+            dateRange: { earliest: null, latest: null },
+            probeRowCounts: {},
+            probeWarnings: [
+                'CSV import includes customers only — invoices, payments, products, and GL data are not parsed from this format.',
+            ],
+            matchedProfileId: null,
+            matchedProfileLabel: null,
+        };
+        return {
+            customers,
+            suppliers: [],
+            products: [],
+            invoices: [],
+            payments: [],
+            __preview: preview,
+        };
     };
 
     const summarizeBackendResults = useCallback((backendResults: BackendImportResults) => {
@@ -921,11 +993,9 @@ export default function DataMigration() {
         lastPhaseRef.current = null;
         stallWarnedRef.current = false;
 
-        let reachedBackendPost = false;
         try {
             prog(5, 'Reading file...');
             const ext = file.name.toLowerCase().split('.').pop() || '';
-            let data: Record<string, unknown>;
             if (ext === 'db' || ext === 'sqlite') {
                 prog(8, 'Opening database...');
                 log(`📂 Opening ${file.name}...`, 'info');
@@ -937,22 +1007,24 @@ export default function DataMigration() {
                 return;
             } else if (ext === 'csv' || ext === 'txt') {
                 prog(8, 'Parsing CSV...');
-                data = await parseCsv(await file.text());
-                log(`📋 Found ${(data.customers as unknown[])?.length ?? 0} customers in CSV`, 'info');
-                log('ℹ️ CSV preview not yet available — importing directly.', 'info');
+                log(`📂 Parsing ${file.name}...`, 'info');
+                const extracted = parseCsv(await file.text(), file.name);
+                const { __preview: importPreview, ...payload } = extracted;
+                setPendingImport({ data: payload, preview: importPreview });
+                log(
+                    `📋 ${importPreview.csvDataRows ?? 0} data rows → ${importPreview.counts.customers} customers (AR $${importPreview.totals.totalAR.toFixed(2)})`,
+                    'info',
+                );
+                log('⏸ Review the preview below, then Confirm to import.', 'info');
+                setBusy(false);
+                return;
             } else {
                 throw new Error('For Excel: Save As → CSV first, then upload');
             }
-
-            reachedBackendPost = true;
-            await postToBackend(data);
         } catch (e: any) {
             stopPolling();
             const msg = e?.response?.data?.detail || e?.message || 'Import failed';
-            finishImportFailure(
-                typeof msg === 'string' ? msg : JSON.stringify(msg),
-                { showIdempotencyNote: reachedBackendPost },
-            );
+            finishImportFailure(typeof msg === 'string' ? msg : JSON.stringify(msg));
         }
     };
 
@@ -1052,49 +1124,56 @@ export default function DataMigration() {
                             <span className="font-bold text-gray-700">Period:</span>{' '}
                             <span className="text-gray-900">{pendingImport.preview.dateRange.earliest ?? '—'} → {pendingImport.preview.dateRange.latest ?? '—'}</span>
                         </p>
+                        {pendingImport.preview.sourceFormat === 'csv' && pendingImport.preview.csvDataRows != null ? (
+                            <p><span className="font-bold text-gray-700">Data rows:</span>{' '}
+                                <span className="font-semibold text-gray-900">{pendingImport.preview.csvDataRows.toLocaleString()}</span>
+                            </p>
+                        ) : null}
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2 text-sm">
-                            <p className="text-gray-700">Customers <strong className="text-gray-900">{pendingImport.preview.counts.customers.toLocaleString()}</strong></p>
-                            <p className="text-gray-700">Invoices <strong className="text-gray-900">{pendingImport.preview.counts.invoices.toLocaleString()}</strong></p>
-                            <p className="text-gray-700">Payments <strong className="text-gray-900">{pendingImport.preview.counts.payments.toLocaleString()}</strong></p>
-                            <p className="text-gray-700">Products <strong className="text-gray-900">{pendingImport.preview.counts.products.toLocaleString()}</strong></p>
-                            <p className="text-gray-700">Suppliers <strong className="text-gray-900">{pendingImport.preview.counts.suppliers.toLocaleString()}</strong></p>
-                            <p className="text-gray-700">Allocations <strong className="text-gray-900">{pendingImport.preview.counts.paymentAllocations.toLocaleString()}</strong></p>
-                            <p className="text-gray-700">POs <strong className="text-gray-900">{pendingImport.preview.counts.purchaseOrders.toLocaleString()}</strong></p>
-                            <p className="text-gray-700">Supplier pmts <strong className="text-gray-900">{pendingImport.preview.counts.supplierPayments.toLocaleString()}</strong></p>
-                            <p className="text-gray-700">Returns <strong className="text-gray-900">{pendingImport.preview.counts.salesReturns.toLocaleString()}</strong></p>
+                            <p className="text-gray-700">Customers <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'customers')}</strong></p>
+                            <p className="text-gray-700">Invoices <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'invoices')}</strong></p>
+                            <p className="text-gray-700">Payments <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'payments')}</strong></p>
+                            <p className="text-gray-700">Products <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'products')}</strong></p>
+                            <p className="text-gray-700">Suppliers <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'suppliers')}</strong></p>
+                            <p className="text-gray-700">Allocations <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'paymentAllocations')}</strong></p>
+                            <p className="text-gray-700">POs <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'purchaseOrders')}</strong></p>
+                            <p className="text-gray-700">Supplier pmts <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'supplierPayments')}</strong></p>
+                            <p className="text-gray-700">Returns <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'salesReturns')}</strong></p>
                         </div>
                         <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 space-y-2">
                             <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Financial summary</p>
                             <div className="flex items-baseline justify-between gap-3">
                                 <span className="text-sm font-bold text-gray-700">Total receivable (AR)</span>
-                                <span className="text-xl font-black text-gray-900 tabular-nums">${formatMigrationMoney(pendingImport.preview.totals.totalAR)}</span>
+                                <span className="text-xl font-black text-gray-900 tabular-nums">{previewMoneyLabel(pendingImport.preview, 'totalAR')}</span>
                             </div>
                             <div className="flex items-baseline justify-between gap-3">
                                 <span className="text-sm font-bold text-gray-700">Total payable (AP)</span>
-                                <span className="text-xl font-black text-gray-900 tabular-nums">${formatMigrationMoney(pendingImport.preview.totals.totalAP)}</span>
+                                <span className="text-xl font-black text-gray-900 tabular-nums">{previewMoneyLabel(pendingImport.preview, 'totalAP')}</span>
                             </div>
                             <div className="flex items-baseline justify-between gap-3">
                                 <span className="text-sm font-bold text-gray-700">Total invoiced</span>
-                                <span className="text-lg font-black text-gray-900 tabular-nums">${formatMigrationMoney(pendingImport.preview.totals.totalInvoiced)}</span>
+                                <span className="text-lg font-black text-gray-900 tabular-nums">{previewMoneyLabel(pendingImport.preview, 'totalInvoiced')}</span>
                             </div>
                             <div className="flex items-baseline justify-between gap-3">
                                 <span className="text-sm font-bold text-gray-700">Total received</span>
-                                <span className="text-lg font-black text-gray-900 tabular-nums">${formatMigrationMoney(pendingImport.preview.totals.totalReceived)}</span>
+                                <span className="text-lg font-black text-gray-900 tabular-nums">{previewMoneyLabel(pendingImport.preview, 'totalReceived')}</span>
                             </div>
                             <div className="flex items-baseline justify-between gap-3 border-t border-gray-200 pt-2">
                                 <span className="text-sm font-bold text-orange-700">Allocations total</span>
-                                <span className="text-2xl font-black text-orange-600 tabular-nums">${formatMigrationMoney(pendingImport.preview.totals.allocationTotal)}</span>
+                                <span className="text-2xl font-black text-orange-600 tabular-nums">{previewMoneyLabel(pendingImport.preview, 'allocationTotal')}</span>
                             </div>
                         </div>
-                        {pendingImport.preview.fingerprint === 'bettano-verified' ? (
-                            <p className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
-                                ✓ Matches the verified BETTANO reference fingerprint (983 allocations, $379,814.03).
-                            </p>
-                        ) : (
-                            <p className="text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
-                                ℹ This file does not match the Bettano reference fingerprint — expected for any other company's export. Review the totals above before confirming.
-                            </p>
-                        )}
+                        {pendingImport.preview.sourceFormat === 'sqlite' ? (
+                            pendingImport.preview.matchedProfileId ? (
+                                <p className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
+                                    ✓ Matches a verified reference profile ({pendingImport.preview.matchedProfileLabel}).
+                                </p>
+                            ) : (
+                                <p className="text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
+                                    ℹ No verified profile matched — expected for a new import. Review the totals above before confirming.
+                                </p>
+                            )
+                        ) : null}
                         {pendingImport.preview.probeWarnings.length > 0 && (
                             <ul className="space-y-1 text-sm text-amber-950 bg-amber-50 border border-amber-300 rounded-xl px-3 py-2 list-disc list-inside">
                                 {pendingImport.preview.probeWarnings.map((warning, idx) => (
