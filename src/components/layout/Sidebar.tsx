@@ -114,14 +114,29 @@ export default function Sidebar({
 
     const showSalesSection = showNav('/customers') || showNav('/sales/orders');
     const showProcurement = showNav('/purchases/suppliers') || showNav('/receiving');
-    const showPremium = showNav('/pulse') || showNav('/pulse/notes');
-    const showAgentsSection = showNav('/agents') || showNav('/agents/customer-service')
-        || showNav('/agents/business-advisor') || showNav('/agents/email-reply');
-    const showMarketing = showNav('/marketing');
-    const showVoiceSection = showNav('/voice/dashboard') || showNav('/voice/calls')
-        || showNav('/voice/analytics') || showNav('/voice/coaching-rules') || showNav('/voice/onboard');
-    const showAiIntelligence = showNav('/ai/hub') || showNav('/ai') || showNav('/ai/auto-po')
-        || showNav('/ai/anomaly') || showNav('/ai/customer-forecast') || showNav('/ai/revenue-forecast');
+    const showPremium = (MODULE_FLAGS.pulse && showNav('/pulse'))
+        || (MODULE_FLAGS.meeting_notes && showNav('/pulse/notes'))
+        || (canSeeSalesIntel && (
+            (MODULE_FLAGS.credit_intelligence && showNav('/credit'))
+            || (MODULE_FLAGS.crm_pipeline && showNav('/crm'))
+            || (MODULE_FLAGS.amazon && showNav('/amazon'))
+        ))
+        || (canSeeFinance && MODULE_FLAGS.tax_management && showNav('/tax'));
+    const showAgentsSection = (MODULE_FLAGS.agent_hub && showNav('/agents'))
+        || showNav('/agents/customer-service')
+        || showNav('/agents/business-advisor')
+        || (MODULE_FLAGS.email_auto_reply && showNav('/agents/email-reply'));
+    const showMarketing = MODULE_FLAGS.marketing && showNav('/marketing');
+    const showVoiceSection = (MODULE_FLAGS.voice_dashboard && showNav('/voice/dashboard'))
+        || showNav('/voice/calls')
+        || (MODULE_FLAGS.voice_analytics && showNav('/voice/analytics'))
+        || (MODULE_FLAGS.voice_coaching_rules && showNav('/voice/coaching-rules'));
+    const showAiIntelligence = showNav('/ai/hub')
+        || (MODULE_FLAGS.ai_intelligence_landing && showNav('/ai'))
+        || (MODULE_FLAGS.auto_po_generation && showNav('/ai/auto-po'))
+        || (MODULE_FLAGS.anomaly_detection && showNav('/ai/anomaly'))
+        || (MODULE_FLAGS.customer_forecast && showNav('/ai/customer-forecast'))
+        || (MODULE_FLAGS.revenue_forecast && showNav('/ai/revenue-forecast'));
 
     return (
         <aside className="w-[260px] bg-redwood-midnight text-white flex flex-col z-40 border-r border-white/5 shadow-2xl h-full print:hidden">
@@ -249,7 +264,9 @@ export default function Sidebar({
                     />
                     {sections.finance && (
                         <div className="space-y-0.5 pl-2 border-l-2 border-white/5 ml-2">
+                            {MODULE_FLAGS.payroll && (
                             <NavItem to="/finance/payroll" icon={Users} label="Payroll" />
+                            )}
                             <NavItem to="/finance/accounting" icon={Briefcase} label="Accounting" />
                         </div>
                     )}
@@ -259,7 +276,9 @@ export default function Sidebar({
                 <NavItem to="/finance/all-ledger" icon={BookOpen} label="All-Accounts Ledger" />
                 <NavItem to="/finance/financial-statement" icon={FileText} label="Financial Statement" />
                 <NavItem to="/finance/journal-voucher" icon={FileText} label="Journal Voucher (JV)" />
+                {MODULE_FLAGS.bad_debts_writeoff && (
                 <NavItem to="/finance/bad-debts" icon={AlertTriangle} label="Bad Debts Write-Off" />
+                )}
                 <div className="h-px bg-white/5 my-3 mx-2" />
                 </>
                 )}
@@ -303,8 +322,12 @@ export default function Sidebar({
                             <NavItem to="/reports/aged-receivable" icon={Clock} label="Aged Receivable" />
                             <NavItem to="/reports/aged-payable" icon={Clock} label="Aged Payable" />
                             <NavItem to="/reports/outstanding-bills" icon={FileText} label="Outstanding Bills" />
+                            {MODULE_FLAGS.reports_profitability_sales && (
                             <NavItem to="/reports/sales" icon={TrendingUp} label="Profitability Reports" />
+                            )}
+                            {MODULE_FLAGS.demand_forecast && (
                             <NavItem to="/reports/demand-forecast" icon={TrendingUp} label="Demand Forecast" />
+                            )}
                         </div>
                     )}
                 </div>
@@ -317,16 +340,26 @@ export default function Sidebar({
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-amber-400/70 px-4 py-2 mt-1">
                     Premium
                 </div>
+                {MODULE_FLAGS.pulse && (
                 <NavItem to="/pulse" icon={Send} label="PULSE — Team Chat" />
+                )}
+                {MODULE_FLAGS.meeting_notes && (
                 <NavItem to="/pulse/notes" icon={FileText} label="Meeting Notes" />
+                )}
                 {canSeeSalesIntel && (
                 <>
+                {MODULE_FLAGS.credit_intelligence && (
                 <NavItem to="/credit" icon={Shield} label="Credit Intelligence" />
+                )}
+                {MODULE_FLAGS.crm_pipeline && (
                 <NavItem to="/crm" icon={BarChart2} label="CRM Pipeline" />
+                )}
+                {MODULE_FLAGS.amazon && (
                 <NavItem to="/amazon" icon={Package} label="Amazon" />
+                )}
                 </>
                 )}
-                {canSeeFinance && (
+                {canSeeFinance && MODULE_FLAGS.tax_management && (
                 <NavItem to="/tax" icon={Calculator} label="Tax Management" />
                 )}
                 <div className="h-px bg-white/5 my-3 mx-2" />
@@ -342,17 +375,21 @@ export default function Sidebar({
                     <SectionHeader label="Agents" isOpen={sections.agents} onClick={() => toggleSection('agents')} />
                     {sections.agents && (
                         <div className="space-y-0.5 pl-2 border-l-2 border-blue-500/20 ml-2">
+                            {MODULE_FLAGS.agent_hub && (
                             <NavItem to="/agents" icon={Bot} label="Agent Hub" />
+                            )}
                             <NavItem to="/agents/customer-service" icon={Headphones} label="ARIA — Customer Service" />
                             <NavItem to="/agents/business-advisor" icon={Brain} label="Marcus — Advisor" />
+                            {MODULE_FLAGS.email_auto_reply && (
                             <NavItem to="/agents/email-reply" icon={Mail} label="Email Auto-Reply" />
+                            )}
                         </div>
                     )}
                 </div>
                 </>
                 )}
 
-                {showNav('/news') && (
+                {MODULE_FLAGS.business_news && showNav('/news') && (
                 <>
                 <NewsTicker />
                 <NavItem to="/news" icon={Newspaper} label="Business News" />
@@ -388,11 +425,16 @@ export default function Sidebar({
                     <SectionHeader label="Voice AI" isOpen={sections.voice} onClick={() => toggleSection('voice')} />
                     {sections.voice && (
                         <div className="space-y-0.5 pl-2 border-l-2 border-emerald-500/20 ml-2">
+                            {MODULE_FLAGS.voice_dashboard && (
                             <NavItem to="/voice/dashboard" icon={LayoutDashboard} label="Voice Dashboard" />
+                            )}
                             <NavItem to="/voice/calls" icon={Headphones} label="Call History" />
+                            {MODULE_FLAGS.voice_analytics && (
                             <NavItem to="/voice/analytics" icon={Activity} label="Voice Analytics" />
+                            )}
+                            {MODULE_FLAGS.voice_coaching_rules && (
                             <NavItem to="/voice/coaching-rules" icon={Brain} label="Coaching Rules" />
-                            <NavItem to="/voice/onboard" icon={Briefcase} label="Onboard Tenant" />
+                            )}
                         </div>
                     )}
                 </div>
@@ -413,11 +455,21 @@ export default function Sidebar({
                     {sections.ai && (
                         <div className="space-y-0.5 pl-2 border-l-2 border-orange-500/20 ml-2">
                             <NavItem to="/ai/hub" icon={Brain} label="AI Hub" />
+                            {MODULE_FLAGS.ai_intelligence_landing && (
                             <NavItem to="/ai" icon={Sparkles} label="AI Intelligence" />
+                            )}
+                            {MODULE_FLAGS.auto_po_generation && (
                             <NavItem to="/ai/auto-po" icon={ShoppingCart} label="Auto PO Generation" />
+                            )}
+                            {MODULE_FLAGS.anomaly_detection && (
                             <NavItem to="/ai/anomaly" icon={AlertTriangle} label="Anomaly Detection" />
+                            )}
+                            {MODULE_FLAGS.customer_forecast && (
                             <NavItem to="/ai/customer-forecast" icon={Users} label="Customer Forecast" />
+                            )}
+                            {MODULE_FLAGS.revenue_forecast && (
                             <NavItem to="/ai/revenue-forecast" icon={DollarSign} label="Revenue Forecast" />
+                            )}
                         </div>
                     )}
                 </div>
@@ -427,7 +479,9 @@ export default function Sidebar({
 
                 {canSeeAdmin && (
                 <>
+                {MODULE_FLAGS.user_access_management && (
                 <NavItem to="/access-management" icon={Shield} label="User Access Management" />
+                )}
                 <NavItem to="/settings" icon={Settings} label="Settings" />
                 <NavItem to="/settings/users" icon={UserCheck} label="User Management" />
                 </>
