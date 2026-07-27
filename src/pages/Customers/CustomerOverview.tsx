@@ -33,7 +33,6 @@ import {
 import {
     getCustomers,
     getCustomerPayments,
-    compareLedgerByDateAsc,
     type Customer,
     type Payment
 } from '../../services/customerService';
@@ -336,8 +335,8 @@ export default function CustomerOverview() {
                 throw new Error('Invalid ledger response (expected opening_balance, rows, closing_balance)');
             }
             const rows = data.rows.map(mapPartyRowToDisplay);
-            // Chronological order so running_balance decreases on payments as you read down.
-            setLedger([...rows].sort(compareLedgerByDateAsc));
+            // Backend returns oldest→newest with running_balance per row; reverse for newest-first display.
+            setLedger([...rows].reverse());
             setLedgerOpeningBalance(data.opening_balance);
             setLedgerClosingBalance(data.closing_balance);
         } catch (error) {
@@ -1970,7 +1969,7 @@ export default function CustomerOverview() {
                                             <th style={{ ...ledgerThStyle, textAlign: 'right' }}>Amount</th>
                                             <th style={{ ...ledgerThStyle, textAlign: 'center', width: 80 }}>Receipt</th>
                                             <th style={{ ...ledgerThStyle, textAlign: 'center', width: 80 }}>Edit</th>
-                                            <th style={{ ...ledgerThStyle, textAlign: 'center', width: 96 }}>Status</th>
+                                            <th style={{ ...ledgerThStyle, textAlign: 'center', width: 96 }}>Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
