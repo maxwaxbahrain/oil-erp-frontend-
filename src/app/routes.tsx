@@ -105,7 +105,6 @@ import AIHubDashboard from '../pages/AIHub/AIHubDashboard';
 import AutoPOGeneration from '../pages/AI/AutoPOGeneration';
 import AnomalyDetection from '../pages/AI/AnomalyDetection';
 import AgentHub from '../pages/Agents/AgentHub';
-import UserAccessManagement from '../pages/UserManagement/UserAccessManagement';
 import NewsIntelligence from '../pages/News/NewsIntelligence';
 import MarketingHub from '../pages/Marketing/MarketingHub';
 import CreditIntelligence from '../pages/Credit/CreditIntelligence';
@@ -387,7 +386,6 @@ export const AppRoutes = () => {
             {/* Admin-only routes (tenant admin role) */}
             <Route element={<ProtectedRoute roles={['admin']} />}>
                 <Route path="/migrate" element={<DataMigration />} />
-                <Route path="/access-management" element={<UserAccessManagement />} />
                 <Route path="/users/dashboard" element={<OrgDashboard />} />
                 <Route path="/users/performance" element={<OrgPerformance />} />
                 <Route path="/users/hierarchy" element={<OrganizationChart />} />

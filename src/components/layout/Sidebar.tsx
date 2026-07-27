@@ -479,9 +479,6 @@ export default function Sidebar({
 
                 {canSeeAdmin && (
                 <>
-                {MODULE_FLAGS.user_access_management && (
-                <NavItem to="/access-management" icon={Shield} label="User Access Management" />
-                )}
                 <NavItem to="/settings" icon={Settings} label="Settings" />
                 <NavItem to="/settings/users" icon={UserCheck} label="User Management" />
                 </>

@@ -39,7 +39,6 @@ export const MODULE_FLAGS = {
   demand_forecast: PILOT_VISIBLE,
   customer_forecast: PILOT_VISIBLE,
   revenue_forecast: PILOT_VISIBLE,
-  user_access_management: PILOT_VISIBLE,
 
   // Duplicate profitability nav — /reports/sales; keep /reports/financial
   reports_profitability_sales: PILOT_VISIBLE,
