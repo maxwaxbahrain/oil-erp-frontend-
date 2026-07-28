@@ -7,7 +7,7 @@ export default function TermsOfService() {
       intro={
         <>
           These Terms of Service (&quot;Terms&quot;) govern your access to and use of the SOLTOL ONE platform (&quot;SOLTOL,&quot;
-          the &quot;Service&quot;), operated by [LEGAL_ENTITY] (&quot;we,&quot; &quot;us,&quot; or &quot;our&quot;). By creating an account,
+          the &quot;Service&quot;), operated by Soltol LLC (&quot;we,&quot; &quot;us,&quot; or &quot;our&quot;). By creating an account,
           accessing, or using the Service, you agree to these Terms. If you are entering into these Terms on behalf of a
           business (&quot;Tenant&quot;), you represent that you are authorized to bind that business.
           <br />
@@ -29,7 +29,7 @@ export default function TermsOfService() {
           items={[
             'You must provide accurate registration information and keep it current.',
             'You are responsible for maintaining the confidentiality of your login credentials and for all activity under your account.',
-            <>You must notify us promptly at [CONTACT_EMAIL] of any unauthorized use of your account.</>,
+            <>You must notify us promptly at info@soltol.com of any unauthorized use of your account.</>,
             'The Service is intended for business use by individuals aged 18 or older.',
           ]}
         />
@@ -91,7 +91,7 @@ export default function TermsOfService() {
       <LegalSection title="8. Suspension and termination">
         <LegalBulletList
           items={[
-            <>You may stop using the Service and request account closure at any time by contacting [CONTACT_EMAIL].</>,
+            <>You may stop using the Service and request account closure at any time by contacting info@soltol.com.</>,
             'We may suspend or terminate your access if you breach these Terms, fail to pay fees, or use the Service in a way that risks harm to us, other Tenants, or third parties.',
             'Upon termination, your right to use the Service ends. We will make Tenant Data available for export for a reasonable period as described in our Privacy Policy or the Service, after which we may delete it in accordance with our retention practices.',
           ]}
@@ -100,7 +100,7 @@ export default function TermsOfService() {
 
       <LegalSection title="9. Intellectual property">
         <p style={{ margin: 0 }}>
-          The Service, including its software, design, and content (excluding Tenant Data), is owned by [LEGAL_ENTITY] and
+          The Service, including its software, design, and content (excluding Tenant Data), is owned by Soltol LLC and
           its licensors and is protected by intellectual property laws. These Terms do not grant you any rights in the Service
           except the limited right to use it as described.
         </p>
@@ -118,7 +118,7 @@ export default function TermsOfService() {
 
       <LegalSection title="11. Limitation of liability">
         <p style={{ margin: 0 }}>
-          TO THE MAXIMUM EXTENT PERMITTED BY LAW, [LEGAL_ENTITY] WILL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL,
+          TO THE MAXIMUM EXTENT PERMITTED BY LAW, Soltol LLC WILL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL,
           CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR FOR ANY LOSS OF PROFITS, REVENUE, DATA, OR BUSINESS, ARISING OUT OF OR
           RELATED TO YOUR USE OF THE SERVICE. OUR TOTAL LIABILITY FOR ANY CLAIM RELATING TO THE SERVICE WILL NOT EXCEED THE
           AMOUNTS YOU PAID US FOR THE SERVICE IN THE TWELVE MONTHS PRECEDING THE EVENT GIVING RISE TO THE CLAIM.
@@ -127,7 +127,7 @@ export default function TermsOfService() {
 
       <LegalSection title="12. Indemnification">
         <p style={{ margin: 0 }}>
-          You agree to indemnify and hold harmless [LEGAL_ENTITY] from claims, damages, and expenses arising out of your
+          You agree to indemnify and hold harmless Soltol LLC from claims, damages, and expenses arising out of your
           Tenant Data, your use of the Service, or your violation of these Terms or applicable law.
         </p>
       </LegalSection>
@@ -142,21 +142,21 @@ export default function TermsOfService() {
 
       <LegalSection title="14. Governing law">
         <p style={{ margin: 0 }}>
-          These Terms are governed by the laws of [JURISDICTION], without regard to its conflict-of-laws principles. Any
-          disputes will be subject to the courts located in [JURISDICTION], unless otherwise required by applicable law.
+          These Terms are governed by the laws of the State of New York, United States, without regard to its conflict-of-laws principles. Any
+          disputes will be subject to the state and federal courts located in the State of New York, unless otherwise required by applicable law.
         </p>
       </LegalSection>
 
       <LegalSection title="15. Contact">
         <p style={{ margin: '0 0 12px' }}>Questions about these Terms can be sent to:</p>
         <p style={{ margin: 0 }}>
-          [LEGAL_ENTITY]
+          Soltol LLC
           <br />
-          Email: [CONTACT_EMAIL]
+          Email: info@soltol.com
         </p>
         <p style={{ margin: '16px 0 0', fontSize: 13, color: 'rgba(255,255,255,0.45)' }}>
           This document is a general first draft provided for launch readiness and does not constitute legal advice. Have it
-          reviewed by qualified legal counsel in [JURISDICTION] before relying on it.
+          reviewed by qualified legal counsel in the State of New York, United States before relying on it.
         </p>
       </LegalSection>
     </LegalDocumentLayout>

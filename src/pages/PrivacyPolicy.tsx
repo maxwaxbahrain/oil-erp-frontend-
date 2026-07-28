@@ -10,7 +10,7 @@ export default function PrivacyPolicy() {
       title="Privacy Policy"
       intro={
         <>
-          This Privacy Policy explains how [LEGAL_ENTITY] (&quot;we,&quot; &quot;us,&quot; or &quot;our&quot;), operator of the
+          This Privacy Policy explains how Soltol LLC (&quot;we,&quot; &quot;us,&quot; or &quot;our&quot;), operator of the
           SOLTOL ONE platform (&quot;SOLTOL,&quot; the &quot;Service&quot;), collects, uses, stores, and protects information when
           you use the Service. By creating an account or using SOLTOL, you agree to the practices described here.
           <br />
@@ -24,8 +24,8 @@ export default function PrivacyPolicy() {
     >
       <LegalSection title="1. Who we are">
         <p style={{ margin: 0 }}>
-          The Service is provided by [LEGAL_ENTITY]. For any privacy-related question or request, contact us at
-          [CONTACT_EMAIL].
+          The Service is provided by Soltol LLC. For any privacy-related question or request, contact us at
+          info@soltol.com.
         </p>
       </LegalSection>
 
@@ -121,7 +121,7 @@ export default function PrivacyPolicy() {
         <p style={{ margin: '12px 0 0' }}>
           We share only the data necessary for each provider to perform its function, and we require sub-processors to protect
           the information they process. We may update this list as our providers change; the current list will always be
-          available here or on request at [CONTACT_EMAIL].
+          available here or on request at info@soltol.com.
         </p>
       </LegalSection>
 
@@ -156,7 +156,7 @@ export default function PrivacyPolicy() {
         </p>
         <p style={{ margin: 0 }}>
           To make a request relating to information we control, or to ask a question about this policy, contact
-          [CONTACT_EMAIL]. We will respond within the time required by applicable law.
+          info@soltol.com. We will respond within the time required by applicable law.
         </p>
       </LegalSection>
 
@@ -186,13 +186,13 @@ export default function PrivacyPolicy() {
       <LegalSection title="11. Contact">
         <p style={{ margin: '0 0 12px' }}>Questions or requests regarding this Privacy Policy can be sent to:</p>
         <p style={{ margin: 0 }}>
-          [LEGAL_ENTITY]
+          Soltol LLC
           <br />
-          Email: [CONTACT_EMAIL]
+          Email: info@soltol.com
         </p>
         <p style={{ margin: '16px 0 0', fontSize: 13, color: 'rgba(255,255,255,0.45)' }}>
           This document is a general first draft provided for launch readiness and does not constitute legal advice. Have it
-          reviewed by qualified legal counsel in [JURISDICTION] before relying on it.
+          reviewed by qualified legal counsel in the State of New York, United States before relying on it.
         </p>
       </LegalSection>
     </LegalDocumentLayout>

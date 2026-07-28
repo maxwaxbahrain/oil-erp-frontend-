@@ -139,9 +139,9 @@ export default function LegalDocumentLayout({ title, intro, children }: LegalDoc
             letterSpacing: '0.06em',
           }}
         >
-          Effective date: [EFFECTIVE_DATE]
+          Effective date: July 27, 2026
           <br />
-          Last updated: [EFFECTIVE_DATE]
+          Last updated: July 27, 2026
         </p>
         <h1
           style={{
