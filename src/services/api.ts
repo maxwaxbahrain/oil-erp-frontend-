@@ -1,4 +1,5 @@
 import { ACCESS_TOKEN_KEY, authFetch } from '../api/axios';
+import { handlePaymentRequiredStatus } from '../api/paymentRequired';
 import { getOilErpApiBase } from '../config/apiBase';
 
 export const API_BASE_URL = getOilErpApiBase();
@@ -446,6 +447,11 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
         return mockHandler<T>(endpoint, options);
       }
       const error = await response.json().catch(() => ({ detail: 'Request failed' }));
+      if (handlePaymentRequiredStatus(response.status, error.detail)) {
+        throw new Error(
+          typeof error.detail === 'string' ? error.detail : 'Your free trial has expired. Please upgrade to continue.',
+        );
+      }
       throw new Error(error.detail || `HTTP ${response.status}`);
     }
     return await response.json();

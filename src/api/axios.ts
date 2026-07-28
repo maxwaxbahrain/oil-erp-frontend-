@@ -1,6 +1,8 @@
 import axios from 'axios';
+import { handlePaymentRequiredStatus } from './paymentRequired';
 
 export const ACCESS_TOKEN_KEY = 'access_token';
+export { BILLING_PATH, consumeBillingRequiredMessage, redirectToBilling } from './paymentRequired';
 
 const AUTH_ROUTES = new Set(['/login', '/signup', '/forgot-password', '/reset-password']);
 
@@ -43,6 +45,8 @@ api.interceptors.response.use(
       localStorage.removeItem('bettano_auth_user');
       localStorage.removeItem('bettano_current_user');
       redirectToLogin();
+    } else if (error.response?.status === 402) {
+      handlePaymentRequiredStatus(402, error.response?.data?.detail);
     }
     return Promise.reject(error);
   }
@@ -71,7 +75,12 @@ export function withBearerAuth(init: RequestInit = {}): RequestInit {
 
 /** Authenticated fetch for services that cannot use the axios instance. */
 export async function authFetch(url: string, init?: RequestInit): Promise<Response> {
-  return fetch(url, withBearerAuth(init));
+  const response = await fetch(url, withBearerAuth(init));
+  if (response.status === 402) {
+    const body = await response.clone().json().catch(() => ({}));
+    handlePaymentRequiredStatus(402, (body as { detail?: unknown })?.detail);
+  }
+  return response;
 }
 
 export default api;

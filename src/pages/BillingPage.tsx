@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, Building2, CreditCard, Loader2, Settings2 } from 'lucide-react';
+import { consumeBillingRequiredMessage } from '../api/axios';
 import {
   createCheckoutSession,
   createPortalSession,
@@ -59,6 +60,11 @@ export default function BillingPage() {
   const [actionError, setActionError] = useState('');
   const [busyPlan, setBusyPlan] = useState<BillingPlanSlug | null>(null);
   const [portalBusy, setPortalBusy] = useState(false);
+  const [paymentRequiredMessage, setPaymentRequiredMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPaymentRequiredMessage(consumeBillingRequiredMessage());
+  }, []);
 
   const loadBilling = useCallback(async () => {
     setError('');
@@ -132,6 +138,31 @@ export default function BillingPage() {
           Billing &amp; plan
         </h1>
       </div>
+
+      {paymentRequiredMessage ? (
+        <div
+          style={{
+            background: 'var(--color-badge-red-bg)',
+            border: '1px solid rgba(239,68,68,0.25)',
+            borderRadius: 10,
+            padding: '12px 14px',
+            marginBottom: 16,
+            display: 'flex',
+            gap: 10,
+            alignItems: 'flex-start',
+          }}
+        >
+          <AlertTriangle size={18} color="var(--color-brand-red)" />
+          <div>
+            <div style={{ fontWeight: 600, color: 'var(--color-brand-red-tint)', marginBottom: 4 }}>
+              Account upgrade required
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--color-redwood-text-muted)' }}>
+              {paymentRequiredMessage}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {info.is_trial_expired && (
         <div
