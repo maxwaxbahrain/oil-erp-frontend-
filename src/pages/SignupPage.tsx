@@ -88,6 +88,7 @@ export default function SignupPage() {
         admin_full_name: fullName.trim(),
         admin_username: username.trim(),
         admin_password: password,
+        terms_accepted: agreedToLegal,
       };
       await api.post('/api/tenants/register', formData);
       navigate('/login', { replace: true });
@@ -220,7 +221,7 @@ export default function SignupPage() {
 
           <button
             type="submit"
-            disabled={submitting || isLoading}
+            disabled={submitting || isLoading || !agreedToLegal}
             className="flex w-full items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white transition-opacity disabled:opacity-60"
             style={{ background: C.blue }}
           >
