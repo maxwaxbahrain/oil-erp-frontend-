@@ -270,6 +270,9 @@ function App() {
     location.pathname === '/login' ||
     location.pathname === '/privacy' ||
     location.pathname === '/terms' ||
+    location.pathname === '/sub-processors' ||
+    location.pathname === '/data-deletion' ||
+    location.pathname === '/security' ||
     location.pathname === '/signup' ||
     location.pathname === '/forgot-password' ||
     location.pathname === '/reset-password'
@@ -847,6 +850,24 @@ function App() {
               className="text-redwood-text-muted hover:text-redwood-text-main normal-case tracking-normal font-medium whitespace-nowrap"
             >
               Terms of Service
+            </Link>
+            <Link
+              to="/sub-processors"
+              className="text-redwood-text-muted hover:text-redwood-text-main normal-case tracking-normal font-medium whitespace-nowrap"
+            >
+              Sub-processors
+            </Link>
+            <Link
+              to="/data-deletion"
+              className="text-redwood-text-muted hover:text-redwood-text-main normal-case tracking-normal font-medium whitespace-nowrap"
+            >
+              Data Deletion
+            </Link>
+            <Link
+              to="/security"
+              className="text-redwood-text-muted hover:text-redwood-text-main normal-case tracking-normal font-medium whitespace-nowrap"
+            >
+              Security
             </Link>
             <span className="hidden sm:flex items-center gap-2">
               <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>

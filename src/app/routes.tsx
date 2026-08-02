@@ -13,6 +13,9 @@ import ResetPasswordPage from '../pages/ResetPasswordPage';
 import LandingPage from '../pages/LandingPage';
 import PrivacyPolicy from '../pages/PrivacyPolicy';
 import TermsOfService from '../pages/TermsOfService';
+import SubProcessors from '../pages/SubProcessors';
+import DataDeletion from '../pages/DataDeletion';
+import SecurityIncident from '../pages/SecurityIncident';
 import BillingPage from '../pages/BillingPage';
 import BillingCheckoutSuccess from '../pages/Billing/BillingCheckoutSuccess';
 import BillingCheckoutCancel from '../pages/Billing/BillingCheckoutCancel';
@@ -194,6 +197,9 @@ export const AppRoutes = () => {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/privacy" element={<PrivacyPolicy />} />
             <Route path="/terms" element={<TermsOfService />} />
+            <Route path="/sub-processors" element={<SubProcessors />} />
+            <Route path="/data-deletion" element={<DataDeletion />} />
+            <Route path="/security" element={<SecurityIncident />} />
             <Route path="/signup" element={isStaging ? <Navigate to="/login" replace /> : <SignupPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
