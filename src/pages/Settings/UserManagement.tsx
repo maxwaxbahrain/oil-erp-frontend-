@@ -37,6 +37,17 @@ const ROLE_STYLE: Record<AuthRole, { bg: string; color: string }> = {
   sales: { bg: 'rgba(34,197,94,.15)', color: '#86EFAC' },
 };
 
+/** Display-only labels; API values in ROLES stay unchanged. */
+const ROLE_DISPLAY_LABEL: Partial<Record<AuthRole, string>> = {
+  sales: 'Salesman',
+};
+
+function roleDisplayLabel(role: AuthRole): string {
+  const mapped = ROLE_DISPLAY_LABEL[role];
+  if (mapped) return mapped;
+  return role.charAt(0).toUpperCase() + role.slice(1);
+}
+
 const panel: CSSProperties = {
   background: C.bg2,
   border: '1px solid rgba(255,255,255,.07)',
@@ -295,7 +306,7 @@ export default function UserManagement() {
                           className="rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide"
                           style={{ background: roleStyle.bg, color: roleStyle.color }}
                         >
-                          {user.role}
+                          {roleDisplayLabel(user.role)}
                         </span>
                       </td>
                       <td className="px-4 py-3">
@@ -407,7 +418,7 @@ export default function UserManagement() {
                 >
                   {ROLES.map((role) => (
                     <option key={role} value={role} style={{ background: C.bg3 }}>
-                      {role.charAt(0).toUpperCase() + role.slice(1)}
+                      {roleDisplayLabel(role)}
                     </option>
                   ))}
                 </select>

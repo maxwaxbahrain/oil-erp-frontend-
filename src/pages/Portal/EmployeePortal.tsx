@@ -219,6 +219,16 @@ function clampRole(r: string): Employee['role'] {
   return (VALID_ROLES as readonly string[]).includes(r) ? (r as Employee['role']) : 'Office';
 }
 
+/** jobTitle first; then HR employeeRole from API (auto-provisioned rows); else Office. */
+function portalRoleLabelFromEmployee(e: ApiEmployee): string {
+  const fromJobTitle = e.jobTitle?.trim();
+  if (fromJobTitle) return fromJobTitle;
+  const hr = (e.employeeRole ?? '').trim().toLowerCase();
+  if (hr === 'salesman') return 'Salesman';
+  if (hr === 'driver') return 'Van Driver';
+  return 'Office';
+}
+
 function isPortalSalesman(emp: Employee): boolean {
   return emp.role === 'Salesman';
 }
@@ -290,7 +300,7 @@ function suggestEmployeeNumber(rows: Employee[]): string {
 }
 
 function apiToPortalEmployee(e: ApiEmployee): Employee {
-  const roleLabel = e.jobTitle?.trim() || 'Office';
+  const roleLabel = portalRoleLabelFromEmployee(e);
   return {
     id: String(e.id),
     employeeNumber: e.employeeNumber,
