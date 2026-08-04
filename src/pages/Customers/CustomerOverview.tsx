@@ -238,6 +238,8 @@ export default function CustomerOverview() {
     const [loadingLedger, setLoadingLedger] = useState(false);
     const [ledgerError, setLedgerError] = useState<string | null>(null);
     const ledgerRequestRef = useRef(0);
+    /** Last (id, from, to) dispatched by the ledger load effect — skip exact duplicates only. */
+    const lastLedgerEffectKeyRef = useRef<string | null>(null);
 
     // Stats state
     const [stats, setStats] = useState<CustomerStats>({
@@ -475,13 +477,24 @@ export default function CustomerOverview() {
         loadAllData();
     }, [id, customer]);
 
-    // Re-fetch the ledger tab whenever the date filter changes (backend computes
-    // opening/closing for the window).
+    // Drop date filter when switching customers (Clear Filter uses the same setters).
     useEffect(() => {
-        if (!id || !customer) return;
-        loadLedger(ledgerDateFrom || undefined, ledgerDateTo || undefined);
+        setLedgerDateFrom('');
+        setLedgerDateTo('');
+        lastLedgerEffectKeyRef.current = null;
+    }, [id]);
+
+    // Load ledger tab when customer is ready and when the date filter changes.
+    useEffect(() => {
+        if (!id || !customer || String(customer.id) !== String(id)) return;
+        const from = ledgerDateFrom || undefined;
+        const to = ledgerDateTo || undefined;
+        const effectKey = `${id}|${from ?? ''}|${to ?? ''}`;
+        if (lastLedgerEffectKeyRef.current === effectKey) return;
+        lastLedgerEffectKeyRef.current = effectKey;
+        void loadLedger(from, to);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [ledgerDateFrom, ledgerDateTo]);
+    }, [id, customer, ledgerDateFrom, ledgerDateTo]);
 
     // TASK 5 — Silent refetch on tab return so a payment recorded in
     // another tab reflects immediately on this profile when the user
@@ -1727,13 +1740,15 @@ export default function CustomerOverview() {
                                                     </td>
                                                 </tr>
                                             ))}
-                                            {(ledgerDateFrom || ledgerDateTo) && ledgerOpeningBalance !== null && (
+                                            {ledgerOpeningBalance !== null && (
                                                 <tr style={{ background: 'rgba(79,142,247,.08)' }}>
                                                     <td colSpan={6} style={{ ...ledgerTdStyle, fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>
                                                         Opening balance
+                                                        {(ledgerDateFrom || ledgerDateTo) && (
                                                         <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 600, color: 'var(--t2,#8BA3C7)' }}>
                                                             (as at {ledgerDateFrom || 'start'})
                                                         </span>
+                                                        )}
                                                     </td>
                                                     <td style={{ ...ledgerTdStyle, textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>
                                                         {ledgerOpeningBalance.toLocaleString()}
