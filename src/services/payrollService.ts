@@ -820,6 +820,7 @@ export interface ApiPayslip {
     overtimeHours: number;
     basePay: number;
     overtimePay: number;
+    commissionPay: number;
     grossPay: number;
     deductionsTotal: number;
     netPay: number;
@@ -891,6 +892,7 @@ function fromPayslip(raw: Record<string, unknown>): ApiPayslip {
         overtimeHours: Number(raw.overtimeHours ?? raw.overtime_hours ?? 0),
         basePay: Number(raw.basePay ?? raw.base_pay ?? 0),
         overtimePay: Number(raw.overtimePay ?? raw.overtime_pay ?? 0),
+        commissionPay: Number(raw.commissionPay ?? raw.commission_pay ?? 0),
         grossPay: Number(raw.grossPay ?? raw.gross_pay ?? 0),
         deductionsTotal: Number(raw.deductionsTotal ?? raw.deductions_total ?? 0),
         netPay: Number(raw.netPay ?? raw.net_pay ?? 0),
@@ -1087,6 +1089,9 @@ export function mapPayslipToPayrollResult(payslip: ApiPayslip): CompletePayrollR
     ];
     if (payslip.overtimePay > 0) {
         earnings.push({ name: 'Overtime Pay', amount: payslip.overtimePay, type: 'Earning' as const });
+    }
+    if (payslip.commissionPay > 0) {
+        earnings.push({ name: 'Commission', amount: payslip.commissionPay, type: 'Earning' as const });
     }
 
     const deductions = (payslip.deductions || []).map((d) => ({

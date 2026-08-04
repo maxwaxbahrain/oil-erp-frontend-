@@ -1,19 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { DollarSign, Play, RefreshCw } from 'lucide-react';
+import { DollarSign, Download, Play, RefreshCw } from 'lucide-react';
 import {
   createPayrollProfile,
   createPayrollRunRecord,
   formatPayProfileSummary,
+  formatPayslipPeriod,
   formatPayslipUsd,
   generatePayrollRun,
+  getPayrollProfile,
   getPayrollProfiles,
+  getPayslip,
   getPayslipsByRun,
   listPayrollRuns,
+  mapPayslipToPayrollResult,
+  mapPortalEmployeeToPayrollPdfEmployee,
   updatePayrollProfile,
   type ApiPayrollRun,
   type ApiPayslip,
   type PayrollProfile,
 } from '../../services/payrollService';
+import { generatePayslipPDF } from '../../utils/payslipPDF';
 
 const C = {
   t: 'var(--t, #EEF2FF)',
@@ -72,6 +78,7 @@ export default function PayrollAdmin({ employees, onToast, onError }: PayrollAdm
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [runPayslips, setRunPayslips] = useState<ApiPayslip[]>([]);
   const [runPayslipsLoading, setRunPayslipsLoading] = useState(false);
+  const [payslipDownloadingId, setPayslipDownloadingId] = useState<number | null>(null);
 
   const [periodLabel, setPeriodLabel] = useState(defaults.periodLabel);
   const [periodStart, setPeriodStart] = useState(defaults.periodStart);
@@ -86,6 +93,12 @@ export default function PayrollAdmin({ employees, onToast, onError }: PayrollAdm
   const employeeNameById = useMemo(() => {
     const map = new Map<number, string>();
     for (const e of employees) map.set(Number(e.id), e.name);
+    return map;
+  }, [employees]);
+
+  const employeeById = useMemo(() => {
+    const map = new Map<number, PortalEmployee>();
+    for (const e of employees) map.set(Number(e.id), e);
     return map;
   }, [employees]);
 
@@ -247,6 +260,43 @@ export default function PayrollAdmin({ employees, onToast, onError }: PayrollAdm
       setGeneratingRunId(null);
     }
   }
+
+  async function handleDownloadPayslip(p: ApiPayslip) {
+    const emp = employeeById.get(p.employeeId);
+    if (!emp) {
+      onError(`Employee #${p.employeeId} not found in roster`);
+      return;
+    }
+    setPayslipDownloadingId(p.id);
+    try {
+      const payslip = await getPayslip(p.id);
+      const profile = await getPayrollProfile(p.employeeId).catch(() => null);
+      const pdfEmployee = mapPortalEmployeeToPayrollPdfEmployee(emp, profile);
+      const result = mapPayslipToPayrollResult(payslip);
+      const period = formatPayslipPeriod(payslip.createdAt);
+      generatePayslipPDF({ employee: pdfEmployee, result, period });
+      onToast(`Payslip PDF downloaded — ${period}`);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Failed to download payslip PDF');
+    } finally {
+      setPayslipDownloadingId(null);
+    }
+  }
+
+  const pdfButtonStyle: React.CSSProperties = {
+    fontSize: 9,
+    padding: '2px 8px',
+    borderRadius: 8,
+    background: 'rgba(74,143,245,.12)',
+    border: '1px solid rgba(74,143,245,.25)',
+    color: '#4F8EF7',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 3,
+    whiteSpace: 'nowrap',
+    fontFamily: 'inherit',
+  };
 
   const inputStyle: React.CSSProperties = {
     width: '100%',
@@ -547,7 +597,9 @@ export default function PayrollAdmin({ employees, onToast, onError }: PayrollAdm
                 No payslips for this run yet. Click Generate payslips to create and calculate payslips for all employees with a profile.
               </div>
             ) : (
-              runPayslips.map((p, i) => (
+              runPayslips.map((p, i) => {
+                const downloading = payslipDownloadingId === p.id;
+                return (
                 <div
                   key={p.id}
                   style={{
@@ -557,9 +609,10 @@ export default function PayrollAdmin({ employees, onToast, onError }: PayrollAdm
                     gap: 10,
                     padding: '8px 0',
                     borderBottom: i < runPayslips.length - 1 ? `1px solid ${C.bd2}` : 'none',
+                    flexWrap: 'wrap',
                   }}
                 >
-                  <div style={{ fontSize: 11, fontWeight: 600, color: C.t }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: C.t, minWidth: 100 }}>
                     {employeeNameById.get(p.employeeId) ?? `Employee #${p.employeeId}`}
                   </div>
                   <div style={{ fontSize: 10, color: C.t2 }}>
@@ -568,8 +621,21 @@ export default function PayrollAdmin({ employees, onToast, onError }: PayrollAdm
                   <div style={{ fontSize: 11, fontWeight: 700, color: C.green }}>
                     {formatPayslipUsd(p.netPay)}
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleDownloadPayslip(p)}
+                    disabled={downloading}
+                    style={{
+                      ...pdfButtonStyle,
+                      opacity: downloading ? 0.6 : 1,
+                      cursor: downloading ? 'wait' : 'pointer',
+                    }}
+                  >
+                    <Download size={9} /> {downloading ? '…' : 'PDF'}
+                  </button>
                 </div>
-              ))
+              );
+              })
             )}
           </div>
         )}
