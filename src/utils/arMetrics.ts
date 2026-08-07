@@ -58,7 +58,7 @@ export function calculateReceivables(
   asOf: Date = new Date(),
 ): ReceivablesSummary {
   const explicitPaid = new Map<string, number>();
-  const unappliedByCustomer = new Map<string, number>();
+  const customerPaymentTotal = new Map<string, number>();
 
   for (const payment of payments) {
     const amount = Number(payment.amount) || 0;
@@ -69,7 +69,28 @@ export function calculateReceivables(
       continue;
     }
     const customerId = payment.customer_id ? String(payment.customer_id) : '';
-    if (customerId) unappliedByCustomer.set(customerId, (unappliedByCustomer.get(customerId) || 0) + amount);
+    if (customerId) {
+      customerPaymentTotal.set(
+        customerId,
+        (customerPaymentTotal.get(customerId) || 0) + amount,
+      );
+    }
+  }
+
+  const allocatedByCustomer = new Map<string, number>();
+  for (const inv of invoices) {
+    const customerId = inv.customerId ? String(inv.customerId) : '';
+    if (!customerId) continue;
+    allocatedByCustomer.set(
+      customerId,
+      (allocatedByCustomer.get(customerId) || 0) + (Number(inv.amount_paid) || 0),
+    );
+  }
+
+  const unappliedByCustomer = new Map<string, number>();
+  for (const [customerId, payTotal] of customerPaymentTotal) {
+    const allocated = allocatedByCustomer.get(customerId) || 0;
+    unappliedByCustomer.set(customerId, Math.max(0, payTotal - allocated));
   }
 
   const ordered = [...invoices].sort((a, b) => {
