@@ -12,7 +12,7 @@ import { useNavigate } from 'react-router-dom';
 import { RefreshCw, X, Calendar } from 'lucide-react';
 import { useTracking } from '../../hooks/useTracking';
 import {
-    getCustomers, getInvoices, getProducts, getSalesOrders, getVans, getPayments,
+    getCustomers, getInvoices, getProducts, getSalesOrders, getVans, getCustomerPayments,
     type Invoice, type Product,
 } from '../../services/api';
 import { getPurchaseOrders } from '../../services/purchasesService';
@@ -124,7 +124,7 @@ export default function Dashboard() {
                 getSalesOrders().catch(() => []),
                 getVans().catch(() => []),
                 getCustomers().catch(() => []),
-                getPayments().catch(() => []),
+                getCustomerPayments().catch(() => []),
                 getPurchaseOrders().catch(() => []),
                 getArSummary().catch(() => null), // non-fatal: fall back to client-side calc
                 getCustomerStats().catch(() => null), // non-fatal: "Active" shows "—" if unavailable

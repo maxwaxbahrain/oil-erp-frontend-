@@ -23,7 +23,7 @@ import {
     XAxis,
     YAxis,
 } from 'recharts';
-import { getInvoices, getPayments, type Invoice, type Payment } from '../../services/api';
+import { getInvoices, getCustomerPayments, type Invoice, type Payment } from '../../services/api';
 import { getSuppliers, getSupplierPayments } from '../../services/purchasesService';
 import { getExpenses, type Expense } from '../../services/expenseService';
 import { getGRNs, type GRN } from '../../services/grnService';
@@ -572,7 +572,7 @@ export default function FinancialStatement() {
             const glYearStart = yearStartISO();
             const [invs, pays, exps, grnsRes, suppliers, pl, cashFlow, balanceSheet, glBs, glCf] = await Promise.all([
                 getInvoices().catch(() => [] as Invoice[]),
-                getPayments().catch(() => [] as Payment[]),
+                getCustomerPayments().catch(() => [] as Payment[]),
                 getExpenses().catch(() => [] as Expense[]),
                 getGRNs().catch(() => [] as GRN[]),
                 getSuppliers().catch(() => [] as { id: string }[]),

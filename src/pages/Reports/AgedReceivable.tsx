@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { Clock, Download, AlertTriangle, CheckCircle , ArrowLeft, Printer } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { getInvoices, getPayments, type Invoice } from '../../services/api';
+import { getInvoices, getCustomerPayments, type Invoice } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
 import { calculateReceivables } from '../../utils/arMetrics';
 
@@ -28,7 +28,7 @@ export default function AgedReceivable() {
     const [asOf] = useState(new Date().toISOString().split('T')[0]);
 
     useEffect(() => {
-        Promise.all([getInvoices(), getPayments()]).then(([invoices, payments]) => {
+        Promise.all([getInvoices(), getCustomerPayments()]).then(([invoices, payments]) => {
             const receivables = calculateReceivables(invoices, payments, new Date(`${asOf}T12:00:00`));
             const byCustomer = new Map<string, AgedCustomer>();
 
