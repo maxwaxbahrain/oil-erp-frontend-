@@ -157,6 +157,40 @@ export function getGLAccounts(): Promise<GLAccount[]> {
   return apiRequest<GLAccount[]>('/accounts/');
 }
 
+export type GLAccountType = 'asset' | 'liability' | 'equity' | 'revenue' | 'expense';
+
+export interface CreateAccountPayload {
+  code: string;
+  name: string;
+  type: GLAccountType;
+  normal_balance: 'debit' | 'credit';
+  parent_id?: number | null;
+  is_active?: boolean;
+}
+
+export interface PatchAccountPayload {
+  code?: string;
+  name?: string;
+  type?: GLAccountType;
+  normal_balance?: 'debit' | 'credit';
+  parent_id?: number | null;
+  is_active?: boolean;
+}
+
+export function createAccount(payload: CreateAccountPayload): Promise<GLAccount> {
+  return apiRequest<GLAccount>('/accounts/', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function patchAccount(id: number, payload: PatchAccountPayload): Promise<GLAccount> {
+  return apiRequest<GLAccount>(`/accounts/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
 export interface GLTrialBalanceRow {
   account_id: number;
   code: string;
