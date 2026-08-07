@@ -521,10 +521,10 @@ function MiniBarChart({
 }
 
 export default function FinancialStatement() {
-    const [period, setPeriod] = useState<PeriodKey>('mtd');
+    const [period, setPeriod] = useState<PeriodKey>('ytd');
     const today = new Date().toISOString().slice(0, 10);
-    const [dateFrom, setDateFrom] = useState(PERIOD_RANGES.mtd.from);
-    const [dateTo, setDateTo] = useState(PERIOD_RANGES.mtd.to);
+    const [dateFrom, setDateFrom] = useState(() => yearStartISO());
+    const [dateTo, setDateTo] = useState(() => todayISO());
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -560,11 +560,15 @@ export default function FinancialStatement() {
 
     const applyPeriod = useCallback((key: PeriodKey) => {
         setPeriod(key);
-        if (key !== 'custom') {
-            const r = PERIOD_RANGES[key];
-            setDateFrom(r.from);
-            setDateTo(r.to);
+        if (key === 'custom') return;
+        if (key === 'ytd') {
+            setDateFrom(yearStartISO());
+            setDateTo(todayISO());
+            return;
         }
+        const r = PERIOD_RANGES[key];
+        setDateFrom(r.from);
+        setDateTo(r.to);
     }, []);
 
     async function loadAll() {
@@ -621,13 +625,18 @@ export default function FinancialStatement() {
 
     useEffect(() => {
         let cancelled = false;
-        getGLProfitLoss(dateFrom, dateTo)
-            .then((pl) => {
-                if (!cancelled) setGlProfitLoss(pl);
-            })
-            .catch(() => {
-                if (!cancelled) setGlProfitLoss(null);
-            });
+        (async () => {
+            const [pl, cf, bs] = await Promise.all([
+                getGLProfitLoss(dateFrom, dateTo).catch(() => null),
+                getGLCashFlow(dateFrom, dateTo).catch(() => null),
+                getGLBalanceSheet(dateTo).catch(() => null),
+            ]);
+            if (!cancelled) {
+                setGlProfitLoss(pl);
+                setGlCashFlow(cf);
+                setGlBalanceSheet(bs);
+            }
+        })();
         return () => {
             cancelled = true;
         };
@@ -644,6 +653,7 @@ export default function FinancialStatement() {
     );
 
     const glNetProfitAvailable = glProfitLoss != null;
+    const displayRevenue = glNetProfitAvailable ? glProfitLoss.revenue : totals.revenue;
     const displayNetProfit = glNetProfitAvailable ? glProfitLoss.net_income : totals.netProfit;
     const marginPct =
         glNetProfitAvailable && glProfitLoss.revenue > 0
@@ -673,10 +683,15 @@ export default function FinancialStatement() {
         });
     }, [invoices, payments, supplierPayments, expenses, grns, accounts]);
 
+    const formatRangeDate = (iso: string) =>
+        new Date(`${iso}T12:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+
     const rangeLabel =
         period === 'custom'
-            ? `${dateFrom ? new Date(`${dateFrom}T12:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '…'} → ${dateTo ? new Date(`${dateTo}T12:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '…'}`
-            : PERIOD_RANGES[period as Exclude<PeriodKey, 'custom'>]?.rangeLabel ?? '';
+            ? `${dateFrom ? formatRangeDate(dateFrom) : '…'} → ${dateTo ? formatRangeDate(dateTo) : '…'}`
+            : period === 'ytd'
+              ? `${formatRangeDate(dateFrom)} → ${formatRangeDate(dateTo)}`
+              : PERIOD_RANGES[period as Exclude<PeriodKey, 'custom'>]?.rangeLabel ?? '';
 
     const handleDownloadPDF = () => {
         const periodLabel = `${dateFrom || 'all-time'} → ${dateTo || 'today'}`;
@@ -749,6 +764,13 @@ export default function FinancialStatement() {
               { label: 'Other', value: pl.operatingExpenses.other },
           ].filter((row) => row.value > 0)
         : [];
+
+    const glExpenseLineRows =
+        glNetProfitAvailable && glProfitLoss.expense_lines?.length
+            ? glProfitLoss.expense_lines
+                  .filter((line) => Math.abs(line.balance) > 0.005)
+                  .map((line) => ({ label: line.name, value: Math.abs(line.balance) }))
+            : [];
 
     return (
         <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', paddingBottom: '100px' }}>
@@ -888,10 +910,10 @@ export default function FinancialStatement() {
             <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols.kpi}, 1fr)`, gap: 8 }}>
                 {kpiCard({
                     stripe: 'linear-gradient(90deg,#22C55E,#86EFAC)',
-                    label: 'Revenue',
-                    value: formatUsdFull(totals.revenue),
+                    label: glNetProfitAvailable ? 'Revenue' : 'Revenue (estimate)',
+                    value: formatUsdFull(displayRevenue),
                     valueColor: 'var(--color-brand-green)',
-                    sub: `↑ ${pctChange(totals.revenue, aprTotals.revenue)} vs Apr`,
+                    sub: `↑ ${pctChange(displayRevenue, aprTotals.revenue)} vs Apr`,
                 })}
                 {kpiCard({
                     stripe: 'linear-gradient(90deg,#22C55E,#86EFAC)',
@@ -934,28 +956,68 @@ export default function FinancialStatement() {
                     <SectionHeader
                         icon={TrendingUp}
                         title="Profit & Loss"
-                        subtitle="Income statement · MTD"
+                        subtitle={`Income statement · ${rangeLabel}${glNetProfitAvailable ? '' : ' (estimate)'}`}
                         iconColor="#22C55E"
                         onExport={handleDownloadPDF}
                     />
-                    <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', marginBottom: 4, fontWeight: 600 }}>
-                        INCOME
-                    </div>
-                    <LineRow label="Gross Revenue" value={pl?.revenue.totalRevenue ?? totals.revenue} positive bold />
-                    <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', margin: '6px 0 4px', fontWeight: 600 }}>
-                        COGS
-                    </div>
-                    <LineRow label="Cost of goods sold" value={pl ? (isPlCogsPartial ? null : -pl.cogs.totalCOGS) : -totals.cogs} positive={false} />
-                    <LineRow label="Gross Profit" value={pl ? (isPlCogsPartial ? null : pl.grossProfit.amount) : totals.grossProfit} positive bold />
-                    <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', margin: '6px 0 4px', fontWeight: 600 }}>
-                        OPERATING EXPENSES
-                    </div>
-                    {plExpenseRows.length > 0 ? (
-                        plExpenseRows.map((row) => (
-                            <LineRow key={row.label} label={row.label} value={-row.value} positive={false} indent />
-                        ))
+                    {glNetProfitAvailable ? (
+                        <>
+                            <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', marginBottom: 4, fontWeight: 600 }}>
+                                INCOME
+                            </div>
+                            <LineRow label="Gross Revenue" value={glProfitLoss.revenue} positive bold />
+                            <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', margin: '6px 0 4px', fontWeight: 600 }}>
+                                COGS
+                            </div>
+                            <LineRow label="Cost of goods sold" value={-glProfitLoss.cogs} positive={false} />
+                            <LineRow label="Gross Profit" value={glProfitLoss.gross_profit} positive bold />
+                            <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', margin: '6px 0 4px', fontWeight: 600 }}>
+                                OPERATING EXPENSES
+                            </div>
+                            {glExpenseLineRows.length > 0 ? (
+                                glExpenseLineRows.map((row) => (
+                                    <LineRow key={row.label} label={row.label} value={-row.value} positive={false} indent />
+                                ))
+                            ) : (
+                                <LineRow
+                                    label="Operating expenses"
+                                    value={-glProfitLoss.operating_expenses}
+                                    positive={false}
+                                    indent
+                                />
+                            )}
+                        </>
                     ) : (
-                        <LineRow label="Expense categories" value={null} positive={false} indent />
+                        <>
+                            <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', marginBottom: 4, fontWeight: 600 }}>
+                                INCOME
+                            </div>
+                            <LineRow label="Gross Revenue (estimate)" value={pl?.revenue.totalRevenue ?? totals.revenue} positive bold />
+                            <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', margin: '6px 0 4px', fontWeight: 600 }}>
+                                COGS
+                            </div>
+                            <LineRow
+                                label="Cost of goods sold (estimate)"
+                                value={pl ? (isPlCogsPartial ? null : -pl.cogs.totalCOGS) : -totals.cogs}
+                                positive={false}
+                            />
+                            <LineRow
+                                label="Gross Profit (estimate)"
+                                value={pl ? (isPlCogsPartial ? null : pl.grossProfit.amount) : totals.grossProfit}
+                                positive
+                                bold
+                            />
+                            <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', margin: '6px 0 4px', fontWeight: 600 }}>
+                                OPERATING EXPENSES
+                            </div>
+                            {plExpenseRows.length > 0 ? (
+                                plExpenseRows.map((row) => (
+                                    <LineRow key={row.label} label={row.label} value={-row.value} positive={false} indent />
+                                ))
+                            ) : (
+                                <LineRow label="Expense categories (estimate)" value={null} positive={false} indent />
+                            )}
+                        </>
                     )}
                     <div
                         style={{
@@ -969,7 +1031,7 @@ export default function FinancialStatement() {
                             Net Profit{glNetProfitAvailable ? '' : ' (estimate)'}
                         </span>
                         <span style={{ color: 'var(--color-brand-green)', fontWeight: 700, fontFamily: "'Syne',sans-serif" }}>
-                            {pl && isPlCogsPartial
+                            {pl && isPlCogsPartial && !glNetProfitAvailable
                                 ? '—'
                                 : formatUsdFull(
                                       glNetProfitAvailable
