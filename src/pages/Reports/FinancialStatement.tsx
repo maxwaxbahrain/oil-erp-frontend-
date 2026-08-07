@@ -40,6 +40,7 @@ import { calculateBalanceSheet, type BalanceSheet } from '../../services/balance
 import {
     getGLBalanceSheet,
     getGLCashFlow,
+    getGLProfitLoss,
     isGLEmpty,
     todayISO,
     yearStartISO,
@@ -47,6 +48,7 @@ import {
     OPENING_BALANCES_PATH,
     type GLBalanceSheet,
     type GLCashFlow,
+    type GLProfitLoss,
 } from '../../services/glService';
 
 // ─── Style tokens (dark redwood) ───────────────────────────────────────────
@@ -539,6 +541,7 @@ export default function FinancialStatement() {
     const [, setBalanceSheetData] = useState<BalanceSheet | null>(null);
     const [glBalanceSheet, setGlBalanceSheet] = useState<GLBalanceSheet | null>(null);
     const [glCashFlow, setGlCashFlow] = useState<GLCashFlow | null>(null);
+    const [glProfitLoss, setGlProfitLoss] = useState<GLProfitLoss | null>(null);
 
     const [aiQuestion, setAiQuestion] = useState('');
     const [cols, setCols] = useState({ kpi: 4, threeCol: true, twoCol: true });
@@ -570,7 +573,8 @@ export default function FinancialStatement() {
         try {
             const glToday = todayISO();
             const glYearStart = yearStartISO();
-            const [invs, pays, exps, grnsRes, suppliers, pl, cashFlow, balanceSheet, glBs, glCf] = await Promise.all([
+            const [invs, pays, exps, grnsRes, suppliers, pl, cashFlow, balanceSheet, glBs, glCf, glPl] =
+                await Promise.all([
                 getInvoices().catch(() => [] as Invoice[]),
                 getCustomerPayments().catch(() => [] as Payment[]),
                 getExpenses().catch(() => [] as Expense[]),
@@ -581,6 +585,7 @@ export default function FinancialStatement() {
                 calculateBalanceSheet().catch(() => null),
                 getGLBalanceSheet(glToday).catch(() => null),
                 getGLCashFlow(glYearStart, glToday).catch(() => null),
+                getGLProfitLoss(glYearStart, glToday).catch(() => null),
             ]);
 
             const supplierPayBatches = await Promise.all(
@@ -602,6 +607,7 @@ export default function FinancialStatement() {
             setBalanceSheetData(balanceSheet);
             setGlBalanceSheet(glBs);
             setGlCashFlow(glCf);
+            setGlProfitLoss(glPl);
         } catch (e: unknown) {
             setError(e instanceof Error ? e.message : 'Failed to load financial data.');
         } finally {
@@ -613,6 +619,20 @@ export default function FinancialStatement() {
         void loadAll();
     }, []);
 
+    useEffect(() => {
+        let cancelled = false;
+        getGLProfitLoss(dateFrom, dateTo)
+            .then((pl) => {
+                if (!cancelled) setGlProfitLoss(pl);
+            })
+            .catch(() => {
+                if (!cancelled) setGlProfitLoss(null);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [dateFrom, dateTo]);
+
     const totals = useMemo(
         () => computeTotals(invoices, payments, supplierPayments, expenses, grns, accounts, dateFrom, dateTo),
         [invoices, payments, supplierPayments, expenses, grns, accounts, dateFrom, dateTo],
@@ -623,7 +643,14 @@ export default function FinancialStatement() {
         [invoices, payments, supplierPayments, expenses, grns, accounts],
     );
 
-    const marginPct = totals.revenue > 0 ? (totals.netProfit / totals.revenue) * 100 : 0;
+    const glNetProfitAvailable = glProfitLoss != null;
+    const displayNetProfit = glNetProfitAvailable ? glProfitLoss.net_income : totals.netProfit;
+    const marginPct =
+        glNetProfitAvailable && glProfitLoss.revenue > 0
+            ? (glProfitLoss.net_income / glProfitLoss.revenue) * 100
+            : totals.revenue > 0
+              ? (totals.netProfit / totals.revenue) * 100
+              : 0;
     const glBsEmpty = !glBalanceSheet || isGLEmpty(glBalanceSheet);
     const glCfEmpty = glBsEmpty || !glCashFlow;
 
@@ -868,10 +895,10 @@ export default function FinancialStatement() {
                 })}
                 {kpiCard({
                     stripe: 'linear-gradient(90deg,#22C55E,#86EFAC)',
-                    label: 'Net Profit',
-                    value: formatUsdFull(totals.netProfit),
+                    label: glNetProfitAvailable ? 'Net Profit' : 'Net Profit (estimate)',
+                    value: formatUsdFull(displayNetProfit),
                     valueColor: 'var(--color-brand-green)',
-                    sub: `↑ ${marginPct.toFixed(1)}% margin · ${pctChange(totals.netProfit, aprTotals.netProfit)} vs Apr`,
+                    sub: `↑ ${marginPct.toFixed(1)}% margin · ${pctChange(displayNetProfit, aprTotals.netProfit)} vs Apr`,
                 })}
                 {kpiCard({
                     stripe: 'linear-gradient(90deg,#7C3AED,#A78BFA)',
@@ -938,9 +965,17 @@ export default function FinancialStatement() {
                             borderColor: 'rgba(34,197,94,.25)',
                         }}
                     >
-                        <span style={{ fontWeight: 700, color: 'var(--color-brand-green)' }}>Net Profit</span>
+                        <span style={{ fontWeight: 700, color: 'var(--color-brand-green)' }}>
+                            Net Profit{glNetProfitAvailable ? '' : ' (estimate)'}
+                        </span>
                         <span style={{ color: 'var(--color-brand-green)', fontWeight: 700, fontFamily: "'Syne',sans-serif" }}>
-                            {pl && isPlCogsPartial ? '—' : formatUsdFull(pl?.netProfit.afterTax ?? totals.netProfit)}
+                            {pl && isPlCogsPartial
+                                ? '—'
+                                : formatUsdFull(
+                                      glNetProfitAvailable
+                                          ? glProfitLoss.net_income
+                                          : (pl?.netProfit.afterTax ?? totals.netProfit),
+                                  )}
                         </span>
                     </div>
                     <MiniBarChart title="Revenue trend (6 months)" data={revenueTrend} dataKey="value" color="#22C55E" />
