@@ -59,4 +59,26 @@ describe('AR metrics honesty', () => {
     expect(summary.current).toBe(100);
     expect(summary.total).toBe(125);
   });
+
+  it('ignores backend remaining_balance 0 when payments still leave an open balance', () => {
+    const asOf = new Date('2026-08-01T12:00:00');
+    const invoices = [
+      {
+        id: '1',
+        customerId: 'alpha',
+        invoiceDate: '2026-08-01',
+        dueDate: '2026-08-01',
+        grandTotal: 1000,
+        amount_paid: 0,
+        remaining_balance: 0,
+      },
+    ];
+    const payments = [{ customer_id: 'alpha', amount: 500, payment_date: '2026-08-01' }];
+
+    const summary = calculateReceivables(invoices, payments, asOf);
+
+    expect(summary.total).toBe(500);
+    expect(summary.invoices).toHaveLength(1);
+    expect(summary.invoices[0].balance).toBe(500);
+  });
 });

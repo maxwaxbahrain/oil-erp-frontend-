@@ -97,8 +97,14 @@ export function calculateReceivables(
     }
 
     const balanceFromPaid = Math.max(0, total - paid);
-    const backendBalance = inv.remaining_balance == null ? null : Math.max(0, Number(inv.remaining_balance) || 0);
-    const balance = backendBalance == null ? balanceFromPaid : Math.min(backendBalance, balanceFromPaid);
+    const backendBalance =
+      inv.remaining_balance == null ? null : Math.max(0, Number(inv.remaining_balance) || 0);
+    // Trust allocation-derived list balance only when positive; explicit 0 from the
+    // API must not zero out open AR when payment FIFO still shows a balance.
+    const balance =
+      backendBalance != null && backendBalance > 0
+        ? Math.min(backendBalance, balanceFromPaid)
+        : balanceFromPaid;
     if (balance <= 0.005) continue;
 
     const bucket = bucketFor(inv, asOf);
