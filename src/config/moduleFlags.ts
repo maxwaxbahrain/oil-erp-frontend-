@@ -15,6 +15,12 @@ const PILOT_VISIBLE = isStaging;
 export const MODULE_FLAGS = {
   sales_returns: false,
 
+  // Mock / invoice-math screens — not GL-aligned. Gated at route + sidebar (all envs).
+  finance_accounting_dashboard: false,
+  finance_banking: false,
+  // Duplicate nav to /reports/sales; primary entry is /reports/financial (Profitability Analysis).
+  reports_profitability_duplicate: false,
+
   // Demo / mock-data screens
   pulse: PILOT_VISIBLE,
   meeting_notes: PILOT_VISIBLE,

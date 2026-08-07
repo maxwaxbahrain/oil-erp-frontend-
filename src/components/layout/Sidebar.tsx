@@ -250,8 +250,12 @@ export default function Sidebar({
                 {MODULE_FLAGS.payroll && (
                 <NavItem to="/finance/payroll" icon={Users} label="Payroll" />
                 )}
+                {MODULE_FLAGS.finance_accounting_dashboard && (
                 <NavItem to="/finance/accounting" icon={Briefcase} label="Accounting" />
+                )}
+                {MODULE_FLAGS.finance_banking && (
                 <NavItem to="/finance/banking" icon={Globe} label="Banking" />
+                )}
                 <NavItem to="/finance/chart-of-accounts" icon={BookOpen} label="Chart of Accounts" />
                 <NavItem to="/finance/all-ledger" icon={BookOpen} label="All-Accounts Ledger" />
                 <NavItem to="/finance/financial-statement" icon={FileText} label="Financial Statement" />
@@ -289,7 +293,7 @@ export default function Sidebar({
                 <NavItem to="/reports/aged-payable" icon={Clock} label="Aged Payable" />
                 <NavItem to="/reports/outstanding-bills" icon={FileText} label="Outstanding Bills" />
                 <NavItem to="/reports/financial" icon={PieChart} label="Profitability Analysis" />
-                {MODULE_FLAGS.reports_profitability_sales && (
+                {MODULE_FLAGS.reports_profitability_duplicate && (
                 <NavItem to="/reports/sales" icon={TrendingUp} label="Profitability Reports" />
                 )}
                 {MODULE_FLAGS.demand_forecast && (
