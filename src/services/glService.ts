@@ -153,8 +153,13 @@ export function getGLCashFlow(start: string, end: string): Promise<GLCashFlow> {
   return apiRequest<GLCashFlow>(`/gl/cash-flow?${params.toString()}`);
 }
 
-export function getGLAccounts(): Promise<GLAccount[]> {
-  return apiRequest<GLAccount[]>('/accounts/');
+export function getGLAccounts(options?: { includeInactive?: boolean }): Promise<GLAccount[]> {
+  const params = new URLSearchParams();
+  if (options?.includeInactive) {
+    params.set('include_inactive', 'true');
+  }
+  const qs = params.toString();
+  return apiRequest<GLAccount[]>(`/accounts/${qs ? `?${qs}` : ''}`);
 }
 
 export type GLAccountType = 'asset' | 'liability' | 'equity' | 'revenue' | 'expense';

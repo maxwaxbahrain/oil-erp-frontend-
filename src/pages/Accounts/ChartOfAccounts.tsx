@@ -11,6 +11,7 @@ import {
     Plus,
     Pencil,
     Ban,
+    RotateCcw,
 } from 'lucide-react';
 import {
     createAccount,
@@ -230,6 +231,7 @@ export default function ChartOfAccounts() {
     const [error, setError] = useState<string | null>(null);
     const [search, setSearch] = useState('');
     const [categoryFilter, setCategoryFilter] = useState<string>('All');
+    const [showInactive, setShowInactive] = useState(false);
 
     const [modalOpen, setModalOpen] = useState(false);
     const [editingAccount, setEditingAccount] = useState<GLAccount | null>(null);
@@ -247,7 +249,7 @@ export default function ChartOfAccounts() {
         const asOf = todayISO();
         try {
             const [accounts, tb] = await Promise.all([
-                getGLAccounts(),
+                getGLAccounts({ includeInactive: showInactive }),
                 getGLTrialBalance(asOf),
             ]);
             setGlAccounts(accounts);
@@ -259,7 +261,7 @@ export default function ChartOfAccounts() {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [showInactive]);
 
     useEffect(() => {
         void loadGl();
@@ -326,7 +328,7 @@ export default function ChartOfAccounts() {
 
     const handleDeactivate = async (account: GLAccount) => {
         const ok = window.confirm(
-            `Deactivate account "${account.name}" (${account.code})?\n\nThis account will be hidden. Reactivating currently requires an administrator.`,
+            `Deactivate account "${account.name}" (${account.code})?\n\nThis account will be hidden until you turn on "Show inactive" and reactivate it.`,
         );
         if (!ok) return;
         setActionError(null);
@@ -338,9 +340,22 @@ export default function ChartOfAccounts() {
         }
     };
 
+    const handleReactivate = async (account: GLAccount) => {
+        setActionError(null);
+        try {
+            await patchAccount(account.id, { is_active: true });
+            await loadGl();
+        } catch (err) {
+            setActionError(formatSubmitError(err));
+        }
+    };
+
     const joinedRows = useMemo(
-        () => joinAccountsWithTb(glAccounts, trialBalance?.accounts ?? []),
-        [glAccounts, trialBalance],
+        () => {
+            const accounts = showInactive ? glAccounts : glAccounts.filter(a => a.is_active);
+            return joinAccountsWithTb(accounts, trialBalance?.accounts ?? []);
+        },
+        [glAccounts, trialBalance, showInactive],
     );
 
     const parentOptions = useMemo(
@@ -522,6 +537,15 @@ export default function ChartOfAccounts() {
                         <option key={cat} value={cat}>{cat}</option>
                     ))}
                 </select>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: 'var(--color-redwood-text-muted)', cursor: 'pointer', userSelect: 'none' }}>
+                    <input
+                        type="checkbox"
+                        checked={showInactive}
+                        onChange={e => setShowInactive(e.target.checked)}
+                        style={{ accentColor: '#4F8EF7' }}
+                    />
+                    Show inactive
+                </label>
             </div>
 
             {/* Main table — grouped by category */}
@@ -585,12 +609,16 @@ export default function ChartOfAccounts() {
                                         </thead>
                                         <tbody>
                                             {rows.map(row => {
+                                                const inactive = !row.account.is_active;
                                                 const system = isSystemOrGlobalAccount(row.account);
                                                 const editable = isEditableAccount(row.account);
                                                 return (
                                                 <tr
                                                     key={row.account.id}
-                                                    style={{ transition: 'background .15s' }}
+                                                    style={{
+                                                        transition: 'background .15s',
+                                                        opacity: inactive ? 0.55 : 1,
+                                                    }}
                                                     onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-redwood-row-hover)'; }}
                                                     onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
                                                 >
@@ -614,6 +642,21 @@ export default function ChartOfAccounts() {
                                                                 System
                                                             </span>
                                                         )}
+                                                        {inactive && (
+                                                            <span style={{
+                                                                display: 'inline-block',
+                                                                marginLeft: 6,
+                                                                fontSize: 8,
+                                                                fontWeight: 700,
+                                                                padding: '1px 6px',
+                                                                borderRadius: 999,
+                                                                background: 'rgba(239,68,68,.15)',
+                                                                color: '#FCA5A5',
+                                                                verticalAlign: 'middle',
+                                                            }}>
+                                                                Inactive
+                                                            </span>
+                                                        )}
                                                     </td>
                                                     <td style={{ ...tdStyle, fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>
                                                         {row.account.type}
@@ -631,7 +674,7 @@ export default function ChartOfAccounts() {
                                                         {Math.abs(row.balance) < 0.01 ? '—' : formatUsd(row.balance)}
                                                     </td>
                                                     <td style={{ ...tdStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                                                        {editable && (
+                                                        {editable && row.account.is_active && (
                                                             <>
                                                                 <button type="button" title="Edit" onClick={() => openEditModal(row.account)} style={{ ...ghostBtn, display: 'inline-flex', padding: '4px 8px', marginLeft: 4 }}>
                                                                     <Pencil size={11} />
@@ -640,6 +683,11 @@ export default function ChartOfAccounts() {
                                                                     <Ban size={11} />
                                                                 </button>
                                                             </>
+                                                        )}
+                                                        {editable && inactive && (
+                                                            <button type="button" title="Reactivate" onClick={() => void handleReactivate(row.account)} style={{ ...ghostBtn, display: 'inline-flex', padding: '4px 8px', marginLeft: 4 }}>
+                                                                <RotateCcw size={11} /> Reactivate
+                                                            </button>
                                                         )}
                                                     </td>
                                                 </tr>
