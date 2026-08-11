@@ -142,6 +142,7 @@ export default function SalesOrderFormPage() {
   const [paymentMethod, setPaymentMethod] = useState<'Cash' | 'Credit' | 'Cheque'>('Cash');
   const [paymentDueDays, setPaymentDueDays] = useState<number>(0);
   const [paymentNotes, setPaymentNotes] = useState('');
+  const [taxRate, setTaxRate] = useState(0);
   // ITEM 12 — salesman dropdown state + quick-add. Save still goes out
   // as `salesman_name`, resolved from the selected id at submit time.
   const [salesmen, setSalesmen] = useState<Salesman[]>(() => getSalesmen());
@@ -303,9 +304,12 @@ export default function SalesOrderFormPage() {
       .slice(0, 20);
   }, [products, productQuery]);
 
-  const subtotal = lines.reduce((s, l) => s + l.total, 0);
-  const tax = 0;
-  const total = subtotal + tax;
+  const subtotal = useMemo(() => lines.reduce((s, l) => s + l.total, 0), [lines]);
+  const tax = useMemo(
+    () => Math.round((subtotal * taxRate) / 100 * 100) / 100,
+    [subtotal, taxRate],
+  );
+  const total = useMemo(() => subtotal + tax, [subtotal, tax]);
 
   function addProduct(p: Product) {
     const unit = Number(p.unit_price) || 0;
@@ -1013,9 +1017,33 @@ export default function SalesOrderFormPage() {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-gray-100 bg-white shadow-sm p-5 flex justify-between items-center">
-        <span className="font-black text-gray-800  text-sm">Total</span>
-        <span className="text-2xl font-black tabular-nums text-gray-900">{formatMoney(total)}</span>
+      {/* Totals — mirrors QuotationFormPage.tsx grid (Subtotal / Tax % / Tax amount / Total) */}
+      <div className="rounded-2xl border border-gray-100 bg-white shadow-sm p-5 space-y-4">
+        <div>
+          <label className="block text-[10px] font-black text-gray-500 mb-1.5">Tax %</label>
+          <input
+            type="number"
+            step="0.01"
+            min={0}
+            value={taxRate}
+            onChange={(e) => setTaxRate(Math.max(0, Number(e.target.value) || 0))}
+            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-[#4F8EF7]/25 focus:border-[#4F8EF7] outline-none bg-white"
+          />
+        </div>
+        <div className="space-y-2 pt-2 border-t border-gray-100">
+          <div className="flex justify-between items-center">
+            <span className="font-black text-gray-800 text-sm">Subtotal</span>
+            <span className="font-mono font-bold tabular-nums text-gray-900">{formatMoney(subtotal)}</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="font-black text-gray-800 text-sm">Tax</span>
+            <span className="font-mono font-bold tabular-nums text-gray-900">{formatMoney(tax)}</span>
+          </div>
+          <div className="flex justify-between items-center pt-2 border-t border-gray-100">
+            <span className="font-black text-gray-800 text-sm">Total</span>
+            <span className="text-2xl font-black tabular-nums text-gray-900">{formatMoney(total)}</span>
+          </div>
+        </div>
       </div>
 
       <div

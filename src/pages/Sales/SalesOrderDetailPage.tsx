@@ -359,9 +359,19 @@ export default function SalesOrderDetailPage() {
             </li>
           ))}
         </ul>
-        <div className="flex justify-between items-center pt-5 mt-2 border-t-2 border-gray-100">
-          <span className="font-black text-gray-800 uppercase tracking-wide text-sm">Total</span>
-          <span className="text-2xl font-black tabular-nums text-gray-900">{formatMoney(order.total)}</span>
+        <div className="space-y-3 pt-5 mt-2 border-t-2 border-gray-100">
+          <div className="flex justify-between items-center">
+            <span className="font-black text-gray-800 uppercase tracking-wide text-sm">Subtotal</span>
+            <span className="font-mono font-bold tabular-nums text-gray-900">{formatMoney(order.subtotal)}</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="font-black text-gray-800 uppercase tracking-wide text-sm">Tax</span>
+            <span className="font-mono font-bold tabular-nums text-gray-900">{formatMoney(order.tax)}</span>
+          </div>
+          <div className="flex justify-between items-center pt-2 border-t border-gray-100">
+            <span className="font-black text-gray-800 uppercase tracking-wide text-sm">Total</span>
+            <span className="text-2xl font-black tabular-nums text-gray-900">{formatMoney(order.total)}</span>
+          </div>
         </div>
         {order.notes && (
           <p className="mt-5 text-sm text-gray-700 whitespace-pre-wrap border border-gray-100 rounded-xl p-4 bg-gray-50/50 font-semibold leading-relaxed">
