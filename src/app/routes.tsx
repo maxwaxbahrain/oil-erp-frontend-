@@ -12,6 +12,10 @@ import ForgotPasswordPage from '../pages/ForgotPasswordPage';
 import ResetPasswordPage from '../pages/ResetPasswordPage';
 import LandingPage from '../pages/LandingPage';
 import PrivacyPolicy from '../pages/PrivacyPolicy';
+import TermsOfService from '../pages/TermsOfService';
+import SubProcessors from '../pages/SubProcessors';
+import DataDeletion from '../pages/DataDeletion';
+import SecurityIncident from '../pages/SecurityIncident';
 import BillingPage from '../pages/BillingPage';
 import BillingCheckoutSuccess from '../pages/Billing/BillingCheckoutSuccess';
 import BillingCheckoutCancel from '../pages/Billing/BillingCheckoutCancel';
@@ -104,7 +108,6 @@ import AIHubDashboard from '../pages/AIHub/AIHubDashboard';
 import AutoPOGeneration from '../pages/AI/AutoPOGeneration';
 import AnomalyDetection from '../pages/AI/AnomalyDetection';
 import AgentHub from '../pages/Agents/AgentHub';
-import UserAccessManagement from '../pages/UserManagement/UserAccessManagement';
 import NewsIntelligence from '../pages/News/NewsIntelligence';
 import MarketingHub from '../pages/Marketing/MarketingHub';
 import CreditIntelligence from '../pages/Credit/CreditIntelligence';
@@ -171,21 +174,57 @@ const PlaceholderPage = ({ title }: { title: string }) => (
     </div>
 );
 
+const ModuleUnavailable = ({
+    title,
+    description,
+    alternateHref,
+    alternateLabel,
+}: {
+    title: string;
+    description: string;
+    alternateHref?: string;
+    alternateLabel?: string;
+}) => (
+    <div className="flex flex-col items-center justify-center h-[60vh] text-center p-8 bg-white rounded-xl border border-redwood-border/30">
+        <h2 className="text-xl font-black text-redwood-text-main mb-3">{title}</h2>
+        <p className="text-redwood-text-muted max-w-lg mb-6">{description}</p>
+        {alternateHref && alternateLabel ? (
+            <Link
+                to={alternateHref}
+                className="px-4 py-2 rounded-lg bg-redwood-brand text-white text-sm font-semibold hover:opacity-90"
+            >
+                {alternateLabel}
+            </Link>
+        ) : null}
+    </div>
+);
+
 /** D3.0.5 — shown when MODULE_FLAGS.sales_returns is false. Flip flag to restore real pages. */
 const SalesReturnsUnavailable = () => (
-    <div className="flex flex-col items-center justify-center h-[60vh] text-center p-8 bg-white rounded-xl border border-redwood-border/30">
-        <h2 className="text-xl font-black text-redwood-text-main mb-3">Sales Returns</h2>
-        <p className="text-redwood-text-muted max-w-lg mb-6">
-            Sales Returns is temporarily unavailable while we complete an accounting
-            fix. Please use Credit Notes instead.
-        </p>
-        <Link
-            to="/sales/credit-notes"
-            className="px-4 py-2 rounded-lg bg-redwood-brand text-white text-sm font-semibold hover:opacity-90"
-        >
-            Go to Credit Notes
-        </Link>
-    </div>
+    <ModuleUnavailable
+        title="Sales Returns"
+        description="Sales Returns is temporarily unavailable while we complete an accounting fix. Please use Credit Notes instead."
+        alternateHref="/sales/credit-notes"
+        alternateLabel="Go to Credit Notes"
+    />
+);
+
+const FinanceAccountingUnavailable = () => (
+    <ModuleUnavailable
+        title="Accounting"
+        description="This dashboard is temporarily unavailable while we align it with GL-backed reporting. Use Trial Balance, Financial Statement, or Profitability Analysis instead."
+        alternateHref="/reports/trial-balance"
+        alternateLabel="Go to Trial Balance"
+    />
+);
+
+const FinanceBankingUnavailable = () => (
+    <ModuleUnavailable
+        title="Banking"
+        description="Banking is temporarily unavailable while we align cash views with the general ledger. Use Financial Statement or Day Book instead."
+        alternateHref="/finance/financial-statement"
+        alternateLabel="Go to Financial Statement"
+    />
 );
 
 export const AppRoutes = () => {
@@ -193,6 +232,10 @@ export const AppRoutes = () => {
         <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/privacy" element={<PrivacyPolicy />} />
+            <Route path="/terms" element={<TermsOfService />} />
+            <Route path="/sub-processors" element={<SubProcessors />} />
+            <Route path="/data-deletion" element={<DataDeletion />} />
+            <Route path="/security" element={<SecurityIncident />} />
             <Route path="/signup" element={isStaging ? <Navigate to="/login" replace /> : <SignupPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
@@ -310,9 +353,15 @@ export const AppRoutes = () => {
             <Route element={<ProtectedRoute roles={FINANCE_ROLES} />}>
             <Route path="/finance/dashboard" element={<FinanceDashboard />} />
             <Route path="/finance/payroll" element={<PayrollManagement />} />
-            <Route path="/finance/accounting" element={<AccountsDashboard />} />
+            <Route
+                path="/finance/accounting"
+                element={MODULE_FLAGS.finance_accounting_dashboard ? <AccountsDashboard /> : <FinanceAccountingUnavailable />}
+            />
             <Route path="/finance/opening-balances" element={<OpeningBalances />} />
-            <Route path="/finance/banking" element={<Banking />} />
+            <Route
+                path="/finance/banking"
+                element={MODULE_FLAGS.finance_banking ? <Banking /> : <FinanceBankingUnavailable />}
+            />
             <Route path="/finance/chart-of-accounts" element={<ChartOfAccounts />} />
             <Route path="/finance/journal-voucher" element={<JournalVoucher />} />
             <Route path="/finance/all-ledger" element={<AllAccountsLedger />} />
@@ -385,7 +434,6 @@ export const AppRoutes = () => {
             {/* Admin-only routes (tenant admin role) */}
             <Route element={<ProtectedRoute roles={['admin']} />}>
                 <Route path="/migrate" element={<DataMigration />} />
-                <Route path="/access-management" element={<UserAccessManagement />} />
                 <Route path="/users/dashboard" element={<OrgDashboard />} />
                 <Route path="/users/performance" element={<OrgPerformance />} />
                 <Route path="/users/hierarchy" element={<OrganizationChart />} />

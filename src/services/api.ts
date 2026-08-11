@@ -1,4 +1,5 @@
 import { ACCESS_TOKEN_KEY, authFetch } from '../api/axios';
+import { handlePaymentRequiredStatus } from '../api/paymentRequired';
 import { getOilErpApiBase } from '../config/apiBase';
 
 export const API_BASE_URL = getOilErpApiBase();
@@ -149,8 +150,10 @@ export interface PublicInvoicePayload {
   company_settings: {
     name: string;
     address: string;
-    city: string;
-    country: string;
+    city: string | null;
+    state: string | null;
+    postal_code: string | null;
+    country: string | null;
     phone: string;
     email: string;
     website: string;
@@ -444,6 +447,11 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
         return mockHandler<T>(endpoint, options);
       }
       const error = await response.json().catch(() => ({ detail: 'Request failed' }));
+      if (handlePaymentRequiredStatus(response.status, error.detail)) {
+        throw new Error(
+          typeof error.detail === 'string' ? error.detail : 'Your free trial has expired. Please upgrade to continue.',
+        );
+      }
       throw new Error(error.detail || `HTTP ${response.status}`);
     }
     return await response.json();
@@ -556,6 +564,20 @@ export const getOverdueCustomers = (): Promise<Customer[]> => apiRequest<Custome
 
 // Payment APIs
 export const getPayments = (): Promise<Payment[]> => apiRequest<Payment[]>('/payments');
+
+/** True for customer receipt rows from GET /api/payments (excludes expense-type transactions). */
+export function isCustomerPayment(p: Payment): boolean {
+  if (p.transaction_type === 'expense') return false;
+  if (p.transaction_type === 'payment') return true;
+  const cid = String(p.customer_id ?? '').trim();
+  return cid.length > 0;
+}
+
+/** Customer payments only — use for AR FIFO, cash collected, and paid-this-month KPIs. */
+export async function getCustomerPayments(): Promise<Payment[]> {
+  const all = await getPayments();
+  return all.filter(isCustomerPayment);
+}
 /** Record payment against customer ledger (backend `PaymentCreate`: customer_id, amount, mode, reference, date). */
 export const createPayment = (data: any): Promise<any> => {
   const customer_id = parseInt(String(data.customer_id), 10);
@@ -1079,7 +1101,7 @@ export async function convertOrderToInvoice(orderId: string): Promise<Invoice> {
 // PAYMENT FUNCTIONS
 // ============================================
 
-export async function getCustomerPayments(customerId: string): Promise<Payment[]> {
+export async function getPaymentsForCustomer(customerId: string): Promise<Payment[]> {
   const allPayments = getStorage<Payment>('payments');
   return allPayments.filter(p => p.customer_id === customerId);
 }
@@ -1113,7 +1135,7 @@ export async function getUnpaidInvoices(customerId: string): Promise<Invoice[]> 
 // Get customer's advance payment balance
 export async function getCustomerAdvanceBalance(customerId: string): Promise<number> {
   try {
-    const payments = await getCustomerPayments(customerId);
+    const payments = await getPaymentsForCustomer(customerId);
     const advancePayments = payments.filter(p => p.is_advance && !p.invoice_id);
     return advancePayments.reduce((sum, p) => sum + p.amount, 0);
   } catch (error) {

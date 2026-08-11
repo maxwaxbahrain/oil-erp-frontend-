@@ -1,6 +1,9 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { Upload, CheckCircle, RefreshCw, Trash2, Users, Package, FileText, CreditCard, TrendingUp, Zap, AlertTriangle } from 'lucide-react';
+import { Upload, CheckCircle, RefreshCw, Trash2, Users, Package, FileText, CreditCard, TrendingUp, Zap, AlertTriangle, Database } from 'lucide-react';
 import api from '../../api/axios';
+
+/** Clear All hidden — backend only wipes customers, full children-first wipe deferred (Phase C). */
+const SHOW_CLEAR_ALL = false;
 
 interface LogEntry { time: string; msg: string; type: 'info' | 'success' | 'error' | 'warn'; }
 interface Results {
@@ -63,8 +66,65 @@ const MAX_CONSECUTIVE_POLL_FAILURES = 30;
 const STALL_MINUTES = 10;
 
 /** BETTANO.db self-check: Receipt→Sales rows in bill_receipt_payment (verified offline). */
-const PAYMENT_ALLOCATION_EXPECTED_ROWS = 983;
-const PAYMENT_ALLOCATION_EXPECTED_TOTAL = 379814.03;
+const VERIFIED_PROFILES = [
+    { id: 'legacy-sqlite-jul11', rows: 983, total: 379814.03, label: 'Verified reference file' },
+] as const;
+
+const matchVerifiedProfile = (
+    allocationRows: number,
+    allocationTotal: number,
+): (typeof VERIFIED_PROFILES)[number] | null =>
+    VERIFIED_PROFILES.find(
+        (profile) =>
+            allocationRows === profile.rows
+            && Math.abs(allocationTotal - profile.total) < 0.01,
+    ) ?? null;
+
+/** C3.1a — required for correct AR books. Optional tables warn only, never block. */
+const REQUIRED_SCHEMA: Record<string, readonly string[]> = {
+    account_detail: ['aname', 'a_type', 'status'],
+    vouchers: ['v_id', 'v_type', 'amount', 'debit', 'credit', 'date', 'vch_no'],
+    bill_receipt_payment: ['r_p_v_id', 'b_v_id', 'amount'],
+};
+const OPTIONAL_SCHEMA_TABLES = ['purchases', 'sales', 'item_measure'] as const;
+
+interface SchemaProbeResult {
+    ok: boolean;
+    missingTables: string[];
+    missingColumns: Record<string, string[]>;
+    rowCounts: Record<string, number>;
+    warnings: string[];
+}
+
+interface ImportPreview {
+    fileName: string;
+    sourceFormat: 'sqlite' | 'csv';
+    /** CSV only — header excluded. */
+    csvDataRows?: number;
+    counts: {
+        customers: number;
+        products: number;
+        suppliers: number;
+        invoices: number;
+        payments: number;
+        paymentAllocations: number;
+        salesReturns: number;
+        purchaseOrders: number;
+        supplierPayments: number;
+    };
+    totals: {
+        totalAR: number;
+        totalAP: number;
+        totalInvoiced: number;
+        totalReceived: number;
+        allocationTotal: number;
+    };
+    dateRange: { earliest: string | null; latest: string | null };
+    probeRowCounts: Record<string, number>;
+    probeWarnings: string[];
+    matchedProfileId: string | null;
+    matchedProfileLabel: string | null;
+}
 
 const ts = () => new Date().toLocaleTimeString();
 
@@ -113,6 +173,25 @@ const formatPhaseLabel = (phase: string): string =>
 const formatGlEntityLabel = (key: string): string =>
     key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
+const formatMigrationMoney = (amount: number): string =>
+    amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const previewCountLabel = (
+    preview: ImportPreview,
+    key: keyof ImportPreview['counts'],
+): string => {
+    if (preview.sourceFormat === 'csv' && key !== 'customers') return '—';
+    return preview.counts[key].toLocaleString();
+};
+
+const previewMoneyLabel = (
+    preview: ImportPreview,
+    key: keyof ImportPreview['totals'],
+): string => {
+    if (preview.sourceFormat === 'csv' && key !== 'totalAR') return '—';
+    return `$${formatMigrationMoney(preview.totals[key])}`;
+};
+
 const formatGlEntitySummary = (stats: GlImportStats): string => {
     const parts: string[] = [];
     if (stats.posted) parts.push(`${stats.posted} posted`);
@@ -150,6 +229,8 @@ export default function DataMigration() {
     const [completeness, setCompleteness] = useState<ImportCompleteness | null>(null);
     const [done, setDone] = useState(false);
     const [importFailed, setImportFailed] = useState(false);
+    const [importFailureIdempotencyNote, setImportFailureIdempotencyNote] = useState(false);
+    const [pendingImport, setPendingImport] = useState<{ data: Record<string, unknown>; preview: ImportPreview } | null>(null);
 
     const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const consecutivePollFailuresRef = useRef(0);
@@ -185,7 +266,7 @@ export default function DataMigration() {
         document.head.appendChild(s);
     });
 
-    const extractAllData = async (buf: ArrayBuffer) => {
+    const extractAllData = async (buf: ArrayBuffer, fileName: string) => {
         const initSqlJs = await loadSqlJs();
         const SQL = await initSqlJs({ locateFile: (fn: string) => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/${fn}` });
         const db = new SQL.Database(new Uint8Array(buf));
@@ -197,6 +278,86 @@ export default function DataMigration() {
                 return r[0].values.map((row: any[]) => Object.fromEntries(r[0].columns.map((c: string, i: number) => [c, row[i]])));
             } catch { return []; }
         };
+
+        // C3.1a — same row mapping as q, but SQL errors throw (empty result still []).
+        const qStrict = (sql: string) => {
+            const r = db.exec(sql);
+            if (!r[0]) return [];
+            return r[0].values.map((row: any[]) => Object.fromEntries(r[0].columns.map((c: string, i: number) => [c, row[i]])));
+        };
+
+        const probeSchema = (_database: typeof db): SchemaProbeResult => {
+            const missingTables: string[] = [];
+            const missingColumns: Record<string, string[]> = {};
+            const rowCounts: Record<string, number> = {};
+            const warnings: string[] = [];
+
+            const existing = new Set(
+                qStrict(`SELECT name FROM sqlite_master WHERE type='table'`).map((row: { name?: unknown }) => String(row.name)),
+            );
+
+            for (const [table, requiredCols] of Object.entries(REQUIRED_SCHEMA)) {
+                if (!existing.has(table)) {
+                    missingTables.push(table);
+                    continue;
+                }
+                const presentCols = new Set(
+                    qStrict(`PRAGMA table_info(${table})`).map((row: { name?: unknown }) => String(row.name)),
+                );
+                const missing = requiredCols.filter((col) => !presentCols.has(col));
+                if (missing.length > 0) missingColumns[table] = missing;
+
+                const count = Number(qStrict(`SELECT COUNT(*) AS c FROM ${table}`)[0]?.c ?? 0);
+                rowCounts[table] = count;
+                if (count === 0) {
+                    warnings.push(`Table '${table}' exists but has 0 rows — import will skip that entity.`);
+                }
+            }
+
+            for (const table of OPTIONAL_SCHEMA_TABLES) {
+                if (!existing.has(table)) {
+                    warnings.push(`Optional table '${table}' is missing — related entities will be skipped.`);
+                    continue;
+                }
+                const count = Number(qStrict(`SELECT COUNT(*) AS c FROM ${table}`)[0]?.c ?? 0);
+                rowCounts[table] = count;
+                if (count === 0) {
+                    warnings.push(`Optional table '${table}' exists but has 0 rows — related entities will be skipped.`);
+                }
+            }
+
+            return {
+                ok: missingTables.length === 0 && Object.keys(missingColumns).length === 0,
+                missingTables,
+                missingColumns,
+                rowCounts,
+                warnings,
+            };
+        };
+
+        const probe = probeSchema(db);
+        if (!probe.ok) {
+            for (const table of probe.missingTables) {
+                log(`Missing required table: ${table}`, 'error');
+            }
+            for (const [table, cols] of Object.entries(probe.missingColumns)) {
+                log(`Missing columns on ${table}: ${cols.join(', ')}`, 'error');
+            }
+            const missingList = [
+                ...probe.missingTables,
+                ...Object.entries(probe.missingColumns).map(([table, cols]) => `${table}(${cols.join(', ')})`),
+            ].join(', ');
+            throw new Error(
+                `Unsupported export format. Missing: ${missingList}. SOLTOL currently supports SQLite exports from Soltol / Tally-style packages (required tables: account_detail, vouchers, bill_receipt_payment).`,
+            );
+        }
+        log('Schema OK', 'success');
+        for (const [table, count] of Object.entries(probe.rowCounts)) {
+            log(`${table}: ${count} rows`, 'info');
+        }
+        for (const warning of probe.warnings) {
+            log(warning, 'warn');
+        }
 
         log('Calculating real outstanding balances...', 'info');
         const custRows = q(`SELECT aname, address, phone, email_id, op_bal, credit_limit FROM account_detail WHERE (a_type LIKE '%Debtors%' OR a_type LIKE '%Customer%') AND status=1`);
@@ -217,7 +378,7 @@ export default function DataMigration() {
         const customers = custRows.map((r: any) => {
             const name = String(r.aname || '').trim();
             const bal = balMap[name] ?? 0;
-            return { name: name.slice(0, 150), address: String(r.address || '').trim().slice(0, 300) || null, phone: String(r.phone || '').trim().slice(0, 50) || null, email: null, opening_balance: parseMigrationNum(r.op_bal), balance: bal, credit_limit: parseMigrationNum(r.credit_limit), category: 'retail', notes: `BETTANO | Owes: $${bal.toFixed(2)}` };
+            return { name: name.slice(0, 150), address: String(r.address || '').trim().slice(0, 300) || null, phone: String(r.phone || '').trim().slice(0, 50) || null, email: null, opening_balance: parseMigrationNum(r.op_bal), balance: bal, credit_limit: parseMigrationNum(r.credit_limit), category: 'retail', notes: `Legacy import | Owes: $${bal.toFixed(2)}` };
         }).filter((c: any) => c.name);
 
         log(`👥 ${customers.length} customers — real outstanding balances calculated`, 'success');
@@ -237,7 +398,7 @@ export default function DataMigration() {
             const name = String(r.aname || '').trim();
             const apBal = suppBalMap[name] ?? 0;
             const remark = String(r.remarks || '').trim();
-            const notesParts = [`BETTANO | AP: $${apBal.toFixed(2)}`];
+            const notesParts = [`Legacy import | AP: $${apBal.toFixed(2)}`];
             if (remark) notesParts.push(remark);
             return {
                 name: name.slice(0, 150),
@@ -283,7 +444,7 @@ export default function DataMigration() {
                     tax_total: 0,
                     grand_total: grand,
                     amount_paid: 0,
-                    notes: 'BETTANO import',
+                    notes: 'Legacy import',
                     items,
                 };
             });
@@ -297,7 +458,7 @@ export default function DataMigration() {
                 reference: String(p.vch_no || '').slice(0, 100),
                 amount: parseMigrationNum(p.amount),
                 payment_method: 'Bank Transfer',
-                notes: `BETTANO import · ${String(p.bank || '').trim()}`,
+                notes: `Legacy import · ${String(p.bank || '').trim()}`,
             }));
 
         const prodRows = q(`SELECT item, units_name, sku, item_desc, defaultsellingprice, defaultpurchaseprice FROM item_measure WHERE item IS NOT NULL AND TRIM(item) != '' ORDER BY item ASC, units_name ASC`);
@@ -384,15 +545,11 @@ export default function DataMigration() {
             })
             .filter((a: any): a is { payment_reference: string; invoice_number: string; amount: number } => a !== null);
         const paymentAllocTotal = payment_allocations.reduce((sum: number, a: { payment_reference: string; invoice_number: string; amount: number }) => sum + a.amount, 0);
+        const matchedProfile = matchVerifiedProfile(payment_allocations.length, paymentAllocTotal);
         log(
-            `💳 ${payment_allocations.length} payment allocation rows ($${paymentAllocTotal.toFixed(2)} total; expected ${PAYMENT_ALLOCATION_EXPECTED_ROWS} rows / $${PAYMENT_ALLOCATION_EXPECTED_TOTAL.toFixed(2)})`,
-            payment_allocations.length === PAYMENT_ALLOCATION_EXPECTED_ROWS ? 'success' : 'error',
+            `💳 ${payment_allocations.length} payment allocation rows ($${paymentAllocTotal.toFixed(2)} total${matchedProfile ? `; matches verified profile "${matchedProfile.label}"` : ''})`,
+            matchedProfile ? 'success' : 'info',
         );
-        if (payment_allocations.length !== PAYMENT_ALLOCATION_EXPECTED_ROWS) {
-            throw new Error(
-                `payment_allocations self-check failed: expected exactly ${PAYMENT_ALLOCATION_EXPECTED_ROWS} Receipt→Sales rows, got ${payment_allocations.length}. This may not be the verified BETTANO.db — import stopped.`,
-            );
-        }
 
         const debtorNameSet = new Set(customers.map((c: any) => c.name));
         const srRows = q(`SELECT date, vch_no, debit, credit, amount, narration FROM vouchers WHERE v_type='Sales Return' ORDER BY date`);
@@ -409,6 +566,65 @@ export default function DataMigration() {
             };
         }).filter((sr: any) => sr.customer_name && sr.amount > 0);
 
+        const dateBounds = q(
+            `SELECT MIN(date) AS earliest, MAX(date) AS latest FROM vouchers WHERE date IS NOT NULL AND TRIM(date) != ''`,
+        );
+        const earliestRaw = dateBounds[0]?.earliest;
+        const latestRaw = dateBounds[0]?.latest;
+        const earliest =
+            earliestRaw !== null && earliestRaw !== undefined && String(earliestRaw).trim()
+                ? String(earliestRaw)
+                : null;
+        const latest =
+            latestRaw !== null && latestRaw !== undefined && String(latestRaw).trim()
+                ? String(latestRaw)
+                : null;
+
+        const totalAR = customers.reduce(
+            (sum: number, c: { balance?: number }) => sum + parseMigrationNum(c.balance),
+            0,
+        );
+        const totalAP = Object.values(suppBalMap).reduce(
+            (sum: number, bal: number) => sum + parseMigrationNum(bal),
+            0,
+        );
+        const totalInvoiced = invoices.reduce(
+            (sum: number, inv: { amount?: number }) => sum + parseMigrationNum(inv.amount),
+            0,
+        );
+        const totalReceived = payments.reduce(
+            (sum: number, p: { amount?: number }) => sum + parseMigrationNum(p.amount),
+            0,
+        );
+
+        const preview: ImportPreview = {
+            fileName,
+            sourceFormat: 'sqlite',
+            counts: {
+                customers: customers.length,
+                products: products.length,
+                suppliers: suppliers.length,
+                invoices: invoices.length,
+                payments: payments.length,
+                paymentAllocations: payment_allocations.length,
+                salesReturns: sales_returns.length,
+                purchaseOrders: purchase_orders.length,
+                supplierPayments: supplier_payments.length,
+            },
+            totals: {
+                totalAR: Math.round(totalAR * 100) / 100,
+                totalAP: Math.round(totalAP * 100) / 100,
+                totalInvoiced: Math.round(totalInvoiced * 100) / 100,
+                totalReceived: Math.round(totalReceived * 100) / 100,
+                allocationTotal: paymentAllocTotal,
+            },
+            dateRange: { earliest, latest },
+            probeRowCounts: { ...probe.rowCounts },
+            probeWarnings: [...probe.warnings],
+            matchedProfileId: matchedProfile?.id ?? null,
+            matchedProfileLabel: matchedProfile?.label ?? null,
+        };
+
         db.close();
         const stockedCount = products.filter((p: any) => (p.stock ?? 0) > 0).length;
         const paidInvoices = invoices.filter((i: any) => i.status === 'paid').length;
@@ -416,11 +632,26 @@ export default function DataMigration() {
         const unpaidInvoices = invoices.filter((i: any) => i.status === 'unpaid').length;
         log(`📦 ${products.length} products (${stockedCount} with stock from purchases−sales), ${suppliers.length} suppliers, ${invoices.length} invoices (${paidInvoices} paid / ${partialInvoices} partial / ${unpaidInvoices} unpaid), ${payments.length} payments, ${sales_returns.length} sales returns`, 'info');
         log(`🛒 ${purchase_orders.length} supplier POs, ${supplier_payments.length} supplier payments`, 'info');
-        return { customers, suppliers, products, invoices, payments, payment_allocations, sales_returns, purchase_orders, supplier_payments };
+        log(
+            `📊 Parsed: ${preview.counts.customers} customers, ${preview.counts.invoices} invoices, AR $${preview.totals.totalAR.toFixed(2)}, allocations $${preview.totals.allocationTotal.toFixed(2)}`,
+            'success',
+        );
+        return {
+            customers,
+            suppliers,
+            products,
+            invoices,
+            payments,
+            payment_allocations,
+            sales_returns,
+            purchase_orders,
+            supplier_payments,
+            __preview: preview,
+        };
     };
 
 
-    const parseCsv = async (text: string) => {
+    const parseCsv = (text: string, fileName: string) => {
         const rows = text.split(/\r?\n/).filter(l => l.trim());
         if (rows.length < 2) throw new Error('CSV needs a header row + data');
         const headers = rows[0].split(',').map(h => h.trim().toLowerCase().replace(/['"]/g, ''));
@@ -434,7 +665,49 @@ export default function DataMigration() {
             const get = (f: string) => f ? v[headers.indexOf(f)] || '' : '';
             return { name: get(nf), email: null, phone: get(pf) || null, address: get(af) || null, balance: parseMigrationNum(get(bf)), opening_balance: parseMigrationNum(get(bf)), category: 'retail', notes: 'CSV import' };
         }).filter(c => c.name);
-        return { customers, suppliers: [], products: [], invoices: [], payments: [] };
+        const csvDataRows = rows.length - 1;
+        const totalAR = customers.reduce(
+            (sum, c) => sum + parseMigrationNum(c.balance),
+            0,
+        );
+        const preview: ImportPreview = {
+            fileName,
+            sourceFormat: 'csv',
+            csvDataRows,
+            counts: {
+                customers: customers.length,
+                products: 0,
+                suppliers: 0,
+                invoices: 0,
+                payments: 0,
+                paymentAllocations: 0,
+                salesReturns: 0,
+                purchaseOrders: 0,
+                supplierPayments: 0,
+            },
+            totals: {
+                totalAR: Math.round(totalAR * 100) / 100,
+                totalAP: 0,
+                totalInvoiced: 0,
+                totalReceived: 0,
+                allocationTotal: 0,
+            },
+            dateRange: { earliest: null, latest: null },
+            probeRowCounts: {},
+            probeWarnings: [
+                'CSV import includes customers only — invoices, payments, products, and GL data are not parsed from this format.',
+            ],
+            matchedProfileId: null,
+            matchedProfileLabel: null,
+        };
+        return {
+            customers,
+            suppliers: [],
+            products: [],
+            invoices: [],
+            payments: [],
+            __preview: preview,
+        };
     };
 
     const summarizeBackendResults = useCallback((backendResults: BackendImportResults) => {
@@ -543,9 +816,14 @@ export default function DataMigration() {
         }
     }, [log, prog, summarizeBackendResults]);
 
-    const finishImportFailure = useCallback((message: string) => {
+    const finishImportFailure = useCallback((
+        message: string,
+        options?: { showIdempotencyNote?: boolean },
+    ) => {
+        const showIdempotencyNote = options?.showIdempotencyNote ?? true;
         stopPolling();
         setImportFailed(true);
+        setImportFailureIdempotencyNote(showIdempotencyNote);
         setDone(false);
         setResults(null);
         setTieOut(null);
@@ -554,7 +832,9 @@ export default function DataMigration() {
         setCompleteness(null);
         prog(0, '');
         log(`❌ Import failed: ${message}`, 'error');
-        log('ℹ️ Do not re-upload the same file — invoices and payments can duplicate. Only payment allocations are idempotent. Check back or contact support.', 'warn');
+        if (showIdempotencyNote) {
+            log('ℹ️ Safe to re-run: re-uploading the SAME file updates existing records instead of duplicating them. Uploading a DIFFERENT file will add its records to this tenant. Check back or contact support.', 'warn');
+        }
         setBusy(false);
     }, [log, prog, stopPolling]);
 
@@ -589,7 +869,7 @@ export default function DataMigration() {
             if (job.status === 'running' && job.updated_at && !stallWarnedRef.current) {
                 const ageMs = Date.now() - new Date(job.updated_at).getTime();
                 if (ageMs > STALL_MINUTES * 60 * 1000) {
-                    log('⚠️ No progress update for 10+ minutes — the job may still be running on the server. Do NOT re-upload (invoices/payments can duplicate). Check back later or contact support.', 'warn');
+                    log('⚠️ No progress update for 10+ minutes — the job may still be running on the server. Do NOT re-upload while it may still be in progress. Check back later or contact support.', 'warn');
                     stallWarnedRef.current = true;
                 }
             }
@@ -653,6 +933,48 @@ export default function DataMigration() {
         pollTimerRef.current = setInterval(() => pollImportStatus(jobId), POLL_INTERVAL_MS);
     }, [log, pollImportStatus, prog, stopPolling]);
 
+    const postToBackend = useCallback(async (data: Record<string, unknown>) => {
+        prog(12, 'Starting server import...');
+        log('⬆️ Sending to ERP backend...', 'info');
+
+        try {
+            const { data: asyncStart } = await api.post<{ job_id: number; status: string }>(
+                '/api/migrate/full-import-async',
+                data,
+            );
+            if (asyncStart?.job_id) {
+                startAsyncImport(asyncStart.job_id);
+                return;
+            }
+            throw new Error('Async import did not return a job id');
+        } catch (asyncErr: any) {
+            if (asyncErr?.response?.status === 404) {
+                await runSyncImport(data);
+                return;
+            }
+            throw asyncErr;
+        }
+    }, [log, prog, runSyncImport, startAsyncImport]);
+
+    const confirmImport = useCallback(async () => {
+        if (!pendingImport) return;
+        const { data } = pendingImport;
+        setPendingImport(null);
+        setBusy(true);
+        try {
+            await postToBackend(data);
+        } catch (e: any) {
+            stopPolling();
+            const msg = e?.response?.data?.detail || e?.message || 'Import failed';
+            finishImportFailure(typeof msg === 'string' ? msg : JSON.stringify(msg));
+        }
+    }, [finishImportFailure, pendingImport, postToBackend, stopPolling]);
+
+    const cancelImport = useCallback(() => {
+        setPendingImport(null);
+        log('✕ Import cancelled — nothing was written.', 'info');
+    }, [log]);
+
     const doImport = async () => {
         if (!file) return;
         stopPolling();
@@ -666,6 +988,7 @@ export default function DataMigration() {
         setCompleteness(null);
         setDone(false);
         setImportFailed(false);
+        setImportFailureIdempotencyNote(false);
         consecutivePollFailuresRef.current = 0;
         lastPhaseRef.current = null;
         stallWarnedRef.current = false;
@@ -673,38 +996,30 @@ export default function DataMigration() {
         try {
             prog(5, 'Reading file...');
             const ext = file.name.toLowerCase().split('.').pop() || '';
-            let data: Record<string, unknown>;
             if (ext === 'db' || ext === 'sqlite') {
                 prog(8, 'Opening database...');
-                log('📂 Opening BETTANO database...', 'info');
-                data = await extractAllData(await file.arrayBuffer());
+                log(`📂 Opening ${file.name}...`, 'info');
+                const extracted = await extractAllData(await file.arrayBuffer(), file.name);
+                const { __preview: importPreview, ...payload } = extracted;
+                setPendingImport({ data: payload, preview: importPreview });
+                log('⏸ Review the preview below, then Confirm to import.', 'info');
+                setBusy(false);
+                return;
             } else if (ext === 'csv' || ext === 'txt') {
                 prog(8, 'Parsing CSV...');
-                data = await parseCsv(await file.text());
-                log(`📋 Found ${(data.customers as unknown[])?.length ?? 0} customers in CSV`, 'info');
+                log(`📂 Parsing ${file.name}...`, 'info');
+                const extracted = parseCsv(await file.text(), file.name);
+                const { __preview: importPreview, ...payload } = extracted;
+                setPendingImport({ data: payload, preview: importPreview });
+                log(
+                    `📋 ${importPreview.csvDataRows ?? 0} data rows → ${importPreview.counts.customers} customers (AR $${importPreview.totals.totalAR.toFixed(2)})`,
+                    'info',
+                );
+                log('⏸ Review the preview below, then Confirm to import.', 'info');
+                setBusy(false);
+                return;
             } else {
                 throw new Error('For Excel: Save As → CSV first, then upload');
-            }
-
-            prog(12, 'Starting server import...');
-            log('⬆️ Sending to ERP backend...', 'info');
-
-            try {
-                const { data: asyncStart } = await api.post<{ job_id: number; status: string }>(
-                    '/api/migrate/full-import-async',
-                    data,
-                );
-                if (asyncStart?.job_id) {
-                    startAsyncImport(asyncStart.job_id);
-                    return;
-                }
-                throw new Error('Async import did not return a job id');
-            } catch (asyncErr: any) {
-                if (asyncErr?.response?.status === 404) {
-                    await runSyncImport(data);
-                    return;
-                }
-                throw asyncErr;
             }
         } catch (e: any) {
             stopPolling();
@@ -738,75 +1053,169 @@ export default function DataMigration() {
         : [];
 
     return (
-        <div className="max-w-3xl mx-auto px-4 pb-16 pt-4 space-y-4 animate-in fade-in duration-300">
-            <div className="rounded-2xl bg-gray-900 text-white p-6">
+        <div className="max-w-5xl mx-auto px-4 pb-16 pt-4 space-y-6 animate-in fade-in duration-300">
+            <div className="bg-white p-6 border border-redwood-border rounded-sm shadow-sm">
                 <div className="flex items-start justify-between gap-4 flex-wrap">
-                    <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-xl bg-orange-500/20 flex items-center justify-center"><Zap size={24} className="text-orange-400" /></div>
-                        <div>
-                            <h1 className="text-xl font-black uppercase tracking-tight">🤖 AI Data Migration</h1>
-                            <p className="text-gray-400 text-sm mt-0.5">Import customers, invoices, products — with correct balances</p>
+                    <div>
+                        <div className="flex items-center gap-3 mb-1">
+                            <Database size={20} className="text-redwood-brand" />
+                            <span className="text-[10px] font-black text-redwood-brand uppercase tracking-[0.2em]">Legacy data import</span>
                         </div>
+                        <h1 className="text-2xl font-black text-redwood-text-main tracking-tighter uppercase">Data Migration</h1>
+                        <p className="text-[10px] font-black text-redwood-text-muted uppercase tracking-[0.2em] mt-1">Import customers, invoices, products — with correct balances</p>
                     </div>
-                    <button onClick={clearAll} disabled={busy} className="flex items-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-xl text-sm font-black transition-all"><Trash2 size={14} /> Clear All</button>
+                    {SHOW_CLEAR_ALL ? (
+                        <button onClick={clearAll} disabled={busy} className="inline-flex items-center gap-2 px-4 py-2.5 border border-redwood-border text-brand-red hover:bg-red-50 disabled:opacity-50 rounded-sm text-[10px] font-black uppercase tracking-widest transition-all"><Trash2 size={14} /> Clear All</button>
+                    ) : null}
                 </div>
-                <div className="mt-3 bg-green-500/10 border border-green-500/20 rounded-xl px-4 py-2 text-green-300 text-xs font-bold">✅ Correct balance = Full customer ledger (all voucher types)</div>
+                <div className="mt-4 flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-sm px-4 py-2 text-emerald-700 text-[10px] font-black uppercase tracking-widest"><CheckCircle size={14} className="flex-shrink-0" /> Correct balance = Full customer ledger (all voucher types)</div>
             </div>
 
             <div className="grid grid-cols-5 gap-2">
                 {[{ icon: <Users size={14}/>, label: 'Customers', sub: 'Real balance' }, { icon: <Package size={14}/>, label: 'Products', sub: '+ Pricing' }, { icon: <FileText size={14}/>, label: 'Invoices', sub: '+ Ledger' }, { icon: <CreditCard size={14}/>, label: 'Payments', sub: '+ History' }, { icon: <TrendingUp size={14}/>, label: 'Suppliers', sub: '+ Details' }].map(item => (
-                    <div key={item.label} className="bg-white rounded-xl border border-gray-100 p-3 text-center shadow-sm">
-                        <div className="flex justify-center mb-1 text-gray-500">{item.icon}</div>
-                        <p className="text-[11px] font-black text-gray-800">{item.label}</p>
-                        <p className="text-[9px] text-orange-500 font-bold">{item.sub}</p>
+                    <div key={item.label} className="bg-white rounded-sm border border-redwood-border p-3 text-center shadow-sm">
+                        <div className="flex justify-center mb-1 text-redwood-text-muted">{item.icon}</div>
+                        <p className="text-[11px] font-black text-redwood-text-main">{item.label}</p>
+                        <p className="text-[9px] text-redwood-brand font-bold uppercase tracking-wider">{item.sub}</p>
                     </div>
                 ))}
             </div>
 
-            <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4">
-                <p className="text-xs font-black text-blue-800 uppercase tracking-widest mb-2">Supported Formats</p>
-                <div className="space-y-1.5">
-                    <div className="flex items-center gap-2"><span className="bg-blue-600 text-white text-xs font-black px-2 py-0.5 rounded">.db / .sqlite</span><span className="text-blue-800 text-sm font-medium">Soltol / BETTANO — Full migration with correct balances</span><span className="bg-orange-400 text-white text-[9px] px-1.5 py-0.5 rounded-full font-black ml-auto">BEST</span></div>
-                    <div className="flex items-center gap-2"><span className="bg-white border border-blue-200 text-blue-700 text-xs font-black px-2 py-0.5 rounded">.csv</span><span className="text-blue-700 text-sm">QuickBooks, DEAR, Cin7, Dynamics, NetSuite</span></div>
-                    <div className="flex items-center gap-2"><span className="bg-white border border-blue-200 text-blue-700 text-xs font-black px-2 py-0.5 rounded">.xlsx</span><span className="text-blue-700 text-sm">Excel — save as CSV first</span></div>
+            <div className="bg-white border border-redwood-border rounded-sm p-5 shadow-sm">
+                <p className="text-[10px] font-black text-redwood-text-muted uppercase tracking-[0.2em] mb-3">Supported Formats</p>
+                <div className="space-y-2">
+                    <div className="flex items-center gap-2 flex-wrap"><span className="bg-redwood-brand text-white text-xs font-black px-2 py-0.5 rounded-sm">.db / .sqlite</span><span className="text-redwood-text-main text-sm font-medium">Data migration — import from a legacy accounting export</span><span className="bg-redwood-brand text-white text-[9px] px-1.5 py-0.5 rounded-sm font-black ml-auto uppercase tracking-wider">Best</span></div>
+                    <div className="flex items-center gap-2 flex-wrap"><span className="bg-redwood-bg-light border border-redwood-border text-redwood-text-main text-xs font-black px-2 py-0.5 rounded-sm">.csv</span><span className="text-redwood-text-muted text-sm">QuickBooks, DEAR, Cin7, Dynamics, NetSuite</span></div>
+                    <div className="flex items-center gap-2 flex-wrap"><span className="bg-redwood-bg-light border border-redwood-border text-redwood-text-main text-xs font-black px-2 py-0.5 rounded-sm">.xlsx</span><span className="text-redwood-text-muted text-sm">Excel — save as CSV first</span></div>
                 </div>
             </div>
 
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-                <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-3">Upload Your File</p>
+            <div className="bg-white rounded-sm border border-redwood-border shadow-sm p-5">
+                <p className="text-[10px] font-black text-redwood-text-muted uppercase tracking-[0.2em] mb-3">Upload Your File</p>
                 <div onDragOver={e => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
-                    onDrop={e => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files[0]; if (f) { setFile(f); setResults(null); setDone(false); setLogs([]); setImportFailed(false); setTieOut(null); setCogsTrueupAmount(null); setGlResults(null); setCompleteness(null); } }}
+                    onDrop={e => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files[0]; if (f) { setFile(f); setPendingImport(null); setResults(null); setDone(false); setLogs([]); setImportFailed(false); setTieOut(null); setCogsTrueupAmount(null); setGlResults(null); setCompleteness(null); } }}
                     onClick={() => document.getElementById('mig-ai-file')?.click()}
-                    className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all ${drag ? 'border-blue-400 bg-blue-50' : file ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200 hover:border-orange-400 hover:bg-orange-50'}`}>
-                    <input id="mig-ai-file" type="file" accept=".db,.sqlite,.csv,.xlsx,.xls,.txt" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) { setFile(f); setResults(null); setDone(false); setLogs([]); setImportFailed(false); setTieOut(null); setCogsTrueupAmount(null); setGlResults(null); setCompleteness(null); } }} />
+                    className={`border-2 border-dashed rounded-sm p-10 text-center cursor-pointer transition-all ${drag ? 'border-redwood-brand bg-redwood-bg-light' : file ? 'border-brand-green bg-emerald-50' : 'border-redwood-border hover:border-redwood-brand hover:bg-redwood-bg-light'}`}>
+                    <input id="mig-ai-file" type="file" accept=".db,.sqlite,.csv,.xlsx,.xls,.txt" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) { setFile(f); setPendingImport(null); setResults(null); setDone(false); setLogs([]); setImportFailed(false); setTieOut(null); setCogsTrueupAmount(null); setGlResults(null); setCompleteness(null); } }} />
                     {file ? (
                         <div>
-                            <div className="text-4xl mb-2">{isDb ? '🗄️' : '📋'}</div>
-                            <p className="font-black text-gray-900">{file.name}</p>
-                            <p className="text-sm text-gray-500 mt-1">{(file.size / 1024).toFixed(1)} KB</p>
-                            {isDb && <div className="mt-2 inline-flex items-center gap-1.5 bg-green-100 text-green-700 text-xs font-bold px-3 py-1 rounded-full">✅ BETTANO.db — correct outstanding balances</div>}
-                            <button onClick={e => { e.stopPropagation(); setFile(null); }} className="mt-3 block mx-auto text-xs text-red-400 font-bold">✕ Remove</button>
+                            <div className="flex justify-center mb-2">{isDb ? <Database size={36} className="text-redwood-brand" /> : <FileText size={36} className="text-redwood-text-muted" />}</div>
+                            <p className="font-black text-redwood-text-main">{file.name}</p>
+                            <p className="text-sm text-redwood-text-muted mt-1">{(file.size / 1024).toFixed(1)} KB</p>
+                            {isDb && <div className="mt-2 inline-flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold px-3 py-1 rounded-sm">SQLite database selected — {file.name}</div>}
+                            <button onClick={e => { e.stopPropagation(); setFile(null); setPendingImport(null); }} className="mt-3 block mx-auto text-xs text-brand-red font-bold">✕ Remove</button>
                         </div>
                     ) : (
                         <div>
-                            <Upload size={36} className="text-gray-300 mx-auto mb-3" />
-                            <p className="font-black text-gray-600">Drop file here or click to browse</p>
-                            <p className="text-xs text-gray-400 mt-1">.db · .sqlite · .csv · .xlsx</p>
+                            <Upload size={36} className="text-redwood-text-muted mx-auto mb-3" />
+                            <p className="font-black text-redwood-text-main">Drop file here or click to browse</p>
+                            <p className="text-xs text-redwood-text-muted mt-1">.db · .sqlite · .csv · .xlsx</p>
                         </div>
                     )}
                 </div>
             </div>
 
+            {pendingImport && (
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                    <p className="text-xs font-black text-orange-600 uppercase tracking-widest mb-3">Review before import</p>
+                    <div className="text-sm text-gray-900 space-y-3">
+                        <p><span className="font-bold text-gray-700">File:</span> <span className="font-semibold text-gray-900">{pendingImport.preview.fileName}</span></p>
+                        <p>
+                            <span className="font-bold text-gray-700">Period:</span>{' '}
+                            <span className="text-gray-900">{pendingImport.preview.dateRange.earliest ?? '—'} → {pendingImport.preview.dateRange.latest ?? '—'}</span>
+                        </p>
+                        {pendingImport.preview.sourceFormat === 'csv' && pendingImport.preview.csvDataRows != null ? (
+                            <p><span className="font-bold text-gray-700">Data rows:</span>{' '}
+                                <span className="font-semibold text-gray-900">{pendingImport.preview.csvDataRows.toLocaleString()}</span>
+                            </p>
+                        ) : null}
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2 text-sm">
+                            <p className="text-gray-700">Customers <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'customers')}</strong></p>
+                            <p className="text-gray-700">Invoices <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'invoices')}</strong></p>
+                            <p className="text-gray-700">Payments <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'payments')}</strong></p>
+                            <p className="text-gray-700">Products <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'products')}</strong></p>
+                            <p className="text-gray-700">Suppliers <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'suppliers')}</strong></p>
+                            <p className="text-gray-700">Allocations <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'paymentAllocations')}</strong></p>
+                            <p className="text-gray-700">POs <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'purchaseOrders')}</strong></p>
+                            <p className="text-gray-700">Supplier pmts <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'supplierPayments')}</strong></p>
+                            <p className="text-gray-700">Returns <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'salesReturns')}</strong></p>
+                        </div>
+                        <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 space-y-2">
+                            <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Financial summary</p>
+                            <div className="flex items-baseline justify-between gap-3">
+                                <span className="text-sm font-bold text-gray-700">Total receivable (AR)</span>
+                                <span className="text-xl font-black text-gray-900 tabular-nums">{previewMoneyLabel(pendingImport.preview, 'totalAR')}</span>
+                            </div>
+                            <div className="flex items-baseline justify-between gap-3">
+                                <span className="text-sm font-bold text-gray-700">Total payable (AP)</span>
+                                <span className="text-xl font-black text-gray-900 tabular-nums">{previewMoneyLabel(pendingImport.preview, 'totalAP')}</span>
+                            </div>
+                            <div className="flex items-baseline justify-between gap-3">
+                                <span className="text-sm font-bold text-gray-700">Total invoiced</span>
+                                <span className="text-lg font-black text-gray-900 tabular-nums">{previewMoneyLabel(pendingImport.preview, 'totalInvoiced')}</span>
+                            </div>
+                            <div className="flex items-baseline justify-between gap-3">
+                                <span className="text-sm font-bold text-gray-700">Total received</span>
+                                <span className="text-lg font-black text-gray-900 tabular-nums">{previewMoneyLabel(pendingImport.preview, 'totalReceived')}</span>
+                            </div>
+                            <div className="flex items-baseline justify-between gap-3 border-t border-gray-200 pt-2">
+                                <span className="text-sm font-bold text-orange-700">Allocations total</span>
+                                <span className="text-2xl font-black text-orange-600 tabular-nums">{previewMoneyLabel(pendingImport.preview, 'allocationTotal')}</span>
+                            </div>
+                        </div>
+                        {pendingImport.preview.sourceFormat === 'sqlite' ? (
+                            pendingImport.preview.matchedProfileId ? (
+                                <p className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
+                                    ✓ Matches a verified reference profile ({pendingImport.preview.matchedProfileLabel}).
+                                </p>
+                            ) : (
+                                <p className="text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
+                                    ℹ No verified profile matched — expected for a new import. Review the totals above before confirming.
+                                </p>
+                            )
+                        ) : null}
+                        {pendingImport.preview.probeWarnings.length > 0 && (
+                            <ul className="space-y-1 text-sm text-amber-950 bg-amber-50 border border-amber-300 rounded-xl px-3 py-2 list-disc list-inside">
+                                {pendingImport.preview.probeWarnings.map((warning, idx) => (
+                                    <li key={idx}>{warning}</li>
+                                ))}
+                            </ul>
+                        )}
+                        <p className="text-sm text-gray-600 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
+                            ℹ Safe to re-run: importing the SAME file again updates records instead of duplicating them.
+                        </p>
+                        <div className="flex flex-wrap gap-2 justify-end pt-1">
+                            <button
+                                type="button"
+                                onClick={cancelImport}
+                                disabled={busy}
+                                className="px-4 py-2.5 rounded-xl text-sm font-bold text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 disabled:opacity-40"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => void confirmImport()}
+                                disabled={busy}
+                                className="px-5 py-2.5 rounded-xl text-sm font-black text-white bg-gray-900 hover:bg-gray-700 disabled:opacity-40"
+                            >
+                                Confirm import
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {busy && (
-                <div className="bg-white rounded-2xl border border-gray-100 p-5">
+                <div className="bg-white rounded-sm border border-redwood-border shadow-sm p-5">
                     <div className="flex items-center gap-3 mb-3">
-                        <RefreshCw size={16} className="animate-spin text-orange-500" />
-                        <span className="text-sm font-black text-gray-700">{step} {pct > 0 ? `${pct}%` : ''}</span>
+                        <RefreshCw size={16} className="animate-spin text-redwood-brand" />
+                        <span className="text-sm font-black text-redwood-text-main">{step} {pct > 0 ? `${pct}%` : ''}</span>
                     </div>
-                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-gradient-to-r from-orange-400 to-orange-600 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+                    <div className="h-2 bg-redwood-bg-light rounded-sm overflow-hidden">
+                        <div className="h-full bg-redwood-brand rounded-sm transition-all duration-500" style={{ width: `${pct}%` }} />
                     </div>
-                    <p className="text-xs text-gray-400 mt-2">Please wait — do not close this tab (import continues on the server)</p>
+                    <p className="text-xs text-redwood-text-muted mt-2">Please wait — do not close this tab (import continues on the server)</p>
                 </div>
             )}
 
@@ -822,9 +1231,14 @@ export default function DataMigration() {
             )}
 
             {importFailed && (
-                <div className="bg-red-50 border border-red-200 rounded-2xl p-5">
+                <div className="bg-red-50 border border-red-200 rounded-sm p-5 shadow-sm">
                     <p className="font-black text-red-800 text-base">Import did not complete</p>
-                    <p className="text-sm text-red-700 mt-1">Check the log above for details. Do not re-upload the same file — invoices and payments can duplicate. Only payment allocations are idempotent.</p>
+                    <p className="text-sm text-red-700 mt-1">
+                        Check the log above for details.
+                        {importFailureIdempotencyNote && (
+                            <> Safe to re-run: re-uploading the SAME file updates existing records instead of duplicating them. Uploading a DIFFERENT file will add its records to this tenant.</>
+                        )}
+                    </p>
                 </div>
             )}
 
@@ -967,7 +1381,7 @@ export default function DataMigration() {
                 </div>
             )}
 
-            <button onClick={doImport} disabled={!file || busy}
+            <button onClick={doImport} disabled={!file || busy || pendingImport !== null}
                 className="w-full py-5 bg-gray-900 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-2xl font-black text-base transition-all flex items-center justify-center gap-3">
                 {busy ? <><RefreshCw size={20} className="animate-spin" /> Importing — please wait...</>
                     : <><Zap size={20} /> {isDb ? '🤖 Import Full Database (Correct Balances + Products + Invoices)' : '🤖 Import Data'}</>}

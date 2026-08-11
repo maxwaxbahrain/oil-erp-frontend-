@@ -504,6 +504,62 @@ export async function getSalesmen(): Promise<SalesmanPickerOption[]> {
     });
 }
 
+export interface EmployeeSalesSummaryInvoice {
+    id: number;
+    invoiceNumber: string;
+    date: string;
+    customerId: number;
+    customerName: string;
+    amount: number;
+    paidStatus: string;
+}
+
+export interface EmployeeSalesSummary {
+    employeeId: number;
+    from: string;
+    to: string;
+    invoiceCount: number;
+    totalInvoicedAmount: number;
+    invoices: EmployeeSalesSummaryInvoice[];
+}
+
+function fromApiSalesSummaryInvoice(raw: Record<string, unknown>): EmployeeSalesSummaryInvoice {
+    return {
+        id: Number(raw.id),
+        invoiceNumber: String(raw.invoiceNumber ?? raw.invoice_number ?? ''),
+        date: String(raw.date ?? ''),
+        customerId: Number(raw.customerId ?? raw.customer_id ?? 0),
+        customerName: String(raw.customerName ?? raw.customer_name ?? ''),
+        amount: Number(raw.amount ?? 0),
+        paidStatus: String(raw.paidStatus ?? raw.paid_status ?? 'unpaid'),
+    };
+}
+
+/** Invoices attributed to this employee as salesman (commission / sales history). */
+export async function getEmployeeSalesSummary(
+    employeeId: number | string,
+    from: string,
+    to: string,
+): Promise<EmployeeSalesSummary> {
+    const qs = new URLSearchParams({ from, to });
+    const r = await authFetch(
+        `${API_BASE_URL}/employees/${encodeURIComponent(String(employeeId))}/sales-summary?${qs}`,
+    );
+    if (!r.ok) throw new Error(await readApiError(r));
+    const raw = (await r.json()) as Record<string, unknown>;
+    const invoicesRaw = raw.invoices;
+    return {
+        employeeId: Number(raw.employeeId ?? raw.employee_id ?? employeeId),
+        from: String(raw.from ?? from),
+        to: String(raw.to ?? to),
+        invoiceCount: Number(raw.invoiceCount ?? raw.invoice_count ?? 0),
+        totalInvoicedAmount: Number(raw.totalInvoicedAmount ?? raw.total_invoiced_amount ?? 0),
+        invoices: (Array.isArray(invoicesRaw) ? invoicesRaw : []).map((row) =>
+            fromApiSalesSummaryInvoice(row as Record<string, unknown>),
+        ),
+    };
+}
+
 export async function addEmployee(payload: EmployeeCreateInput): Promise<ApiEmployee> {
     const r = await authFetch(`${API_BASE_URL}/employees/`, {
         method: 'POST',

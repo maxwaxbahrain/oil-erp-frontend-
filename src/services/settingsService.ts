@@ -4,6 +4,9 @@
 // setting marks the company's *default* method so the Inventory
 // Reports page can surface it and (future) dependent calculations
 // can pick the right engine without re-asking.
+import type { TenantProfile } from './tenantProfileApi';
+import { toCompanyProfile, toCompanySettings } from './tenantProfileApi';
+
 export type ValuationMethod = 'FIFO' | 'LIFO' | 'Average Cost';
 
 export interface SystemSettings {
@@ -34,6 +37,8 @@ export interface CompanySettings {
     name: string;
     address: string;
     city: string;
+    state?: string;
+    postalCode?: string;
     country: string;
     phone: string;
     email: string;
@@ -44,12 +49,12 @@ export interface CompanySettings {
 }
 
 export const DEFAULT_COMPANY: CompanySettings = {
-    name: 'SOLTOL',
-    address: '184-10 Jamaica Ave',
-    city: 'Jamaica, NY 11423',
-    country: 'USA',
-    phone: '+1 (346) 795-1216',
-    email: 'info@bettanollc.com',
+    name: '',
+    address: '',
+    city: '',
+    country: '',
+    phone: '',
+    email: '',
     website: '',
     taxId: '',
 };
@@ -77,33 +82,50 @@ const DEFAULT_SETTINGS: SystemSettings = {
 };
 
 const DEFAULT_PROFILE: CompanyProfile = {
-    name: 'SOLTOL',
-    category: 'Distribution',
-    address1: '184-10 Jamaica Ave',
-    city: 'Jamaica',
-    state: 'NY',
-    postalCode: '11423',
-    country: 'USA',
-    phone: '+1 (346) 795-1216',
-    email: 'info@bettanollc.com',
+    name: '',
+    category: '',
+    address1: '',
+    city: '',
+    state: '',
+    postalCode: '',
+    country: '',
+    phone: '',
+    email: '',
     website: '',
     taxId: '',
 };
 
 const DEFAULT_SIGNATURE: DocumentSignature = {
-    signatoryName: 'AHMED KHAN',
-    signatoryTitle: 'OPERATIONS MANAGER',
-    showOnInvoices: true,
-    showOnPurchaseOrders: true,
+    signatoryName: '',
+    signatoryTitle: '',
+    showOnInvoices: false,
+    showOnPurchaseOrders: false,
     showOnLedgers: false,
-    showOnQuotations: true,
-    showOnReports: true,
+    showOnQuotations: false,
+    showOnReports: false,
 };
 
 const SETTINGS_KEY = 'zavi_system_settings';
 const PROFILE_KEY = 'zavi_company_profile';
 const SIGNATURE_KEY = 'zavi_document_signature';
 const COMPANY_SETTINGS_KEY = 'company_settings';
+
+let serverProfile: CompanyProfile | null = null;
+let serverSettings: CompanySettings | null = null;
+
+export function setServerCompanyProfile(p: TenantProfile | null): void {
+    if (p === null) {
+        serverProfile = null;
+        serverSettings = null;
+        return;
+    }
+    serverProfile = toCompanyProfile(p);
+    serverSettings = toCompanySettings(p);
+}
+
+export function clearServerCompanyProfile(): void {
+    setServerCompanyProfile(null);
+}
 
 export const getSystemSettings = (): SystemSettings => {
     const data = localStorage.getItem(SETTINGS_KEY);
@@ -128,6 +150,7 @@ export const updateSystemSettings = (settings: Partial<SystemSettings>): SystemS
 };
 
 export const getCompanyProfile = (): CompanyProfile => {
+    if (serverProfile) return serverProfile;
     const data = localStorage.getItem(PROFILE_KEY);
     return data ? JSON.parse(data) : DEFAULT_PROFILE;
 };
@@ -136,12 +159,41 @@ export const saveCompanyProfile = (profile: CompanyProfile): void => {
     localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
 };
 
+/** US-style city line: "Jamaica, NY 11423" — shared by settings + PDF headers. */
+export function formatCityLine(
+    city: string | undefined | null,
+    state: string | undefined | null,
+    postalCode: string | undefined | null,
+): string {
+    const c = (city || '').trim();
+    const s = (state || '').trim();
+    const p = (postalCode || '').trim();
+
+    if (c && s && p) {
+        return `${c}, ${s} ${p}`;
+    }
+    if (c && s) {
+        return `${c}, ${s}`;
+    }
+    if (c && p) {
+        return `${c} ${p}`;
+    }
+    if (c) {
+        return c;
+    }
+    if (s && p) {
+        return `${s} ${p}`;
+    }
+    return '';
+}
+
 export function companyProfileToSettings(profile: CompanyProfile): CompanySettings {
-    const cityLine = [profile.city, profile.state, profile.postalCode].filter(Boolean).join(', ');
     return {
         name: profile.name || DEFAULT_COMPANY.name,
         address: profile.address1 || '',
-        city: cityLine || DEFAULT_COMPANY.city,
+        city: profile.city || '',
+        state: profile.state || '',
+        postalCode: profile.postalCode || '',
         country: profile.country || '',
         phone: profile.phone || '',
         email: profile.email || '',
@@ -152,6 +204,7 @@ export function companyProfileToSettings(profile: CompanyProfile): CompanySettin
 }
 
 export function getCompanySettings(): CompanySettings {
+    if (serverSettings) return serverSettings;
     const saved = localStorage.getItem(COMPANY_SETTINGS_KEY);
     const profile = getCompanyProfile();
     if (saved) {

@@ -8,12 +8,19 @@ import {
     XCircle,
     Scale,
     ExternalLink,
+    Plus,
+    Pencil,
+    Ban,
+    RotateCcw,
 } from 'lucide-react';
 import {
+    createAccount,
     getGLAccounts,
     getGLTrialBalance,
+    patchAccount,
     todayISO,
     type GLAccount,
+    type GLAccountType,
     type GLTrialBalance,
     type GLTrialBalanceRow,
 } from '../../services/glService';
@@ -180,6 +187,26 @@ interface CoaRow {
     category: string;
 }
 
+const GL_ACCOUNT_TYPES: GLAccountType[] = ['asset', 'liability', 'equity', 'revenue', 'expense'];
+
+function normalBalanceForType(type: GLAccountType): 'debit' | 'credit' {
+    return type === 'asset' || type === 'expense' ? 'debit' : 'credit';
+}
+
+function isSystemOrGlobalAccount(account: GLAccount): boolean {
+    return account.tenant_id == null || Boolean(account.system_key);
+}
+
+function isEditableAccount(account: GLAccount): boolean {
+    return account.tenant_id != null && !account.system_key;
+}
+
+function formatSubmitError(err: unknown): string {
+    const msg = err instanceof Error ? err.message : 'Request failed';
+    if (/already exists/i.test(msg)) return 'Account code already exists';
+    return msg;
+}
+
 function joinAccountsWithTb(accounts: GLAccount[], tbRows: GLTrialBalanceRow[]): CoaRow[] {
     const tbMap = new Map<number, GLTrialBalanceRow>();
     tbRows.forEach(row => tbMap.set(row.account_id, row));
@@ -204,7 +231,17 @@ export default function ChartOfAccounts() {
     const [error, setError] = useState<string | null>(null);
     const [search, setSearch] = useState('');
     const [categoryFilter, setCategoryFilter] = useState<string>('All');
-    const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'Inactive'>('All');
+    const [showInactive, setShowInactive] = useState(false);
+
+    const [modalOpen, setModalOpen] = useState(false);
+    const [editingAccount, setEditingAccount] = useState<GLAccount | null>(null);
+    const [formCode, setFormCode] = useState('');
+    const [formName, setFormName] = useState('');
+    const [formType, setFormType] = useState<GLAccountType>('expense');
+    const [formParentId, setFormParentId] = useState<number | ''>('');
+    const [formError, setFormError] = useState<string | null>(null);
+    const [submitting, setSubmitting] = useState(false);
+    const [actionError, setActionError] = useState<string | null>(null);
 
     const loadGl = useCallback(async () => {
         setLoading(true);
@@ -212,7 +249,7 @@ export default function ChartOfAccounts() {
         const asOf = todayISO();
         try {
             const [accounts, tb] = await Promise.all([
-                getGLAccounts(),
+                getGLAccounts({ includeInactive: showInactive }),
                 getGLTrialBalance(asOf),
             ]);
             setGlAccounts(accounts);
@@ -224,15 +261,109 @@ export default function ChartOfAccounts() {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [showInactive]);
 
     useEffect(() => {
         void loadGl();
     }, [loadGl]);
 
+    const openCreateModal = useCallback(() => {
+        setEditingAccount(null);
+        setFormCode('');
+        setFormName('');
+        setFormType('expense');
+        setFormParentId('');
+        setFormError(null);
+        setModalOpen(true);
+    }, []);
+
+    const openEditModal = useCallback((account: GLAccount) => {
+        setEditingAccount(account);
+        setFormCode(account.code);
+        setFormName(account.name);
+        setFormType((account.type as GLAccountType) || 'expense');
+        setFormParentId(account.parent_id ?? '');
+        setFormError(null);
+        setModalOpen(true);
+    }, []);
+
+    const closeModal = useCallback(() => {
+        if (submitting) return;
+        setModalOpen(false);
+        setEditingAccount(null);
+        setFormError(null);
+    }, [submitting]);
+
+    const handleModalSubmit = async () => {
+        const code = formCode.trim();
+        const name = formName.trim();
+        if (!code || !name) {
+            setFormError('Code and name are required');
+            return;
+        }
+        setSubmitting(true);
+        setFormError(null);
+        try {
+            if (editingAccount) {
+                await patchAccount(editingAccount.id, { code, name });
+            } else {
+                const type = formType;
+                await createAccount({
+                    code,
+                    name,
+                    type,
+                    normal_balance: normalBalanceForType(type),
+                    parent_id: formParentId === '' ? null : formParentId,
+                });
+            }
+            setModalOpen(false);
+            setEditingAccount(null);
+            await loadGl();
+        } catch (err) {
+            setFormError(formatSubmitError(err));
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const handleDeactivate = async (account: GLAccount) => {
+        const ok = window.confirm(
+            `Deactivate account "${account.name}" (${account.code})?\n\nThis account will be hidden until you turn on "Show inactive" and reactivate it.`,
+        );
+        if (!ok) return;
+        setActionError(null);
+        try {
+            await patchAccount(account.id, { is_active: false });
+            await loadGl();
+        } catch (err) {
+            setActionError(formatSubmitError(err));
+        }
+    };
+
+    const handleReactivate = async (account: GLAccount) => {
+        setActionError(null);
+        try {
+            await patchAccount(account.id, { is_active: true });
+            await loadGl();
+        } catch (err) {
+            setActionError(formatSubmitError(err));
+        }
+    };
+
     const joinedRows = useMemo(
-        () => joinAccountsWithTb(glAccounts, trialBalance?.accounts ?? []),
-        [glAccounts, trialBalance],
+        () => {
+            const accounts = showInactive ? glAccounts : glAccounts.filter(a => a.is_active);
+            return joinAccountsWithTb(accounts, trialBalance?.accounts ?? []);
+        },
+        [glAccounts, trialBalance, showInactive],
+    );
+
+    const parentOptions = useMemo(
+        () =>
+            glAccounts
+                .filter(a => a.is_active && a.tenant_id != null)
+                .sort((a, b) => a.code.localeCompare(b.code)),
+        [glAccounts],
     );
 
     const filteredRows = useMemo(() => {
@@ -243,13 +374,9 @@ export default function ChartOfAccounts() {
                 || row.account.code.toLowerCase().includes(q)
                 || (row.account.system_key || '').toLowerCase().includes(q);
             const matchCategory = categoryFilter === 'All' || row.category === categoryFilter;
-            const matchStatus =
-                statusFilter === 'All'
-                || (statusFilter === 'Active' && row.account.is_active)
-                || (statusFilter === 'Inactive' && !row.account.is_active);
-            return matchSearch && matchCategory && matchStatus;
+            return matchSearch && matchCategory;
         });
-    }, [joinedRows, search, categoryFilter, statusFilter]);
+    }, [joinedRows, search, categoryFilter]);
 
     const groupedRows = useMemo(() => {
         const groups = new Map<string, CoaRow[]>();
@@ -305,6 +432,9 @@ export default function ChartOfAccounts() {
                     </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
+                    <button type="button" onClick={openCreateModal} style={{ ...ghostBtn, color: '#93C5FD', borderColor: 'rgba(79,142,247,.35)' }}>
+                        <Plus size={12} /> Add account
+                    </button>
                     <button type="button" onClick={() => navigate('/reports/trial-balance')} style={ghostBtn}>
                         <Scale size={12} /> Trial balance
                     </button>
@@ -319,6 +449,13 @@ export default function ChartOfAccounts() {
                 <div style={{ ...panel, background: 'rgba(239,68,68,.08)', borderColor: 'rgba(239,68,68,.25)', display: 'flex', alignItems: 'center', gap: 10 }}>
                     <XCircle size={18} style={{ color: '#EF4444', flexShrink: 0 }} />
                     <p style={{ fontSize: 11, fontWeight: 600, color: '#FCA5A5', margin: 0 }}>{error}</p>
+                </div>
+            )}
+
+            {actionError && (
+                <div style={{ ...panel, background: 'rgba(239,68,68,.08)', borderColor: 'rgba(239,68,68,.25)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <XCircle size={18} style={{ color: '#EF4444', flexShrink: 0 }} />
+                    <p style={{ fontSize: 11, fontWeight: 600, color: '#FCA5A5', margin: 0 }}>{actionError}</p>
                 </div>
             )}
 
@@ -400,11 +537,15 @@ export default function ChartOfAccounts() {
                         <option key={cat} value={cat}>{cat}</option>
                     ))}
                 </select>
-                <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as 'All' | 'Active' | 'Inactive')} style={selectStyle}>
-                    <option value="All">All statuses</option>
-                    <option value="Active">Active</option>
-                    <option value="Inactive">Inactive</option>
-                </select>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: 'var(--color-redwood-text-muted)', cursor: 'pointer', userSelect: 'none' }}>
+                    <input
+                        type="checkbox"
+                        checked={showInactive}
+                        onChange={e => setShowInactive(e.target.checked)}
+                        style={{ accentColor: '#4F8EF7' }}
+                    />
+                    Show inactive
+                </label>
             </div>
 
             {/* Main table — grouped by category */}
@@ -453,12 +594,12 @@ export default function ChartOfAccounts() {
                                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                         <thead>
                                             <tr style={{ background: 'rgba(255,255,255,.02)' }}>
-                                                {['Code', 'Name', 'Type', 'Normal balance', 'Debit', 'Credit', 'Balance'].map((h, i) => (
+                                                {['Code', 'Name', 'Type', 'Normal balance', 'Debit', 'Credit', 'Balance', ''].map((h, i) => (
                                                     <th
                                                         key={h}
                                                         style={{
                                                             ...thStyle,
-                                                            textAlign: i >= 4 ? 'right' : 'left',
+                                                            textAlign: i >= 4 && i <= 6 ? 'right' : 'left',
                                                         }}
                                                     >
                                                         {h}
@@ -467,10 +608,17 @@ export default function ChartOfAccounts() {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {rows.map(row => (
+                                            {rows.map(row => {
+                                                const inactive = !row.account.is_active;
+                                                const system = isSystemOrGlobalAccount(row.account);
+                                                const editable = isEditableAccount(row.account);
+                                                return (
                                                 <tr
                                                     key={row.account.id}
-                                                    style={{ transition: 'background .15s' }}
+                                                    style={{
+                                                        transition: 'background .15s',
+                                                        opacity: inactive ? 0.55 : 1,
+                                                    }}
                                                     onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-redwood-row-hover)'; }}
                                                     onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
                                                 >
@@ -479,9 +627,34 @@ export default function ChartOfAccounts() {
                                                     </td>
                                                     <td style={tdStyle}>
                                                         <span style={{ fontWeight: 600, fontSize: 11 }}>{row.account.name}</span>
-                                                        {row.account.system_key && (
-                                                            <span style={{ display: 'block', fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', marginTop: 2, fontFamily: 'ui-monospace,monospace' }}>
-                                                                {row.account.system_key}
+                                                        {system && (
+                                                            <span style={{
+                                                                display: 'inline-block',
+                                                                marginLeft: 6,
+                                                                fontSize: 8,
+                                                                fontWeight: 700,
+                                                                padding: '1px 6px',
+                                                                borderRadius: 999,
+                                                                background: 'rgba(107,114,128,.2)',
+                                                                color: '#9CA3AF',
+                                                                verticalAlign: 'middle',
+                                                            }}>
+                                                                System
+                                                            </span>
+                                                        )}
+                                                        {inactive && (
+                                                            <span style={{
+                                                                display: 'inline-block',
+                                                                marginLeft: 6,
+                                                                fontSize: 8,
+                                                                fontWeight: 700,
+                                                                padding: '1px 6px',
+                                                                borderRadius: 999,
+                                                                background: 'rgba(239,68,68,.15)',
+                                                                color: '#FCA5A5',
+                                                                verticalAlign: 'middle',
+                                                            }}>
+                                                                Inactive
                                                             </span>
                                                         )}
                                                     </td>
@@ -500,8 +673,26 @@ export default function ChartOfAccounts() {
                                                     <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'ui-monospace,monospace', fontSize: 11, fontWeight: 600, color: row.balance >= 0 ? 'var(--color-redwood-text-main)' : '#FCA5A5' }}>
                                                         {Math.abs(row.balance) < 0.01 ? '—' : formatUsd(row.balance)}
                                                     </td>
+                                                    <td style={{ ...tdStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                                        {editable && row.account.is_active && (
+                                                            <>
+                                                                <button type="button" title="Edit" onClick={() => openEditModal(row.account)} style={{ ...ghostBtn, display: 'inline-flex', padding: '4px 8px', marginLeft: 4 }}>
+                                                                    <Pencil size={11} />
+                                                                </button>
+                                                                <button type="button" title="Deactivate" onClick={() => void handleDeactivate(row.account)} style={{ ...ghostBtn, display: 'inline-flex', padding: '4px 8px', marginLeft: 4 }}>
+                                                                    <Ban size={11} />
+                                                                </button>
+                                                            </>
+                                                        )}
+                                                        {editable && inactive && (
+                                                            <button type="button" title="Reactivate" onClick={() => void handleReactivate(row.account)} style={{ ...ghostBtn, display: 'inline-flex', padding: '4px 8px', marginLeft: 4 }}>
+                                                                <RotateCcw size={11} /> Reactivate
+                                                            </button>
+                                                        )}
+                                                    </td>
                                                 </tr>
-                                            ))}
+                                            );
+                                            })}
                                         </tbody>
                                     </table>
                                 </div>
@@ -550,6 +741,93 @@ export default function ChartOfAccounts() {
                     Total Debits = Total Credits · Trial balance {isBalanced ? 'balanced' : 'imbalanced'}
                 </div>
             </div>
+
+            {modalOpen && (
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    style={{ position: 'fixed', inset: 0, zIndex: 99998, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+                    onClick={closeModal}
+                >
+                    <div
+                        style={{ ...panel, width: '100%', maxWidth: 420, boxShadow: '0 20px 50px rgba(0,0,0,.45)' }}
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <h2 style={{ margin: '0 0 10px', fontSize: 14, fontWeight: 600, color: 'var(--color-redwood-text-main)', fontFamily: "'Syne',sans-serif" }}>
+                            {editingAccount ? 'Edit account' : 'Add account'}
+                        </h2>
+                        {formError && (
+                            <p style={{ margin: '0 0 10px', fontSize: 10, color: '#FCA5A5', fontWeight: 600 }}>{formError}</p>
+                        )}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)', fontWeight: 600 }}>
+                                Code
+                                <input
+                                    value={formCode}
+                                    onChange={e => setFormCode(e.target.value)}
+                                    style={{ ...selectStyle, display: 'block', width: '100%', marginTop: 4, fontSize: 11 }}
+                                />
+                            </label>
+                            <label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)', fontWeight: 600 }}>
+                                Name
+                                <input
+                                    value={formName}
+                                    onChange={e => setFormName(e.target.value)}
+                                    style={{ ...selectStyle, display: 'block', width: '100%', marginTop: 4, fontSize: 11 }}
+                                />
+                            </label>
+                            {!editingAccount && (
+                                <>
+                                    <label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)', fontWeight: 600 }}>
+                                        Type
+                                        <select
+                                            value={formType}
+                                            onChange={e => setFormType(e.target.value as GLAccountType)}
+                                            style={{ ...selectStyle, display: 'block', width: '100%', marginTop: 4, fontSize: 11 }}
+                                        >
+                                            {GL_ACCOUNT_TYPES.map(t => (
+                                                <option key={t} value={t}>{t}</option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                    <label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)', fontWeight: 600 }}>
+                                        Parent account (optional)
+                                        <select
+                                            value={formParentId}
+                                            onChange={e => setFormParentId(e.target.value === '' ? '' : Number(e.target.value))}
+                                            style={{ ...selectStyle, display: 'block', width: '100%', marginTop: 4, fontSize: 11 }}
+                                        >
+                                            <option value="">None</option>
+                                            {parentOptions.map(p => (
+                                                <option key={p.id} value={p.id}>{p.code} — {p.name}</option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                </>
+                            )}
+                            <label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)', fontWeight: 600 }}>
+                                Normal balance
+                                <input
+                                    readOnly
+                                    value={normalBalanceForType(editingAccount ? (editingAccount.type as GLAccountType) : formType)}
+                                    style={{ ...selectStyle, display: 'block', width: '100%', marginTop: 4, fontSize: 11, opacity: 0.85, cursor: 'default' }}
+                                />
+                            </label>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
+                            <button type="button" onClick={closeModal} disabled={submitting} style={ghostBtn}>Cancel</button>
+                            <button
+                                type="button"
+                                disabled={submitting}
+                                onClick={() => void handleModalSubmit()}
+                                style={{ ...ghostBtn, color: '#86EFAC', borderColor: 'rgba(34,197,94,.35)', fontWeight: 600 }}
+                            >
+                                {submitting ? 'Saving…' : editingAccount ? 'Save changes' : 'Create account'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

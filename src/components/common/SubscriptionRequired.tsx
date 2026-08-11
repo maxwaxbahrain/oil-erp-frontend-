@@ -1,5 +1,7 @@
 import type { CSSProperties } from 'react';
+import { Link } from 'react-router-dom';
 import { Lock, X } from 'lucide-react';
+import { BILLING_PATH } from '../../api/paymentRequired';
 
 const C = {
   bg: '#060f1c',
@@ -21,6 +23,40 @@ const cardStyle: CSSProperties = {
   width: '100%',
   textAlign: 'center',
 };
+
+const billingButtonStyle: CSSProperties = {
+  display: 'inline-block',
+  marginTop: 20,
+  padding: '12px 20px',
+  borderRadius: 10,
+  background: C.blue,
+  color: '#fff',
+  fontSize: 14,
+  fontWeight: 700,
+  textDecoration: 'none',
+};
+
+function BillingActions({ compact = false }: { compact?: boolean }) {
+  return (
+    <>
+      <Link to={BILLING_PATH} style={billingButtonStyle}>
+        View billing &amp; upgrade
+      </Link>
+      <p
+        style={{
+          margin: compact ? '12px 0 0' : '16px 0 0',
+          fontSize: 12,
+          color: C.dim,
+        }}
+      >
+        Need help?{' '}
+        <a href={`mailto:${SUPPORT_EMAIL}`} style={{ color: C.blue, textDecoration: 'none' }}>
+          {SUPPORT_EMAIL}
+        </a>
+      </p>
+    </>
+  );
+}
 
 export default function SubscriptionRequired() {
   return (
@@ -70,30 +106,9 @@ export default function SubscriptionRequired() {
             color: C.muted,
           }}
         >
-          Contact our team to unlock premium features.
+          Upgrade your plan on the billing page to unlock premium features.
         </p>
-        <a
-          href={`mailto:${SUPPORT_EMAIL}`}
-          style={{
-            display: 'inline-block',
-            marginTop: 20,
-            fontSize: 15,
-            fontWeight: 600,
-            color: C.blue,
-            textDecoration: 'none',
-          }}
-        >
-          {SUPPORT_EMAIL}
-        </a>
-        <p
-          style={{
-            margin: '16px 0 0',
-            fontSize: 12,
-            color: C.dim,
-          }}
-        >
-          Subscription required — contact {SUPPORT_EMAIL}
-        </p>
+        <BillingActions />
       </div>
     </div>
   );
@@ -177,21 +192,9 @@ export function SubscriptionRequiredDialog({ open, onClose }: SubscriptionRequir
             Subscription required
           </h2>
           <p style={{ margin: '10px 0 0', fontSize: 13, lineHeight: 1.55, color: C.muted }}>
-            Contact our team to unlock premium features.
+            Upgrade your plan on the billing page to unlock premium features.
           </p>
-          <a
-            href={`mailto:${SUPPORT_EMAIL}`}
-            style={{
-              display: 'inline-block',
-              marginTop: 16,
-              fontSize: 14,
-              fontWeight: 600,
-              color: C.blue,
-              textDecoration: 'none',
-            }}
-          >
-            {SUPPORT_EMAIL}
-          </a>
+          <BillingActions compact />
         </div>
       </div>
     </div>

@@ -153,8 +153,47 @@ export function getGLCashFlow(start: string, end: string): Promise<GLCashFlow> {
   return apiRequest<GLCashFlow>(`/gl/cash-flow?${params.toString()}`);
 }
 
-export function getGLAccounts(): Promise<GLAccount[]> {
-  return apiRequest<GLAccount[]>('/accounts/');
+export function getGLAccounts(options?: { includeInactive?: boolean }): Promise<GLAccount[]> {
+  const params = new URLSearchParams();
+  if (options?.includeInactive) {
+    params.set('include_inactive', 'true');
+  }
+  const qs = params.toString();
+  return apiRequest<GLAccount[]>(`/accounts/${qs ? `?${qs}` : ''}`);
+}
+
+export type GLAccountType = 'asset' | 'liability' | 'equity' | 'revenue' | 'expense';
+
+export interface CreateAccountPayload {
+  code: string;
+  name: string;
+  type: GLAccountType;
+  normal_balance: 'debit' | 'credit';
+  parent_id?: number | null;
+  is_active?: boolean;
+}
+
+export interface PatchAccountPayload {
+  code?: string;
+  name?: string;
+  type?: GLAccountType;
+  normal_balance?: 'debit' | 'credit';
+  parent_id?: number | null;
+  is_active?: boolean;
+}
+
+export function createAccount(payload: CreateAccountPayload): Promise<GLAccount> {
+  return apiRequest<GLAccount>('/accounts/', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function patchAccount(id: number, payload: PatchAccountPayload): Promise<GLAccount> {
+  return apiRequest<GLAccount>(`/accounts/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
 }
 
 export interface GLTrialBalanceRow {

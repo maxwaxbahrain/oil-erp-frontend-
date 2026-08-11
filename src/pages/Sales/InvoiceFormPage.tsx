@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { ArrowLeft, Plus, Save, FileText, UserPlus, X, Download } from 'lucide-react';
-import { getCustomers, getInvoices, getProducts, createCustomer, API_BASE_URL, type Customer, type Product } from '../../services/api';
+import { getCustomers, getInvoices, getProducts, createCustomer, getVans, API_BASE_URL, type Customer, type Product, type Van } from '../../services/api';
 import { getCustomerPrice } from '../../services/api';
 import { getSalesmen, type SalesmanPickerOption } from '../../services/employeeService';
 import { authFetch } from '../../api/axios';
-import { VANS, PAYMENT_METHODS } from '../../constants/data';
+import { PAYMENT_METHODS } from '../../constants/data';
 import SearchableSelect from '../../components/common/SearchableSelect';
 import InvoiceLineRow, { type InvoiceLineItem } from './InvoiceLineRow';
 // ITEM 7F — Deposit (bank/cash) account picker for inline Record Payment.
@@ -110,6 +110,19 @@ function resolveSalesmanEmployeeId(
     return matches.length === 1 ? matches[0].id : '';
 }
 
+/** Same label pattern as Van Operations van selector ({vanNumber} — {driver}). */
+function vanSelectLabel(v: Van): string {
+    const vanNumber = (v.van_number ?? '').trim();
+    const driver = (v.driver_name ?? '').trim();
+    if (!driver) return vanNumber || '—';
+    if (!vanNumber) return driver;
+    return `${vanNumber} — ${driver}`;
+}
+
+function vanToSelectOption(v: Van): { id: string; name: string } {
+    return { id: String(v.id), name: vanSelectLabel(v) };
+}
+
 type InvoiceSaveExtras = {
     payment_status: string;
     payment_method: string;
@@ -124,6 +137,7 @@ async function persistInvoiceWithSalesmanFk(
     editId: string | undefined,
     formData: InvoiceFormData,
     extras: InvoiceSaveExtras,
+    vanSelectOptions: { id: string; name: string }[],
 ): Promise<{ id: string; invoiceNumber?: string }> {
     const grand = Number(formData.grandTotal) || 0;
     const lineItems = formData.lineItems.map((item) => {
@@ -156,7 +170,10 @@ async function persistInvoiceWithSalesmanFk(
         discount: Number(formData.discount) || 0,
         grandTotal: grand,
         notes: formData.notes || '',
-        van: VANS.find((v) => v.id === formData.vanId)?.name || '',
+        van:
+            formData.vanId.trim() === ''
+                ? ''
+                : vanSelectOptions.find((v) => String(v.id) === String(formData.vanId))?.name ?? '',
         payment_status: extras.payment_status,
         payment_method: extras.payment_method,
         amount_paid: extras.amount_paid,
@@ -286,6 +303,8 @@ export default function InvoiceFormPage() {
     const [savingCust, setSavingCust] = useState(false);
     // Phase S1b — salesmen from GET /api/employees?role=salesman
     const [salesmen, setSalesmen] = useState<SalesmanPickerOption[]>([]);
+    const [vanOptions, setVanOptions] = useState<{ id: string; name: string }[]>([]);
+    const [vansLoading, setVansLoading] = useState(true);
 
     // ITEM 7F — Bank/Cash accounts loaded from COA (1110 "Cash & Bank" subtree).
     // Powers the inline Record Payment "Deposit To Account" dropdown.
@@ -367,6 +386,26 @@ export default function InvoiceFormPage() {
         } catch (e) {
             console.warn('Could not load bank accounts from Chart of Accounts:', e);
         }
+    }, []);
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            setVansLoading(true);
+            try {
+                const list = await getVans();
+                if (cancelled) return;
+                setVanOptions(Array.isArray(list) ? list.map(vanToSelectOption) : []);
+            } catch (e) {
+                console.warn('Could not load vans for invoice form:', e);
+                if (!cancelled) setVanOptions([]);
+            } finally {
+                if (!cancelled) setVansLoading(false);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
     }, []);
 
     useEscape(() => setShowNewCustomer(false), showNewCustomer);
@@ -818,6 +857,7 @@ export default function InvoiceFormPage() {
                     status: 'Draft',
                     deposit_account_id: formData.depositAccountId || undefined,
                 },
+                vanOptions,
             );
             const invNum = saved.invoiceNumber || formData.invoiceNumber;
             setSavedNotice(`${invNum} (draft)`);
@@ -862,6 +902,7 @@ export default function InvoiceFormPage() {
                     status: formData.paymentStatus === 'Paid' ? 'Paid' : formData.paymentStatus === 'Advance Paid' ? 'Partial' : 'Unpaid',
                     deposit_account_id: formData.depositAccountId || undefined,
                 },
+                vanOptions,
             );
 
             console.log('✅ Invoice saved:', savedInvoice);
@@ -1157,11 +1198,12 @@ export default function InvoiceFormPage() {
                             Van / route
                         </label>
                         <SearchableSelect
-                            options={VANS}
+                            options={vanOptions}
                             value={formData.vanId}
                             onChange={(val) => setFormData(p => ({ ...p, vanId: val }))}
-                            placeholder="Search and select van..."
+                            placeholder={vansLoading ? 'Loading vans…' : 'Search and select van...'}
                             displayKey="name"
+                            disabled={vansLoading}
                             theme="dark"
                         />
                     </div>

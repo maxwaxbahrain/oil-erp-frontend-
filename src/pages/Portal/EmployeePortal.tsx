@@ -13,7 +13,9 @@ import {
   addEmployee,
   updateEmployee,
   deleteEmployee,
+  getEmployeeSalesSummary,
   type ApiEmployee,
+  type EmployeeSalesSummary,
 } from '../../services/employeeService';
 import { getCurrentUser } from '../../store/authStore';
 import { useAuth } from '../../contexts/AuthContext';
@@ -108,7 +110,7 @@ interface ESSState {
   editingEmployee: Employee | null;
   selectedEmployee: Employee | null;
   showProfile: boolean;
-  profileTab: 'overview' | 'hours' | 'payslips';
+  profileTab: 'overview' | 'hours' | 'payslips' | 'sales';
   showLeaveModal: boolean;
   leaveModalType: string;
   leaveStart: string;
@@ -217,6 +219,49 @@ function clampRole(r: string): Employee['role'] {
   return (VALID_ROLES as readonly string[]).includes(r) ? (r as Employee['role']) : 'Office';
 }
 
+/** jobTitle first; then HR employeeRole from API (auto-provisioned rows); else Office. */
+function portalRoleLabelFromEmployee(e: ApiEmployee): string {
+  const fromJobTitle = e.jobTitle?.trim();
+  if (fromJobTitle) return fromJobTitle;
+  const hr = (e.employeeRole ?? '').trim().toLowerCase();
+  if (hr === 'salesman') return 'Salesman';
+  if (hr === 'driver') return 'Van Driver';
+  return 'Office';
+}
+
+function isPortalSalesman(emp: Employee): boolean {
+  return emp.role === 'Salesman';
+}
+
+function currentCalendarMonthRange(): { from: string; to: string } {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const mm = String(m + 1).padStart(2, '0');
+  const lastDay = new Date(y, m + 1, 0).getDate();
+  return {
+    from: `${y}-${mm}-01`,
+    to: `${y}-${mm}-${String(lastDay).padStart(2, '0')}`,
+  };
+}
+
+function formatSalesUsd(n: number): string {
+  return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(n);
+}
+
+function formatInvoiceDate(iso: string): string {
+  if (!iso) return '—';
+  const d = iso.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return iso.slice(0, 10);
+  const [y, mo, day] = d.split('-');
+  return `${mo}/${day}/${y}`;
+}
+
+function formatPaidStatus(status: string): string {
+  const s = (status || 'unpaid').toLowerCase();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 function apiStatusToPortal(status: string): Employee['status'] {
   const v = (status || 'active').toLowerCase();
   if (v === 'on_leave') return 'On leave';
@@ -255,7 +300,7 @@ function suggestEmployeeNumber(rows: Employee[]): string {
 }
 
 function apiToPortalEmployee(e: ApiEmployee): Employee {
-  const roleLabel = e.jobTitle?.trim() || 'Office';
+  const roleLabel = portalRoleLabelFromEmployee(e);
   return {
     id: String(e.id),
     employeeNumber: e.employeeNumber,
@@ -2553,6 +2598,189 @@ function EmployeeFormFields({
 }
 
 // ── Profile side panel ────────────────────────────────────────
+function ProfileSalesTab({ employeeId }: { employeeId: string }) {
+  const defaultRange = useMemo(() => currentCalendarMonthRange(), []);
+  const [fromDate, setFromDate] = useState(defaultRange.from);
+  const [toDate, setToDate] = useState(defaultRange.to);
+  const [summary, setSummary] = useState<EmployeeSalesSummary | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [commissionRatePct, setCommissionRatePct] = useState('');
+
+  const loadSummary = useCallback(async () => {
+    if (!fromDate || !toDate || fromDate > toDate) {
+      setError('Choose a valid date range.');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      const data = await getEmployeeSalesSummary(employeeId, fromDate, toDate);
+      setSummary(data);
+    } catch (err) {
+      setSummary(null);
+      setError(err instanceof Error ? err.message : 'Failed to load sales summary');
+    } finally {
+      setLoading(false);
+    }
+  }, [employeeId, fromDate, toDate]);
+
+  useEffect(() => {
+    void loadSummary();
+  }, [loadSummary]);
+
+  const rateNum = parseFloat(commissionRatePct);
+  const estimatedCommission =
+    summary && Number.isFinite(rateNum) && rateNum >= 0
+      ? (summary.totalInvoicedAmount * rateNum) / 100
+      : null;
+
+  return (
+    <>
+      <ProfileSection label="Sales period">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+          <FieldLabel label="From">
+            <input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              style={formInputStyle}
+            />
+          </FieldLabel>
+          <FieldLabel label="To">
+            <input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              style={formInputStyle}
+            />
+          </FieldLabel>
+        </div>
+        <button
+          type="button"
+          onClick={() => void loadSummary()}
+          disabled={loading}
+          style={{
+            ...modalSubmitBtn,
+            width: '100%',
+            justifyContent: 'center',
+            opacity: loading ? 0.65 : 1,
+            cursor: loading ? 'wait' : 'pointer',
+          }}
+        >
+          {loading ? 'Loading…' : 'Refresh sales'}
+        </button>
+        {error ? (
+          <div style={{ fontSize: 11, color: '#EF4444', marginTop: 10, fontWeight: 600 }}>{error}</div>
+        ) : null}
+      </ProfileSection>
+
+      <ProfileSection label="Totals">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <Stat
+            label="Total sold"
+            value={summary ? formatSalesUsd(summary.totalInvoicedAmount) : loading ? '…' : formatSalesUsd(0)}
+            color={C.green}
+          />
+          <Stat
+            label="Invoices"
+            value={summary ? String(summary.invoiceCount) : loading ? '…' : '0'}
+            color={C.blue}
+          />
+        </div>
+      </ProfileSection>
+
+      <ProfileSection label="Commission calculator (not saved to payroll)">
+        <div style={{ fontSize: 10, color: C.t2, lineHeight: 1.45, marginBottom: 8 }}>
+          Enter a percentage of total sold to estimate commission. This is for planning only — not stored or used in payroll.
+        </div>
+        <FieldLabel label="Rate (% of total sold)">
+          <input
+            type="number"
+            min={0}
+            step={0.1}
+            placeholder="e.g. 5"
+            value={commissionRatePct}
+            onChange={(e) => setCommissionRatePct(e.target.value)}
+            style={formInputStyle}
+          />
+        </FieldLabel>
+        {estimatedCommission != null ? (
+          <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: C.purple }}>
+            Estimated commission: {formatSalesUsd(estimatedCommission)}
+          </div>
+        ) : null}
+      </ProfileSection>
+
+      <ProfileSection label="Invoices">
+        {loading && !summary ? (
+          <div style={{ fontSize: 11, color: C.t2 }}>Loading invoices…</div>
+        ) : !summary || summary.invoices.length === 0 ? (
+          <div style={{ fontSize: 11, color: C.t2, lineHeight: 1.5 }}>
+            No invoiced sales for this salesman in the selected period.
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+              <thead>
+                <tr>
+                  {['Invoice', 'Date', 'Customer', 'Amount', 'Paid'].map((h) => (
+                    <th
+                      key={h}
+                      style={{
+                        textAlign: 'left',
+                        padding: '6px 6px',
+                        fontSize: 9,
+                        color: C.t3,
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        letterSpacing: '.4px',
+                        borderBottom: `1px solid ${C.br2}`,
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {summary.invoices.map((inv) => (
+                  <tr key={inv.id}>
+                    <td style={{ padding: '7px 6px', borderBottom: `1px solid ${C.bd2}`, color: C.t, fontWeight: 600 }}>
+                      {inv.invoiceNumber}
+                    </td>
+                    <td style={{ padding: '7px 6px', borderBottom: `1px solid ${C.bd2}`, color: C.t2, whiteSpace: 'nowrap' }}>
+                      {formatInvoiceDate(inv.date)}
+                    </td>
+                    <td style={{ padding: '7px 6px', borderBottom: `1px solid ${C.bd2}`, color: C.t2, maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {inv.customerName}
+                    </td>
+                    <td style={{ padding: '7px 6px', borderBottom: `1px solid ${C.bd2}`, color: C.green, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                      {formatSalesUsd(inv.amount)}
+                    </td>
+                    <td style={{ padding: '7px 6px', borderBottom: `1px solid ${C.bd2}` }}>
+                      <span style={{
+                        fontSize: 9,
+                        fontWeight: 700,
+                        background: inv.paidStatus === 'paid' ? 'rgba(34,197,94,.12)' : 'rgba(245,158,11,.12)',
+                        color: inv.paidStatus === 'paid' ? '#22C55E' : '#F59E0B',
+                        padding: '1px 6px',
+                        borderRadius: 8,
+                      }}>
+                        {formatPaidStatus(inv.paidStatus)}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </ProfileSection>
+    </>
+  );
+}
+
 function ProfilePanel({
   emp, leaveBalances, payslips, payslipsLoading, payslipDownloadingId,
   tab, onTab, onClose, onEdit, onDownloadPayslip, onExport,
@@ -2576,6 +2804,7 @@ function ProfilePanel({
 
   const tabs: { key: ESSState['profileTab']; label: string }[] = [
     { key: 'overview', label: 'Overview' },
+    ...(isPortalSalesman(emp) ? [{ key: 'sales' as const, label: 'Sales' }] : []),
     { key: 'hours',    label: 'Hours History' },
     { key: 'payslips', label: 'Payslips' },
   ];
@@ -2738,6 +2967,10 @@ function ProfilePanel({
               ))}
             </ProfileSection>
           </>
+        )}
+
+        {tab === 'sales' && isPortalSalesman(emp) && (
+          <ProfileSalesTab employeeId={emp.id} />
         )}
 
         {tab === 'hours' && (() => {

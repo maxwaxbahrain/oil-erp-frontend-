@@ -23,7 +23,7 @@ import {
     XAxis,
     YAxis,
 } from 'recharts';
-import { getInvoices, getPayments, type Invoice, type Payment } from '../../services/api';
+import { getInvoices, getCustomerPayments, type Invoice, type Payment } from '../../services/api';
 import { getSuppliers, getSupplierPayments } from '../../services/purchasesService';
 import { getExpenses, type Expense } from '../../services/expenseService';
 import { getGRNs, type GRN } from '../../services/grnService';
@@ -40,6 +40,7 @@ import { calculateBalanceSheet, type BalanceSheet } from '../../services/balance
 import {
     getGLBalanceSheet,
     getGLCashFlow,
+    getGLProfitLoss,
     isGLEmpty,
     todayISO,
     yearStartISO,
@@ -47,6 +48,7 @@ import {
     OPENING_BALANCES_PATH,
     type GLBalanceSheet,
     type GLCashFlow,
+    type GLProfitLoss,
 } from '../../services/glService';
 
 // ─── Style tokens (dark redwood) ───────────────────────────────────────────
@@ -519,10 +521,10 @@ function MiniBarChart({
 }
 
 export default function FinancialStatement() {
-    const [period, setPeriod] = useState<PeriodKey>('mtd');
+    const [period, setPeriod] = useState<PeriodKey>('ytd');
     const today = new Date().toISOString().slice(0, 10);
-    const [dateFrom, setDateFrom] = useState(PERIOD_RANGES.mtd.from);
-    const [dateTo, setDateTo] = useState(PERIOD_RANGES.mtd.to);
+    const [dateFrom, setDateFrom] = useState(() => yearStartISO());
+    const [dateTo, setDateTo] = useState(() => todayISO());
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -539,6 +541,7 @@ export default function FinancialStatement() {
     const [, setBalanceSheetData] = useState<BalanceSheet | null>(null);
     const [glBalanceSheet, setGlBalanceSheet] = useState<GLBalanceSheet | null>(null);
     const [glCashFlow, setGlCashFlow] = useState<GLCashFlow | null>(null);
+    const [glProfitLoss, setGlProfitLoss] = useState<GLProfitLoss | null>(null);
 
     const [aiQuestion, setAiQuestion] = useState('');
     const [cols, setCols] = useState({ kpi: 4, threeCol: true, twoCol: true });
@@ -557,11 +560,15 @@ export default function FinancialStatement() {
 
     const applyPeriod = useCallback((key: PeriodKey) => {
         setPeriod(key);
-        if (key !== 'custom') {
-            const r = PERIOD_RANGES[key];
-            setDateFrom(r.from);
-            setDateTo(r.to);
+        if (key === 'custom') return;
+        if (key === 'ytd') {
+            setDateFrom(yearStartISO());
+            setDateTo(todayISO());
+            return;
         }
+        const r = PERIOD_RANGES[key];
+        setDateFrom(r.from);
+        setDateTo(r.to);
     }, []);
 
     async function loadAll() {
@@ -570,9 +577,10 @@ export default function FinancialStatement() {
         try {
             const glToday = todayISO();
             const glYearStart = yearStartISO();
-            const [invs, pays, exps, grnsRes, suppliers, pl, cashFlow, balanceSheet, glBs, glCf] = await Promise.all([
+            const [invs, pays, exps, grnsRes, suppliers, pl, cashFlow, balanceSheet, glBs, glCf, glPl] =
+                await Promise.all([
                 getInvoices().catch(() => [] as Invoice[]),
-                getPayments().catch(() => [] as Payment[]),
+                getCustomerPayments().catch(() => [] as Payment[]),
                 getExpenses().catch(() => [] as Expense[]),
                 getGRNs().catch(() => [] as GRN[]),
                 getSuppliers().catch(() => [] as { id: string }[]),
@@ -581,6 +589,7 @@ export default function FinancialStatement() {
                 calculateBalanceSheet().catch(() => null),
                 getGLBalanceSheet(glToday).catch(() => null),
                 getGLCashFlow(glYearStart, glToday).catch(() => null),
+                getGLProfitLoss(glYearStart, glToday).catch(() => null),
             ]);
 
             const supplierPayBatches = await Promise.all(
@@ -602,6 +611,7 @@ export default function FinancialStatement() {
             setBalanceSheetData(balanceSheet);
             setGlBalanceSheet(glBs);
             setGlCashFlow(glCf);
+            setGlProfitLoss(glPl);
         } catch (e: unknown) {
             setError(e instanceof Error ? e.message : 'Failed to load financial data.');
         } finally {
@@ -613,6 +623,25 @@ export default function FinancialStatement() {
         void loadAll();
     }, []);
 
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            const [pl, cf, bs] = await Promise.all([
+                getGLProfitLoss(dateFrom, dateTo).catch(() => null),
+                getGLCashFlow(dateFrom, dateTo).catch(() => null),
+                getGLBalanceSheet(dateTo).catch(() => null),
+            ]);
+            if (!cancelled) {
+                setGlProfitLoss(pl);
+                setGlCashFlow(cf);
+                setGlBalanceSheet(bs);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [dateFrom, dateTo]);
+
     const totals = useMemo(
         () => computeTotals(invoices, payments, supplierPayments, expenses, grns, accounts, dateFrom, dateTo),
         [invoices, payments, supplierPayments, expenses, grns, accounts, dateFrom, dateTo],
@@ -623,7 +652,15 @@ export default function FinancialStatement() {
         [invoices, payments, supplierPayments, expenses, grns, accounts],
     );
 
-    const marginPct = totals.revenue > 0 ? (totals.netProfit / totals.revenue) * 100 : 0;
+    const glNetProfitAvailable = glProfitLoss != null;
+    const displayRevenue = glNetProfitAvailable ? glProfitLoss.revenue : totals.revenue;
+    const displayNetProfit = glNetProfitAvailable ? glProfitLoss.net_income : totals.netProfit;
+    const marginPct =
+        glNetProfitAvailable && glProfitLoss.revenue > 0
+            ? (glProfitLoss.net_income / glProfitLoss.revenue) * 100
+            : totals.revenue > 0
+              ? (totals.netProfit / totals.revenue) * 100
+              : 0;
     const glBsEmpty = !glBalanceSheet || isGLEmpty(glBalanceSheet);
     const glCfEmpty = glBsEmpty || !glCashFlow;
 
@@ -646,10 +683,15 @@ export default function FinancialStatement() {
         });
     }, [invoices, payments, supplierPayments, expenses, grns, accounts]);
 
+    const formatRangeDate = (iso: string) =>
+        new Date(`${iso}T12:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+
     const rangeLabel =
         period === 'custom'
-            ? `${dateFrom ? new Date(`${dateFrom}T12:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '…'} → ${dateTo ? new Date(`${dateTo}T12:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '…'}`
-            : PERIOD_RANGES[period as Exclude<PeriodKey, 'custom'>]?.rangeLabel ?? '';
+            ? `${dateFrom ? formatRangeDate(dateFrom) : '…'} → ${dateTo ? formatRangeDate(dateTo) : '…'}`
+            : period === 'ytd'
+              ? `${formatRangeDate(dateFrom)} → ${formatRangeDate(dateTo)}`
+              : PERIOD_RANGES[period as Exclude<PeriodKey, 'custom'>]?.rangeLabel ?? '';
 
     const handleDownloadPDF = () => {
         const periodLabel = `${dateFrom || 'all-time'} → ${dateTo || 'today'}`;
@@ -722,6 +764,13 @@ export default function FinancialStatement() {
               { label: 'Other', value: pl.operatingExpenses.other },
           ].filter((row) => row.value > 0)
         : [];
+
+    const glExpenseLineRows =
+        glNetProfitAvailable && glProfitLoss.expense_lines?.length
+            ? glProfitLoss.expense_lines
+                  .filter((line) => Math.abs(line.balance) > 0.005)
+                  .map((line) => ({ label: line.name, value: Math.abs(line.balance) }))
+            : [];
 
     return (
         <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', paddingBottom: '100px' }}>
@@ -861,17 +910,17 @@ export default function FinancialStatement() {
             <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols.kpi}, 1fr)`, gap: 8 }}>
                 {kpiCard({
                     stripe: 'linear-gradient(90deg,#22C55E,#86EFAC)',
-                    label: 'Revenue',
-                    value: formatUsdFull(totals.revenue),
+                    label: glNetProfitAvailable ? 'Revenue' : 'Revenue (estimate)',
+                    value: formatUsdFull(displayRevenue),
                     valueColor: 'var(--color-brand-green)',
-                    sub: `↑ ${pctChange(totals.revenue, aprTotals.revenue)} vs Apr`,
+                    sub: `↑ ${pctChange(displayRevenue, aprTotals.revenue)} vs Apr`,
                 })}
                 {kpiCard({
                     stripe: 'linear-gradient(90deg,#22C55E,#86EFAC)',
-                    label: 'Net Profit',
-                    value: formatUsdFull(totals.netProfit),
+                    label: glNetProfitAvailable ? 'Net Profit' : 'Net Profit (estimate)',
+                    value: formatUsdFull(displayNetProfit),
                     valueColor: 'var(--color-brand-green)',
-                    sub: `↑ ${marginPct.toFixed(1)}% margin · ${pctChange(totals.netProfit, aprTotals.netProfit)} vs Apr`,
+                    sub: `↑ ${marginPct.toFixed(1)}% margin · ${pctChange(displayNetProfit, aprTotals.netProfit)} vs Apr`,
                 })}
                 {kpiCard({
                     stripe: 'linear-gradient(90deg,#7C3AED,#A78BFA)',
@@ -907,28 +956,68 @@ export default function FinancialStatement() {
                     <SectionHeader
                         icon={TrendingUp}
                         title="Profit & Loss"
-                        subtitle="Income statement · MTD"
+                        subtitle={`Income statement · ${rangeLabel}${glNetProfitAvailable ? '' : ' (estimate)'}`}
                         iconColor="#22C55E"
                         onExport={handleDownloadPDF}
                     />
-                    <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', marginBottom: 4, fontWeight: 600 }}>
-                        INCOME
-                    </div>
-                    <LineRow label="Gross Revenue" value={pl?.revenue.totalRevenue ?? totals.revenue} positive bold />
-                    <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', margin: '6px 0 4px', fontWeight: 600 }}>
-                        COGS
-                    </div>
-                    <LineRow label="Cost of goods sold" value={pl ? (isPlCogsPartial ? null : -pl.cogs.totalCOGS) : -totals.cogs} positive={false} />
-                    <LineRow label="Gross Profit" value={pl ? (isPlCogsPartial ? null : pl.grossProfit.amount) : totals.grossProfit} positive bold />
-                    <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', margin: '6px 0 4px', fontWeight: 600 }}>
-                        OPERATING EXPENSES
-                    </div>
-                    {plExpenseRows.length > 0 ? (
-                        plExpenseRows.map((row) => (
-                            <LineRow key={row.label} label={row.label} value={-row.value} positive={false} indent />
-                        ))
+                    {glNetProfitAvailable ? (
+                        <>
+                            <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', marginBottom: 4, fontWeight: 600 }}>
+                                INCOME
+                            </div>
+                            <LineRow label="Gross Revenue" value={glProfitLoss.revenue} positive bold />
+                            <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', margin: '6px 0 4px', fontWeight: 600 }}>
+                                COGS
+                            </div>
+                            <LineRow label="Cost of goods sold" value={-glProfitLoss.cogs} positive={false} />
+                            <LineRow label="Gross Profit" value={glProfitLoss.gross_profit} positive bold />
+                            <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', margin: '6px 0 4px', fontWeight: 600 }}>
+                                OPERATING EXPENSES
+                            </div>
+                            {glExpenseLineRows.length > 0 ? (
+                                glExpenseLineRows.map((row) => (
+                                    <LineRow key={row.label} label={row.label} value={-row.value} positive={false} indent />
+                                ))
+                            ) : (
+                                <LineRow
+                                    label="Operating expenses"
+                                    value={-glProfitLoss.operating_expenses}
+                                    positive={false}
+                                    indent
+                                />
+                            )}
+                        </>
                     ) : (
-                        <LineRow label="Expense categories" value={null} positive={false} indent />
+                        <>
+                            <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', marginBottom: 4, fontWeight: 600 }}>
+                                INCOME
+                            </div>
+                            <LineRow label="Gross Revenue (estimate)" value={pl?.revenue.totalRevenue ?? totals.revenue} positive bold />
+                            <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', margin: '6px 0 4px', fontWeight: 600 }}>
+                                COGS
+                            </div>
+                            <LineRow
+                                label="Cost of goods sold (estimate)"
+                                value={pl ? (isPlCogsPartial ? null : -pl.cogs.totalCOGS) : -totals.cogs}
+                                positive={false}
+                            />
+                            <LineRow
+                                label="Gross Profit (estimate)"
+                                value={pl ? (isPlCogsPartial ? null : pl.grossProfit.amount) : totals.grossProfit}
+                                positive
+                                bold
+                            />
+                            <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', margin: '6px 0 4px', fontWeight: 600 }}>
+                                OPERATING EXPENSES
+                            </div>
+                            {plExpenseRows.length > 0 ? (
+                                plExpenseRows.map((row) => (
+                                    <LineRow key={row.label} label={row.label} value={-row.value} positive={false} indent />
+                                ))
+                            ) : (
+                                <LineRow label="Expense categories (estimate)" value={null} positive={false} indent />
+                            )}
+                        </>
                     )}
                     <div
                         style={{
@@ -938,9 +1027,17 @@ export default function FinancialStatement() {
                             borderColor: 'rgba(34,197,94,.25)',
                         }}
                     >
-                        <span style={{ fontWeight: 700, color: 'var(--color-brand-green)' }}>Net Profit</span>
+                        <span style={{ fontWeight: 700, color: 'var(--color-brand-green)' }}>
+                            Net Profit{glNetProfitAvailable ? '' : ' (estimate)'}
+                        </span>
                         <span style={{ color: 'var(--color-brand-green)', fontWeight: 700, fontFamily: "'Syne',sans-serif" }}>
-                            {pl && isPlCogsPartial ? '—' : formatUsdFull(pl?.netProfit.afterTax ?? totals.netProfit)}
+                            {pl && isPlCogsPartial && !glNetProfitAvailable
+                                ? '—'
+                                : formatUsdFull(
+                                      glNetProfitAvailable
+                                          ? glProfitLoss.net_income
+                                          : (pl?.netProfit.afterTax ?? totals.netProfit),
+                                  )}
                         </span>
                     </div>
                     <MiniBarChart title="Revenue trend (6 months)" data={revenueTrend} dataKey="value" color="#22C55E" />

@@ -1,4 +1,4 @@
-import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import {
   Menu,
   ChevronDown,
@@ -38,7 +38,7 @@ import VoiceAssistant from '../components/VoiceAssistant/VoiceAssistant';
 import CommandBar from '../components/VoiceAssistant/CommandBar';
 import AdvisorDock from '../components/advisor/AdvisorDock';
 import { SubscriptionRequiredDialog } from '../components/common/SubscriptionRequired';
-import { isProduction } from '../config/appEnv';
+import { isProduction, isStaging, appEnv } from '../config/appEnv';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { getInvoices, getCustomers, getProducts, getPayments } from '../services/api';
 import { getPurchaseOrders } from '../services/purchasesService';
@@ -269,6 +269,10 @@ function App() {
   if (
     location.pathname === '/login' ||
     location.pathname === '/privacy' ||
+    location.pathname === '/terms' ||
+    location.pathname === '/sub-processors' ||
+    location.pathname === '/data-deletion' ||
+    location.pathname === '/security' ||
     location.pathname === '/signup' ||
     location.pathname === '/forgot-password' ||
     location.pathname === '/reset-password'
@@ -812,19 +816,64 @@ function App() {
         </div>
 
         {/* Global Identity Footer */}
-        <footer className="h-10 bg-redwood-midnight border-t border-redwood-border px-3 sm:px-8 hidden lg:flex items-center justify-between text-[10px] font-bold text-redwood-text-muted uppercase tracking-[0.2em] shadow-[0_-1px_3px_rgba(0,0,0,0.02)] print:hidden">
+        <footer className="h-10 bg-redwood-midnight border-t border-redwood-border px-3 sm:px-8 flex items-center justify-between text-[10px] font-bold text-redwood-text-muted uppercase tracking-[0.2em] shadow-[0_-1px_3px_rgba(0,0,0,0.02)] print:hidden">
           <div className="flex items-center gap-4 flex-wrap min-w-0">
             <span className="text-redwood-brand whitespace-nowrap shrink-0">SOLTOL ONE</span>
-            {/* Version + tagline hidden on phones to avoid footer overflow. */}
-            <div className="hidden sm:block h-3 w-[1px] bg-redwood-border shrink-0" />
-            <span className="hidden sm:inline whitespace-nowrap shrink-0">Platform: v1.0.0</span>
+            <div className="h-3 w-[1px] bg-redwood-border shrink-0" />
+            {isProduction ? (
+            <span className="whitespace-nowrap shrink-0">Platform: {__APP_BUILD_VERSION__.slice(0, 7)}</span>
+            ) : (
+            <span className="whitespace-nowrap shrink-0 flex items-center gap-1.5 normal-case tracking-normal">
+              <span
+                className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                  isStaging
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                    : 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
+                }`}
+              >
+                {appEnv}
+              </span>
+              <span className="text-redwood-text-muted/50">·</span>
+              <span className="font-mono">{__APP_BUILD_VERSION__.slice(0, 7)}</span>
+            </span>
+            )}
           </div>
-          <div className="flex items-center gap-3 sm:gap-6">
+          <div className="flex items-center gap-3 sm:gap-4 flex-wrap justify-end min-w-0">
+            <Link
+              to="/privacy"
+              className="text-redwood-text-muted hover:text-redwood-text-main normal-case tracking-normal font-medium whitespace-nowrap"
+            >
+              Privacy Policy
+            </Link>
+            <Link
+              to="/terms"
+              className="text-redwood-text-muted hover:text-redwood-text-main normal-case tracking-normal font-medium whitespace-nowrap"
+            >
+              Terms of Service
+            </Link>
+            <Link
+              to="/sub-processors"
+              className="text-redwood-text-muted hover:text-redwood-text-main normal-case tracking-normal font-medium whitespace-nowrap"
+            >
+              Sub-processors
+            </Link>
+            <Link
+              to="/data-deletion"
+              className="text-redwood-text-muted hover:text-redwood-text-main normal-case tracking-normal font-medium whitespace-nowrap"
+            >
+              Data Deletion
+            </Link>
+            <Link
+              to="/security"
+              className="text-redwood-text-muted hover:text-redwood-text-main normal-case tracking-normal font-medium whitespace-nowrap"
+            >
+              Security
+            </Link>
             <span className="hidden sm:flex items-center gap-2">
               <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
               Powered by AI
             </span>
-            <span className="text-redwood-text-main">© 2025</span>
+            <span className="text-redwood-text-main whitespace-nowrap">© 2025</span>
           </div>
         </footer>
       </main>

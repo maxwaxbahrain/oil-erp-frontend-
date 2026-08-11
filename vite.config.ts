@@ -6,9 +6,13 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
 
   const apiTarget = env.VITE_API_URL || 'http://localhost:8000'
+  const buildVersion = process.env.RENDER_GIT_COMMIT || 'dev'
 
   return {
     appType: 'spa',
+    define: {
+      __APP_BUILD_VERSION__: JSON.stringify(buildVersion),
+    },
     plugins: [
       react(),
       tailwindcss(),

@@ -265,7 +265,7 @@ type TabType = 'executive' | 'pl' | 'cashflow' | 'balance' | 'ratios' | 'dimensi
 
 export default function ProfitabilityReports() {
     const navigate = useNavigate();
-    const [activeTab, setActiveTab] = useState<TabType>('executive');
+    const [activeTab, setActiveTab] = useState<TabType>('pl');
     const [, setLoading] = useState(true);
 
     // State for actual data
@@ -905,6 +905,8 @@ export default function ProfitabilityReports() {
         { id: 'analytics', label: 'Analytics & alerts', icon: Brain },
         { id: 'reports', label: 'All reports', icon: Layers },
     ];
+    const hiddenTabIds: TabType[] = ['executive', 'dimensional', 'analytics'];
+    const visibleTabDefs = tabDefs.filter((tab) => !hiddenTabIds.includes(tab.id));
 
     const darkPanelStyle: CSSProperties = {
         ...panel,
@@ -912,7 +914,7 @@ export default function ProfitabilityReports() {
     };
 
     return (
-        <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', paddingBottom: activeTab === 'executive' ? '100px' : activeTab === 'pl' ? '48px' : '24px' }}>
+        <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', paddingBottom: activeTab === 'pl' ? '48px' : '24px' }}>
             {/* Page Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
@@ -1005,7 +1007,7 @@ export default function ProfitabilityReports() {
                 }}
                 className="print:hidden"
             >
-                {tabDefs.map((tab) => (
+                {visibleTabDefs.map((tab) => (
                     <button
                         key={tab.id}
                         type="button"

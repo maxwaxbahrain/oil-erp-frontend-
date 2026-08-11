@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { FileText, Download, AlertCircle, CheckCircle, ArrowLeft, Printer, ChevronLeft, ChevronRight, Send, MessageCircle, Mail, Smartphone, X } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { getInvoices, getPayments, type Invoice } from '../../services/api';
+import { getInvoices, getCustomerPayments, type Invoice } from '../../services/api';
 import { getCustomers } from '../../services/customerService';
 import { formatCurrency } from '../../services/settingsService';
 
@@ -78,7 +78,7 @@ export default function OutstandingBills() {
         // open invoices first (FIFO). Backend invoices all have paid_amount=0
         // because customer payments live in a separate Transactions table and
         // are never linked to specific invoices.
-        Promise.all([getInvoices(), getPayments().catch(() => []), getCustomers().catch(() => [])]).then(([invs, pays, customers]) => {
+        Promise.all([getInvoices(), getCustomerPayments().catch(() => []), getCustomers().catch(() => [])]).then(([invs, pays, customers]) => {
             const contacts: Record<string, { name: string; phone: string; email: string }> = {};
             (customers || []).forEach((c: any) => {
                 const cid = String(c?.id ?? '');

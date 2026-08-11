@@ -2,13 +2,12 @@ import { useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import QRCode from 'qrcode';
 import { fetchPublicInvoiceByToken, type PublicInvoicePayload } from '../services/api';
+import { formatCityLine } from '../services/settingsService';
 import { Download } from 'lucide-react';
 
 const MAROON = '#800020';
 const CREAM = '#FDF8F0';
 const DEFAULT_COMPANY_NAME = 'SOLTOL';
-/** QR always points to company site (not the invoice URL). */
-const BETTANO_QR_TARGET_URL = 'https://www.bettanoglobal.com';
 
 function formatMoney(n: number): string {
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -50,14 +49,16 @@ export default function PublicInvoice() {
   }, [token]);
 
   useEffect(() => {
-    QRCode.toDataURL(BETTANO_QR_TARGET_URL, {
+    if (!token?.trim()) return;
+    const invoiceUrl = `${window.location.origin}/invoice/${encodeURIComponent(token.trim())}`;
+    QRCode.toDataURL(invoiceUrl, {
       width: 120,
       margin: 1,
       color: { dark: '#111111', light: '#ffffff' },
     })
       .then(setQrDataUrl)
       .catch(() => setQrDataUrl(null));
-  }, []);
+  }, [token]);
 
   useEffect(() => {
     if (!autoPdf || !data) return;
@@ -102,6 +103,7 @@ export default function PublicInvoice() {
 
   const c = data.company_settings;
   const companyName = (c?.name || '').trim() || DEFAULT_COMPANY_NAME;
+  const cityLine = formatCityLine(c?.city, c?.state, c?.postal_code);
   const items = Array.isArray(data.items) ? data.items : [];
   const { label: statusLabel, paid: isPaid } = statusDisplay(data.status);
   const customerAddress = (data.customer_address || '').trim();
@@ -167,7 +169,8 @@ export default function PublicInvoice() {
           </h1>
           <div className="mt-3 space-y-0.5 leading-relaxed text-sm text-gray-600">
             {c?.address ? <p>{c.address}</p> : null}
-            <p>{[c?.city, c?.country].filter(Boolean).join(', ')}</p>
+            {cityLine ? <p>{cityLine}</p> : null}
+            {c?.country ? <p>{c.country}</p> : null}
             {c?.phone ? <p>{c.phone}</p> : null}
             {c?.email ? <p>{c.email}</p> : null}
             {c?.website ? <p>{c.website}</p> : null}

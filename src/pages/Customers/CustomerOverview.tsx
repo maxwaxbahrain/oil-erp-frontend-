@@ -33,7 +33,6 @@ import {
 import {
     getCustomers,
     getCustomerPayments,
-    compareLedgerByDateAsc,
     type Customer,
     type Payment
 } from '../../services/customerService';
@@ -239,6 +238,8 @@ export default function CustomerOverview() {
     const [loadingLedger, setLoadingLedger] = useState(false);
     const [ledgerError, setLedgerError] = useState<string | null>(null);
     const ledgerRequestRef = useRef(0);
+    /** Last (id, from, to) dispatched by the ledger load effect — skip exact duplicates only. */
+    const lastLedgerEffectKeyRef = useRef<string | null>(null);
 
     // Stats state
     const [stats, setStats] = useState<CustomerStats>({
@@ -336,8 +337,8 @@ export default function CustomerOverview() {
                 throw new Error('Invalid ledger response (expected opening_balance, rows, closing_balance)');
             }
             const rows = data.rows.map(mapPartyRowToDisplay);
-            // Chronological order so running_balance decreases on payments as you read down.
-            setLedger([...rows].sort(compareLedgerByDateAsc));
+            // Backend returns oldest→newest with running_balance per row; reverse for newest-first display.
+            setLedger([...rows].reverse());
             setLedgerOpeningBalance(data.opening_balance);
             setLedgerClosingBalance(data.closing_balance);
         } catch (error) {
@@ -476,13 +477,24 @@ export default function CustomerOverview() {
         loadAllData();
     }, [id, customer]);
 
-    // Re-fetch the ledger tab whenever the date filter changes (backend computes
-    // opening/closing for the window).
+    // Drop date filter when switching customers (Clear Filter uses the same setters).
     useEffect(() => {
-        if (!id || !customer) return;
-        loadLedger(ledgerDateFrom || undefined, ledgerDateTo || undefined);
+        setLedgerDateFrom('');
+        setLedgerDateTo('');
+        lastLedgerEffectKeyRef.current = null;
+    }, [id]);
+
+    // Load ledger tab when customer is ready and when the date filter changes.
+    useEffect(() => {
+        if (!id || !customer || String(customer.id) !== String(id)) return;
+        const from = ledgerDateFrom || undefined;
+        const to = ledgerDateTo || undefined;
+        const effectKey = `${id}|${from ?? ''}|${to ?? ''}`;
+        if (lastLedgerEffectKeyRef.current === effectKey) return;
+        lastLedgerEffectKeyRef.current = effectKey;
+        void loadLedger(from, to);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [ledgerDateFrom, ledgerDateTo]);
+    }, [id, customer, ledgerDateFrom, ledgerDateTo]);
 
     // TASK 5 — Silent refetch on tab return so a payment recorded in
     // another tab reflects immediately on this profile when the user
@@ -1600,18 +1612,20 @@ export default function CustomerOverview() {
                                             </tr>
                                         ) : (
                                             <>
-                                            {(ledgerDateFrom || ledgerDateTo) && ledgerOpeningBalance !== null && (
-                                                <tr style={{ background: 'rgba(79,142,247,.08)' }}>
-                                                    <td colSpan={6} style={{ ...ledgerTdStyle, fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>
-                                                        Opening balance
-                                                        <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 600, color: 'var(--t2,#8BA3C7)' }}>
-                                                            (as at {ledgerDateFrom || 'start'})
+                                            {ledgerClosingBalance !== null && ledger.length > 0 && (
+                                                <tr style={{ fontWeight: 700, background: 'rgba(79,142,247,.08)' }}>
+                                                    <td colSpan={6} style={{ ...ledgerTfootStyle, textAlign: 'right', fontSize: 10, color: 'var(--t,#EEF2FF)', textTransform: 'uppercase', letterSpacing: '.6px' }}>
+                                                        Closing balance
+                                                        {(ledgerDateFrom || ledgerDateTo) && (
+                                                        <span style={{ marginLeft: 8, fontWeight: 600, color: 'var(--t2,#8BA3C7)', textTransform: 'none' }}>
+                                                            (as at {ledgerDateTo || 'today'})
                                                         </span>
+                                                        )}
                                                     </td>
-                                                    <td style={{ ...ledgerTdStyle, textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>
-                                                        {ledgerOpeningBalance.toLocaleString()}
+                                                    <td style={{ ...ledgerTfootStyle, textAlign: 'right', fontFamily: 'monospace', color: 'var(--t,#EEF2FF)' }}>
+                                                        {ledgerClosingBalance.toLocaleString()}
                                                     </td>
-                                                    <td style={ledgerTdStyle}></td>
+                                                    <td style={ledgerTfootStyle}></td>
                                                 </tr>
                                             )}
                                             {ledger.map(entry => (
@@ -1726,6 +1740,22 @@ export default function CustomerOverview() {
                                                     </td>
                                                 </tr>
                                             ))}
+                                            {ledgerOpeningBalance !== null && (
+                                                <tr style={{ background: 'rgba(79,142,247,.08)' }}>
+                                                    <td colSpan={6} style={{ ...ledgerTdStyle, fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>
+                                                        Opening balance
+                                                        {(ledgerDateFrom || ledgerDateTo) && (
+                                                        <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 600, color: 'var(--t2,#8BA3C7)' }}>
+                                                            (as at {ledgerDateFrom || 'start'})
+                                                        </span>
+                                                        )}
+                                                    </td>
+                                                    <td style={{ ...ledgerTdStyle, textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>
+                                                        {ledgerOpeningBalance.toLocaleString()}
+                                                    </td>
+                                                    <td style={ledgerTdStyle}></td>
+                                                </tr>
+                                            )}
                                             {ledger.length === 0 && (ledgerDateFrom || ledgerDateTo) && (
                                                 <tr>
                                                     <td colSpan={8} style={{ padding: '24px 16px', textAlign: 'center', color: 'var(--t2,#8BA3C7)', fontSize: 12 }}>
@@ -1736,24 +1766,6 @@ export default function CustomerOverview() {
                                             </>
                                         )}
                                     </tbody>
-                                    {ledgerClosingBalance !== null && ledger.length > 0 && (
-                                        <tfoot>
-                                            <tr style={{ fontWeight: 700, background: 'rgba(79,142,247,.08)' }}>
-                                                <td colSpan={6} style={{ ...ledgerTfootStyle, textAlign: 'right', fontSize: 10, color: 'var(--t,#EEF2FF)', textTransform: 'uppercase', letterSpacing: '.6px' }}>
-                                                    Closing balance
-                                                    {(ledgerDateFrom || ledgerDateTo) && (
-                                                    <span style={{ marginLeft: 8, fontWeight: 600, color: 'var(--t2,#8BA3C7)', textTransform: 'none' }}>
-                                                        (as at {ledgerDateTo || 'today'})
-                                                    </span>
-                                                    )}
-                                                </td>
-                                                <td style={{ ...ledgerTfootStyle, textAlign: 'right', fontFamily: 'monospace', color: 'var(--t,#EEF2FF)' }}>
-                                                    {ledgerClosingBalance.toLocaleString()}
-                                                </td>
-                                                <td style={ledgerTfootStyle}></td>
-                                            </tr>
-                                        </tfoot>
-                                    )}
                                 </table>
                             </div>
                         </div>
@@ -1970,7 +1982,7 @@ export default function CustomerOverview() {
                                             <th style={{ ...ledgerThStyle, textAlign: 'right' }}>Amount</th>
                                             <th style={{ ...ledgerThStyle, textAlign: 'center', width: 80 }}>Receipt</th>
                                             <th style={{ ...ledgerThStyle, textAlign: 'center', width: 80 }}>Edit</th>
-                                            <th style={{ ...ledgerThStyle, textAlign: 'center', width: 96 }}>Status</th>
+                                            <th style={{ ...ledgerThStyle, textAlign: 'center', width: 96 }}>Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
