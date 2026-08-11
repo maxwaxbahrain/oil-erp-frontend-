@@ -17,7 +17,9 @@ import {
     CheckCircle,
     Zap,
     Loader2,
+    Download,
 } from 'lucide-react';
+import api from '../../api/axios';
 import { useAuth } from '../../contexts/AuthContext';
 import { extractApiDetail } from '../Billing/billingApi';
 import {
@@ -63,6 +65,8 @@ export default function SettingsPage() {
     const [showSuccess, setShowSuccess] = useState(false);
     const [successMsg, setSuccessMsg] = useState('');
     const [currencySettings, setCurrencySettings] = useState<SystemSettings>(getSystemSettings());
+    const [exporting, setExporting] = useState(false);
+    const [exportError, setExportError] = useState<string | null>(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -147,6 +151,35 @@ export default function SettingsPage() {
         setTimeout(() => setShowSuccess(false), 3000);
     };
 
+    const handleExportMyData = async () => {
+        setExportError(null);
+        setExporting(true);
+        try {
+            const { data } = await api.get<Blob>('/api/export/my-data', { responseType: 'blob' });
+            const blob = data instanceof Blob ? data : new Blob([data], { type: 'application/zip' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `soltol-data-export-${new Date().toISOString().slice(0, 10)}.zip`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+            notify('Data export downloaded successfully');
+        } catch (err: unknown) {
+            const status = (err as { response?: { status?: number } }).response?.status;
+            if (status === 403) {
+                setExportError('Only administrators can export company data.');
+            } else {
+                setExportError(
+                    extractApiDetail(err, 'Could not download your data export. Please try again.'),
+                );
+            }
+        } finally {
+            setExporting(false);
+        }
+    };
+
     const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'logo' | 'signature') => {
         const file = e.target.files?.[0];
         if (file) {
@@ -196,6 +229,11 @@ export default function SettingsPage() {
                 {profileError && (
                     <div className="flex items-center gap-3 bg-red-50 border border-red-200 px-4 py-2 rounded-sm text-red-700 text-[10px] font-black uppercase tracking-widest">
                         <AlertTriangle size={14} /> {profileError}
+                    </div>
+                )}
+                {exportError && (
+                    <div className="flex items-center gap-3 bg-red-50 border border-red-200 px-4 py-2 rounded-sm text-red-700 text-[10px] font-black uppercase tracking-widest">
+                        <AlertTriangle size={14} /> {exportError}
                     </div>
                 )}
             </div>
@@ -731,6 +769,33 @@ export default function SettingsPage() {
 
                     {activeTab === 'data' && (
                         <div className="space-y-4">
+                            {canSeeBilling && (
+                                <section className="bg-white border border-redwood-border rounded-sm shadow-sm p-8 max-w-xl">
+                                    <div className="flex items-center gap-3 mb-4">
+                                        <Download size={20} className="text-redwood-brand" />
+                                        <h3 className="text-lg font-black text-redwood-text-main uppercase tracking-tighter">Export My Data</h3>
+                                    </div>
+                                    <p className="text-sm text-redwood-text-muted mb-6">
+                                        Download all your company&apos;s data (customers, invoices, payments, and more) as CSV files.
+                                    </p>
+                                    <button
+                                        type="button"
+                                        onClick={() => void handleExportMyData()}
+                                        disabled={exporting}
+                                        className="inline-flex items-center gap-2 px-5 py-2.5 bg-redwood-brand text-white rounded-sm text-sm font-bold uppercase tracking-wider hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
+                                    >
+                                        {exporting ? (
+                                            <>
+                                                <Loader2 size={14} className="animate-spin" /> Exporting…
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Download size={14} /> Export My Data
+                                            </>
+                                        )}
+                                    </button>
+                                </section>
+                            )}
                             <div className="bg-gray-900 rounded-2xl p-6 text-white text-center">
                                 <div className="text-4xl mb-3">🗄️</div>
                                 <h2 className="text-lg font-black uppercase tracking-tight mb-2">Data Migration Center</h2>
