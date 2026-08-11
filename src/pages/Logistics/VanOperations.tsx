@@ -1,13 +1,22 @@
-import { useState, useEffect, useMemo, type CSSProperties } from 'react';
+import { useState, useEffect, useMemo, useCallback, type CSSProperties } from 'react';
 import {
     Truck, Package,
     CheckCircle,
     Plus, Save, Minus, ChevronDown
 } from 'lucide-react';
 import { getVans, API_BASE_URL, getInvoices, getProducts as getApiProducts, getSalesOrders, type Van as ApiVan, type SalesOrder } from '../../services/api';
-import { createVanLoad } from '../../services/vanLoadService';
+import {
+    createVanLoad,
+    approveVanLoad,
+    getVanLoadsToday,
+    VanLoadApiError,
+    type VanLoad,
+    type VanLoadConflictDetail,
+} from '../../services/vanLoadService';
 import { getSalesReturns } from '../../services/salesReturnService';
 import { getCurrentUser } from '../../store/authStore';
+import { useAuth } from '../../contexts/AuthContext';
+import { MANAGEMENT_ROLES } from '../../utils/rbac';
 import { authFetch } from '../../api/axios';
 
 const C = {
@@ -167,6 +176,8 @@ function FlowBar({
 export default function VanOperations() {
     const UNITS_PER_CASE = 12;
     const currentUser = getCurrentUser();
+    const { hasRole } = useAuth();
+    const canApproveLoads = hasRole(...MANAGEMENT_ROLES);
     const [activeTab, setActiveTab] = useState<TabId>('overview');
     const [vans, setVans] = useState<VanRow[]>([]);
     const [vansLoading, setVansLoading] = useState(true);
@@ -193,6 +204,9 @@ export default function VanOperations() {
     const [loadSaving, setLoadSaving] = useState(false);
     const [loadMessage, setLoadMessage] = useState<string | null>(null);
     const [loadError, setLoadError] = useState<string | null>(null);
+    const [approvingLoadId, setApprovingLoadId] = useState<string | null>(null);
+    const [approveMessage, setApproveMessage] = useState<string | null>(null);
+    const [approveError, setApproveError] = useState<string | null>(null);
     const [showAddVanModal, setShowAddVanModal] = useState(false);
     const [newVanForm, setNewVanForm] = useState({
         van_number: '',
@@ -266,26 +280,22 @@ export default function VanOperations() {
         };
     }, []);
 
+    const refetchVanLoadsToday = useCallback(async () => {
+        setVanLoadsLoading(true);
+        try {
+            const data = await getVanLoadsToday();
+            setVanLoadsToday(Array.isArray(data) ? data : []);
+        } catch (e) {
+            console.warn('Could not load van-loads/today:', e);
+            setVanLoadsToday([]);
+        } finally {
+            setVanLoadsLoading(false);
+        }
+    }, []);
+
     useEffect(() => {
-        let cancelled = false;
-        (async () => {
-            setVanLoadsLoading(true);
-            try {
-                const res = await authFetch(`${API_BASE_URL}/van-loads/today`, { cache: 'no-store' });
-                const data = res.ok ? await res.json() : [];
-                if (cancelled) return;
-                setVanLoadsToday(Array.isArray(data) ? data : []);
-            } catch (e) {
-                console.warn('Could not load van-loads/today:', e);
-                if (!cancelled) setVanLoadsToday([]);
-            } finally {
-                if (!cancelled) setVanLoadsLoading(false);
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, [selectedVan]);
+        refetchVanLoadsToday();
+    }, [selectedVan, refetchVanLoadsToday]);
 
     useEffect(() => {
         let cancelled = false;
@@ -382,7 +392,59 @@ export default function VanOperations() {
         setCart((prev) => prev.filter((p) => p.id !== id));
     };
 
+    const loadStatusBadgeStyle = (status: string): { bg: string; color: string } => {
+        const s = (status || '').toLowerCase();
+        if (s === 'pending') return { bg: 'rgba(245,158,11,.15)', color: C.orange };
+        if (s === 'loaded' || s === 'approved' || s === 'confirmed') {
+            return { bg: 'rgba(34,197,94,.15)', color: C.green };
+        }
+        if (s === 'cancelled' || s === 'rejected') return { bg: 'rgba(239,68,68,.12)', color: C.red };
+        return { bg: 'rgba(255,255,255,.06)', color: C.muted };
+    };
+
+    const describeLoadItems = (load: VanLoad) => {
+        const priceByProduct = new Map(vanOpProducts.map((p) => [String(p.id), p]));
+        const items = Array.isArray(load.items) ? load.items : [];
+        const cases = items.reduce((acc, it) => acc + (Number(it.quantity) || 0), 0);
+        const value = items.reduce((acc, it) => {
+            const qty = Number(it.quantity) || 0;
+            const prod = priceByProduct.get(String(it.product_id ?? ''));
+            return acc + qty * (Number(prod?.price) || 0);
+        }, 0);
+        return { cases, value, items };
+    };
+
+    const submitVanLoad = async (additionalLoad: boolean) => {
+        const totalCases = cart.reduce((acc, item) => acc + (Number(item.qty) || 0), 0);
+        const totalValue = cart.reduce(
+            (acc, item) => acc + ((Number(item.qty) || 0) * (Number(item.price) || 0)),
+            0
+        );
+        const payload = {
+            van_id: String(selectedVan),
+            load_date: new Date().toISOString().slice(0, 10),
+            status: 'loaded',
+            total_value: totalValue,
+            additional_load: additionalLoad,
+            items: cart.map((it) => ({
+                product_id: String(it.id),
+                quantity: Number(it.qty) || 0,
+            })),
+        };
+        await createVanLoad(payload);
+        const vanLabel = vans.find((v) => v.id === selectedVan)?.vanNumber || 'Selected Van';
+        const driver = vans.find((v) => v.id === selectedVan)?.driver || '—';
+        setLoadMessage(
+            additionalLoad
+                ? `${vanLabel} top-up load saved! ${totalCases} cases | $${totalValue.toFixed(2)} Driver: ${driver}`
+                : `${vanLabel} loaded successfully! ${totalCases} cases | $${totalValue.toFixed(2)} value Driver: ${driver}`
+        );
+        setCart([]);
+        await refetchVanLoadsToday();
+    };
+
     const handleConfirmLoad = async () => {
+        if (loadSaving) return;
         if (!selectedVan || cart.length === 0) return;
         const totalCases = cart.reduce((acc, item) => acc + (Number(item.qty) || 0), 0);
         const totalValue = cart.reduce((acc, item) => acc + ((Number(item.qty) || 0) * (Number(item.price) || 0)), 0);
@@ -395,31 +457,84 @@ export default function VanOperations() {
         setLoadMessage(null);
         setLoadError(null);
         try {
-            const payload = {
-                van_id: String(selectedVan),
-                load_date: new Date().toISOString().slice(0, 10),
-                status: 'loaded',
-                total_value: totalValue,
-                items: cart.map((it) => ({
-                    product_id: String(it.id),
-                    quantity: Number(it.qty) || 0,
-                })),
-            };
-            await createVanLoad(payload);
-            const driver = vans.find((v) => v.id === selectedVan)?.driver || '—';
-            setLoadMessage(
-                `${vanLabel} loaded successfully! ${totalCases} cases | $${totalValue.toFixed(2)} value Driver: ${driver}`
-            );
-            setCart([]);
+            await submitVanLoad(false);
         } catch (e) {
-            console.error(e);
-            setLoadError(e instanceof Error ? e.message : 'Failed to save van load.');
+            if (e instanceof VanLoadApiError && e.status === 409) {
+                const detail = e.detail as VanLoadConflictDetail | undefined;
+                const existingStatus = (detail?.status || '').toLowerCase();
+                if (existingStatus === 'pending') {
+                    window.alert(
+                        "This van has a PENDING load request for today. Review and approve it in Today's load requests before adding another load."
+                    );
+                } else if (
+                    existingStatus === 'loaded' ||
+                    existingStatus === 'approved' ||
+                    existingStatus === 'confirmed'
+                ) {
+                    const topUpOk = window.confirm(
+                        `This van already has a load for today (status: ${detail?.status || existingStatus}). Add an additional top-up load?`
+                    );
+                    if (topUpOk) {
+                        try {
+                            await submitVanLoad(true);
+                        } catch (inner) {
+                            console.error(inner);
+                            setLoadError(
+                                inner instanceof Error ? inner.message : 'Failed to save top-up load.'
+                            );
+                        }
+                    }
+                } else {
+                    window.alert(
+                        detail?.message ||
+                            'This van already has an active load for today. Check Today\'s load requests before adding another load.'
+                    );
+                }
+            } else {
+                console.error(e);
+                setLoadError(e instanceof Error ? e.message : 'Failed to save van load.');
+            }
         } finally {
             setLoadSaving(false);
         }
     };
 
+    const handleApproveLoad = async (loadId: string) => {
+        if (approvingLoadId) return;
+        setApprovingLoadId(loadId);
+        setApproveMessage(null);
+        setApproveError(null);
+        try {
+            await approveVanLoad(loadId, currentUser.name || 'Office');
+            setApproveMessage('Load approved — warehouse stock deducted.');
+            await refetchVanLoadsToday();
+        } catch (e) {
+            console.error(e);
+            if (e instanceof VanLoadApiError) {
+                const detail = e.detail;
+                setApproveError(
+                    typeof detail === 'string'
+                        ? detail
+                        : typeof detail === 'object' && detail !== null && 'message' in detail
+                          ? String((detail as { message?: string }).message)
+                          : e.message
+                );
+            } else {
+                setApproveError(e instanceof Error ? e.message : 'Failed to approve load.');
+            }
+        } finally {
+            setApprovingLoadId(null);
+        }
+    };
+
     const selectedVanRow = vans.find((v) => v.id === selectedVan);
+    const selectedVanLoadsToday = useMemo(
+        () =>
+            (Array.isArray(vanLoadsToday) ? vanLoadsToday : []).filter(
+                (l: VanLoad) => String(l.van_id) === String(selectedVan)
+            ),
+        [vanLoadsToday, selectedVan]
+    );
     const totalCasesLoaded = cart.reduce((acc, item) => acc + (Number(item.qty) || 0), 0);
     const totalUnitsLoaded = totalCasesLoaded * UNITS_PER_CASE;
     const totalValueLoaded = cart.reduce((acc, item) => acc + ((Number(item.qty) || 0) * (Number(item.price) || 0)), 0);
@@ -911,17 +1026,149 @@ export default function VanOperations() {
                         </div>
 
                         <div style={{ ...panel, padding: '18px 20px' }}>
+                            <h3 style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.4px', textTransform: 'uppercase', color: C.muted, marginBottom: 14 }}>
+                                Today&apos;s load requests — {selectedVanRow?.vanNumber || 'No van selected'}
+                            </h3>
+                            {approveMessage && (
+                                <div style={{ fontSize: 11, color: C.green, background: 'rgba(34,197,94,.1)', border: '1px solid rgba(34,197,94,.2)', borderRadius: 6, padding: '8px 12px', marginBottom: 12 }}>
+                                    {approveMessage}
+                                </div>
+                            )}
+                            {approveError && (
+                                <div style={{ fontSize: 11, color: C.red, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', borderRadius: 6, padding: '8px 12px', marginBottom: 12 }}>
+                                    {approveError}
+                                </div>
+                            )}
+                            {vanLoadsLoading ? (
+                                <div style={{ fontSize: 12, color: C.muted }}>Loading today&apos;s loads…</div>
+                            ) : selectedVanLoadsToday.length === 0 ? (
+                                <div style={{ fontSize: 12, color: C.muted }}>No loads recorded for this van today.</div>
+                            ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                    {selectedVanLoadsToday.map((load) => {
+                                        const badge = loadStatusBadgeStyle(String(load.status || ''));
+                                        const { cases, value, items } = describeLoadItems(load);
+                                        const isPending = String(load.status || '').toLowerCase() === 'pending';
+                                        return (
+                                            <div
+                                                key={load.id}
+                                                style={{
+                                                    ...panel,
+                                                    padding: '12px 14px',
+                                                    background: C.bg3,
+                                                    display: 'flex',
+                                                    flexWrap: 'wrap',
+                                                    alignItems: 'center',
+                                                    gap: 12,
+                                                    justifyContent: 'space-between',
+                                                }}
+                                            >
+                                                <div style={{ flex: 1, minWidth: 200 }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                                                        <span style={{
+                                                            fontSize: 9, fontWeight: 700, textTransform: 'uppercase', padding: '3px 8px', borderRadius: 4,
+                                                            background: badge.bg, color: badge.color,
+                                                        }}>
+                                                            {String(load.status || 'unknown')}
+                                                        </span>
+                                                        {load.is_additional && (
+                                                            <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: C.blue }}>
+                                                                Top-up
+                                                            </span>
+                                                        )}
+                                                        <span style={{ fontSize: 10, color: C.dim, fontFamily: 'monospace' }}>
+                                                            {String(load.id).slice(0, 8)}…
+                                                        </span>
+                                                    </div>
+                                                    <div style={{ fontSize: 11, color: C.text }}>
+                                                        {cases} case(s) · ${value.toFixed(2)}
+                                                        {items.length > 0 && (
+                                                            <span style={{ color: C.muted }}> · {items.length} line(s)</span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                {isPending && canApproveLoads && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleApproveLoad(load.id)}
+                                                        disabled={approvingLoadId === load.id}
+                                                        style={{
+                                                            padding: '8px 14px', background: C.green, color: '#fff', border: 'none', borderRadius: 6,
+                                                            fontSize: 10, fontWeight: 700, textTransform: 'uppercase', cursor: approvingLoadId === load.id ? 'wait' : 'pointer',
+                                                            opacity: approvingLoadId === load.id ? 0.6 : 1, fontFamily: 'inherit',
+                                                            display: 'flex', alignItems: 'center', gap: 6,
+                                                        }}
+                                                    >
+                                                        <CheckCircle size={14} />
+                                                        {approvingLoadId === load.id ? 'Approving…' : 'Approve'}
+                                                    </button>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+
+                        <div style={{ ...panel, padding: '18px 20px' }}>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 14, fontSize: 12 }}>
                                 <div><div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: C.muted }}>Van number</div><div style={{ fontWeight: 600 }}>{selectedVanRow?.vanNumber || '—'}</div></div>
                                 <div><div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: C.muted }}>Driver</div><div style={{ fontWeight: 600 }}>{selectedVanRow?.driver || '—'}</div></div>
                                 <div><div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: C.muted }}>Route</div><div style={{ fontWeight: 600 }}>{selectedVanRow?.route || '—'}</div></div>
                                 <div><div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: C.muted }}>Capacity</div><div style={{ fontWeight: 600 }}>1000 liters</div></div>
-                                <div><div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: C.muted }}>Current load</div><div style={{ fontWeight: 600 }}>{totalCasesLoaded} cases / ${totalValueLoaded.toFixed(2)}</div></div>
+                                <div><div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: C.muted }}>Draft cart</div><div style={{ fontWeight: 600 }}>{totalCasesLoaded} cases / ${totalValueLoaded.toFixed(2)}</div></div>
                             </div>
                         </div>
 
                         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20 }}>
                             <div style={{ ...panel, padding: '18px 20px' }}>
+                                <div style={{ marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid rgba(255,255,255,.06)' }}>
+                                    <h3 style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: C.muted, margin: '0 0 12px' }}>
+                                        On van today (saved loads)
+                                    </h3>
+                                    {vanLoadsLoading ? (
+                                        <div style={{ fontSize: 12, color: C.muted }}>Loading saved loads…</div>
+                                    ) : selectedVanLoadsToday.length === 0 ? (
+                                        <div style={{ fontSize: 12, color: C.muted, fontStyle: 'italic' }}>No saved load for this van today — draft below is not yet committed.</div>
+                                    ) : (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                            {selectedVanLoadsToday.map((load) => {
+                                                const badge = loadStatusBadgeStyle(String(load.status || ''));
+                                                const { cases, value, items } = describeLoadItems(load);
+                                                const priceByProduct = new Map(vanOpProducts.map((p) => [String(p.id), p]));
+                                                return (
+                                                    <div key={`saved-${load.id}`} style={{ padding: '10px 12px', background: C.bg3, borderRadius: 6, border: '1px solid rgba(255,255,255,.06)' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                                                            <span style={{
+                                                                fontSize: 9, fontWeight: 700, textTransform: 'uppercase', padding: '3px 8px', borderRadius: 4,
+                                                                background: badge.bg, color: badge.color,
+                                                            }}>
+                                                                {String(load.status || 'unknown')}
+                                                            </span>
+                                                            {load.is_additional && (
+                                                                <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: C.blue }}>Top-up</span>
+                                                            )}
+                                                            <span style={{ fontSize: 11, color: C.text, fontWeight: 600 }}>{cases} cases · ${value.toFixed(2)}</span>
+                                                        </div>
+                                                        {items.length > 0 && (
+                                                            <div style={{ fontSize: 10, color: C.muted, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                                                {items.map((it, idx) => {
+                                                                    const prod = priceByProduct.get(String(it.product_id ?? ''));
+                                                                    return (
+                                                                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                                            <span>{prod?.name || `Product ${it.product_id}`}</span>
+                                                                            <span style={{ fontFamily: 'monospace' }}>{Number(it.quantity) || 0} cs</span>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                                     <h3 style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: C.muted, margin: 0 }}>Select products to load</h3>
                                     <input type="text" placeholder="Search SKU…" style={{ ...darkInput, width: 220 }} />
@@ -998,7 +1245,7 @@ export default function VanOperations() {
                                     </div>
                                 </div>
 
-                                <h4 style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: C.muted, marginBottom: 12 }}>Loading manifest</h4>
+                                <h4 style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: C.muted, marginBottom: 12 }}>Draft manifest (unsaved)</h4>
                                 {cart.length === 0 ? (
                                     <div style={{ textAlign: 'center', padding: '32px 0', color: C.dim, fontSize: 11, fontStyle: 'italic' }}>No items added to load</div>
                                 ) : (
@@ -1015,9 +1262,9 @@ export default function VanOperations() {
                                 )}
 
                                 <div style={{ paddingTop: 12, borderTop: '1px solid rgba(255,255,255,.06)', display: 'flex', flexDirection: 'column', gap: 8, fontSize: 11 }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: C.muted }}>Total cases loaded:</span><span>{totalCasesLoaded}</span></div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: C.muted }}>Total units loaded:</span><span>{totalUnitsLoaded}</span></div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: C.blue, fontSize: 13 }}><span>Total value:</span><span>${totalValueLoaded.toFixed(2)}</span></div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: C.muted }}>Draft cases:</span><span>{totalCasesLoaded}</span></div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: C.muted }}>Draft units:</span><span>{totalUnitsLoaded}</span></div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: C.blue, fontSize: 13 }}><span>Draft value:</span><span>${totalValueLoaded.toFixed(2)}</span></div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', color: C.muted }}><span>Weight estimate:</span><span>{weightEstimateKg.toLocaleString()} kg</span></div>
                                 </div>
 
