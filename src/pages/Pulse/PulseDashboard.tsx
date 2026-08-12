@@ -16,13 +16,17 @@ import {
   getMessages,
   sendMessage,
   markRead,
+  createOrGetDm,
   type ChatChannel,
   type ChatMessage,
+  type CreateDmResponse,
 } from '../../services/chatService';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth, type AuthRole } from '../../contexts/AuthContext';
+import api from '../../api/axios';
 
 const MESSAGE_POLL_MS = 4000;
 const SCROLL_NEAR_BOTTOM_PX = 80;
+const TASKS_ENABLED = false; // Phase 6 — wire real tasks API
 
 type DisplayMessage = ChatMessage & { pending?: boolean };
 
@@ -88,6 +92,21 @@ function channelToRoom(ch: ChatChannel): Room {
   };
 }
 
+function dmResponseToRoom(dm: CreateDmResponse): Room {
+  return {
+    id: dm.id,
+    name: dm.other_username || 'Direct Message',
+    type: 'dm',
+    dotColor: DM_DOT,
+    unreadCount: dm.unread_count,
+    unreadColor: dm.unread_count > 0 ? 'red' : 'red',
+    lastTime: '',
+    messages: [],
+    otherUserId: dm.other_user_id,
+    otherUsername: dm.other_username,
+  };
+}
+
 function formatMessageTime(iso: string): string {
   try {
     return new Date(iso).toLocaleTimeString(undefined, {
@@ -126,6 +145,16 @@ function isOwnMessage(
     return msg.sender_user_id === Number(uid);
   }
   return msg.sender_username === user.username;
+}
+
+interface ApiUser {
+  id: number;
+  username: string;
+  email: string;
+  full_name: string | null;
+  role: AuthRole;
+  is_active: boolean;
+  created_at: string;
 }
 
 interface TeamMember {
@@ -255,6 +284,7 @@ type PulseAction =
   | { type: 'SET_TAB'; tab: 'chat' | 'tasks' }
   | { type: 'SET_CHANNELS'; rooms: Room[]; activeRoomId: number | null }
   | { type: 'REFRESH_CHANNELS'; rooms: Room[] }
+  | { type: 'MERGE_DM'; room: Room }
   | { type: 'SET_ROOM'; roomId: number }
   | { type: 'SET_REPLY'; text: string }
   | { type: 'CLEAR_REPLY' }
@@ -284,6 +314,16 @@ function pulseReducer(state: PulseState, action: PulseAction): PulseState {
         ...state,
         rooms: action.rooms,
       };
+    case 'MERGE_DM': {
+      const exists = state.rooms.some((r) => r.id === action.room.id);
+      return {
+        ...state,
+        rooms: exists
+          ? state.rooms.map((r) => (r.id === action.room.id ? { ...r, ...action.room } : r))
+          : [...state.rooms, action.room],
+        activeRoomId: action.room.id,
+      };
+    }
     case 'SET_ROOM':
       return { ...state, activeRoomId: action.roomId };
     case 'SET_REPLY':
@@ -480,6 +520,12 @@ export default function PulseDashboard() {
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messagesError, setMessagesError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [dmPickerOpen, setDmPickerOpen] = useState(false);
+  const [tenantUsers, setTenantUsers] = useState<ApiUser[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersError, setUsersError] = useState<string | null>(null);
+  const [dmCreating, setDmCreating] = useState(false);
+  const dmPickerRef = useRef<HTMLDivElement>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
@@ -528,6 +574,70 @@ export default function PulseDashboard() {
   useEffect(() => {
     void loadChannels();
   }, [loadChannels]);
+
+  useEffect(() => {
+    if (!TASKS_ENABLED && state.activeTab !== 'chat') {
+      dispatch({ type: 'SET_TAB', tab: 'chat' });
+    }
+  }, [state.activeTab]);
+
+  const loadTenantUsers = useCallback(async () => {
+    setUsersLoading(true);
+    setUsersError(null);
+    try {
+      const { data } = await api.get<ApiUser[]>('/api/auth/users');
+      setTenantUsers(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setUsersError(err instanceof Error ? err.message : 'Failed to load users');
+    } finally {
+      setUsersLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (dmPickerOpen) {
+      void loadTenantUsers();
+    }
+  }, [dmPickerOpen, loadTenantUsers]);
+
+  useEffect(() => {
+    if (!dmPickerOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (dmPickerRef.current && !dmPickerRef.current.contains(e.target as Node)) {
+        setDmPickerOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [dmPickerOpen]);
+
+  const isCurrentTenantUser = useCallback((u: ApiUser) => {
+    if (!authUser) return false;
+    if (typeof authUser.id === 'number' && authUser.id === u.id) return true;
+    if (typeof authUser.id === 'string' && /^\d+$/.test(authUser.id) && Number(authUser.id) === u.id) {
+      return true;
+    }
+    return authUser.username === u.username;
+  }, [authUser]);
+
+  const pickableUsers = tenantUsers.filter(
+    (u) => u.is_active && !isCurrentTenantUser(u),
+  );
+
+  async function handleStartDm(userId: number) {
+    setDmCreating(true);
+    setDmPickerOpen(false);
+    try {
+      const dm = await createOrGetDm(userId);
+      dispatch({ type: 'MERGE_DM', room: dmResponseToRoom(dm) });
+      if (isMobile) setMobileChatNavOpen(false);
+    } catch (err) {
+      setUsersError(err instanceof Error ? err.message : 'Failed to open direct message');
+      setDmPickerOpen(true);
+    } finally {
+      setDmCreating(false);
+    }
+  }
 
   useEffect(() => {
     latestIdRef.current = latestId;
@@ -886,9 +996,11 @@ export default function PulseDashboard() {
         {/* Phase tabs */}
         <div style={{ display: 'flex', gap: 2, marginTop: 12 }}>
           {([
-            { key: 'chat', label: 'Chat', Icon: Send },
-            { key: 'tasks', label: 'Tasks', Icon: CheckSquare },
-          ] as const).map(t => {
+            { key: 'chat' as const, label: 'Chat', Icon: Send },
+            ...(TASKS_ENABLED
+              ? [{ key: 'tasks' as const, label: 'Tasks', Icon: CheckSquare }]
+              : []),
+          ]).map(t => {
             const Icon = t.Icon;
             const active = state.activeTab === t.key;
             return (
@@ -915,7 +1027,7 @@ export default function PulseDashboard() {
       </div>
 
       {/* Tab content */}
-      {state.activeTab === 'chat' ? (
+      {(!TASKS_ENABLED || state.activeTab === 'chat') ? (
         // ── CHAT PANEL ─────────────────────────────────────────
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minHeight: 0 }}>
           {/* Sidebar — hidden on mobile by default, toggleable via mobileChatNavOpen */}
@@ -1017,9 +1129,115 @@ export default function PulseDashboard() {
                 );
               })}
 
-              {/* DMs header */}
-              <div style={{ fontSize: 9, color: C.t3, fontWeight: 700, letterSpacing: '.7px', padding: '14px 12px 4px' }}>
-                DIRECT MESSAGES
+              {/* DMs header + picker */}
+              <div
+                ref={dmPickerRef}
+                style={{ position: 'relative', padding: '14px 12px 4px' }}
+              >
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 6,
+                }}>
+                  <div style={{ fontSize: 9, color: C.t3, fontWeight: 700, letterSpacing: '.7px' }}>
+                    DIRECT MESSAGES
+                  </div>
+                  <button
+                    type="button"
+                    disabled={dmCreating}
+                    onClick={() => setDmPickerOpen((v) => !v)}
+                    style={{
+                      background: 'rgba(79,142,247,.1)',
+                      border: '1px solid rgba(79,142,247,.25)',
+                      borderRadius: 6,
+                      padding: '2px 7px',
+                      fontSize: 9,
+                      fontWeight: 600,
+                      color: C.blue,
+                      cursor: dmCreating ? 'not-allowed' : 'pointer',
+                      opacity: dmCreating ? 0.6 : 1,
+                    }}
+                  >
+                    + New message
+                  </button>
+                </div>
+                {dmPickerOpen && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 8,
+                    right: 8,
+                    zIndex: 80,
+                    background: C.bg3,
+                    border: `1px solid ${C.br2}`,
+                    borderRadius: 8,
+                    boxShadow: '0 8px 24px rgba(0,0,0,.35)',
+                    maxHeight: 220,
+                    overflowY: 'auto',
+                  }}>
+                    {usersLoading && (
+                      <div style={{ padding: '10px 12px', fontSize: 11, color: C.t3 }}>
+                        Loading users…
+                      </div>
+                    )}
+                    {usersError && !usersLoading && (
+                      <div style={{ padding: '10px 12px' }}>
+                        <div style={{ fontSize: 11, color: C.red, marginBottom: 6 }}>{usersError}</div>
+                        <button
+                          type="button"
+                          onClick={() => void loadTenantUsers()}
+                          style={{
+                            background: 'transparent',
+                            border: `1px solid ${C.br2}`,
+                            borderRadius: 6,
+                            padding: '3px 8px',
+                            fontSize: 10,
+                            color: C.blue,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    )}
+                    {!usersLoading && !usersError && pickableUsers.length === 0 && (
+                      <div style={{ padding: '10px 12px', fontSize: 11, color: C.t3 }}>
+                        No other active users
+                      </div>
+                    )}
+                    {!usersLoading && pickableUsers.map((u) => (
+                      <button
+                        key={u.id}
+                        type="button"
+                        disabled={dmCreating}
+                        onClick={() => void handleStartDm(u.id)}
+                        style={{
+                          width: '100%',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'flex-start',
+                          gap: 2,
+                          padding: '8px 12px',
+                          background: 'transparent',
+                          border: 'none',
+                          borderBottom: `1px solid ${C.br2}`,
+                          cursor: dmCreating ? 'not-allowed' : 'pointer',
+                          textAlign: 'left',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,.04)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                      >
+                        <span style={{ fontSize: 11, fontWeight: 600, color: C.t }}>
+                          {u.full_name || u.username}
+                        </span>
+                        <span style={{ fontSize: 9, color: C.t3 }}>
+                          @{u.username} · {u.role}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               {dmRooms.map(r => {
                 const active = state.activeRoomId === r.id;
@@ -1070,34 +1288,6 @@ export default function PulseDashboard() {
                   </div>
                 );
               })}
-              {TEAM_MEMBERS.map(m => (
-                <div
-                  key={m.id}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 8,
-                    padding: '6px 12px', cursor: 'pointer',
-                  }}
-                  title={`DM ${m.name} (roster demo — not wired)`}
-                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,.04)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-                >
-                  <div style={{
-                    width: 22, height: 22, borderRadius: '50%',
-                    background: m.avatarColor, color: '#fff',
-                    fontSize: 8, fontWeight: 700,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    flexShrink: 0,
-                  }}>
-                    {m.initials}
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
-                    <span style={{ fontSize: 11, color: C.t2, lineHeight: 1.2 }}>{m.name}</span>
-                    <span style={{ fontSize: 9, color: C.t3, lineHeight: 1.2 }}>{m.role}</span>
-                  </div>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: STATUS_DOT[m.status], flexShrink: 0 }} />
-                </div>
-              ))}
-
               {/* Announce bottom button */}
               <div style={{ marginTop: 'auto', padding: '10px 8px' }}>
                 <button
@@ -1191,6 +1381,7 @@ export default function PulseDashboard() {
                 >
                   <Megaphone size={11} /> Announce
                 </button>
+                {TASKS_ENABLED && (
                 <button
                   type="button"
                   onClick={() => dispatch({ type: 'SET_TAB', tab: 'tasks' })}
@@ -1204,6 +1395,7 @@ export default function PulseDashboard() {
                 >
                   <CheckSquare size={11} /> Tasks
                 </button>
+                )}
               </div>
             </div>
 
@@ -1523,7 +1715,7 @@ export default function PulseDashboard() {
           </div>
         </div>
       ) : (
-        // ── TASKS PANEL ────────────────────────────────────────
+        // ── TASKS PANEL (Phase 6) ─────────────────────────────
         <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', minHeight: 0 }}>
           {/* Boss summary strip */}
           <div style={{

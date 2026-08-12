@@ -6,7 +6,7 @@ import {
 import { useMeetingRecorder, getSavedNotes, deleteNote, type MeetingNote } from '../../hooks/useMeetingRecorder';
 import jsPDF from 'jspdf';
 import { getEmployees, type Employee } from '../../services/payrollService';
-import { getCurrentUser } from '../../store/authStore';
+import { getChannels, sendMessage } from '../../services/chatService';
 
 function formatDuration(seconds: number) {
   const m = Math.floor(seconds / 60);
@@ -189,29 +189,20 @@ export default function MeetingNotes() {
   };
 
   // FEATURE 3: Share Options
-  const shareToPulse = (note: MeetingNote) => {
-    const me = getCurrentUser();
+  const shareToPulse = async (note: MeetingNote) => {
     const summary = `📄 Meeting Notes: ${note.title}\n📅 Date: ${formatDate(note.date)}\n👥 Attendees: ${note.members?.join(', ') || 'None'}\n\n📝 Summary:\n${note.summary}\n\n✅ Decisions:\n${note.decisions?.map(d => '• ' + d.decision).join('\n') || 'None'}\n\n🎯 Action Items:\n${note.action_items?.map(a => '• [' + a.owner + '] ' + a.task).join('\n') || 'None'}`;
-    
-    const msg = {
-      id: Date.now().toString(),
-      roomId: 'general',
-      senderId: me.id,
-      senderName: me.name,
-      senderRole: me.role,
-      content: summary,
-      timestamp: new Date().toISOString(),
-      reactions: {},
-      isAnnouncement: true
-    };
-    
+
     try {
-      const allMsgs = JSON.parse(localStorage.getItem('pulse_messages') || '{}');
-      if (!allMsgs['general']) allMsgs['general'] = [];
-      allMsgs['general'].push(msg);
-      localStorage.setItem('pulse_messages', JSON.stringify(allMsgs));
-      alert('Shared to Pulse Team Chat (General) successfully!');
-    } catch (err) {
+      const channels = await getChannels();
+      const general =
+        channels.find((c) => c.is_default) ??
+        channels.find((c) => c.type === 'channel');
+      if (!general) {
+        throw new Error('General channel not found');
+      }
+      await sendMessage(general.id, summary);
+      alert('Shared to Pulse (General) successfully!');
+    } catch {
       alert('Failed to share to Pulse.');
     }
     setShareOpenId(null);
