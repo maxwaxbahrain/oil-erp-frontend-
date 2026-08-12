@@ -11,7 +11,20 @@
 // ──────────────────────────────────────────────────────────────
 import { useReducer, useEffect, useRef, useState, useCallback } from 'react';
 import { Paperclip, Smile, Send, Megaphone, X, Users, CheckSquare, RefreshCw } from 'lucide-react';
-import { getChannels, type ChatChannel } from '../../services/chatService';
+import {
+  getChannels,
+  getMessages,
+  sendMessage,
+  markRead,
+  type ChatChannel,
+  type ChatMessage,
+} from '../../services/chatService';
+import { useAuth } from '../../contexts/AuthContext';
+
+const MESSAGE_POLL_MS = 4000;
+const SCROLL_NEAR_BOTTOM_PX = 80;
+
+type DisplayMessage = ChatMessage & { pending?: boolean };
 
 // ── Types ─────────────────────────────────────────────────────
 interface Reaction { emoji: string; count: number }
@@ -73,6 +86,46 @@ function channelToRoom(ch: ChatChannel): Room {
     otherUserId: ch.other_user_id,
     otherUsername: ch.other_username,
   };
+}
+
+function formatMessageTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+  } catch {
+    return '';
+  }
+}
+
+function avatarColorFor(name: string): string {
+  const colors = ['#4F8EF7', '#22C55E', '#7C3AED', '#F59E0B', '#EF4444'];
+  let h = 0;
+  for (let i = 0; i < name.length; i += 1) {
+    h = (h + name.charCodeAt(i)) % colors.length;
+  }
+  return colors[h]!;
+}
+
+function initialsFor(name: string): string {
+  return name.slice(0, 2).toUpperCase();
+}
+
+function isOwnMessage(
+  msg: ChatMessage,
+  user: { id?: number | string; username: string } | null,
+): boolean {
+  if (!user) return false;
+  const uid = user.id;
+  if (typeof uid === 'number' && Number.isFinite(uid)) {
+    return msg.sender_user_id === uid;
+  }
+  if (typeof uid === 'string' && /^\d+$/.test(uid)) {
+    return msg.sender_user_id === Number(uid);
+  }
+  return msg.sender_username === user.username;
 }
 
 interface TeamMember {
@@ -201,6 +254,7 @@ const initialState: PulseState = {
 type PulseAction =
   | { type: 'SET_TAB'; tab: 'chat' | 'tasks' }
   | { type: 'SET_CHANNELS'; rooms: Room[]; activeRoomId: number | null }
+  | { type: 'REFRESH_CHANNELS'; rooms: Room[] }
   | { type: 'SET_ROOM'; roomId: number }
   | { type: 'SET_REPLY'; text: string }
   | { type: 'CLEAR_REPLY' }
@@ -224,6 +278,11 @@ function pulseReducer(state: PulseState, action: PulseAction): PulseState {
         ...state,
         rooms: action.rooms,
         activeRoomId: action.activeRoomId,
+      };
+    case 'REFRESH_CHANNELS':
+      return {
+        ...state,
+        rooms: action.rooms,
       };
     case 'SET_ROOM':
       return { ...state, activeRoomId: action.roomId };
@@ -407,6 +466,7 @@ const COLUMN_LABEL: Record<Task['status'], string> = {
 
 // ── Main component ───────────────────────────────────────────
 export default function PulseDashboard() {
+  const { user: authUser } = useAuth();
   const [state, dispatch] = useReducer(pulseReducer, initialState);
   const [isMobile, setIsMobile] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.innerWidth < 900 : false
@@ -415,11 +475,24 @@ export default function PulseDashboard() {
   const [pinnedDismissed, setPinnedDismissed] = useState<Record<number, boolean>>({});
   const [channelsLoading, setChannelsLoading] = useState(true);
   const [channelsError, setChannelsError] = useState<string | null>(null);
+  const [messages, setMessages] = useState<DisplayMessage[]>([]);
+  const [latestId, setLatestId] = useState<number | null>(null);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [messagesError, setMessagesError] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const tickTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const marcusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeChannelRef = useRef<number | null>(null);
+  const latestIdRef = useRef<number | null>(null);
+  const initialLoadInFlightRef = useRef(false);
+  const pollInFlightRef = useRef(false);
+  const lastMarkedReadIdRef = useRef(0);
+  const pollTickRef = useRef(0);
+  const nearBottomRef = useRef(true);
+  const initialScrollDoneRef = useRef(false);
 
   const loadChannels = useCallback(async () => {
     setChannelsLoading(true);
@@ -443,10 +516,22 @@ export default function PulseDashboard() {
     }
   }, []);
 
+  const refreshChannelBadges = useCallback(async () => {
+    try {
+      const rows = await getChannels();
+      dispatch({ type: 'REFRESH_CHANNELS', rooms: rows.map(channelToRoom) });
+    } catch (err) {
+      console.warn('Failed to refresh channel badges:', err);
+    }
+  }, []);
+
   useEffect(() => {
     void loadChannels();
   }, [loadChannels]);
 
+  useEffect(() => {
+    latestIdRef.current = latestId;
+  }, [latestId]);
 
   // Resize listener
   useEffect(() => {
@@ -456,42 +541,167 @@ export default function PulseDashboard() {
     return () => window.removeEventListener('resize', update);
   }, []);
 
-  // Scroll to bottom when active room or messages change
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [state.activeRoomId, state.rooms]);
-
-  // Clear unread when entering a room
-  useEffect(() => {
-    if (state.activeRoomId == null) return;
-    const room = state.rooms.find(r => r.id === state.activeRoomId);
-    if (room && room.unreadCount > 0) {
-      dispatch({ type: 'CLEAR_UNREAD', roomId: state.activeRoomId });
+  const loadMessagesInitial = useCallback(async (channelId: number) => {
+    if (initialLoadInFlightRef.current) return;
+    initialLoadInFlightRef.current = true;
+    setMessagesLoading(true);
+    setMessagesError(null);
+    try {
+      const result = await getMessages(channelId);
+      if (activeChannelRef.current !== channelId) return;
+      setMessages(result.messages);
+      const resolvedLatest =
+        result.latest_id ??
+        (result.messages.length > 0
+          ? Math.max(...result.messages.map((m) => m.id))
+          : null);
+      setLatestId(resolvedLatest);
+      latestIdRef.current = resolvedLatest;
+      initialScrollDoneRef.current = false;
+    } catch (err) {
+      if (activeChannelRef.current === channelId) {
+        setMessagesError(err instanceof Error ? err.message : 'Failed to load messages');
+      }
+    } finally {
+      initialLoadInFlightRef.current = false;
+      if (activeChannelRef.current === channelId) {
+        setMessagesLoading(false);
+      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.activeRoomId]);
+  }, []);
 
-  // Tick upgrade — sent → delivered (600ms) → read (1500ms) for AQ messages
+  // Initial message load when active channel changes
   useEffect(() => {
-    const timers = tickTimersRef.current;
-    state.rooms.forEach(room => {
-      room.messages.forEach(msg => {
-        if (msg.av === 'AQ' && msg.tick === 'sent') {
-          const t1 = setTimeout(() => {
-            dispatch({ type: 'UPGRADE_TICK', roomId: room.id, messageId: msg.id, tick: 'delivered' });
-          }, 600);
-          const t2 = setTimeout(() => {
-            dispatch({ type: 'UPGRADE_TICK', roomId: room.id, messageId: msg.id, tick: 'read' });
-          }, 1500);
-          timers.push(t1, t2);
+    const channelId = state.activeRoomId;
+    activeChannelRef.current = channelId;
+    lastMarkedReadIdRef.current = 0;
+    pollTickRef.current = 0;
+    nearBottomRef.current = true;
+    initialScrollDoneRef.current = false;
+    setSendError(null);
+
+    if (channelId == null) {
+      setMessages([]);
+      setLatestId(null);
+      latestIdRef.current = null;
+      setMessagesLoading(false);
+      setMessagesError(null);
+      return;
+    }
+
+    setMessages([]);
+    setLatestId(null);
+    latestIdRef.current = null;
+    void loadMessagesInitial(channelId);
+  }, [state.activeRoomId, loadMessagesInitial]);
+
+  const pollNewMessages = useCallback(async (channelId: number) => {
+    if (document.visibilityState !== 'visible') return;
+    if (activeChannelRef.current !== channelId) return;
+    if (pollInFlightRef.current || initialLoadInFlightRef.current) return;
+
+    pollInFlightRef.current = true;
+    try {
+      pollTickRef.current += 1;
+      if (pollTickRef.current % 4 === 0) {
+        await refreshChannelBadges();
+      }
+
+      const after = latestIdRef.current ?? 0;
+      const result = await getMessages(channelId, { after });
+      if (activeChannelRef.current !== channelId) return;
+
+      if (result.messages.length > 0) {
+        setMessages((prev) => {
+          const ids = new Set(prev.map((m) => m.id));
+          const appended = result.messages.filter((m) => !ids.has(m.id));
+          return appended.length > 0 ? [...prev, ...appended] : prev;
+        });
+      }
+      if (result.latest_id != null) {
+        setLatestId(result.latest_id);
+        latestIdRef.current = result.latest_id;
+      } else if (result.messages.length > 0) {
+        const maxId = Math.max(...result.messages.map((m) => m.id));
+        if (maxId > (latestIdRef.current ?? 0)) {
+          setLatestId(maxId);
+          latestIdRef.current = maxId;
         }
-      });
-    });
-    return () => {
-      timers.forEach(clearTimeout);
-      tickTimersRef.current = [];
+      }
+    } catch (err) {
+      console.warn('Message poll failed:', err);
+    } finally {
+      pollInFlightRef.current = false;
+    }
+  }, [refreshChannelBadges]);
+
+  // Poll for new messages while a channel is active
+  useEffect(() => {
+    const channelId = state.activeRoomId;
+    if (channelId == null || messagesLoading || messagesError) return;
+
+    const tick = () => {
+      void pollNewMessages(channelId);
     };
-  }, [state.rooms]);
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        tick();
+      }
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+    const timer = window.setInterval(tick, MESSAGE_POLL_MS);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [state.activeRoomId, messagesLoading, messagesError, pollNewMessages]);
+
+  // Mark channel read when viewing new messages
+  useEffect(() => {
+    const channelId = state.activeRoomId;
+    if (channelId == null) return;
+    if (document.visibilityState !== 'visible') return;
+    if (messagesLoading || messagesError) return;
+
+    const lastMsgId = latestId ?? (messages.length > 0 ? messages[messages.length - 1]!.id : null);
+    if (lastMsgId == null || lastMsgId <= 0) return;
+    if (lastMarkedReadIdRef.current >= lastMsgId) return;
+
+    let cancelled = false;
+    void markRead(channelId, lastMsgId)
+      .then(() => {
+        if (cancelled || activeChannelRef.current !== channelId) return;
+        lastMarkedReadIdRef.current = lastMsgId;
+        dispatch({ type: 'CLEAR_UNREAD', roomId: channelId });
+      })
+      .catch((err) => {
+        console.warn('markRead failed:', err);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [state.activeRoomId, messages, latestId, messagesLoading, messagesError]);
+
+  const handleMessagesScroll = useCallback(() => {
+    const el = messagesScrollRef.current;
+    if (!el) return;
+    nearBottomRef.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_NEAR_BOTTOM_PX;
+  }, []);
+
+  // Auto-scroll when near bottom or on initial load
+  useEffect(() => {
+    if (messagesLoading) return;
+    const shouldScroll = !initialScrollDoneRef.current || nearBottomRef.current;
+    if (!shouldScroll) return;
+    messagesEndRef.current?.scrollIntoView({
+      behavior: initialScrollDoneRef.current ? 'smooth' : 'auto',
+    });
+    initialScrollDoneRef.current = true;
+  }, [messages, messagesLoading]);
 
   // Cleanup marcus timer on unmount
   useEffect(() => {
@@ -512,10 +722,59 @@ export default function PulseDashboard() {
   const overdueTasksTotal = TASKS.filter(t => t.isOverdue).length;
 
   // ── Send handlers ──────────────────────────────────────────
-  function handleSendMessage() {
+  async function handleSendMessage() {
     const text = state.newMessage.trim();
     if (!text || state.activeRoomId == null) return;
-    dispatch({ type: 'SEND_MESSAGE', roomId: state.activeRoomId, text, replyTo: state.replyTo });
+
+    const channelId = state.activeRoomId;
+    const tempId = -Date.now();
+    const optimistic: DisplayMessage = {
+      id: tempId,
+      sender_user_id: typeof authUser?.id === 'number'
+        ? authUser.id
+        : typeof authUser?.id === 'string' && /^\d+$/.test(authUser.id)
+          ? Number(authUser.id)
+          : -1,
+      sender_username: authUser?.username ?? 'You',
+      body: text,
+      created_at: new Date().toISOString(),
+      edited_at: null,
+      pending: true,
+    };
+
+    dispatch({ type: 'SET_MESSAGE', text: '' });
+    dispatch({ type: 'CLEAR_REPLY' });
+    setSendError(null);
+    nearBottomRef.current = true;
+    setMessages((prev) => [...prev, optimistic]);
+
+    try {
+      const sent = await sendMessage(channelId, text);
+      if (activeChannelRef.current !== channelId) return;
+      setMessages((prev) => {
+        const withoutDup = prev.filter((m) => m.id !== sent.id);
+        return withoutDup.map((m) =>
+          m.id === tempId
+            ? {
+                id: sent.id,
+                sender_user_id: sent.sender_user_id,
+                sender_username: sent.sender_username,
+                body: sent.body,
+                created_at: sent.created_at,
+                edited_at: null,
+              }
+            : m,
+        );
+      });
+      if (sent.id > (latestIdRef.current ?? 0)) {
+        setLatestId(sent.id);
+        latestIdRef.current = sent.id;
+      }
+    } catch (err) {
+      if (activeChannelRef.current !== channelId) return;
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      setSendError(err instanceof Error ? err.message : 'Failed to send message');
+    }
   }
 
   function handleFilePick(e: React.ChangeEvent<HTMLInputElement>) {
@@ -547,10 +806,43 @@ export default function PulseDashboard() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
-  function handleAnnounceSend() {
+  async function handleAnnounceSend() {
     const text = state.announceText.trim();
     if (!text) return;
-    dispatch({ type: 'SEND_ANNOUNCE', text });
+    const defaultRoom =
+      state.rooms.find((r) => r.isDefault) ??
+      state.rooms.find((r) => r.type === 'channel');
+    if (!defaultRoom) return;
+
+    dispatch({ type: 'SET_ANNOUNCE_MODE', value: false });
+    dispatch({ type: 'SET_ANNOUNCE_TEXT', text: '' });
+
+    try {
+      const sent = await sendMessage(defaultRoom.id, `📢 ANNOUNCEMENT: ${text}`);
+      if (state.activeRoomId === defaultRoom.id && activeChannelRef.current === defaultRoom.id) {
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === sent.id)) return prev;
+          return [
+            ...prev,
+            {
+              id: sent.id,
+              sender_user_id: sent.sender_user_id,
+              sender_username: sent.sender_username,
+              body: sent.body,
+              created_at: sent.created_at,
+              edited_at: null,
+            },
+          ];
+        });
+        if (sent.id > (latestIdRef.current ?? 0)) {
+          setLatestId(sent.id);
+          latestIdRef.current = sent.id;
+        }
+        nearBottomRef.current = true;
+      }
+    } catch (err) {
+      console.warn('Announce send failed:', err);
+    }
   }
 
   // ── Render ─────────────────────────────────────────────────
@@ -944,18 +1236,142 @@ export default function PulseDashboard() {
               </div>
             )}
 
-            <div style={{
+            <div
+              ref={messagesScrollRef}
+              onScroll={handleMessagesScroll}
+              style={{
               flex: 1,
               overflowY: 'auto',
               minHeight: 0,
               paddingBottom: isMobile ? '80px' : '8px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
             }}>
-              <div style={{ fontSize: 13, color: C.t3, padding: 24 }}>
-                Loading messages…
-              </div>
+              {messagesLoading && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minHeight: 120,
+                  fontSize: 13,
+                  color: C.t3,
+                  padding: 24,
+                }}>
+                  Loading messages…
+                </div>
+              )}
+              {!messagesLoading && messagesError && (
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minHeight: 120,
+                  padding: 24,
+                  gap: 10,
+                }}>
+                  <div style={{ fontSize: 13, color: C.red }}>{messagesError}</div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (state.activeRoomId != null) {
+                        void loadMessagesInitial(state.activeRoomId);
+                      }
+                    }}
+                    style={{
+                      background: 'rgba(79,142,247,.1)',
+                      border: '1px solid rgba(79,142,247,.25)',
+                      borderRadius: 6,
+                      padding: '4px 10px',
+                      fontSize: 10,
+                      fontWeight: 600,
+                      color: C.blue,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 5,
+                    }}
+                  >
+                    <RefreshCw size={11} /> Retry
+                  </button>
+                </div>
+              )}
+              {!messagesLoading && !messagesError && messages.length === 0 && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minHeight: 120,
+                  fontSize: 13,
+                  color: C.t3,
+                  padding: 24,
+                }}>
+                  No messages yet — say hello.
+                </div>
+              )}
+              {!messagesLoading && !messagesError && messages.map((msg) => {
+                const own = isOwnMessage(msg, authUser);
+                const label = own ? 'You' : msg.sender_username;
+                const avColor = own ? '#4F8EF7' : avatarColorFor(msg.sender_username);
+                return (
+                  <div
+                    key={msg.id}
+                    style={{
+                      display: 'flex',
+                      gap: 9,
+                      padding: '5px 14px',
+                      flexDirection: own ? 'row-reverse' : 'row',
+                    }}
+                  >
+                    <div style={{
+                      width: 30,
+                      height: 30,
+                      borderRadius: '50%',
+                      background: avColor,
+                      color: '#fff',
+                      fontSize: 10,
+                      fontWeight: 700,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}>
+                      {initialsFor(label)}
+                    </div>
+                    <div style={{
+                      flex: 1,
+                      minWidth: 0,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: own ? 'flex-end' : 'flex-start',
+                    }}>
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        flexWrap: 'wrap',
+                        flexDirection: own ? 'row-reverse' : 'row',
+                      }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: C.t }}>{label}</span>
+                        <span style={{ fontSize: 10, color: C.t3 }}>{formatMessageTime(msg.created_at)}</span>
+                        {msg.pending && (
+                          <span style={{ fontSize: 9, color: C.t3 }}>Sending…</span>
+                        )}
+                      </div>
+                      <div style={{
+                        fontSize: 12,
+                        marginTop: 3,
+                        lineHeight: 1.45,
+                        color: own ? C.t : C.t2,
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word',
+                        maxWidth: '85%',
+                        opacity: msg.pending ? 0.75 : 1,
+                      }}>
+                        {msg.body}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
               <div ref={messagesEndRef} />
             </div>
               </>
@@ -986,6 +1402,20 @@ export default function PulseDashboard() {
 
             {activeRoom && (
             <>
+            {sendError && (
+              <div style={{
+                margin: '0 14px 6px',
+                padding: '6px 10px',
+                borderRadius: 6,
+                background: 'rgba(239,68,68,.1)',
+                border: '1px solid rgba(239,68,68,.25)',
+                fontSize: 11,
+                color: C.red,
+                flexShrink: 0,
+              }}>
+                {sendError}
+              </div>
+            )}
             {/* Input bar. On mobile, position:fixed bottom:56 pins it
                 directly above the 56px mobile bottom nav — bulletproof
                 regardless of ancestor overflow/height. On desktop, it
@@ -1042,16 +1472,16 @@ export default function PulseDashboard() {
               >
                 <Smile size={16} />
               </button>
-              <input
-                type="text"
+              <textarea
+                rows={1}
                 value={state.newMessage}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
                   dispatch({ type: 'SET_MESSAGE', text: e.target.value })
                 }
-                onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
+                onKeyDown={(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
-                    handleSendMessage();
+                    void handleSendMessage();
                   }
                 }}
                 placeholder={`Message #${activeRoom.name}...`}
@@ -1059,16 +1489,22 @@ export default function PulseDashboard() {
                   flex: 1,
                   background: C.bg4,
                   border: `1px solid ${C.br2}`,
-                  borderRadius: 9, padding: '8px 12px',
-                  fontSize: 12, color: C.t,
+                  borderRadius: 9,
+                  padding: '8px 12px',
+                  fontSize: 12,
+                  color: C.t,
                   outline: 'none',
                   minWidth: 0,
+                  resize: 'none',
+                  fontFamily: 'inherit',
+                  lineHeight: 1.4,
+                  maxHeight: 120,
                 }}
               />
               <span style={{ fontSize: 10, color: C.t3 }}>@</span>
               <button
                 type="button"
-                onClick={handleSendMessage}
+                onClick={() => void handleSendMessage()}
                 disabled={!state.newMessage.trim()}
                 style={{
                   background: C.blue, color: '#fff',
