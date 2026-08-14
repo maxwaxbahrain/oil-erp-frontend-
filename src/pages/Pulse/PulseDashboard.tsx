@@ -17,16 +17,23 @@ import {
   sendMessage,
   markRead,
   createOrGetDm,
+  getTasks,
+  createTask,
+  updateTaskStatus,
   type ChatChannel,
   type ChatMessage,
+  type ChatTask,
+  type ChatTaskStatus,
   type CreateDmResponse,
 } from '../../services/chatService';
 import { useAuth, type AuthRole } from '../../contexts/AuthContext';
 import api from '../../api/axios';
+import NewTaskModal from './NewTaskModal';
 
 const MESSAGE_POLL_MS = 4000;
+const TASKS_REFRESH_MS = 30_000;
 const SCROLL_NEAR_BOTTOM_PX = 80;
-const TASKS_ENABLED = false; // Phase 6 — wire real tasks API
+const TASKS_ENABLED = true;
 
 type DisplayMessage = ChatMessage & { pending?: boolean };
 
@@ -157,107 +164,50 @@ interface ApiUser {
   created_at: string;
 }
 
-interface TeamMember {
-  id: string;
-  initials: string;
-  name: string;
-  role: string;
-  roleColor: string;
-  roleTextColor: string;
-  avatarColor: string;
-  status: 'online' | 'onroute' | 'offline';
-  taskCount: number;
-  doneCount: number;
-  overdueCount: number;
+const TASK_COLUMNS: ChatTaskStatus[] = ['open', 'in_progress', 'done'];
+
+const TASK_COLUMN_DOT: Record<ChatTaskStatus, string> = {
+  open: '#8BA3C7',
+  in_progress: '#F59E0B',
+  done: '#22C55E',
+};
+
+const TASK_COLUMN_LABEL: Record<ChatTaskStatus, string> = {
+  open: 'OPEN',
+  in_progress: 'IN PROGRESS',
+  done: 'DONE',
+};
+
+function formatTaskDueDate(iso: string | null): string {
+  if (!iso) return '';
+  try {
+    return new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  } catch {
+    return iso;
+  }
 }
 
-interface Task {
-  id: string;
-  title: string;
-  description: string;
-  priority: 'critical' | 'high' | 'medium' | 'low';
-  status: 'pending' | 'inprogress' | 'review' | 'done';
-  assigneeId: string;
-  tag: string;
-  tagColor: string;
-  tagTextColor: string;
-  dueLabel: string;
-  isOverdue: boolean;
-  createdBy: 'ai' | 'manual';
-  aiCreator?: string;
+function isTaskOverdue(task: ChatTask): boolean {
+  if (!task.due_date || task.status === 'done') return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(`${task.due_date}T00:00:00`);
+  return due < today;
 }
 
-const TEAM_MEMBERS: TeamMember[] = [
-  { id: 'wq', initials: 'WQ', name: 'Waqas', role: 'Sales Manager',
-    roleColor: 'rgba(79,142,247,.12)', roleTextColor: '#4F8EF7',
-    avatarColor: '#4F8EF7', status: 'online',
-    taskCount: 3, doneCount: 1, overdueCount: 1 },
-  { id: 'sa', initials: 'SA', name: 'System Admin', role: 'Admin',
-    roleColor: 'rgba(124,58,237,.12)', roleTextColor: '#7C3AED',
-    avatarColor: '#7C3AED', status: 'online',
-    taskCount: 4, doneCount: 0, overdueCount: 0 },
-  { id: 'le', initials: 'LE', name: 'Leo', role: 'Van Driver',
-    roleColor: 'rgba(34,197,94,.12)', roleTextColor: '#22C55E',
-    avatarColor: '#22C55E', status: 'onroute',
-    taskCount: 2, doneCount: 1, overdueCount: 0 },
-  { id: 'kh', initials: 'KH', name: 'Khalid', role: 'Warehouse',
-    roleColor: 'rgba(245,158,11,.12)', roleTextColor: '#F59E0B',
-    avatarColor: '#F59E0B', status: 'offline',
-    taskCount: 1, doneCount: 2, overdueCount: 0 },
-];
-
-const TASKS: Task[] = [
-  { id: 't1', title: 'Call Qahir re overdue payment $3,875',
-    description: '32 days overdue. Marcus flagged. Call before 2pm to avoid credit hold Friday.',
-    priority: 'critical', status: 'pending',
-    assigneeId: 'wq', tag: 'Finance', tagColor: 'rgba(245,158,11,.12)', tagTextColor: '#F59E0B',
-    dueLabel: 'Today', isOverdue: false, createdBy: 'ai', aiCreator: 'Marcus' },
-  { id: 't2', title: 'Approve OW16 Auto PO — 80 units $3,040',
-    description: 'Supplier +18% above avg. Marcus recommends 40 units only and negotiate.',
-    priority: 'high', status: 'pending',
-    assigneeId: 'sa', tag: 'Procurement', tagColor: 'rgba(79,142,247,.12)', tagTextColor: '#4F8EF7',
-    dueLabel: '12pm', isOverdue: false, createdBy: 'ai', aiCreator: 'Auto PO' },
-  { id: 't3', title: 'Receive Bettano UAE shipment — Thursday',
-    description: 'OW16 × 80 units incoming. Clear Bin A1 before arrival.',
-    priority: 'medium', status: 'pending',
-    assigneeId: 'kh', tag: 'Warehouse', tagColor: 'rgba(34,197,94,.12)', tagTextColor: '#22C55E',
-    dueLabel: 'Thu 23 May', isOverdue: false, createdBy: 'manual' },
-  { id: 't4', title: 'VAT return Q1 — review and approve',
-    description: 'Ready for review. Address sequential gap INV-960339→960336 first.',
-    priority: 'high', status: 'inprogress',
-    assigneeId: 'sa', tag: 'Finance', tagColor: 'rgba(245,158,11,.12)', tagTextColor: '#F59E0B',
-    dueLabel: 'Fri 24 May', isOverdue: false, createdBy: 'manual' },
-  { id: 't5', title: 'Pause Zenol 0W20 Amazon ads — ACOS 38.6%',
-    description: 'Burning $140/mo. Amazon AI flagged. Pause and review targeting.',
-    priority: 'high', status: 'inprogress',
-    assigneeId: 'wq', tag: 'Amazon', tagColor: 'rgba(251,146,60,.12)', tagTextColor: '#FB923C',
-    dueLabel: 'Yesterday', isOverdue: true, createdBy: 'ai', aiCreator: 'Amazon AI' },
-  { id: 't6', title: '5W30 clearance promo — 15% off before new formula',
-    description: 'Bettano launching new formula. Clear 203 existing units first.',
-    priority: 'medium', status: 'inprogress',
-    assigneeId: 'wq', tag: 'Sales', tagColor: 'rgba(34,197,94,.12)', tagTextColor: '#22C55E',
-    dueLabel: 'This week', isOverdue: false, createdBy: 'manual' },
-  { id: 't7', title: 'Fix missing tax reg number on all invoices',
-    description: 'Tax reg number missing on every invoice. Add in Settings → Company Profile.',
-    priority: 'critical', status: 'review',
-    assigneeId: 'sa', tag: 'Compliance', tagColor: 'rgba(239,68,68,.12)', tagTextColor: '#EF4444',
-    dueLabel: 'Urgent', isOverdue: false, createdBy: 'ai', aiCreator: 'Marcus' },
-  { id: 't8', title: 'Amazon ads budget +$200/mo approved',
-    description: 'Activate from Amazon Seller Central dashboard.',
-    priority: 'low', status: 'done',
-    assigneeId: 'wq', tag: 'Amazon', tagColor: 'rgba(251,146,60,.12)', tagTextColor: '#FB923C',
-    dueLabel: 'Done', isOverdue: false, createdBy: 'manual' },
-  { id: 't9', title: 'Castrol GTX shipment received — 72 units B2',
-    description: 'All units placed in B2 Rack 3. Quality check complete.',
-    priority: 'low', status: 'done',
-    assigneeId: 'kh', tag: 'Warehouse', tagColor: 'rgba(34,197,94,.12)', tagTextColor: '#22C55E',
-    dueLabel: 'Done', isOverdue: false, createdBy: 'manual' },
-  { id: 't10', title: 'Stop 1–5 deliveries complete — $1,122 collected',
-    description: 'All receipts signed. Cash handed to Waqas.',
-    priority: 'low', status: 'done',
-    assigneeId: 'le', tag: 'Delivery', tagColor: 'rgba(34,197,94,.12)', tagTextColor: '#22C55E',
-    dueLabel: 'Done', isOverdue: false, createdBy: 'manual' },
-];
+function nextTaskStatusAction(status: ChatTaskStatus): {
+  label: string;
+  next: ChatTaskStatus;
+} | null {
+  if (status === 'open') return { label: 'Start', next: 'in_progress' };
+  if (status === 'in_progress') return { label: 'Done', next: 'done' };
+  if (status === 'done') return { label: 'Reopen', next: 'open' };
+  return null;
+}
 
 // ── State / reducer ───────────────────────────────────────────
 interface PulseState {
@@ -470,43 +420,10 @@ const C = {
   br2:    'var(--br2, rgba(255,255,255,.12))',
 } as const;
 
-const STATUS_DOT: Record<TeamMember['status'], string> = {
-  online: '#22C55E',
-  onroute: '#F59E0B',
-  offline: '#3E5678',
-};
-
-const PRIORITY_LABEL: Record<Task['priority'], string> = {
-  critical: 'CRITICAL',
-  high: 'HIGH',
-  medium: 'MEDIUM',
-  low: 'LOW',
-};
-
-const PRIORITY_COLOR: Record<Task['priority'], string> = {
-  critical: '#EF4444',
-  high: '#F59E0B',
-  medium: '#4F8EF7',
-  low: '#3E5678',
-};
-
-const COLUMN_DOT: Record<Task['status'], string> = {
-  pending: '#8BA3C7',
-  inprogress: '#F59E0B',
-  review: '#4F8EF7',
-  done: '#22C55E',
-};
-
-const COLUMN_LABEL: Record<Task['status'], string> = {
-  pending: 'PENDING',
-  inprogress: 'IN PROGRESS',
-  review: 'REVIEW',
-  done: 'DONE',
-};
-
 // ── Main component ───────────────────────────────────────────
 export default function PulseDashboard() {
-  const { user: authUser } = useAuth();
+  const { user: authUser, hasRole } = useAuth();
+  const isManagement = hasRole('admin', 'manager', 'accountant');
   const [state, dispatch] = useReducer(pulseReducer, initialState);
   const [isMobile, setIsMobile] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.innerWidth < 900 : false
@@ -526,6 +443,13 @@ export default function PulseDashboard() {
   const [usersError, setUsersError] = useState<string | null>(null);
   const [dmCreating, setDmCreating] = useState(false);
   const dmPickerRef = useRef<HTMLDivElement>(null);
+  const [tasks, setTasks] = useState<ChatTask[]>([]);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [tasksError, setTasksError] = useState<string | null>(null);
+  const [statusUpdatingId, setStatusUpdatingId] = useState<number | null>(null);
+  const [newTaskModalOpen, setNewTaskModalOpen] = useState(false);
+  const [createTaskSubmitting, setCreateTaskSubmitting] = useState(false);
+  const [createTaskError, setCreateTaskError] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
@@ -575,12 +499,6 @@ export default function PulseDashboard() {
     void loadChannels();
   }, [loadChannels]);
 
-  useEffect(() => {
-    if (!TASKS_ENABLED && state.activeTab !== 'chat') {
-      dispatch({ type: 'SET_TAB', tab: 'chat' });
-    }
-  }, [state.activeTab]);
-
   const loadTenantUsers = useCallback(async () => {
     setUsersLoading(true);
     setUsersError(null);
@@ -593,6 +511,44 @@ export default function PulseDashboard() {
       setUsersLoading(false);
     }
   }, []);
+
+  const loadTasks = useCallback(async () => {
+    setTasksLoading(true);
+    setTasksError(null);
+    try {
+      const rows = await getTasks();
+      setTasks(rows);
+    } catch (err) {
+      setTasksError(err instanceof Error ? err.message : 'Failed to load tasks');
+    } finally {
+      setTasksLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (state.activeTab !== 'tasks') return;
+
+    void loadTasks();
+
+    const tick = () => {
+      if (document.visibilityState === 'visible') {
+        void loadTasks();
+      }
+    };
+
+    document.addEventListener('visibilitychange', tick);
+    const timer = window.setInterval(tick, TASKS_REFRESH_MS);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  }, [state.activeTab, loadTasks]);
+
+  useEffect(() => {
+    if (newTaskModalOpen) {
+      void loadTenantUsers();
+    }
+  }, [newTaskModalOpen, loadTenantUsers]);
 
   useEffect(() => {
     if (dmPickerOpen) {
@@ -825,11 +781,75 @@ export default function PulseDashboard() {
     : undefined;
   const channelRooms = state.rooms.filter(r => r.type === 'channel');
   const dmRooms = state.rooms.filter(r => r.type === 'dm');
+  const defaultChannelId =
+    channelRooms.find((r) => r.isDefault)?.id ??
+    channelRooms.find((r) => r.name === 'General')?.id ??
+    channelRooms[0]?.id ??
+    null;
 
-  // Boss summary aggregates
-  const totalTasksToday = TASKS.length;
-  const doneTasksTotal = TASKS.filter(t => t.status === 'done').length;
-  const overdueTasksTotal = TASKS.filter(t => t.isOverdue).length;
+  const openTasksCount = tasks.filter((t) => t.status === 'open').length;
+  const inProgressTasksCount = tasks.filter((t) => t.status === 'in_progress').length;
+  const doneTasksCount = tasks.filter((t) => t.status === 'done').length;
+
+  const currentUserId = (): number | null => {
+    if (!authUser?.id) return null;
+    if (typeof authUser.id === 'number') return authUser.id;
+    if (typeof authUser.id === 'string' && /^\d+$/.test(authUser.id)) return Number(authUser.id);
+    return null;
+  };
+
+  const canMoveTask = useCallback((task: ChatTask): boolean => {
+    const uid = currentUserId();
+    if (uid != null && task.assigned_to_user_id === uid) return true;
+    return isManagement;
+  }, [authUser, isManagement]);
+
+  async function handleTaskStatusChange(taskId: number, nextStatus: ChatTaskStatus) {
+    const snapshot = tasks;
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskId
+          ? {
+              ...t,
+              status: nextStatus,
+              completed_at: nextStatus === 'done' ? new Date().toISOString() : null,
+            }
+          : t,
+      ),
+    );
+    setStatusUpdatingId(taskId);
+    setTasksError(null);
+    try {
+      const updated = await updateTaskStatus(taskId, nextStatus);
+      setTasks((prev) => prev.map((t) => (t.id === taskId ? updated : t)));
+    } catch (err) {
+      setTasks(snapshot);
+      setTasksError(err instanceof Error ? err.message : 'Failed to update task');
+    } finally {
+      setStatusUpdatingId(null);
+    }
+  }
+
+  async function handleCreateTask(payload: {
+    title: string;
+    assigned_to_user_id: number;
+    due_date?: string;
+    channel_id?: number;
+  }) {
+    setCreateTaskSubmitting(true);
+    setCreateTaskError(null);
+    try {
+      const created = await createTask(payload);
+      setTasks((prev) => [created, ...prev]);
+      setNewTaskModalOpen(false);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to create task';
+      setCreateTaskError(message);
+      throw err;
+    } finally {
+      setCreateTaskSubmitting(false);
+    }
+  }
 
   // ── Send handlers ──────────────────────────────────────────
   async function handleSendMessage() {
@@ -1715,9 +1735,8 @@ export default function PulseDashboard() {
           </div>
         </div>
       ) : (
-        // ── TASKS PANEL (Phase 6) ─────────────────────────────
+        // ── TASKS PANEL ─────────────────────────────────────────
         <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', minHeight: 0 }}>
-          {/* Boss summary strip */}
           <div style={{
             background: C.bg3,
             border: `1px solid ${C.br2}`,
@@ -1727,124 +1746,91 @@ export default function PulseDashboard() {
           }}>
             <div style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              gap: 8, flexWrap: 'wrap', marginBottom: 10,
+              gap: 8, flexWrap: 'wrap',
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Users size={14} color={C.blue} />
+                <CheckSquare size={14} color={C.blue} />
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: C.t }}>
-                    Team Overview — Boss View
-                  </div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: C.t }}>Tasks</div>
                   <div style={{ fontSize: 9, color: C.t3 }}>
-                    Who is doing what right now
+                    {isManagement ? 'All tenant tasks' : 'Your assigned tasks'}
                   </div>
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 10, color: C.t2 }}>
-                  Today: <span style={{ color: C.blue, fontWeight: 700 }}>{totalTasksToday} tasks</span> ·
-                  {' '}<span style={{ color: C.green, fontWeight: 700 }}>{doneTasksTotal} done</span> ·
-                  {' '}<span style={{ color: overdueTasksTotal > 0 ? C.red : C.t3, fontWeight: 700 }}>{overdueTasksTotal} overdue</span>
+                  <span style={{ color: C.blue, fontWeight: 700 }}>{openTasksCount} open</span>
+                  {' · '}
+                  <span style={{ color: C.amber, fontWeight: 700 }}>{inProgressTasksCount} in progress</span>
+                  {' · '}
+                  <span style={{ color: C.green, fontWeight: 700 }}>{doneTasksCount} done</span>
                 </span>
                 <button
                   type="button"
+                  onClick={() => void loadTasks()}
+                  disabled={tasksLoading}
                   style={{
-                    background: C.blue, color: '#fff', border: 'none',
-                    borderRadius: 7, padding: '5px 11px', fontSize: 10, fontWeight: 700,
-                    cursor: 'pointer',
+                    background: 'rgba(79,142,247,.1)',
+                    border: '1px solid rgba(79,142,247,.25)',
+                    borderRadius: 7, padding: '5px 10px', fontSize: 10, fontWeight: 600,
+                    color: C.blue, cursor: tasksLoading ? 'not-allowed' : 'pointer',
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    opacity: tasksLoading ? 0.6 : 1,
                   }}
-                  title="Assign task (UI demo — not wired)"
                 >
-                  + Assign Task
+                  <RefreshCw size={11} /> Refresh
                 </button>
+                {isManagement && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCreateTaskError(null);
+                      setNewTaskModalOpen(true);
+                    }}
+                    style={{
+                      background: C.blue, color: '#fff', border: 'none',
+                      borderRadius: 7, padding: '5px 11px', fontSize: 10, fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    + New Task
+                  </button>
+                )}
               </div>
             </div>
+          </div>
 
-            {/* Member grid */}
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)',
-              gap: 8,
-            }}>
-              {TEAM_MEMBERS.map(m => {
-                const memberTasks = TASKS.filter(t => t.assigneeId === m.id);
-                const tCount = memberTasks.length;
-                const dCount = memberTasks.filter(t => t.status === 'done').length;
-                const oCount = memberTasks.filter(t => t.isOverdue).length;
-                const isOnroute = m.status === 'onroute';
-                return (
-                  <div key={m.id} style={{
-                    background: C.bg4,
-                    borderRadius: 9,
-                    padding: '9px 10px',
-                    border: `1px solid ${C.br2}`,
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
-                      <div style={{
-                        width: 28, height: 28, borderRadius: '50%',
-                        background: m.avatarColor, color: '#fff',
-                        fontSize: 10, fontWeight: 700,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        flexShrink: 0,
-                      }}>
-                        {m.initials}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: C.t }}>
-                          {m.name}
-                        </div>
-                        <span style={{
-                          fontSize: 9, fontWeight: 700,
-                          background: m.roleColor, color: m.roleTextColor,
-                          padding: '1px 5px', borderRadius: 6,
-                          display: 'inline-block', marginTop: 1,
-                        }}>
-                          {m.role}
-                        </span>
-                      </div>
-                      <span style={{
-                        width: 6, height: 6, borderRadius: '50%',
-                        background: STATUS_DOT[m.status], flexShrink: 0,
-                        animation: isOnroute ? 'pulse 1.5s ease-in-out infinite' : undefined,
-                      }} />
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 4 }}>
-                      <Stat label="Tasks" value={tCount} color={C.blue} />
-                      <Stat label="Done" value={dCount} color={C.green} />
-                      <Stat label="Overdue" value={oCount} color={oCount > 0 ? C.red : C.t3} />
-                    </div>
-                  </div>
-                );
-              })}
+          {tasksLoading && tasks.length === 0 && (
+            <div style={{ fontSize: 11, color: C.t3, marginBottom: 10 }}>Loading tasks…</div>
+          )}
+          {tasksError && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: C.red, marginBottom: 6 }}>{tasksError}</div>
+              <button
+                type="button"
+                onClick={() => void loadTasks()}
+                style={{
+                  background: 'transparent',
+                  border: `1px solid ${C.br2}`,
+                  borderRadius: 6,
+                  padding: '4px 10px',
+                  fontSize: 10,
+                  color: C.blue,
+                  cursor: 'pointer',
+                }}
+              >
+                Retry
+              </button>
             </div>
-          </div>
+          )}
 
-          {/* AI auto-task banner */}
-          <div style={{
-            background: 'rgba(79,142,247,.07)',
-            border: '1px solid rgba(79,142,247,.2)',
-            borderRadius: 8,
-            padding: '7px 10px',
-            marginBottom: 10,
-            display: 'flex', gap: 7, fontSize: 10, color: C.t2,
-            alignItems: 'center',
-          }}>
-            <span style={{ color: C.blue, fontSize: 12, fontWeight: 700 }}>✦</span>
-            <span>
-              Marcus AI auto-created 2 tasks today —
-              {' '}<strong style={{ color: C.t }}>'Call Qahir re overdue $3,875'</strong> assigned to Waqas ·
-              {' '}<strong style={{ color: C.t }}>'Approve OW16 PO'</strong> assigned to System Admin
-            </span>
-          </div>
-
-          {/* Kanban board */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: isMobile ? '1fr' : 'repeat(4,1fr)',
+            gridTemplateColumns: isMobile ? '1fr' : 'repeat(3,1fr)',
             gap: 8,
           }}>
-            {(['pending', 'inprogress', 'review', 'done'] as const).map(status => {
-              const colTasks = TASKS.filter(t => t.status === status);
+            {TASK_COLUMNS.map((status) => {
+              const colTasks = tasks.filter((t) => t.status === status);
               return (
                 <div key={status} style={{
                   background: C.bg2,
@@ -1856,9 +1842,9 @@ export default function PulseDashboard() {
                     marginBottom: 8, paddingBottom: 6,
                     borderBottom: `1px solid ${C.br2}`,
                   }}>
-                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: COLUMN_DOT[status] }} />
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: TASK_COLUMN_DOT[status] }} />
                     <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.4px', color: C.t }}>
-                      {COLUMN_LABEL[status]}
+                      {TASK_COLUMN_LABEL[status]}
                     </span>
                     <span style={{
                       fontSize: 9, fontWeight: 600,
@@ -1870,141 +1856,109 @@ export default function PulseDashboard() {
                     </span>
                   </div>
 
-                  {colTasks.map(task => {
-                    const assignee = TEAM_MEMBERS.find(m => m.id === task.assigneeId);
-                    const isDone = task.status === 'done';
-                    const stripeColor = isDone
-                      ? C.green
-                      : task.priority === 'low'
-                        ? C.br2
-                        : PRIORITY_COLOR[task.priority];
-                    const priorityLabel = isDone
-                      ? '✓ DONE'
-                      : task.isOverdue
-                        ? 'OVERDUE'
-                        : PRIORITY_LABEL[task.priority];
-                    const priorityColor = isDone
-                      ? C.green
-                      : task.isOverdue
-                        ? C.red
-                        : PRIORITY_COLOR[task.priority];
+                  {colTasks.length === 0 && !tasksLoading && (
+                    <div style={{ fontSize: 10, color: C.t3, padding: '8px 4px' }}>No tasks</div>
+                  )}
 
-                    const dueColor =
-                      task.dueLabel === 'Done' ? C.green :
-                      task.dueLabel === 'Today' || task.dueLabel === 'Urgent' || task.dueLabel === 'Yesterday' ? C.red :
-                      task.isOverdue ? C.amber :
-                      C.t3;
+                  {colTasks.map((task) => {
+                    const overdue = isTaskOverdue(task);
+                    const isDone = task.status === 'done';
+                    const action = nextTaskStatusAction(task.status);
+                    const showAction = action != null && canMoveTask(task);
+                    const assigneeInitials = initialsFor(task.assigned_to_username);
+                    const assigneeColor = avatarColorFor(task.assigned_to_username);
+                    const dueLabel = formatTaskDueDate(task.due_date);
+                    const dueColor = overdue ? C.red : isDone ? C.green : C.t3;
 
                     return (
                       <div
                         key={task.id}
-                        title={task.description}
+                        title={task.description ?? undefined}
                         style={{
-                          background: task.isOverdue ? 'rgba(239,68,68,.03)' : C.bg3,
-                          border: `1px solid ${task.isOverdue ? 'rgba(239,68,68,.3)' : C.br2}`,
-                          borderLeft: `3px solid ${stripeColor}`,
+                          background: overdue ? 'rgba(239,68,68,.03)' : C.bg3,
+                          border: `1px solid ${overdue ? 'rgba(239,68,68,.3)' : C.br2}`,
+                          borderLeft: `3px solid ${isDone ? C.green : overdue ? C.red : TASK_COLUMN_DOT[status]}`,
                           borderRadius: 9,
                           padding: '9px 10px',
                           marginBottom: 7,
-                          cursor: 'pointer',
-                          opacity: isDone ? 0.65 : 1,
-                          transition: 'border-color .15s',
-                        }}
-                        onMouseEnter={e => {
-                          if (!task.isOverdue) e.currentTarget.style.borderColor = 'rgba(79,142,247,.3)';
-                        }}
-                        onMouseLeave={e => {
-                          e.currentTarget.style.borderColor = task.isOverdue ? 'rgba(239,68,68,.3)' : C.br2;
+                          opacity: isDone ? 0.85 : 1,
                         }}
                       >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                          <span style={{
-                            fontSize: 9, fontWeight: 700,
-                            background: task.tagColor, color: task.tagTextColor,
-                            padding: '1px 6px', borderRadius: 5,
-                          }}>
-                            {task.tag}
-                          </span>
-                          <span style={{ fontSize: 9, fontWeight: 600, color: priorityColor }}>
-                            {priorityLabel}
-                          </span>
-                        </div>
-
                         <div style={{ fontSize: 11, fontWeight: 600, color: C.t, lineHeight: 1.4, marginBottom: 7 }}>
                           {task.title}
                         </div>
 
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, marginBottom: 6 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
                             <div style={{
                               width: 18, height: 18, borderRadius: '50%',
-                              background: assignee?.avatarColor ?? C.t3,
-                              color: '#fff', fontSize: 8, fontWeight: 700,
+                              background: assigneeColor, color: '#fff',
+                              fontSize: 8, fontWeight: 700,
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
                               flexShrink: 0,
                             }}>
-                              {assignee?.initials ?? '??'}
+                              {assigneeInitials}
                             </div>
                             <span style={{ fontSize: 9, color: C.t2 }}>
-                              {assignee?.name ?? 'Unknown'}
+                              {task.assigned_to_username}
                             </span>
-                            {assignee && (
-                              <span style={{
-                                fontSize: 8, fontWeight: 700,
-                                background: assignee.roleColor, color: assignee.roleTextColor,
-                                padding: '1px 4px', borderRadius: 4,
-                              }}>
-                                {assignee.role}
-                              </span>
-                            )}
                           </div>
-                          <span style={{ fontSize: 9, fontWeight: 600, color: dueColor, flexShrink: 0 }}>
-                            {task.dueLabel}
-                          </span>
+                          {dueLabel && (
+                            <span style={{ fontSize: 9, fontWeight: 600, color: dueColor, flexShrink: 0 }}>
+                              {overdue ? 'Overdue · ' : ''}{dueLabel}
+                            </span>
+                          )}
                         </div>
 
-                        {task.createdBy === 'ai' && (
-                          <div style={{
-                            fontSize: 9, color: C.purple,
-                            marginTop: 5, display: 'flex', alignItems: 'center', gap: 3,
-                          }}>
-                            <span>✦</span>
-                            <span>Created by AI · {task.aiCreator ?? 'AI'}</span>
-                          </div>
+                        <div style={{ fontSize: 9, color: C.t3, marginBottom: showAction ? 8 : 0 }}>
+                          Created by {task.created_by_username}
+                        </div>
+
+                        {showAction && action && (
+                          <button
+                            type="button"
+                            disabled={statusUpdatingId === task.id}
+                            onClick={() => void handleTaskStatusChange(task.id, action.next)}
+                            style={{
+                              width: '100%',
+                              background: action.next === 'done' ? 'rgba(34,197,94,.12)' : 'rgba(79,142,247,.1)',
+                              border: `1px solid ${action.next === 'done' ? 'rgba(34,197,94,.25)' : 'rgba(79,142,247,.25)'}`,
+                              borderRadius: 6,
+                              padding: '5px 8px',
+                              fontSize: 10,
+                              fontWeight: 700,
+                              color: action.next === 'done' ? C.green : C.blue,
+                              cursor: statusUpdatingId === task.id ? 'not-allowed' : 'pointer',
+                              opacity: statusUpdatingId === task.id ? 0.6 : 1,
+                            }}
+                          >
+                            {statusUpdatingId === task.id ? 'Updating…' : action.label}
+                          </button>
                         )}
                       </div>
                     );
                   })}
-
-                  <button
-                    type="button"
-                    title="Add task (UI demo — not wired)"
-                    style={{
-                      width: '100%',
-                      background: 'transparent',
-                      border: '1px dashed rgba(255,255,255,.1)',
-                      borderRadius: 8,
-                      padding: 6,
-                      fontSize: 10, color: C.t3, cursor: 'pointer',
-                      transition: 'border-color .15s, color .15s',
-                    }}
-                    onMouseEnter={e => {
-                      e.currentTarget.style.borderColor = 'rgba(79,142,247,.3)';
-                      e.currentTarget.style.color = C.blue;
-                    }}
-                    onMouseLeave={e => {
-                      e.currentTarget.style.borderColor = 'rgba(255,255,255,.1)';
-                      e.currentTarget.style.color = C.t3;
-                    }}
-                  >
-                    + Add task
-                  </button>
                 </div>
               );
             })}
           </div>
         </div>
       )}
+
+      <NewTaskModal
+        open={newTaskModalOpen}
+        onClose={() => {
+          if (!createTaskSubmitting) setNewTaskModalOpen(false);
+        }}
+        onSubmit={handleCreateTask}
+        users={tenantUsers}
+        usersLoading={usersLoading}
+        usersError={usersError}
+        onRetryUsers={() => void loadTenantUsers()}
+        defaultChannelId={defaultChannelId}
+        submitting={createTaskSubmitting}
+        error={createTaskError}
+      />
 
       {/* Announce modal */}
       {state.announceMode && (
@@ -2080,23 +2034,6 @@ export default function PulseDashboard() {
           50%      { transform: scale(1.4); opacity: .55; }
         }
       `}</style>
-    </div>
-  );
-}
-
-// ── Small inline stat component ──────────────────────────────
-function Stat({ label, value, color }: { label: string; value: number; color: string }) {
-  return (
-    <div style={{
-      background: 'rgba(255,255,255,.03)',
-      borderRadius: 6,
-      padding: '4px 6px',
-      textAlign: 'center',
-    }}>
-      <div style={{ fontSize: 14, fontWeight: 700, color, lineHeight: 1.1 }}>{value}</div>
-      <div style={{ fontSize: 8, color: C.t3, marginTop: 1, textTransform: 'uppercase', letterSpacing: '.4px' }}>
-        {label}
-      </div>
     </div>
   );
 }
