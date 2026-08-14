@@ -22,7 +22,7 @@ export const MODULE_FLAGS = {
   reports_profitability_duplicate: false,
 
   // Demo / mock-data screens
-  pulse: PILOT_VISIBLE,
+  pulse: true, // GA — live in production (Pulse team chat)
   meeting_notes: PILOT_VISIBLE,
   credit_intelligence: PILOT_VISIBLE,
   crm_pipeline: PILOT_VISIBLE,
