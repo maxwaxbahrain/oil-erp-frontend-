@@ -151,3 +151,90 @@ export async function createOrGetDm(userId: number): Promise<CreateDmResponse> {
     if (!r.ok) throw new Error(`Failed to open direct message (${r.status})`);
     return (await r.json()) as CreateDmResponse;
 }
+
+export type ChatTaskStatus = 'open' | 'in_progress' | 'done';
+
+export interface ChatTask {
+    id: number;
+    title: string;
+    description: string | null;
+    assigned_to_user_id: number;
+    assigned_to_username: string;
+    created_by_user_id: number;
+    created_by_username: string;
+    channel_id: number | null;
+    status: ChatTaskStatus;
+    due_date: string | null;
+    created_at: string;
+    updated_at: string | null;
+    completed_at: string | null;
+}
+
+function fromApiTask(raw: Record<string, unknown>): ChatTask {
+    const status = String(raw.status ?? 'open');
+    const normalizedStatus: ChatTaskStatus =
+        status === 'in_progress' || status === 'done' ? status : 'open';
+    return {
+        id: Number(raw.id),
+        title: String(raw.title ?? ''),
+        description: raw.description != null ? String(raw.description) : null,
+        assigned_to_user_id: Number(raw.assigned_to_user_id),
+        assigned_to_username: String(raw.assigned_to_username ?? ''),
+        created_by_user_id: Number(raw.created_by_user_id),
+        created_by_username: String(raw.created_by_username ?? ''),
+        channel_id: raw.channel_id != null ? Number(raw.channel_id) : null,
+        status: normalizedStatus,
+        due_date: raw.due_date != null ? String(raw.due_date) : null,
+        created_at: String(raw.created_at ?? ''),
+        updated_at: raw.updated_at != null ? String(raw.updated_at) : null,
+        completed_at: raw.completed_at != null ? String(raw.completed_at) : null,
+    };
+}
+
+export async function getTasks(opts?: {
+    status?: ChatTaskStatus;
+    assigned_to_user_id?: number;
+}): Promise<ChatTask[]> {
+    const params = new URLSearchParams();
+    if (opts?.status) params.set('status', opts.status);
+    if (opts?.assigned_to_user_id != null) {
+        params.set('assigned_to_user_id', String(opts.assigned_to_user_id));
+    }
+    const qs = params.toString();
+    const url = `${CHAT_API}/tasks${qs ? `?${qs}` : ''}`;
+    const r = await authFetch(url);
+    if (!r.ok) throw new Error(`Failed to load tasks (${r.status})`);
+    const rows = await r.json();
+    return (Array.isArray(rows) ? rows : []).map((row) =>
+        fromApiTask(row as Record<string, unknown>),
+    );
+}
+
+export async function createTask(body: {
+    title: string;
+    description?: string;
+    assigned_to_user_id: number;
+    channel_id?: number;
+    due_date?: string;
+}): Promise<ChatTask> {
+    const r = await authFetch(`${CHAT_API}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`Failed to create task (${r.status})`);
+    return fromApiTask((await r.json()) as Record<string, unknown>);
+}
+
+export async function updateTaskStatus(
+    taskId: number,
+    status: ChatTaskStatus,
+): Promise<ChatTask> {
+    const r = await authFetch(`${CHAT_API}/tasks/${encodeURIComponent(String(taskId))}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+    });
+    if (!r.ok) throw new Error(`Failed to update task status (${r.status})`);
+    return fromApiTask((await r.json()) as Record<string, unknown>);
+}
