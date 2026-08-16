@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef, type CSSProperties } from 'react';
+import { useState, useEffect, useRef, useCallback, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getSystemSettings } from '../../services/settingsService';
 import {
     DollarSign, Upload, Plus,
     Edit2, Trash2, RefreshCw,
-    Sparkles, Brain, Download, Send, Search, Paperclip, Bot, X
+    Sparkles, Download, Send, Search, Paperclip, Bot, X
 } from 'lucide-react';
 import { getSalesOrders } from '../../services/salesService';
 import clsx from 'clsx';
@@ -13,12 +13,11 @@ import {
     getExpenseCategories,
     saveExpense,
     uploadExpenseReceipt,
-    saveExpenseCategory,
     deleteExpense,
     exportExpensesAsCSV,
     extractExpenseFromReceipt,
-    generateExpenseHeadWithAI,
     suggestExpenseCategory,
+    resolveCoaCategoryName,
     checkExpenseDuplicate,
     checkExpensePolicy,
     type Expense,
@@ -32,24 +31,23 @@ import {
 import { getCustomers as loadCustomerList } from '../../services/customerService';
 // ITEM 16 — Escape closes the manual entry modal and the category dropdown.
 import { useEscape } from '../../hooks/useEscape';
-import SearchableSelect from '../../components/common/SearchableSelect';
-import { authFetch } from '../../api/axios';
-import { getOilErpApiBase } from '../../config/apiBase';
 
-function pickDefaultExpenseAccountId(
-    accounts: Array<{ id: string; name: string; code: string }>,
-): string {
-    const general = accounts.find(a => a.name.toLowerCase().includes('general expenses'));
-    return general?.id || accounts[0]?.id || '';
+function pickDefaultExpenseAccountId(categories: ExpenseCategory[]): string {
+    const general = categories.find(a => a.name.toLowerCase().includes('general expenses'));
+    return general ? String(general.id) : (categories[0] ? String(categories[0].id) : '');
+}
+
+function formatCoaCategoryLabel(cat: ExpenseCategory): string {
+    return cat.code ? `${cat.code} · ${cat.name}` : cat.name;
 }
 
 function expenseAccountLabel(
     accountId: number | string | null | undefined,
-    accounts: Array<{ id: string; name: string; code: string }>,
+    categories: ExpenseCategory[],
 ): string | null {
     if (accountId == null || accountId === '') return null;
-    const acc = accounts.find(a => a.id === String(accountId));
-    return acc ? `${acc.code} · ${acc.name}` : `#${accountId}`;
+    const acc = categories.find(a => String(a.id) === String(accountId));
+    return acc ? formatCoaCategoryLabel(acc) : `#${accountId}`;
 }
 
 const panelStyle: CSSProperties = {
@@ -181,26 +179,16 @@ export default function ExpenseManagement() {
     const [aiProcessing, setAiProcessing] = useState(false);
     const [aiExtractedData, setAiExtractedData] = useState<AIExtractedData | null>(null);
 
-    // Custom category creator state
-    const [showCategoryCreator, setShowCategoryCreator] = useState(false);
-    const [categoryDescription, setCategoryDescription] = useState('');
+    // Custom category creator removed — categories come from Chart of Accounts.
+    const [selectedCategory, setSelectedCategory] = useState<string>('');
     const [expDateFrom, setExpDateFrom] = useState('');
     const [expDateTo, setExpDateTo] = useState('');
     const [expSearch, setExpSearch] = useState('');
     const [categoryFilter, setCategoryFilter] = useState('all');
     const [statusFilter, setStatusFilter] = useState('all');
-    const [aiCategorySuggestion, setAiCategorySuggestion] = useState<any>(null);
-    const [generatingCategory, setGeneratingCategory] = useState(false);
-
-    // Form refs for manual entry
-    // ITEM 10 — Category is now controlled state (backed by a custom
-    // searchable input). The legacy ref is kept around for nothing — all
-    // read/write sites have been migrated to selectedCategory below.
-    const [selectedCategory, setSelectedCategory] = useState<string>('');
     const [categorySearch, setCategorySearch] = useState<string>('');
     const [categoryOpen, setCategoryOpen] = useState(false);
     const categoryWrapRef = useRef<HTMLDivElement>(null);
-    const [expenseAccounts, setExpenseAccounts] = useState<Array<{ id: string; name: string; code: string }>>([]);
     const [selectedAccountId, setSelectedAccountId] = useState('');
     const [receiptUrl, setReceiptUrl] = useState<string>('');
     const [receiptFileName, setReceiptFileName] = useState<string>('');
@@ -212,14 +200,8 @@ export default function ExpenseManagement() {
     // editingExpense record. Resets on close.
     useEffect(() => {
         if (showManualForm) {
-            setSelectedCategory(editingExpense?.category || '');
+            syncSelectedAccountFromEditing(categories, editingExpense);
             setCategorySearch('');
-            const editAcct = editingExpense?.account_id ?? editingExpense?.accountId;
-            setSelectedAccountId(
-                editAcct != null
-                    ? String(editAcct)
-                    : pickDefaultExpenseAccountId(expenseAccounts),
-            );
             if (editingExpense?.receiptUrl) {
                 setReceiptUrl(editingExpense.receiptUrl);
                 setReceiptFileName('Current receipt');
@@ -240,10 +222,10 @@ export default function ExpenseManagement() {
             setReceiptError('');
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [editingExpense?.id, expenseAccounts, /* showManualForm intentionally omitted */]);
+    }, [editingExpense?.id, categories, syncSelectedAccountFromEditing]);
     useEffect(() => {
         if (showManualForm) {
-            setSelectedCategory(editingExpense?.category || '');
+            syncSelectedAccountFromEditing(categories, editingExpense);
             if (editingExpense?.receiptUrl) {
                 setReceiptUrl(editingExpense.receiptUrl);
                 setReceiptFileName('Current receipt');
@@ -254,7 +236,7 @@ export default function ExpenseManagement() {
             setReceiptUploading(false);
             setReceiptError('');
         }
-    }, [showManualForm, editingExpense?.category, editingExpense?.receiptUrl, editingExpense?.id]);
+    }, [showManualForm, editingExpense, categories, syncSelectedAccountFromEditing]);
 
     // Close the category dropdown on outside click.
     useEffect(() => {
@@ -301,6 +283,44 @@ export default function ExpenseManagement() {
     const clientIdRef = useRef<HTMLSelectElement>(null);
     const isReimbursableRef = useRef<HTMLInputElement>(null);
 
+    const refreshCategories = useCallback(async () => {
+        try {
+            const rows = await getExpenseCategories();
+            setCategories(rows);
+        } catch (error) {
+            console.warn('[expenses] failed to refresh COA categories', error);
+        }
+    }, []);
+
+    useEffect(() => {
+        const onFocus = () => { void refreshCategories(); };
+        window.addEventListener('focus', onFocus);
+        return () => window.removeEventListener('focus', onFocus);
+    }, [refreshCategories]);
+
+    const syncSelectedAccountFromEditing = useCallback((
+        rows: ExpenseCategory[],
+        expense: Expense | null,
+    ) => {
+        const editAcct = expense?.account_id ?? expense?.accountId;
+        if (editAcct != null) {
+            const id = String(editAcct);
+            const match = rows.find(c => String(c.id) === id);
+            setSelectedAccountId(id);
+            setSelectedCategory(match?.name ?? expense?.category ?? '');
+            return;
+        }
+        const byName = rows.find(c => c.name === expense?.category);
+        if (byName) {
+            setSelectedAccountId(String(byName.id));
+            setSelectedCategory(byName.name);
+            return;
+        }
+        const fallbackId = pickDefaultExpenseAccountId(rows);
+        setSelectedAccountId(fallbackId);
+        setSelectedCategory(rows.find(c => String(c.id) === fallbackId)?.name ?? expense?.category ?? '');
+    }, []);
+
     useEffect(() => {
         loadData();
     }, []);
@@ -319,20 +339,6 @@ export default function ExpenseManagement() {
                 const list = await loadCustomerList();
                 setCustomers((list as any[]).map(c => ({ id: c.id, name: c.name })));
             } catch { /* customer list is optional for the form */ }
-            try {
-                const ar = await authFetch(`${getOilErpApiBase()}/accounts/?type=expense`);
-                if (ar.ok) {
-                    const rows = await ar.json();
-                    const mapped = (Array.isArray(rows) ? rows : []).map(
-                        (a: { id: number; name: string; code: string }) => ({
-                            id: String(a.id),
-                            name: a.name,
-                            code: a.code,
-                        }),
-                    );
-                    setExpenseAccounts(mapped);
-                }
-            } catch { /* expense accounts optional */ }
             try {
                 const orders = await getSalesOrders();
                 const now = new Date();
@@ -367,8 +373,8 @@ export default function ExpenseManagement() {
     };
 
     const handleManualSave = async () => {
-        // ITEM 10 — Category comes from controlled state (searchable input).
-        const category = selectedCategory;
+        const selectedAccount = categories.find(c => String(c.id) === selectedAccountId);
+        const category = selectedAccount?.name ?? selectedCategory;
         const amount = parseFloat(amountRef.current?.value || '0');
         const date = dateRef.current?.value;
         const vendor = vendorRef.current?.value;
@@ -377,28 +383,17 @@ export default function ExpenseManagement() {
         const currency = currencyRef.current?.value || 'USD';
         const taxAmount = parseFloat(taxAmountRef.current?.value || '0');
         const isRecurring = recurringRef.current?.checked || false;
-        // STEPs 11B/11C — read billable + reimbursable from refs
         const isBillable = isBillableRef.current?.checked || false;
         const clientIdValue = clientIdRef.current?.value || '';
         const isReimbursable = isReimbursableRef.current?.checked || false;
 
-        if (!category || !amount || !date || !vendor) {
+        if (!selectedAccountId || !category || !amount || !date || !vendor) {
             alert('Please fill in all required fields');
-            return;
-        }
-
-        const acctId =
-            selectedAccountId ||
-            String(editingExpense?.account_id ?? editingExpense?.accountId ?? '') ||
-            pickDefaultExpenseAccountId(expenseAccounts);
-        if (!acctId) {
-            alert('No expense account available. Check your chart of accounts.');
             return;
         }
 
         setSaving(true);
         try {
-            // STEP 4/5 — re-check at save time + persist both flags.
             const dupCheck = checkExpenseDuplicate({ vendor, amount, date, category, excludeId: editingExpense?.id });
             const policy = checkExpensePolicy({ category, amount, date, hasReceipt: !!receiptUrl });
             const nextStatus =
@@ -421,11 +416,10 @@ export default function ExpenseManagement() {
                 is_duplicate_flag: dupCheck.isDuplicate,
                 duplicate_of_id: dupCheck.matches[0]?.expenseId || null,
                 policy_flags: policy.length > 0 ? policy : undefined,
-                // STEPs 11B/11C — billable + reimbursable persistence
                 is_billable: isBillable,
                 client_id: isBillable && clientIdValue ? clientIdValue : null,
                 is_reimbursable: isReimbursable,
-                account_id: Number(acctId),
+                account_id: Number(selectedAccountId),
             });
             await loadData();
             setShowManualForm(false);
@@ -557,9 +551,10 @@ export default function ExpenseManagement() {
 
         setSaving(true);
         try {
-            const defaultAcct = pickDefaultExpenseAccountId(expenseAccounts);
+            const match = resolveCoaCategoryName(categories, aiExtractedData.suggestedCategory);
+            const fallbackId = pickDefaultExpenseAccountId(categories);
             await saveExpense({
-                category: aiExtractedData.suggestedCategory,
+                category: match?.name ?? aiExtractedData.suggestedCategory,
                 amount: aiExtractedData.amount,
                 currency: aiExtractedData.currency,
                 date: aiExtractedData.date,
@@ -571,7 +566,7 @@ export default function ExpenseManagement() {
                 status: 'Draft',
                 aiExtracted: true,
                 aiConfidence: aiExtractedData.confidence,
-                account_id: defaultAcct ? Number(defaultAcct) : undefined,
+                account_id: match?.id ?? (fallbackId ? Number(fallbackId) : undefined),
             });
             await loadData();
             closeAiUpload();
@@ -583,58 +578,21 @@ export default function ExpenseManagement() {
         }
     };
 
-    const handleGenerateCategory = async () => {
-        if (!categoryDescription.trim()) {
-            alert('Please describe your expense');
-            return;
-        }
-
-        setGeneratingCategory(true);
-        try {
-            const amount = parseFloat(amountRef.current?.value || '0') || 0;
-            const suggestion = await generateExpenseHeadWithAI(categoryDescription, amount);
-            setAiCategorySuggestion(suggestion);
-        } catch (error) {
-            console.error('Failed to generate category:', error);
-            setAiCategorySuggestion({
-                name: '—',
-                parentCategory: '—',
-                type: '—',
-                isRecurring: false,
-                taxTreatment: '—',
-                accountCode: '—',
-                similarCategories: [],
-            });
-        } finally {
-            setGeneratingCategory(false);
+    const applyCategorySuggestion = (label: string) => {
+        const match = resolveCoaCategoryName(categories, label);
+        if (match) {
+            setSelectedAccountId(String(match.id));
+            setSelectedCategory(match.name);
+        } else {
+            setSelectedAccountId('');
+            setSelectedCategory(label);
         }
     };
 
-    const handleAcceptCategorySuggestion = async () => {
-        if (!aiCategorySuggestion) return;
-
-        try {
-            if (aiCategorySuggestion.name === '—') {
-                alert('No real AI suggestion is available to create.');
-                return;
-            }
-            await saveExpenseCategory({
-                name: aiCategorySuggestion.name,
-                parentCategory: aiCategorySuggestion.parentCategory,
-                type: aiCategorySuggestion.type,
-                isRecurring: aiCategorySuggestion.isRecurring,
-                taxTreatment: aiCategorySuggestion.taxTreatment,
-                accountCode: aiCategorySuggestion.accountCode
-            });
-            await loadData();
-            setShowCategoryCreator(false);
-            setCategoryDescription('');
-            setAiCategorySuggestion(null);
-            alert('Category created successfully!');
-        } catch (error) {
-            console.error('Failed to save category:', error);
-            alert('Failed to save category');
-        }
+    const openCategoryDropdown = () => {
+        void refreshCategories();
+        setCategorySearch('');
+        setCategoryOpen(true);
     };
 
     // ITEM 10 — Draft actions: flip a Draft expense to Submitted in one click.
@@ -1156,7 +1114,7 @@ export default function ExpenseManagement() {
                                                 {expense.vendor || '—'} · {expense.description || '—'} · {formatExpenseDate(expense.date)} · {expense.paymentMethod}
                                                 {(expense.account_id ?? expense.accountId) ? (
                                                     <span style={{ marginLeft: 6, color: 'var(--color-brand-blue-tint)' }}>
-                                                        · {expenseAccountLabel(expense.account_id ?? expense.accountId, expenseAccounts)}
+                                                        · {expenseAccountLabel(expense.account_id ?? expense.accountId, categories)}
                                                     </span>
                                                 ) : null}
                                             </div>
@@ -1360,55 +1318,82 @@ export default function ExpenseManagement() {
 
                                 <div className="p-12 space-y-6">
                                     <div className="grid grid-cols-2 gap-6">
-                                        <div>
+                                        <div className="col-span-2">
                                             <div className="flex items-center justify-between mb-3">
-                                                <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest">Expense Category *</label>
-                                                {/* ITEM 10 — Inline "+ New" opens the existing category creator. */}
+                                                <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest">Category / Account *</label>
                                                 <button
                                                     type="button"
-                                                    onClick={() => setShowCategoryCreator(true)}
+                                                    onClick={() => navigate('/finance/chart-of-accounts')}
                                                     className="text-[10px] font-black text-purple-600 hover:text-purple-800 uppercase tracking-widest flex items-center gap-1"
                                                 >
-                                                    <Plus size={12} /> New Category
+                                                    <Plus size={12} /> Add in Chart of Accounts
                                                 </button>
                                             </div>
-                                            {/* ITEM 10 — Searchable category combobox. Filters categories
-                                                by name and lets the user pick with mouse or keyboard. */}
                                             <div ref={categoryWrapRef} className="relative">
                                                 <input
                                                     type="text"
-                                                    value={categoryOpen ? categorySearch : selectedCategory}
-                                                    onChange={(e) => { setCategorySearch(e.target.value); setCategoryOpen(true); }}
-                                                    onFocus={() => { setCategorySearch(''); setCategoryOpen(true); }}
-                                                    placeholder="Search category…"
-                                                    className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-2xl px-6 py-4 text-sm font-bold outline-none"
+                                                    value={
+                                                        categoryOpen
+                                                            ? categorySearch
+                                                            : (categories.find(c => String(c.id) === selectedAccountId)
+                                                                ? formatCoaCategoryLabel(categories.find(c => String(c.id) === selectedAccountId)!)
+                                                                : selectedCategory)
+                                                    }
+                                                    onChange={(e) => { setCategorySearch(e.target.value); setCategoryOpen(true); void refreshCategories(); }}
+                                                    onFocus={openCategoryDropdown}
+                                                    placeholder="Search expense account…"
+                                                    disabled={categories.length === 0}
+                                                    className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-2xl px-6 py-4 text-sm font-bold outline-none disabled:opacity-60"
                                                 />
-                                                {categoryOpen && (
+                                                {categories.length === 0 ? (
+                                                    <p className="mt-2 text-xs text-amber-700 font-bold">
+                                                        No expense accounts yet.{' '}
+                                                        <button type="button" onClick={() => navigate('/finance/chart-of-accounts')} className="underline">
+                                                            Open Chart of Accounts
+                                                        </button>{' '}
+                                                        to add an expense-type account.
+                                                    </p>
+                                                ) : categoryOpen && (
                                                     <div className="absolute z-50 left-0 right-0 mt-1 max-h-64 overflow-y-auto bg-white border border-gray-200 rounded-2xl shadow-2xl">
                                                         {categories
-                                                            .filter(c => !categorySearch || c.name.toLowerCase().includes(categorySearch.toLowerCase()))
+                                                            .filter(c => {
+                                                                const q = categorySearch.toLowerCase();
+                                                                if (!q) return true;
+                                                                return c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q);
+                                                            })
                                                             .map(cat => (
                                                                 <button
                                                                     key={cat.id}
                                                                     type="button"
-                                                                    onClick={() => { setSelectedCategory(cat.name); setCategorySearch(''); setCategoryOpen(false); }}
+                                                                    onClick={() => {
+                                                                        setSelectedAccountId(String(cat.id));
+                                                                        setSelectedCategory(cat.name);
+                                                                        setCategorySearch('');
+                                                                        setCategoryOpen(false);
+                                                                    }}
                                                                     className={clsx(
                                                                         'w-full text-left px-5 py-3 text-sm font-bold hover:bg-gray-50',
-                                                                        cat.name === selectedCategory ? 'bg-gray-50 text-gray-900' : 'text-gray-700'
+                                                                        String(cat.id) === selectedAccountId ? 'bg-gray-50 text-gray-900' : 'text-gray-700'
                                                                     )}
                                                                 >
-                                                                    {cat.name}
+                                                                    {formatCoaCategoryLabel(cat)}
                                                                 </button>
                                                             ))}
-                                                        {categories.filter(c => !categorySearch || c.name.toLowerCase().includes(categorySearch.toLowerCase())).length === 0 && (
+                                                        {categories.filter(c => {
+                                                            const q = categorySearch.toLowerCase();
+                                                            if (!q) return true;
+                                                            return c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q);
+                                                        }).length === 0 && (
                                                             <div className="px-5 py-6 text-center text-xs text-gray-400 font-bold">
-                                                                No matching category. Use <strong>+ New Category</strong> to create one.
+                                                                No matching account.{' '}
+                                                                <button type="button" onClick={() => navigate('/finance/chart-of-accounts')} className="text-purple-700 underline">
+                                                                    Add in Chart of Accounts
+                                                                </button>
                                                             </div>
                                                         )}
                                                     </div>
                                                 )}
                                             </div>
-                                            {/* STEP 3 — AI suggest button + suggestion badge */}
                                             <button
                                                 type="button"
                                                 onClick={handleSuggestCategory}
@@ -1431,8 +1416,7 @@ export default function ExpenseManagement() {
                                                     <button
                                                         type="button"
                                                         onClick={() => {
-                                                            // ITEM 10 — Write directly to the controlled category state.
-                                                            setSelectedCategory(suggestion.mappedCategory);
+                                                            applyCategorySuggestion(suggestion.mappedCategory);
                                                             setSuggestion(null);
                                                         }}
                                                         className="text-[10px] font-black uppercase tracking-widest px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg"
@@ -1464,18 +1448,6 @@ export default function ExpenseManagement() {
                                                 />
                                             </div>
                                         </div>
-                                    </div>
-
-                                    <div>
-                                        <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest block mb-3">Expense Account *</label>
-                                        <SearchableSelect
-                                            options={expenseAccounts}
-                                            value={selectedAccountId}
-                                            onChange={setSelectedAccountId}
-                                            placeholder="Select expense account..."
-                                            displayKey="name"
-                                            theme="dark"
-                                        />
                                     </div>
 
                                     <div className="grid grid-cols-2 gap-6">
@@ -1732,114 +1704,6 @@ export default function ExpenseManagement() {
                         </div>
                     )}
 
-            {/* Custom Category Creator Modal */}
-            {showCategoryCreator && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-6 backdrop-blur-md bg-black/40">
-                    <div className="bg-white w-full max-w-3xl rounded-[40px] shadow-2xl overflow-hidden">
-                        <div className="p-10 border-b border-gray-100 bg-gradient-to-r from-purple-600 to-blue-600 text-white">
-                            <h3 className="text-2xl font-black uppercase tracking-tighter flex items-center gap-3">
-                                <Brain size={28} />
-                                Create Custom Expense Head (AI Assistant) 🤖
-                            </h3>
-                            <p className="text-[10px] font-black text-purple-200 uppercase tracking-widest mt-1">
-                                Describe your expense in plain language
-                            </p>
-                        </div>
-
-                        <div className="p-12 space-y-8">
-                            <div>
-                                <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest block mb-3">
-                                    Describe your expense in plain language:
-                                </label>
-                                <textarea
-                                    value={categoryDescription}
-                                    onChange={(e) => setCategoryDescription(e.target.value)}
-                                    placeholder='e.g., "We pay monthly for email marketing software like Mailchimp"'
-                                    className="w-full bg-gray-50 border-2 border-transparent focus:border-purple-600 rounded-2xl px-8 py-6 text-sm font-bold outline-none h-32 resize-none"
-                                />
-                            </div>
-
-                            <button
-                                onClick={handleGenerateCategory}
-                                disabled={generatingCategory || !categoryDescription.trim()}
-                                className="w-full py-5 bg-gradient-to-r from-purple-600 to-blue-600 text-white text-[11px] font-black uppercase tracking-widest rounded-2xl hover:opacity-90 transition-all shadow-xl disabled:opacity-50 flex items-center justify-center gap-2"
-                            >
-                                {generatingCategory ? (
-                                    <>
-                                        <RefreshCw size={18} className="animate-spin" /> Generating with AI...
-                                    </>
-                                ) : (
-                                    <>
-                                        <Sparkles size={18} /> Generate with AI 🚀
-                                    </>
-                                )}
-                            </button>
-
-                            {aiCategorySuggestion && (
-                                <div className="p-8 bg-gradient-to-br from-purple-50 to-blue-50 rounded-3xl border-2 border-purple-100">
-                                    <h4 className="text-lg font-black text-purple-900 uppercase tracking-tighter mb-6 flex items-center gap-2">
-                                        <Sparkles size={20} /> AI Suggestion:
-                                    </h4>
-                                    <div className="space-y-4">
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div>
-                                                <p className="text-[10px] font-black text-purple-600 uppercase tracking-widest mb-1">Expense Head</p>
-                                                <p className="text-lg font-black text-gray-900">{aiCategorySuggestion.name}</p>
-                                            </div>
-                                            <div>
-                                                <p className="text-[10px] font-black text-purple-600 uppercase tracking-widest mb-1">Parent Category</p>
-                                                <p className="text-lg font-black text-gray-900">{aiCategorySuggestion.parentCategory}</p>
-                                            </div>
-                                            <div>
-                                                <p className="text-[10px] font-black text-purple-600 uppercase tracking-widest mb-1">Type</p>
-                                                <p className="text-sm font-bold text-gray-700">{aiCategorySuggestion.isRecurring ? 'Recurring' : 'One-time'}</p>
-                                            </div>
-                                            <div>
-                                                <p className="text-[10px] font-black text-purple-600 uppercase tracking-widest mb-1">Tax Category</p>
-                                                <p className="text-sm font-bold text-gray-700">{aiCategorySuggestion.taxTreatment}</p>
-                                            </div>
-                                        </div>
-
-                                        {aiCategorySuggestion.similarCategories.length > 0 && (
-                                            <div className="pt-4 border-t border-purple-200">
-                                                <p className="text-[10px] font-black text-purple-600 uppercase tracking-widest mb-2">Similar expenses found:</p>
-                                                <div className="flex flex-wrap gap-2">
-                                                    {aiCategorySuggestion.similarCategories.map((cat: string, idx: number) => (
-                                                        <span key={idx} className="px-3 py-1 bg-white rounded-full text-[10px] font-bold text-gray-700 border border-purple-100">
-                                                            {cat}
-                                                        </span>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="p-10 bg-gray-50 border-t border-gray-100 flex gap-4">
-                            <button
-                                onClick={() => {
-                                    setShowCategoryCreator(false);
-                                    setCategoryDescription('');
-                                    setAiCategorySuggestion(null);
-                                }}
-                                className="flex-1 py-5 bg-white border border-gray-200 text-[11px] font-black uppercase tracking-widest text-gray-600 rounded-2xl hover:bg-gray-100 transition-all"
-                            >
-                                Cancel
-                            </button>
-                            {aiCategorySuggestion && (
-                                <button
-                                    onClick={handleAcceptCategorySuggestion}
-                                    className="flex-[2] py-5 bg-gradient-to-r from-purple-600 to-blue-600 text-white text-[11px] font-black uppercase tracking-widest rounded-2xl hover:opacity-90 transition-all shadow-xl"
-                                >
-                                    ✅ Accept & Create Category
-                                </button>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
     </>
     );
 }

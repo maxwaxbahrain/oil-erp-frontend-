@@ -17,6 +17,7 @@ import {
 } from 'recharts';
 import {
     getExpensesSnapshot,
+    getExpenseStats,
     queryExpensesNaturalLanguage,
     type Expense,
     type NlQueryResult,
@@ -34,6 +35,7 @@ const PIE_COLORS = ['#6366F1', '#10B981', '#F59E0B', '#EC4899', '#3B82F6', '#8B5
 export default function ExpenseReports() {
     const navigate = useNavigate();
     const [expenses, setExpenses] = useState<Expense[]>([]);
+    const [byAccount, setByAccount] = useState<Array<{ account: string; total: number }>>([]);
     const [loading, setLoading] = useState(true);
     const [dataUnavailable, setDataUnavailable] = useState(false);
 
@@ -45,9 +47,19 @@ export default function ExpenseReports() {
     useEffect(() => {
         void (async () => {
             try {
-                const snapshot = await getExpensesSnapshot();
+                const [snapshot, stats] = await Promise.all([
+                    getExpensesSnapshot(),
+                    getExpenseStats().catch(() => null),
+                ]);
                 setDataUnavailable(snapshot.stale);
                 setExpenses(snapshot.stale ? [] : snapshot.expenses);
+                if (stats?.by_account) {
+                    setByAccount(
+                        Object.entries(stats.by_account)
+                            .map(([account, total]) => ({ account, total }))
+                            .sort((a, b) => b.total - a.total),
+                    );
+                }
             } catch {
                 setDataUnavailable(true);
                 setExpenses([]);
@@ -331,6 +343,24 @@ export default function ExpenseReports() {
                     <p className="text-2xl font-black text-blue-700 font-mono">${billable.reduce((s, e) => s + e.amount, 0).toFixed(2)}</p>
                     <p className="text-[10px] text-gray-400 uppercase tracking-widest mt-1">{billable.length} expense{billable.length === 1 ? '' : 's'} marked billable</p>
                 </div>
+
+                {/* By GL Account (server stats) */}
+                {byAccount.length > 0 && (
+                    <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm md:col-span-2">
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest flex items-center gap-2"><PieIcon size={14} className="text-violet-600" /> By GL Account</h3>
+                            <button onClick={() => window.print()} aria-label="Print" className="text-gray-400 hover:text-gray-900"><Printer size={14} /></button>
+                        </div>
+                        <ul className="space-y-1 max-h-56 overflow-y-auto pr-2">
+                            {byAccount.map(r => (
+                                <li key={r.account} className="flex justify-between text-xs">
+                                    <span className="text-gray-700">{r.account}</span>
+                                    <span className="font-black font-mono text-gray-900">${r.total.toFixed(2)}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
             </div>
         </div>
     );
