@@ -113,8 +113,6 @@ export interface AIExtractedData {
 // so the sync helpers (checkExpenseDuplicate, checkExpensePolicy,
 // exportExpensesAsCSV) keep working without becoming async — they read
 // the cache, which is refreshed every time the list page mounts.
-// Legacy localStorage key — no longer written; kept only so old keys can be ignored on read.
-const EXPENSE_CATEGORIES_KEY = 'zavi_expense_categories';
 const EXPENSES_API = `${getOilErpApiBase()}/expenses`;
 
 export interface ExpenseStatsSnapshot {

@@ -195,49 +195,6 @@ export default function ExpenseManagement() {
     const [receiptUploading, setReceiptUploading] = useState(false);
     const [receiptError, setReceiptError] = useState<string>('');
 
-    // Sync the selected category whenever the user opens the form for
-    // editing — keeps the new searchable input in lock-step with the
-    // editingExpense record. Resets on close.
-    useEffect(() => {
-        if (showManualForm) {
-            syncSelectedAccountFromEditing(categories, editingExpense);
-            setCategorySearch('');
-            if (editingExpense?.receiptUrl) {
-                setReceiptUrl(editingExpense.receiptUrl);
-                setReceiptFileName('Current receipt');
-            } else {
-                setReceiptUrl('');
-                setReceiptFileName('');
-            }
-            setReceiptUploading(false);
-            setReceiptError('');
-        } else {
-            setSelectedCategory('');
-            setCategorySearch('');
-            setCategoryOpen(false);
-            setSelectedAccountId('');
-            setReceiptUrl('');
-            setReceiptFileName('');
-            setReceiptUploading(false);
-            setReceiptError('');
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [editingExpense?.id, categories, syncSelectedAccountFromEditing]);
-    useEffect(() => {
-        if (showManualForm) {
-            syncSelectedAccountFromEditing(categories, editingExpense);
-            if (editingExpense?.receiptUrl) {
-                setReceiptUrl(editingExpense.receiptUrl);
-                setReceiptFileName('Current receipt');
-            } else {
-                setReceiptUrl('');
-                setReceiptFileName('');
-            }
-            setReceiptUploading(false);
-            setReceiptError('');
-        }
-    }, [showManualForm, editingExpense, categories, syncSelectedAccountFromEditing]);
-
     // Close the category dropdown on outside click.
     useEffect(() => {
         const onDoc = (e: MouseEvent) => {
@@ -320,6 +277,49 @@ export default function ExpenseManagement() {
         setSelectedAccountId(fallbackId);
         setSelectedCategory(rows.find(c => String(c.id) === fallbackId)?.name ?? expense?.category ?? '');
     }, []);
+
+    // Sync the selected category whenever the user opens the form for
+    // editing — keeps the new searchable input in lock-step with the
+    // editingExpense record. Resets on close.
+    useEffect(() => {
+        if (showManualForm) {
+            syncSelectedAccountFromEditing(categories, editingExpense);
+            setCategorySearch('');
+            if (editingExpense?.receiptUrl) {
+                setReceiptUrl(editingExpense.receiptUrl);
+                setReceiptFileName('Current receipt');
+            } else {
+                setReceiptUrl('');
+                setReceiptFileName('');
+            }
+            setReceiptUploading(false);
+            setReceiptError('');
+        } else {
+            setSelectedCategory('');
+            setCategorySearch('');
+            setCategoryOpen(false);
+            setSelectedAccountId('');
+            setReceiptUrl('');
+            setReceiptFileName('');
+            setReceiptUploading(false);
+            setReceiptError('');
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [editingExpense?.id, categories, syncSelectedAccountFromEditing]);
+    useEffect(() => {
+        if (showManualForm) {
+            syncSelectedAccountFromEditing(categories, editingExpense);
+            if (editingExpense?.receiptUrl) {
+                setReceiptUrl(editingExpense.receiptUrl);
+                setReceiptFileName('Current receipt');
+            } else {
+                setReceiptUrl('');
+                setReceiptFileName('');
+            }
+            setReceiptUploading(false);
+            setReceiptError('');
+        }
+    }, [showManualForm, editingExpense, categories, syncSelectedAccountFromEditing]);
 
     useEffect(() => {
         loadData();

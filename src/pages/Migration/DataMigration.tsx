@@ -555,6 +555,13 @@ export default function DataMigration() {
         }).filter((p: any) => p.name);
 
         const invRows = q(`SELECT v_id, date, vch_no, debit as customer_name, amount, narration FROM vouchers WHERE v_type='Sales' ORDER BY date`);
+        const salesLineRows = q(`SELECT v_id, item, units, sp_per_unit, discount FROM sales`);
+        const linesByVoucher: Record<string, any[]> = {};
+        for (const it of salesLineRows) {
+            const k = String(it.v_id ?? '').trim();
+            if (!k) continue;
+            (linesByVoucher[k] = linesByVoucher[k] || []).push(it);
+        }
         const paidByBillVId: Record<string, number> = {};
         const paidRows = q(`SELECT b_v_id, SUM(amount) AS paid FROM bill_receipt_payment GROUP BY b_v_id`);
         for (const r of paidRows) {
@@ -567,6 +574,18 @@ export default function DataMigration() {
             const vId = String(r.v_id ?? '').trim();
             const paid_amount = Math.min(paidByBillVId[vId] ?? 0, total);
             const status = paid_amount >= total - 0.01 ? 'paid' : paid_amount > 0 ? 'partial' : 'unpaid';
+            const items = (linesByVoucher[vId] || []).map((l: any) => {
+                const quantity = parseMigrationNum(l.units);
+                const rate = parseMigrationNum(l.sp_per_unit);
+                const discount = parseMigrationNum(l.discount || 0);
+                return {
+                    product: String(l.item || '').slice(0, 200),
+                    quantity,
+                    rate,
+                    amount: quantity * rate - discount,
+                    discount,
+                };
+            });
             return {
                 invoice_number: String(r.vch_no || '').slice(0, 100),
                 customer_name: String(r.customer_name || '').trim(),
@@ -575,6 +594,7 @@ export default function DataMigration() {
                 paid_amount,
                 notes: String(r.narration || ''),
                 status,
+                items,
             };
         }).filter((i: any) => i.customer_name && i.amount > 0);
 
@@ -691,6 +711,16 @@ export default function DataMigration() {
         const paidInvoices = invoices.filter((i: any) => i.status === 'paid').length;
         const partialInvoices = invoices.filter((i: any) => i.status === 'partial').length;
         const unpaidInvoices = invoices.filter((i: any) => i.status === 'unpaid').length;
+        const invoicesWithLines = invoices.filter((i: any) => Array.isArray(i.items) && i.items.length > 0).length;
+        const invoicesWithoutLines = invoices.length - invoicesWithLines;
+        const totalInvoiceLineRows = invoices.reduce(
+            (sum: number, i: any) => sum + (Array.isArray(i.items) ? i.items.length : 0),
+            0,
+        );
+        log(
+            `🧾 Invoice lines: ${invoicesWithLines} invoices with line items, ${invoicesWithoutLines} without, ${totalInvoiceLineRows} total line rows (from sales table)`,
+            invoicesWithoutLines > 0 ? 'warn' : 'success',
+        );
         log(`📦 ${products.length} products (${stockedCount} with stock from purchases−sales), ${suppliers.length} suppliers, ${invoices.length} invoices (${paidInvoices} paid / ${partialInvoices} partial / ${unpaidInvoices} unpaid), ${payments.length} payments, ${sales_returns.length} sales returns`, 'info');
         log(`🛒 ${purchase_orders.length} supplier POs, ${supplier_payments.length} supplier payments, ${expenses.length} expenses`, 'info');
         log(
