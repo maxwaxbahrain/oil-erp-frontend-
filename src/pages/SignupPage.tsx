@@ -218,7 +218,7 @@ export default function SignupPage() {
             Start your free trial
           </h1>
           <p className="mt-2 text-sm" style={{ color: C.muted }}>
-            7 days free · ZAVI ERP 2.0 multi-tenant SaaS
+            7 days free · SOLTOL ONE multi-tenant SaaS
           </p>
         </div>
 
