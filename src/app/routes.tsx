@@ -10,6 +10,7 @@ import LoginPage from '../pages/LoginPage';
 import SignupPage from '../pages/SignupPage';
 import ForgotPasswordPage from '../pages/ForgotPasswordPage';
 import ResetPasswordPage from '../pages/ResetPasswordPage';
+import VerifyEmailPage from '../pages/VerifyEmailPage';
 import LandingPage from '../pages/LandingPage';
 import PrivacyPolicy from '../pages/PrivacyPolicy';
 import TermsOfService from '../pages/TermsOfService';
@@ -239,6 +240,7 @@ export const AppRoutes = () => {
             <Route path="/signup" element={isStaging ? <Navigate to="/login" replace /> : <SignupPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
+            <Route path="/verify-email" element={<VerifyEmailPage />} />
             <Route path="/invoice/:token" element={<PublicInvoice />} />
             <Route path="/" element={<LandingPage />} />
 

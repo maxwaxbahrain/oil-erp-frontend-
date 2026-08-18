@@ -4,7 +4,7 @@ import { handlePaymentRequiredStatus } from './paymentRequired';
 export const ACCESS_TOKEN_KEY = 'access_token';
 export { BILLING_PATH, consumeBillingRequiredMessage, redirectToBilling } from './paymentRequired';
 
-const AUTH_ROUTES = new Set(['/login', '/signup', '/forgot-password', '/reset-password']);
+const AUTH_ROUTES = new Set(['/login', '/signup', '/forgot-password', '/reset-password', '/verify-email']);
 
 function isAuthRoute(pathname: string): boolean {
   return AUTH_ROUTES.has(pathname);

@@ -13,6 +13,8 @@ services:
         value: staging
       - key: VITE_APP_URL
         value: https://app.soltol.com
+      - key: VITE_TURNSTILE_SITE_KEY
+        value: ""
     routes:
       - type: rewrite
         source: /*
