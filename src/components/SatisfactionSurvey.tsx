@@ -90,7 +90,7 @@ export default function SatisfactionSurvey() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 10 }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 600, color: C.text }}>How is Soltol working for you?</div>
-          <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>Your feedback helps us improve ZAVI ERP.</div>
+          <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>Your feedback helps us improve SOLTOL ONE.</div>
         </div>
         <button type="button" onClick={dismiss} style={{ background: 'none', border: 'none', color: C.dim, cursor: 'pointer' }}>
           <X size={16} />
