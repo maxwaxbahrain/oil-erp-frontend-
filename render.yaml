@@ -13,6 +13,8 @@ services:
         value: production
       - key: VITE_APP_URL
         value: https://www.soltol.com
+      - key: VITE_TURNSTILE_SITE_KEY
+        value: 0x4AAAAAAETUmaiAI0lcDPMZ
     routes:
       - type: rewrite
         source: /*

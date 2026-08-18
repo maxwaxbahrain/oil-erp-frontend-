@@ -275,7 +275,8 @@ function App() {
     location.pathname === '/security' ||
     location.pathname === '/signup' ||
     location.pathname === '/forgot-password' ||
-    location.pathname === '/reset-password'
+    location.pathname === '/reset-password' ||
+    location.pathname === '/verify-email'
   ) {
     return <AppRoutes />;
   }
