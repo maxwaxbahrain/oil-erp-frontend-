@@ -94,6 +94,7 @@ const emptyForm = (): UserFormState => ({
 });
 
 function extractError(err: unknown): string {
+  if (err instanceof Error && err.message.trim()) return err.message;
   if (typeof err === 'object' && err !== null && 'response' in err) {
     const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail;
     if (typeof detail === 'string') return detail;
@@ -105,6 +106,7 @@ export default function UserManagement() {
   const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<ApiUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<ApiUser | null>(null);
@@ -120,11 +122,14 @@ export default function UserManagement() {
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const { data } = await api.get<ApiUser[]>('/api/auth/users');
       setUsers(data);
     } catch (err) {
-      showToast('error', extractError(err));
+      const message = extractError(err);
+      setLoadError(message);
+      showToast('error', message);
     } finally {
       setLoading(false);
     }
@@ -263,6 +268,18 @@ export default function UserManagement() {
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 size={28} className="animate-spin" style={{ color: C.blue }} />
+          </div>
+        ) : loadError ? (
+          <div className="py-16 text-center">
+            <p className="text-sm font-semibold" style={{ color: C.red }}>{loadError}</p>
+            <button
+              type="button"
+              onClick={() => void loadUsers()}
+              className="mt-3 text-sm font-semibold"
+              style={{ color: C.blue }}
+            >
+              Retry
+            </button>
           </div>
         ) : sortedUsers.length === 0 ? (
           <div className="py-16 text-center">

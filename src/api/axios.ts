@@ -22,8 +22,12 @@ const baseURL = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
   .trim()
   .replace(/\/+$/, '');
 
+const REQUEST_TIMEOUT_MS = 30_000;
+const REQUEST_TIMEOUT_MESSAGE = 'Server is waking up or unreachable — please retry.';
+
 const api = axios.create({
   baseURL,
+  timeout: REQUEST_TIMEOUT_MS,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -40,6 +44,9 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    if (error.code === 'ECONNABORTED') {
+      return Promise.reject(new Error(REQUEST_TIMEOUT_MESSAGE));
+    }
     if (error.response?.status === 401) {
       localStorage.removeItem(ACCESS_TOKEN_KEY);
       localStorage.removeItem('bettano_auth_user');
@@ -75,12 +82,24 @@ export function withBearerAuth(init: RequestInit = {}): RequestInit {
 
 /** Authenticated fetch for services that cannot use the axios instance. */
 export async function authFetch(url: string, init?: RequestInit): Promise<Response> {
-  const response = await fetch(url, withBearerAuth(init));
-  if (response.status === 402) {
-    const body = await response.clone().json().catch(() => ({}));
-    handlePaymentRequiredStatus(402, (body as { detail?: unknown })?.detail);
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, { ...withBearerAuth(init), signal: controller.signal });
+    if (response.status === 402) {
+      const body = await response.clone().json().catch(() => ({}));
+      handlePaymentRequiredStatus(402, (body as { detail?: unknown })?.detail);
+    }
+    return response;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error(REQUEST_TIMEOUT_MESSAGE);
+    }
+    throw err;
+  } finally {
+    window.clearTimeout(timeoutId);
   }
-  return response;
 }
 
 export default api;
