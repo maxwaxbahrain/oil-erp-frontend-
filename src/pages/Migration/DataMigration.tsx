@@ -15,6 +15,7 @@ interface Results {
     salesReturns?: number;
     supplierPurchases?: number;
     supplierPayments?: number;
+    expenses?: number;
 }
 interface EntityImportStats { created?: number; updated?: number; skipped?: number; failed?: number; errors?: string[]; }
 interface GlFailureSample { source_type: string; source_id: string; message: string; }
@@ -111,6 +112,7 @@ interface ImportPreview {
         salesReturns: number;
         purchaseOrders: number;
         supplierPayments: number;
+        expenses: number;
     };
     totals: {
         totalAR: number;
@@ -412,6 +414,15 @@ export default function DataMigration() {
         }).filter((s: any) => s.name);
         const supplierNameSet = new Set(suppliers.map((s: any) => s.name));
 
+        const expenseAcctRows = q(
+            `SELECT aname FROM account_detail WHERE a_type IN ('Direct Expenses','Indirect Expenses')`,
+        );
+        const expenseNameSet = new Set(
+            expenseAcctRows
+                .map((r: any) => String(r.aname || '').trim())
+                .filter(Boolean),
+        );
+
         const poHeaders = q(`SELECT v_id, date, vch_no, amount, credit AS supplier_name FROM vouchers WHERE v_type='Purchase'`);
         const poItemsRows = q(`SELECT v_id, item, units, cost_per_unit FROM purchases`);
         const itemsByVoucher: Record<string, any[]> = {};
@@ -461,6 +472,55 @@ export default function DataMigration() {
                 notes: `Legacy import · ${String(p.bank || '').trim()}`,
             }));
 
+        const expenseVoucherRows = q(
+            `SELECT v_id, date, vch_no, debit, credit, amount, narration, remarks, v_type FROM vouchers WHERE v_type IN ('Payment','Journal')`,
+        );
+        const expenses = expenseVoucherRows
+            .filter((r: any) => {
+                const debit = String(r.debit || '').trim();
+                if (!expenseNameSet.has(debit)) return false;
+                if (String(r.v_type || '') === 'Payment' && supplierNameSet.has(debit)) return false;
+                return true;
+            })
+            .map((r: any) => ({
+                legacy_v_id: r.v_id,
+                vch_no: String(r.vch_no || '').slice(0, 100),
+                date: String(r.date || ''),
+                amount: parseMigrationNum(r.amount),
+                expense_account_name: String(r.debit || '').trim(),
+                paid_from_account_name: String(r.credit || '').trim(),
+                narration: String(r.narration || ''),
+                remarks: String(r.remarks || ''),
+                v_type: String(r.v_type || ''),
+            }))
+            .filter((e: any) => e.amount > 0);
+
+        let paymentSupplierCount = 0;
+        let paymentExpenseCount = 0;
+        let paymentUnclassifiedCount = 0;
+        for (const p of supplierPayRows) {
+            const debitName = String(p.supplier_name || '').trim();
+            if (supplierNameSet.has(debitName)) {
+                paymentSupplierCount++;
+            } else if (expenseNameSet.has(debitName)) {
+                paymentExpenseCount++;
+            } else {
+                paymentUnclassifiedCount++;
+            }
+        }
+        log(
+            `💳 Payment vouchers: ${paymentSupplierCount} supplier payments, ${paymentExpenseCount} expenses, ${paymentUnclassifiedCount} unclassified (dropped)`,
+            paymentUnclassifiedCount > 0 ? 'warn' : 'info',
+        );
+
+        const expenseFromPayment = expenses.filter((e: any) => e.v_type === 'Payment').length;
+        const expenseFromJournal = expenses.filter((e: any) => e.v_type === 'Journal').length;
+        const expenseTotal = expenses.reduce((sum: number, e: { amount: number }) => sum + e.amount, 0);
+        log(
+            `🧾 ${expenses.length} expense vouchers (${expenseFromPayment} Payment + ${expenseFromJournal} Journal) — total $${expenseTotal.toFixed(2)}`,
+            'success',
+        );
+
         const prodRows = q(`SELECT item, units_name, sku, item_desc, defaultsellingprice, defaultpurchaseprice FROM item_measure WHERE item IS NOT NULL AND TRIM(item) != '' ORDER BY item ASC, units_name ASC`);
         const stockNetRows = q(`
             SELECT item, SUM(u) AS net FROM (
@@ -495,6 +555,13 @@ export default function DataMigration() {
         }).filter((p: any) => p.name);
 
         const invRows = q(`SELECT v_id, date, vch_no, debit as customer_name, amount, narration FROM vouchers WHERE v_type='Sales' ORDER BY date`);
+        const salesLineRows = q(`SELECT v_id, item, units, sp_per_unit, discount FROM sales`);
+        const linesByVoucher: Record<string, any[]> = {};
+        for (const it of salesLineRows) {
+            const k = String(it.v_id ?? '').trim();
+            if (!k) continue;
+            (linesByVoucher[k] = linesByVoucher[k] || []).push(it);
+        }
         const paidByBillVId: Record<string, number> = {};
         const paidRows = q(`SELECT b_v_id, SUM(amount) AS paid FROM bill_receipt_payment GROUP BY b_v_id`);
         for (const r of paidRows) {
@@ -507,6 +574,18 @@ export default function DataMigration() {
             const vId = String(r.v_id ?? '').trim();
             const paid_amount = Math.min(paidByBillVId[vId] ?? 0, total);
             const status = paid_amount >= total - 0.01 ? 'paid' : paid_amount > 0 ? 'partial' : 'unpaid';
+            const items = (linesByVoucher[vId] || []).map((l: any) => {
+                const quantity = parseMigrationNum(l.units);
+                const rate = parseMigrationNum(l.sp_per_unit);
+                const discount = parseMigrationNum(l.discount || 0);
+                return {
+                    product: String(l.item || '').slice(0, 200),
+                    quantity,
+                    rate,
+                    amount: quantity * rate - discount,
+                    discount,
+                };
+            });
             return {
                 invoice_number: String(r.vch_no || '').slice(0, 100),
                 customer_name: String(r.customer_name || '').trim(),
@@ -515,6 +594,7 @@ export default function DataMigration() {
                 paid_amount,
                 notes: String(r.narration || ''),
                 status,
+                items,
             };
         }).filter((i: any) => i.customer_name && i.amount > 0);
 
@@ -610,6 +690,7 @@ export default function DataMigration() {
                 salesReturns: sales_returns.length,
                 purchaseOrders: purchase_orders.length,
                 supplierPayments: supplier_payments.length,
+                expenses: expenses.length,
             },
             totals: {
                 totalAR: Math.round(totalAR * 100) / 100,
@@ -630,8 +711,18 @@ export default function DataMigration() {
         const paidInvoices = invoices.filter((i: any) => i.status === 'paid').length;
         const partialInvoices = invoices.filter((i: any) => i.status === 'partial').length;
         const unpaidInvoices = invoices.filter((i: any) => i.status === 'unpaid').length;
+        const invoicesWithLines = invoices.filter((i: any) => Array.isArray(i.items) && i.items.length > 0).length;
+        const invoicesWithoutLines = invoices.length - invoicesWithLines;
+        const totalInvoiceLineRows = invoices.reduce(
+            (sum: number, i: any) => sum + (Array.isArray(i.items) ? i.items.length : 0),
+            0,
+        );
+        log(
+            `🧾 Invoice lines: ${invoicesWithLines} invoices with line items, ${invoicesWithoutLines} without, ${totalInvoiceLineRows} total line rows (from sales table)`,
+            invoicesWithoutLines > 0 ? 'warn' : 'success',
+        );
         log(`📦 ${products.length} products (${stockedCount} with stock from purchases−sales), ${suppliers.length} suppliers, ${invoices.length} invoices (${paidInvoices} paid / ${partialInvoices} partial / ${unpaidInvoices} unpaid), ${payments.length} payments, ${sales_returns.length} sales returns`, 'info');
-        log(`🛒 ${purchase_orders.length} supplier POs, ${supplier_payments.length} supplier payments`, 'info');
+        log(`🛒 ${purchase_orders.length} supplier POs, ${supplier_payments.length} supplier payments, ${expenses.length} expenses`, 'info');
         log(
             `📊 Parsed: ${preview.counts.customers} customers, ${preview.counts.invoices} invoices, AR $${preview.totals.totalAR.toFixed(2)}, allocations $${preview.totals.allocationTotal.toFixed(2)}`,
             'success',
@@ -646,6 +737,7 @@ export default function DataMigration() {
             sales_returns,
             purchase_orders,
             supplier_payments,
+            expenses,
             __preview: preview,
         };
     };
@@ -684,6 +776,7 @@ export default function DataMigration() {
                 salesReturns: 0,
                 purchaseOrders: 0,
                 supplierPayments: 0,
+                expenses: 0,
             },
             totals: {
                 totalAR: Math.round(totalAR * 100) / 100,
@@ -799,6 +892,7 @@ export default function DataMigration() {
             salesReturns: (backendResults.sales_returns as EntityImportStats | undefined)?.created || 0,
             supplierPurchases: (backendResults.purchase_orders as EntityImportStats | undefined)?.created || 0,
             supplierPayments: (backendResults.supplier_payments as EntityImportStats | undefined)?.created || 0,
+            expenses: (backendResults.expenses as EntityImportStats | undefined)?.created || 0,
         });
         setDone(true);
         setImportFailed(false);
@@ -1138,6 +1232,7 @@ export default function DataMigration() {
                             <p className="text-gray-700">Allocations <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'paymentAllocations')}</strong></p>
                             <p className="text-gray-700">POs <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'purchaseOrders')}</strong></p>
                             <p className="text-gray-700">Supplier pmts <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'supplierPayments')}</strong></p>
+                            <p className="text-gray-700">Expenses <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'expenses')}</strong></p>
                             <p className="text-gray-700">Returns <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'salesReturns')}</strong></p>
                         </div>
                         <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 space-y-2">
@@ -1372,6 +1467,7 @@ export default function DataMigration() {
                         {(results.suppliers ?? 0) > 0 && <div className={`bg-white rounded-xl p-3 text-center border ${importFullyComplete ? 'border-emerald-100' : 'border-amber-100'}`}><p className="text-2xl font-black">{results.suppliers?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Suppliers</p></div>}
                         {(results.supplierPurchases ?? 0) > 0 && <div className={`bg-white rounded-xl p-3 text-center border ${importFullyComplete ? 'border-emerald-100' : 'border-amber-100'}`}><p className="text-2xl font-black">{results.supplierPurchases?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Supplier POs</p></div>}
                         {(results.supplierPayments ?? 0) > 0 && <div className={`bg-white rounded-xl p-3 text-center border ${importFullyComplete ? 'border-emerald-100' : 'border-amber-100'}`}><p className="text-2xl font-black">{results.supplierPayments?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Supplier Pays</p></div>}
+                        {(results.expenses ?? 0) > 0 && <div className={`bg-white rounded-xl p-3 text-center border ${importFullyComplete ? 'border-emerald-100' : 'border-amber-100'}`}><p className="text-2xl font-black">{results.expenses?.toLocaleString()}</p><p className="text-xs text-gray-500 font-bold">Expenses</p></div>}
                     </div>
                     <div className="flex gap-2 flex-wrap">
                         <a href="/customers" className={`px-4 py-2 text-white rounded-xl text-xs font-black ${importFullyComplete ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'}`}>→ View Customers</a>

@@ -3,15 +3,9 @@ import { authFetch } from '../api/axios';
 import { getOilErpApiBase, getOilErpApiHost } from '../config/apiBase';
 
 export interface ExpenseCategory {
-    id: string;
+    id: number;
+    code: string;
     name: string;
-    parentCategory: string;
-    type: 'Operating' | 'Employee' | 'Marketing' | 'Administrative' | 'Inventory' | 'Asset' | 'Financial' | 'Miscellaneous';
-    description?: string;
-    isRecurring?: boolean;
-    taxTreatment?: string;
-    accountCode?: string;
-    createdAt: string;
 }
 
 // ─── Expenses-module data-model extension (STEP 1) ──────────────────
@@ -119,8 +113,18 @@ export interface AIExtractedData {
 // so the sync helpers (checkExpenseDuplicate, checkExpensePolicy,
 // exportExpensesAsCSV) keep working without becoming async — they read
 // the cache, which is refreshed every time the list page mounts.
-const EXPENSE_CATEGORIES_KEY = 'zavi_expense_categories';
 const EXPENSES_API = `${getOilErpApiBase()}/expenses`;
+
+export interface ExpenseStatsSnapshot {
+    total_count: number;
+    pending_approval_count: number;
+    approved_unposted_count: number;
+    total_amount_this_month: number;
+    reimbursable_total: number;
+    by_category: Record<string, number>;
+    by_account: Record<string, number>;
+    by_status: Record<string, number>;
+}
 
 let _expensesCache: Expense[] = [];
 let _expensesCacheLoaded = false;
@@ -213,73 +217,6 @@ function _expenseToApi(e: Partial<Expense>): Record<string, unknown> {
     return out;
 }
 
-// Default comprehensive expense categories
-const getInitialExpenseCategories = (): ExpenseCategory[] => {
-    const stored = localStorage.getItem(EXPENSE_CATEGORIES_KEY);
-    if (stored) return JSON.parse(stored);
-
-    const categories: ExpenseCategory[] = [
-        // Operating Expenses
-        { id: 'EXP-001', name: 'Rent & Utilities', parentCategory: 'Operating Expenses', type: 'Operating', description: 'Office rent and building costs', createdAt: new Date().toISOString() },
-        { id: 'EXP-002', name: 'Electricity', parentCategory: 'Operating Expenses', type: 'Operating', createdAt: new Date().toISOString() },
-        { id: 'EXP-003', name: 'Water', parentCategory: 'Operating Expenses', type: 'Operating', createdAt: new Date().toISOString() },
-        { id: 'EXP-004', name: 'Internet & Phone', parentCategory: 'Operating Expenses', type: 'Operating', createdAt: new Date().toISOString() },
-        { id: 'EXP-005', name: 'Office Supplies', parentCategory: 'Operating Expenses', type: 'Operating', createdAt: new Date().toISOString() },
-        { id: 'EXP-006', name: 'Maintenance & Repairs', parentCategory: 'Operating Expenses', type: 'Operating', createdAt: new Date().toISOString() },
-
-        // Employee Expenses
-        { id: 'EXP-007', name: 'Salaries & Wages', parentCategory: 'Employee Expenses', type: 'Employee', isRecurring: true, createdAt: new Date().toISOString() },
-        { id: 'EXP-008', name: 'Benefits & Insurance', parentCategory: 'Employee Expenses', type: 'Employee', createdAt: new Date().toISOString() },
-        { id: 'EXP-009', name: 'Travel & Accommodation', parentCategory: 'Employee Expenses', type: 'Employee', createdAt: new Date().toISOString() },
-        { id: 'EXP-010', name: 'Meals & Entertainment', parentCategory: 'Employee Expenses', type: 'Employee', createdAt: new Date().toISOString() },
-        { id: 'EXP-011', name: 'Training & Development', parentCategory: 'Employee Expenses', type: 'Employee', createdAt: new Date().toISOString() },
-        { id: 'EXP-012', name: 'Fuel & Transportation', parentCategory: 'Employee Expenses', type: 'Employee', createdAt: new Date().toISOString() },
-
-        // Marketing & Sales
-        { id: 'EXP-013', name: 'Advertising', parentCategory: 'Marketing & Sales', type: 'Marketing', createdAt: new Date().toISOString() },
-        { id: 'EXP-014', name: 'Social Media Marketing', parentCategory: 'Marketing & Sales', type: 'Marketing', createdAt: new Date().toISOString() },
-        { id: 'EXP-015', name: 'Promotional Materials', parentCategory: 'Marketing & Sales', type: 'Marketing', createdAt: new Date().toISOString() },
-        { id: 'EXP-016', name: 'Events & Exhibitions', parentCategory: 'Marketing & Sales', type: 'Marketing', createdAt: new Date().toISOString() },
-        { id: 'EXP-017', name: 'Commission & Incentives', parentCategory: 'Marketing & Sales', type: 'Marketing', createdAt: new Date().toISOString() },
-
-        // Administrative
-        { id: 'EXP-018', name: 'Legal & Professional Fees', parentCategory: 'Administrative', type: 'Administrative', createdAt: new Date().toISOString() },
-        { id: 'EXP-019', name: 'Accounting Services', parentCategory: 'Administrative', type: 'Administrative', createdAt: new Date().toISOString() },
-        { id: 'EXP-020', name: 'Bank Charges', parentCategory: 'Administrative', type: 'Administrative', createdAt: new Date().toISOString() },
-        { id: 'EXP-021', name: 'Software Subscriptions', parentCategory: 'Administrative', type: 'Administrative', isRecurring: true, createdAt: new Date().toISOString() },
-        { id: 'EXP-022', name: 'Licenses & Permits', parentCategory: 'Administrative', type: 'Administrative', createdAt: new Date().toISOString() },
-
-        // Inventory & Purchasing
-        { id: 'EXP-023', name: 'Raw Materials', parentCategory: 'Inventory & Purchasing', type: 'Inventory', createdAt: new Date().toISOString() },
-        { id: 'EXP-024', name: 'Finished Goods', parentCategory: 'Inventory & Purchasing', type: 'Inventory', createdAt: new Date().toISOString() },
-        { id: 'EXP-025', name: 'Packaging Materials', parentCategory: 'Inventory & Purchasing', type: 'Inventory', createdAt: new Date().toISOString() },
-        { id: 'EXP-026', name: 'Shipping & Freight', parentCategory: 'Inventory & Purchasing', type: 'Inventory', createdAt: new Date().toISOString() },
-        { id: 'EXP-027', name: 'Import Duties', parentCategory: 'Inventory & Purchasing', type: 'Inventory', createdAt: new Date().toISOString() },
-
-        // Asset Related
-        { id: 'EXP-028', name: 'Equipment Purchase', parentCategory: 'Asset Related', type: 'Asset', createdAt: new Date().toISOString() },
-        { id: 'EXP-029', name: 'Vehicle Expenses', parentCategory: 'Asset Related', type: 'Asset', createdAt: new Date().toISOString() },
-        { id: 'EXP-030', name: 'Depreciation', parentCategory: 'Asset Related', type: 'Asset', createdAt: new Date().toISOString() },
-        { id: 'EXP-031', name: 'Asset Maintenance', parentCategory: 'Asset Related', type: 'Asset', createdAt: new Date().toISOString() },
-
-        // Financial
-        { id: 'EXP-032', name: 'Loan Interest', parentCategory: 'Financial', type: 'Financial', createdAt: new Date().toISOString() },
-        { id: 'EXP-033', name: 'Credit Card Fees', parentCategory: 'Financial', type: 'Financial', createdAt: new Date().toISOString() },
-        { id: 'EXP-034', name: 'Investment Costs', parentCategory: 'Financial', type: 'Financial', createdAt: new Date().toISOString() },
-        { id: 'EXP-035', name: 'Insurance Premiums', parentCategory: 'Financial', type: 'Financial', createdAt: new Date().toISOString() },
-
-        // Miscellaneous
-        { id: 'EXP-036', name: 'Donations', parentCategory: 'Miscellaneous', type: 'Miscellaneous', createdAt: new Date().toISOString() },
-        { id: 'EXP-037', name: 'Penalties & Fines', parentCategory: 'Miscellaneous', type: 'Miscellaneous', createdAt: new Date().toISOString() },
-        { id: 'EXP-038', name: 'Refunds & Returns', parentCategory: 'Miscellaneous', type: 'Miscellaneous', createdAt: new Date().toISOString() },
-        { id: 'EXP-039', name: 'Petty Cash', parentCategory: 'Miscellaneous', type: 'Miscellaneous', createdAt: new Date().toISOString() },
-        { id: 'EXP-040', name: 'Other Expenses', parentCategory: 'Miscellaneous', type: 'Miscellaneous', createdAt: new Date().toISOString() },
-    ];
-
-    localStorage.setItem(EXPENSE_CATEGORIES_KEY, JSON.stringify(categories));
-    return categories;
-};
-
 // TASK 2 — Returns the in-memory cache populated by getExpenses().
 // Kept as a sync helper so existing sync callers (checkExpenseDuplicate,
 // checkExpensePolicy, exportExpensesAsCSV) keep their API contract.
@@ -321,9 +258,55 @@ export function isExpenseCacheStale(): boolean {
 }
 
 export async function getExpenseCategories(): Promise<ExpenseCategory[]> {
-    return new Promise((resolve) => {
-        setTimeout(() => resolve(getInitialExpenseCategories()), 100);
-    });
+    const r = await authFetch(`${EXPENSES_API}/categories`);
+    if (!r.ok) {
+        const detail = await _readErrorDetail(r);
+        throw new Error(detail || `Failed to load expense categories (HTTP ${r.status})`);
+    }
+    const rows = await r.json();
+    return (Array.isArray(rows) ? rows : []).map((row: { id: number; code?: string; name?: string }) => ({
+        id: Number(row.id),
+        code: String(row.code ?? ''),
+        name: String(row.name ?? ''),
+    }));
+}
+
+export async function getExpenseStats(): Promise<ExpenseStatsSnapshot> {
+    const r = await authFetch(`${EXPENSES_API}/stats`);
+    if (!r.ok) {
+        const detail = await _readErrorDetail(r);
+        throw new Error(detail || `Failed to load expense stats (HTTP ${r.status})`);
+    }
+    const body = await r.json();
+    return {
+        total_count: Number(body.total_count ?? 0),
+        pending_approval_count: Number(body.pending_approval_count ?? 0),
+        approved_unposted_count: Number(body.approved_unposted_count ?? 0),
+        total_amount_this_month: Number(body.total_amount_this_month ?? 0),
+        reimbursable_total: Number(body.reimbursable_total ?? 0),
+        by_category: body.by_category ?? {},
+        by_account: body.by_account ?? {},
+        by_status: body.by_status ?? {},
+    };
+}
+
+/** Match a label to a tenant COA expense account (case-insensitive, then partial). */
+export function resolveCoaCategoryName(
+    categories: ExpenseCategory[],
+    label: string,
+): ExpenseCategory | undefined {
+    const q = label.trim().toLowerCase();
+    if (!q) return undefined;
+    const exact = categories.find(c => c.name.toLowerCase() === q);
+    if (exact) return exact;
+    return categories.find(
+        c => c.name.toLowerCase().includes(q) || q.includes(c.name.toLowerCase()),
+    );
+}
+
+/** @deprecated Expense categories are managed in Chart of Accounts. */
+export async function saveExpenseCategory(_category: Partial<ExpenseCategory>): Promise<ExpenseCategory> {
+    throw new Error('Expense categories are managed in Chart of Accounts. Add an expense-type account there.');
 }
 
 export async function saveExpense(expense: Partial<Expense>): Promise<Expense> {
@@ -426,34 +409,6 @@ export async function getExpenseReceiptUrl(expenseId: number | string): Promise<
     const data = await res.json();
     if (!data?.downloadUrl) throw new Error('No receipt available');
     return data.downloadUrl as string;
-}
-
-export async function saveExpenseCategory(category: Partial<ExpenseCategory>): Promise<ExpenseCategory> {
-    return new Promise((resolve) => {
-        const categories = getInitialExpenseCategories();
-        let savedCategory: ExpenseCategory;
-
-        if (category.id) {
-            const index = categories.findIndex(c => c.id === category.id);
-            if (index !== -1) {
-                categories[index] = { ...categories[index], ...category } as ExpenseCategory;
-                savedCategory = categories[index];
-            } else {
-                savedCategory = { ...category, id: category.id } as ExpenseCategory;
-                categories.push(savedCategory);
-            }
-        } else {
-            savedCategory = {
-                ...category,
-                id: `EXP-${Date.now()}`,
-                createdAt: new Date().toISOString()
-            } as ExpenseCategory;
-            categories.push(savedCategory);
-        }
-
-        localStorage.setItem(EXPENSE_CATEGORIES_KEY, JSON.stringify(categories));
-        setTimeout(() => resolve(savedCategory), 100);
-    });
 }
 
 // FIX W7-3 — CSV export so users can back up their localStorage expense

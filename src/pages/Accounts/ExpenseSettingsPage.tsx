@@ -11,7 +11,7 @@ import {
     Plus, Sparkles, Receipt, DollarSign, Tag,
 } from 'lucide-react';
 import {
-    getExpenseCategories, saveExpenseCategory,
+    getExpenseCategories,
     getExpenseSettings, saveExpenseSettings,
     DEFAULT_SETTINGS,
     type ExpenseCategory, type ExpenseSettings,
@@ -25,17 +25,29 @@ export default function ExpenseSettingsPage() {
     const [savedFlash, setSavedFlash] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
 
-    const [newCatName, setNewCatName] = useState('');
+    const refreshCategories = async () => {
+        try {
+            setCategories(await getExpenseCategories());
+        } catch (e) {
+            setError(e instanceof Error ? e.message : 'Failed to load categories.');
+        }
+    };
 
     useEffect(() => {
         void (async () => {
             try {
-                setCategories(await getExpenseCategories());
+                await refreshCategories();
                 setSettings(getExpenseSettings());
             } finally {
                 setLoading(false);
             }
         })();
+    }, []);
+
+    useEffect(() => {
+        const onFocus = () => { void refreshCategories(); };
+        window.addEventListener('focus', onFocus);
+        return () => window.removeEventListener('focus', onFocus);
     }, []);
 
     const flash = (msg: string) => {
@@ -49,19 +61,6 @@ export default function ExpenseSettingsPage() {
             flash('✓ Settings saved.');
         } catch (e) {
             setError(e instanceof Error ? e.message : 'Save failed.');
-        }
-    };
-
-    const handleAddCategory = async () => {
-        const name = newCatName.trim();
-        if (!name) return;
-        try {
-            const saved = await saveExpenseCategory({ name, parentCategory: 'Custom', type: 'Miscellaneous' });
-            setCategories(prev => [...prev, saved]);
-            setNewCatName('');
-            flash('✓ Category added.');
-        } catch (e) {
-            setError(e instanceof Error ? e.message : 'Add failed.');
         }
     };
 
@@ -103,36 +102,45 @@ export default function ExpenseSettingsPage() {
                 <div className="bg-white p-10 rounded-2xl border border-gray-100 shadow-sm text-center text-sm text-gray-400">Loading…</div>
             ) : (
                 <>
-                {/* ── Section 1: Categories ── */}
+                {/* ── Section 1: Categories (Chart of Accounts) ── */}
                 <section className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-                    <div className="flex items-center gap-2 mb-4">
-                        <Tag size={16} className="text-purple-600" />
-                        <h2 className="text-sm font-black text-gray-900 uppercase tracking-widest">Categories ({categories.length})</h2>
-                    </div>
-                    <p className="text-xs text-gray-500 mb-4">Add custom expense categories.  Existing categories are protected and shown for reference.</p>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-4 max-h-56 overflow-y-auto pr-2">
-                        {categories.map(c => (
-                            <div key={c.id} className="text-xs bg-gray-50 border border-gray-100 rounded-lg px-3 py-2 truncate" title={c.name}>
-                                {c.name}
-                            </div>
-                        ))}
-                    </div>
-                    <div className="flex gap-2">
-                        <input
-                            type="text"
-                            value={newCatName}
-                            onChange={e => setNewCatName(e.target.value)}
-                            placeholder="New category name"
-                            className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-gray-900"
-                        />
+                    <div className="flex items-center justify-between gap-3 mb-4">
+                        <div className="flex items-center gap-2">
+                            <Tag size={16} className="text-purple-600" />
+                            <h2 className="text-sm font-black text-gray-900 uppercase tracking-widest">
+                                Expense Accounts ({categories.length})
+                            </h2>
+                        </div>
                         <button
-                            onClick={() => void handleAddCategory()}
-                            disabled={!newCatName.trim()}
-                            className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-black uppercase tracking-widest rounded-lg disabled:opacity-40 flex items-center gap-1"
+                            type="button"
+                            onClick={() => navigate('/finance/chart-of-accounts')}
+                            className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-[10px] font-black uppercase tracking-widest rounded-lg flex items-center gap-1"
                         >
-                            <Plus size={12} /> Add
+                            <Plus size={12} /> Manage in Chart of Accounts
                         </button>
                     </div>
+                    <p className="text-xs text-gray-500 mb-4">
+                        Expense categories are driven by active expense-type accounts in your Chart of Accounts.
+                        Add or edit accounts there — they appear automatically in the expense form.
+                    </p>
+                    {categories.length === 0 ? (
+                        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                            No expense accounts yet.{' '}
+                            <button type="button" onClick={() => navigate('/finance/chart-of-accounts')} className="underline font-bold">
+                                Open Chart of Accounts
+                            </button>{' '}
+                            to create expense-type accounts.
+                        </p>
+                    ) : (
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-56 overflow-y-auto pr-2">
+                            {categories.map(c => (
+                                <div key={c.id} className="text-xs bg-gray-50 border border-gray-100 rounded-lg px-3 py-2 truncate" title={`${c.code} · ${c.name}`}>
+                                    {c.code ? <span className="text-gray-400 font-mono mr-1">{c.code}</span> : null}
+                                    {c.name}
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </section>
 
                 {/* ── Section 2: Policies ── */}
