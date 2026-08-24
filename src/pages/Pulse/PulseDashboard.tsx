@@ -1,16 +1,8 @@
 // ──────────────────────────────────────────────────────────────
-// Pulse — Team Communication
-// Phase 1: Chat (rooms, DMs, file/photo upload, read receipts,
-//          reactions, reply-to, announce)
-// Phase 2: Tasks (boss overview, Kanban board, AI auto-tasks,
-//          role badges, overdue highlighting)
-//
-// Pure presentational component — all data hardcoded. No services,
-// no hooks from store/api, no fetches. Spec lives in
-// ~/Downloads/PULSE_MASTER_PROMPT_FINAL.md.
+// Pulse — Team Communication (live chat via chatService + tasks)
 // ──────────────────────────────────────────────────────────────
 import { useReducer, useEffect, useRef, useState, useCallback } from 'react';
-import { Smile, Send, Megaphone, X, Users, CheckSquare, RefreshCw } from 'lucide-react';
+import { Send, Megaphone, Users, CheckSquare, RefreshCw } from 'lucide-react';
 import {
   getChannels,
   getMessages,
@@ -37,50 +29,15 @@ const TASKS_ENABLED = true;
 
 type DisplayMessage = ChatMessage & { pending?: boolean };
 
-// ── Types ─────────────────────────────────────────────────────
-interface Reaction { emoji: string; count: number }
-
-interface FileAttachment {
-  type: 'image' | 'pdf' | 'doc';
-  name: string;
-  size: string;
-}
-
-interface Message {
-  id: string;
-  av: string;
-  avatarColor: string;
-  user: string;
-  role: string;
-  roleColor: string;
-  roleTextColor: string;
-  time: string;
-  text: string;
-  isSystem: boolean;
-  isWarn: boolean;
-  tick: 'sent' | 'delivered' | 'read';
-  reactions: Reaction[];
-  replyTo?: string;
-  fileAttachment?: FileAttachment;
-}
-
 interface Room {
   id: number;
   name: string;
   type: 'channel' | 'dm';
-  dotColor: string;
   unreadCount: number;
-  unreadColor: 'red' | 'amber';
-  lastTime: string;
-  pinned?: string;
-  messages: Message[];
   isDefault?: boolean;
   otherUserId?: number | null;
   otherUsername?: string | null;
 }
-
-const CHANNEL_DOT = '#4F8EF7';
-const DM_DOT = '#7C3AED';
 
 function channelToRoom(ch: ChatChannel): Room {
   const isDm = ch.type === 'dm';
@@ -88,11 +45,7 @@ function channelToRoom(ch: ChatChannel): Room {
     id: ch.id,
     name: isDm ? (ch.other_username || 'Direct Message') : ch.name,
     type: ch.type,
-    dotColor: isDm ? DM_DOT : CHANNEL_DOT,
     unreadCount: ch.unread_count,
-    unreadColor: ch.unread_count > 0 ? 'red' : 'red',
-    lastTime: '',
-    messages: [],
     isDefault: ch.is_default,
     otherUserId: ch.other_user_id,
     otherUsername: ch.other_username,
@@ -104,11 +57,7 @@ function dmResponseToRoom(dm: CreateDmResponse): Room {
     id: dm.id,
     name: dm.other_username || 'Direct Message',
     type: 'dm',
-    dotColor: DM_DOT,
     unreadCount: dm.unread_count,
-    unreadColor: dm.unread_count > 0 ? 'red' : 'red',
-    lastTime: '',
-    messages: [],
     otherUserId: dm.other_user_id,
     otherUsername: dm.other_username,
   };
@@ -209,12 +158,10 @@ function nextTaskStatusAction(status: ChatTaskStatus): {
   return null;
 }
 
-// ── State / reducer ───────────────────────────────────────────
 interface PulseState {
   activeTab: 'chat' | 'tasks';
   activeRoomId: number | null;
   rooms: Room[];
-  replyTo: string;
   newMessage: string;
   announceMode: boolean;
   announceText: string;
@@ -224,7 +171,6 @@ const initialState: PulseState = {
   activeTab: 'chat',
   activeRoomId: null,
   rooms: [],
-  replyTo: '',
   newMessage: '',
   announceMode: false,
   announceText: '',
@@ -236,16 +182,10 @@ type PulseAction =
   | { type: 'REFRESH_CHANNELS'; rooms: Room[] }
   | { type: 'MERGE_DM'; room: Room }
   | { type: 'SET_ROOM'; roomId: number }
-  | { type: 'SET_REPLY'; text: string }
-  | { type: 'CLEAR_REPLY' }
   | { type: 'SET_MESSAGE'; text: string }
-  | { type: 'SEND_MESSAGE'; roomId: number; text: string; replyTo: string }
-  | { type: 'ADD_REACTION'; roomId: number; messageId: string; emoji: string }
-  | { type: 'UPGRADE_TICK'; roomId: number; messageId: string; tick: 'delivered' | 'read' }
   | { type: 'CLEAR_UNREAD'; roomId: number }
   | { type: 'SET_ANNOUNCE_MODE'; value: boolean }
-  | { type: 'SET_ANNOUNCE_TEXT'; text: string }
-  | { type: 'SEND_ANNOUNCE'; text: string };
+  | { type: 'SET_ANNOUNCE_TEXT'; text: string };
 
 function pulseReducer(state: PulseState, action: PulseAction): PulseState {
   switch (action.type) {
@@ -274,66 +214,8 @@ function pulseReducer(state: PulseState, action: PulseAction): PulseState {
     }
     case 'SET_ROOM':
       return { ...state, activeRoomId: action.roomId };
-    case 'SET_REPLY':
-      return { ...state, replyTo: action.text };
-    case 'CLEAR_REPLY':
-      return { ...state, replyTo: '' };
     case 'SET_MESSAGE':
       return { ...state, newMessage: action.text };
-    case 'SEND_MESSAGE': {
-      const newMsg: Message = {
-        id: Date.now().toString() + '-m',
-        av: 'AQ', avatarColor: '#4F8EF7', user: 'You', role: 'Admin',
-        roleColor: 'rgba(79,142,247,.12)', roleTextColor: '#4F8EF7',
-        time: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-        text: action.text, isSystem: false, isWarn: false, tick: 'sent',
-        reactions: [],
-        replyTo: action.replyTo || undefined,
-      };
-      return {
-        ...state,
-        newMessage: '',
-        replyTo: '',
-        rooms: state.rooms.map(r =>
-          r.id === action.roomId ? { ...r, messages: [...r.messages, newMsg] } : r
-        ),
-      };
-    }
-    case 'ADD_REACTION': {
-      return {
-        ...state,
-        rooms: state.rooms.map(r => {
-          if (r.id !== action.roomId) return r;
-          return {
-            ...r,
-            messages: r.messages.map(m => {
-              if (m.id !== action.messageId) return m;
-              const exists = m.reactions.find(rx => rx.emoji === action.emoji);
-              const reactions = exists
-                ? exists.count === 1
-                  ? m.reactions.filter(rx => rx.emoji !== action.emoji)
-                  : m.reactions.map(rx => rx.emoji === action.emoji ? { ...rx, count: rx.count + 1 } : rx)
-                : [...m.reactions, { emoji: action.emoji, count: 1 }];
-              return { ...m, reactions };
-            }),
-          };
-        }),
-      };
-    }
-    case 'UPGRADE_TICK': {
-      return {
-        ...state,
-        rooms: state.rooms.map(r => {
-          if (r.id !== action.roomId) return r;
-          return {
-            ...r,
-            messages: r.messages.map(m =>
-              m.id === action.messageId ? { ...m, tick: action.tick } : m
-            ),
-          };
-        }),
-      };
-    }
     case 'CLEAR_UNREAD':
       return {
         ...state,
@@ -343,29 +225,10 @@ function pulseReducer(state: PulseState, action: PulseAction): PulseState {
       return { ...state, announceMode: action.value, announceText: '' };
     case 'SET_ANNOUNCE_TEXT':
       return { ...state, announceText: action.text };
-    case 'SEND_ANNOUNCE': {
-      const announceMsg: Message = {
-        id: Date.now().toString() + '-an',
-        av: 'SA', avatarColor: '#7C3AED', user: 'System Admin', role: 'Broadcast',
-        roleColor: 'rgba(124,58,237,.12)', roleTextColor: '#7C3AED',
-        time: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-        text: '📢 ANNOUNCEMENT: ' + action.text,
-        isSystem: true, isWarn: false, tick: 'read', reactions: [],
-      };
-      return {
-        ...state,
-        announceMode: false,
-        announceText: '',
-        rooms: state.rooms.map(r => ({ ...r, messages: [...r.messages, announceMsg] })),
-      };
-    }
     default:
       return state;
   }
 }
-
-// ── helpers ───────────────────────────────────────────────────
-const truncate = (s: string, n: number) => (s.length > n ? s.slice(0, n) + '...' : s);
 
 // Spec colour tokens — fallback to spec hex so the page renders
 // correctly even without theme.css updates.
@@ -394,7 +257,6 @@ export default function PulseDashboard() {
     typeof window !== 'undefined' ? window.innerWidth < 900 : false
   );
   const [mobileChatNavOpen, setMobileChatNavOpen] = useState<boolean>(false);
-  const [pinnedDismissed, setPinnedDismissed] = useState<Record<number, boolean>>({});
   const [channelsLoading, setChannelsLoading] = useState(true);
   const [channelsError, setChannelsError] = useState<string | null>(null);
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
@@ -829,7 +691,6 @@ export default function PulseDashboard() {
     };
 
     dispatch({ type: 'SET_MESSAGE', text: '' });
-    dispatch({ type: 'CLEAR_REPLY' });
     setSendError(null);
     nearBottomRef.current = true;
     setMessages((prev) => [...prev, optimistic]);
@@ -1051,7 +912,6 @@ export default function PulseDashboard() {
                     onMouseEnter={e => { if (!active) (e.currentTarget.style.background = 'rgba(255,255,255,.04)'); }}
                     onMouseLeave={e => { if (!active) (e.currentTarget.style.background = 'transparent'); }}
                   >
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: r.dotColor, flexShrink: 0 }} />
                     <span style={{
                       fontSize: 12,
                       color: active ? C.t : C.t2,
@@ -1065,8 +925,8 @@ export default function PulseDashboard() {
                         fontSize: 9,
                         padding: '1px 5px',
                         borderRadius: 8,
-                        background: r.unreadColor === 'red' ? 'rgba(239,68,68,.2)' : 'rgba(245,158,11,.2)',
-                        color: r.unreadColor === 'red' ? '#EF4444' : '#F59E0B',
+                        background: 'rgba(239,68,68,.2)',
+                        color: '#EF4444',
                         fontWeight: 600,
                       }}>
                         {r.unreadCount}
@@ -1203,15 +1063,6 @@ export default function PulseDashboard() {
                     onMouseEnter={e => { if (!active) (e.currentTarget.style.background = 'rgba(255,255,255,.04)'); }}
                     onMouseLeave={e => { if (!active) (e.currentTarget.style.background = 'transparent'); }}
                   >
-                    <div style={{
-                      width: 22, height: 22, borderRadius: '50%',
-                      background: r.dotColor, color: '#fff',
-                      fontSize: 8, fontWeight: 700,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      flexShrink: 0,
-                    }}>
-                      {(r.otherUsername || r.name).slice(0, 2).toUpperCase()}
-                    </div>
                     <span style={{
                       fontSize: 11,
                       color: active ? C.t : C.t2,
@@ -1304,7 +1155,6 @@ export default function PulseDashboard() {
                     <Users size={16} />
                   </button>
                 )}
-                <span style={{ width: 10, height: 10, borderRadius: '50%', background: activeRoom.dotColor, flexShrink: 0 }} />
                 <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                   <span style={{ fontSize: 13, fontWeight: 600, color: C.t }}>
                     {activeRoom.type === 'dm' ? activeRoom.name : `#${activeRoom.name}`}
@@ -1345,35 +1195,6 @@ export default function PulseDashboard() {
                 )}
               </div>
             </div>
-
-            {/* Pinned bar */}
-            {activeRoom.pinned && !pinnedDismissed[activeRoom.id] && (
-              <div style={{
-                background: 'rgba(79,142,247,.06)',
-                borderBottom: '1px solid rgba(79,142,247,.15)',
-                padding: '5px 14px',
-                fontSize: 10, color: C.t2,
-                display: 'flex', alignItems: 'center', gap: 6,
-                flexShrink: 0,
-              }}>
-                <span style={{ color: C.blue }}>📍</span>
-                <span style={{ color: C.blue, fontWeight: 600 }}>Pinned:</span>
-                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {activeRoom.pinned}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setPinnedDismissed(p => ({ ...p, [activeRoom.id]: true }))}
-                  style={{
-                    background: 'transparent', border: 'none', color: C.t3, cursor: 'pointer',
-                    padding: 2, display: 'flex', alignItems: 'center',
-                  }}
-                  aria-label="Dismiss pinned"
-                >
-                  <X size={11} />
-                </button>
-              </div>
-            )}
 
             <div
               ref={messagesScrollRef}
@@ -1516,29 +1337,6 @@ export default function PulseDashboard() {
               </>
             )}
 
-            {activeRoom && state.replyTo && (
-              <div style={{
-                margin: '0 14px',
-                background: 'rgba(79,142,247,.08)',
-                borderLeft: `2px solid ${C.blue}`,
-                borderRadius: '0 7px 7px 0',
-                padding: '5px 9px',
-                display: 'flex', justifyContent: 'space-between',
-                fontSize: 11, color: C.t2,
-                flexShrink: 0,
-              }}>
-                <span>↩ Replying to: {truncate(state.replyTo, 60)}</span>
-                <button
-                  type="button"
-                  onClick={() => dispatch({ type: 'CLEAR_REPLY' })}
-                  style={{ background: 'transparent', border: 'none', color: C.t3, cursor: 'pointer' }}
-                  aria-label="Cancel reply"
-                >
-                  <X size={11} />
-                </button>
-              </div>
-            )}
-
             {activeRoom && (
             <>
             {sendError && (
@@ -1582,16 +1380,6 @@ export default function PulseDashboard() {
               background: C.bg,
               zIndex: 10,
             }}>
-              <button
-                type="button"
-                aria-label="Emoji (decorative)"
-                style={{
-                  background: 'transparent', border: 'none', cursor: 'pointer',
-                  color: C.t2, padding: 4, display: 'flex', alignItems: 'center',
-                }}
-              >
-                <Smile size={16} />
-              </button>
               <textarea
                 rows={1}
                 value={state.newMessage}
@@ -1621,7 +1409,6 @@ export default function PulseDashboard() {
                   maxHeight: 120,
                 }}
               />
-              <span style={{ fontSize: 10, color: C.t3 }}>@</span>
               <button
                 type="button"
                 onClick={() => void handleSendMessage()}
