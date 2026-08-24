@@ -10,7 +10,7 @@
 // ~/Downloads/PULSE_MASTER_PROMPT_FINAL.md.
 // ──────────────────────────────────────────────────────────────
 import { useReducer, useEffect, useRef, useState, useCallback } from 'react';
-import { Paperclip, Smile, Send, Megaphone, X, Users, CheckSquare, RefreshCw } from 'lucide-react';
+import { Smile, Send, Megaphone, X, Users, CheckSquare, RefreshCw } from 'lucide-react';
 import {
   getChannels,
   getMessages,
@@ -240,8 +240,6 @@ type PulseAction =
   | { type: 'CLEAR_REPLY' }
   | { type: 'SET_MESSAGE'; text: string }
   | { type: 'SEND_MESSAGE'; roomId: number; text: string; replyTo: string }
-  | { type: 'SEND_FILE'; roomId: number; fileName: string; fileType: 'image' | 'pdf' | 'doc'; fileSize: string }
-  | { type: 'SEND_MARCUS_FILE_REPLY'; roomId: number }
   | { type: 'ADD_REACTION'; roomId: number; messageId: string; emoji: string }
   | { type: 'UPGRADE_TICK'; roomId: number; messageId: string; tick: 'delivered' | 'read' }
   | { type: 'CLEAR_UNREAD'; roomId: number }
@@ -298,39 +296,6 @@ function pulseReducer(state: PulseState, action: PulseAction): PulseState {
         replyTo: '',
         rooms: state.rooms.map(r =>
           r.id === action.roomId ? { ...r, messages: [...r.messages, newMsg] } : r
-        ),
-      };
-    }
-    case 'SEND_FILE': {
-      const fileMsg: Message = {
-        id: Date.now().toString() + '-f',
-        av: 'AQ', avatarColor: '#4F8EF7', user: 'You', role: 'Admin',
-        roleColor: 'rgba(79,142,247,.12)', roleTextColor: '#4F8EF7',
-        time: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-        text: action.fileType === 'image' ? 'Photo sent.' : 'File sent.',
-        isSystem: false, isWarn: false, tick: 'sent', reactions: [],
-        fileAttachment: { type: action.fileType, name: action.fileName, size: action.fileSize },
-      };
-      return {
-        ...state,
-        rooms: state.rooms.map(r =>
-          r.id === action.roomId ? { ...r, messages: [...r.messages, fileMsg] } : r
-        ),
-      };
-    }
-    case 'SEND_MARCUS_FILE_REPLY': {
-      const marcusMsg: Message = {
-        id: Date.now().toString() + '-mc',
-        av: 'SA', avatarColor: '#7C3AED', user: 'System Admin', role: 'AI',
-        roleColor: 'rgba(124,58,237,.12)', roleTextColor: '#7C3AED',
-        time: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-        text: '✦ Marcus AI: Photo detected — attaching to latest open delivery invoice as Proof of Delivery.',
-        isSystem: true, isWarn: false, tick: 'read', reactions: [],
-      };
-      return {
-        ...state,
-        rooms: state.rooms.map(r =>
-          r.id === action.roomId ? { ...r, messages: [...r.messages, marcusMsg] } : r
         ),
       };
     }
@@ -453,8 +418,6 @@ export default function PulseDashboard() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const marcusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeChannelRef = useRef<number | null>(null);
   const latestIdRef = useRef<number | null>(null);
   const initialLoadInFlightRef = useRef(false);
@@ -769,13 +732,6 @@ export default function PulseDashboard() {
     initialScrollDoneRef.current = true;
   }, [messages, messagesLoading]);
 
-  // Cleanup marcus timer on unmount
-  useEffect(() => {
-    return () => {
-      if (marcusTimerRef.current) clearTimeout(marcusTimerRef.current);
-    };
-  }, []);
-
   const activeRoom = state.activeRoomId != null
     ? state.rooms.find(r => r.id === state.activeRoomId)
     : undefined;
@@ -905,35 +861,6 @@ export default function PulseDashboard() {
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
       setSendError(err instanceof Error ? err.message : 'Failed to send message');
     }
-  }
-
-  function handleFilePick(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file || state.activeRoomId == null) return;
-    const sizeKB = file.size / 1024;
-    const sizeLabel = sizeKB > 1024 ? `${(sizeKB / 1024).toFixed(1)} MB` : `${Math.round(sizeKB)} KB`;
-    const nameLower = file.name.toLowerCase();
-    let type: 'image' | 'pdf' | 'doc' = 'doc';
-    if (file.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|heic|bmp)$/i.test(nameLower)) {
-      type = 'image';
-    } else if (nameLower.endsWith('.pdf')) {
-      type = 'pdf';
-    } else {
-      type = 'doc';
-    }
-    dispatch({
-      type: 'SEND_FILE', roomId: state.activeRoomId,
-      fileName: file.name, fileType: type, fileSize: sizeLabel,
-    });
-    // For image uploads, Marcus AI posts an auto-reply ~1.2s later
-    if (type === 'image') {
-      const roomId = state.activeRoomId;
-      if (marcusTimerRef.current) clearTimeout(marcusTimerRef.current);
-      marcusTimerRef.current = setTimeout(() => {
-        dispatch({ type: 'SEND_MARCUS_FILE_REPLY', roomId });
-      }, 1200);
-    }
-    if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
   async function handleAnnounceSend() {
@@ -1655,25 +1582,6 @@ export default function PulseDashboard() {
               background: C.bg,
               zIndex: 10,
             }}>
-              {/* Hidden file input */}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*,.pdf,.doc,.docx"
-                onChange={handleFilePick}
-                style={{ display: 'none' }}
-              />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                aria-label="Attach file"
-                style={{
-                  background: 'transparent', border: 'none', cursor: 'pointer',
-                  color: C.t2, padding: 4, display: 'flex', alignItems: 'center',
-                }}
-              >
-                <Paperclip size={16} />
-              </button>
               <button
                 type="button"
                 aria-label="Emoji (decorative)"
