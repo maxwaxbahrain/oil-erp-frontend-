@@ -9,6 +9,7 @@ export interface ChatChannel {
     type: 'channel' | 'dm';
     is_default: boolean;
     unread_count: number;
+    has_unread_mention: boolean;
     other_user_id: number | null;
     other_username: string | null;
 }
@@ -41,6 +42,13 @@ export interface SendMessageResponse {
     sender_username: string;
     body: string;
     created_at: string;
+    mentioned_user_ids: number[];
+}
+
+export interface MentionableUser {
+    id: number;
+    username: string;
+    full_name: string | null;
 }
 
 export interface CreateDmResponse {
@@ -63,6 +71,7 @@ function fromApiChannel(raw: Record<string, unknown>): ChatChannel {
         type: raw.type === 'dm' ? 'dm' : 'channel',
         is_default: Boolean(raw.is_default),
         unread_count: Number(raw.unread_count ?? 0),
+        has_unread_mention: Boolean(raw.has_unread_mention),
         other_user_id: raw.other_user_id != null ? Number(raw.other_user_id) : null,
         other_username: raw.other_username != null ? String(raw.other_username) : null,
     };
@@ -119,14 +128,50 @@ export async function getMessages(
     };
 }
 
-export async function sendMessage(channelId: number, body: string): Promise<SendMessageResponse> {
+export async function getMentionableUsers(channelId?: number): Promise<MentionableUser[]> {
+    const qs =
+        channelId != null
+            ? `?channel_id=${encodeURIComponent(String(channelId))}`
+            : '';
+    const r = await authFetch(`${CHAT_API}/mentionable-users${qs}`);
+    if (!r.ok) throw new Error(`Failed to load mentionable users (${r.status})`);
+    const rows = await r.json();
+    return (Array.isArray(rows) ? rows : []).map((row) => {
+        const raw = row as Record<string, unknown>;
+        return {
+            id: Number(raw.id),
+            username: String(raw.username ?? ''),
+            full_name: raw.full_name != null ? String(raw.full_name) : null,
+        };
+    });
+}
+
+export async function sendMessage(
+    channelId: number,
+    body: string,
+    mentionedUserIds: number[] = [],
+): Promise<SendMessageResponse> {
     const r = await authFetch(`${CHAT_API}/channels/${encodeURIComponent(String(channelId))}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body }),
+        body: JSON.stringify({
+            body,
+            mentioned_user_ids: mentionedUserIds,
+        }),
     });
     if (!r.ok) throw new Error(`Failed to send message (${r.status})`);
-    return (await r.json()) as SendMessageResponse;
+    const raw = (await r.json()) as Record<string, unknown>;
+    return {
+        id: Number(raw.id),
+        channel_id: Number(raw.channel_id),
+        sender_user_id: Number(raw.sender_user_id),
+        sender_username: String(raw.sender_username ?? ''),
+        body: String(raw.body ?? ''),
+        created_at: String(raw.created_at ?? ''),
+        mentioned_user_ids: Array.isArray(raw.mentioned_user_ids)
+            ? raw.mentioned_user_ids.map((id) => Number(id))
+            : [],
+    };
 }
 
 export async function markRead(

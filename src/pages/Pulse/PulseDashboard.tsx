@@ -1,16 +1,8 @@
 // ──────────────────────────────────────────────────────────────
-// Pulse — Team Communication
-// Phase 1: Chat (rooms, DMs, file/photo upload, read receipts,
-//          reactions, reply-to, announce)
-// Phase 2: Tasks (boss overview, Kanban board, AI auto-tasks,
-//          role badges, overdue highlighting)
-//
-// Pure presentational component — all data hardcoded. No services,
-// no hooks from store/api, no fetches. Spec lives in
-// ~/Downloads/PULSE_MASTER_PROMPT_FINAL.md.
+// Pulse — Team Communication (live chat via chatService + tasks)
 // ──────────────────────────────────────────────────────────────
-import { useReducer, useEffect, useRef, useState, useCallback } from 'react';
-import { Paperclip, Smile, Send, Megaphone, X, Users, CheckSquare, RefreshCw } from 'lucide-react';
+import { useReducer, useEffect, useRef, useState, useCallback, useMemo, type ReactNode } from 'react';
+import { Send, Megaphone, Users, CheckSquare, RefreshCw, AtSign } from 'lucide-react';
 import {
   getChannels,
   getMessages,
@@ -20,11 +12,13 @@ import {
   getTasks,
   createTask,
   updateTaskStatus,
+  getMentionableUsers,
   type ChatChannel,
   type ChatMessage,
   type ChatTask,
   type ChatTaskStatus,
   type CreateDmResponse,
+  type MentionableUser,
 } from '../../services/chatService';
 import { useAuth, type AuthRole } from '../../contexts/AuthContext';
 import api from '../../api/axios';
@@ -37,50 +31,16 @@ const TASKS_ENABLED = true;
 
 type DisplayMessage = ChatMessage & { pending?: boolean };
 
-// ── Types ─────────────────────────────────────────────────────
-interface Reaction { emoji: string; count: number }
-
-interface FileAttachment {
-  type: 'image' | 'pdf' | 'doc';
-  name: string;
-  size: string;
-}
-
-interface Message {
-  id: string;
-  av: string;
-  avatarColor: string;
-  user: string;
-  role: string;
-  roleColor: string;
-  roleTextColor: string;
-  time: string;
-  text: string;
-  isSystem: boolean;
-  isWarn: boolean;
-  tick: 'sent' | 'delivered' | 'read';
-  reactions: Reaction[];
-  replyTo?: string;
-  fileAttachment?: FileAttachment;
-}
-
 interface Room {
   id: number;
   name: string;
   type: 'channel' | 'dm';
-  dotColor: string;
   unreadCount: number;
-  unreadColor: 'red' | 'amber';
-  lastTime: string;
-  pinned?: string;
-  messages: Message[];
+  hasUnreadMention: boolean;
   isDefault?: boolean;
   otherUserId?: number | null;
   otherUsername?: string | null;
 }
-
-const CHANNEL_DOT = '#4F8EF7';
-const DM_DOT = '#7C3AED';
 
 function channelToRoom(ch: ChatChannel): Room {
   const isDm = ch.type === 'dm';
@@ -88,11 +48,8 @@ function channelToRoom(ch: ChatChannel): Room {
     id: ch.id,
     name: isDm ? (ch.other_username || 'Direct Message') : ch.name,
     type: ch.type,
-    dotColor: isDm ? DM_DOT : CHANNEL_DOT,
     unreadCount: ch.unread_count,
-    unreadColor: ch.unread_count > 0 ? 'red' : 'red',
-    lastTime: '',
-    messages: [],
+    hasUnreadMention: ch.has_unread_mention,
     isDefault: ch.is_default,
     otherUserId: ch.other_user_id,
     otherUsername: ch.other_username,
@@ -104,11 +61,8 @@ function dmResponseToRoom(dm: CreateDmResponse): Room {
     id: dm.id,
     name: dm.other_username || 'Direct Message',
     type: 'dm',
-    dotColor: DM_DOT,
     unreadCount: dm.unread_count,
-    unreadColor: dm.unread_count > 0 ? 'red' : 'red',
-    lastTime: '',
-    messages: [],
+    hasUnreadMention: false,
     otherUserId: dm.other_user_id,
     otherUsername: dm.other_username,
   };
@@ -137,6 +91,91 @@ function avatarColorFor(name: string): string {
 
 function initialsFor(name: string): string {
   return name.slice(0, 2).toUpperCase();
+}
+
+interface PendingMention {
+  userId: number;
+  insertText: string;
+}
+
+interface MentionHighlight {
+  label: string;
+  isSelf: boolean;
+}
+
+function mentionDisplayLabel(u: MentionableUser | { username: string; full_name?: string | null }): string {
+  const full = 'full_name' in u ? u.full_name : null;
+  return (full && full.trim()) || u.username;
+}
+
+/** Text from the last "@" before the cursor through the cursor — may include spaces. */
+function getMentionContext(text: string, cursor: number): { query: string; start: number } | null {
+  const before = text.slice(0, cursor);
+  const atIndex = before.lastIndexOf('@');
+  if (atIndex === -1) return null;
+  if (atIndex > 0 && !/\s/.test(before[atIndex - 1]!)) return null;
+  return { query: before.slice(atIndex + 1), start: atIndex };
+}
+
+function filterMentionableUsers(users: MentionableUser[], query: string): MentionableUser[] {
+  const q = query.toLowerCase();
+  return users.filter((u) => {
+    const username = u.username.toLowerCase();
+    const display = mentionDisplayLabel(u).toLowerCase();
+    return username.startsWith(q) || display.startsWith(q);
+  });
+}
+
+function filterPendingMentionIds(body: string, pending: PendingMention[]): number[] {
+  const ids: number[] = [];
+  const seen = new Set<number>();
+  for (const m of pending) {
+    if (body.includes(m.insertText) && !seen.has(m.userId)) {
+      seen.add(m.userId);
+      ids.push(m.userId);
+    }
+  }
+  return ids;
+}
+
+function resolveAuthUserId(user: { id?: number | string } | null): number | null {
+  if (!user?.id) return null;
+  if (typeof user.id === 'number' && Number.isFinite(user.id)) return user.id;
+  if (typeof user.id === 'string' && /^\d+$/.test(user.id)) return Number(user.id);
+  return null;
+}
+
+function buildMentionHighlights(
+  users: MentionableUser[],
+  authUser: { id?: number | string; username: string; full_name?: string | null } | null,
+): MentionHighlight[] {
+  const selfId = resolveAuthUserId(authUser);
+  const byKey = new Map<string, MentionHighlight>();
+
+  const add = (label: string, isSelf: boolean) => {
+    const trimmed = label.trim();
+    if (!trimmed) return;
+    const key = trimmed.toLowerCase();
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, { label: trimmed, isSelf });
+    } else if (isSelf && !existing.isSelf) {
+      byKey.set(key, { label: trimmed, isSelf: true });
+    }
+  };
+
+  for (const u of users) {
+    const isSelf = selfId != null && u.id === selfId;
+    add(mentionDisplayLabel(u), isSelf);
+    if (u.username !== mentionDisplayLabel(u)) add(u.username, isSelf);
+  }
+
+  if (authUser) {
+    add(authUser.username, true);
+    if (authUser.full_name) add(authUser.full_name, true);
+  }
+
+  return Array.from(byKey.values()).sort((a, b) => b.label.length - a.label.length);
 }
 
 function isOwnMessage(
@@ -209,12 +248,10 @@ function nextTaskStatusAction(status: ChatTaskStatus): {
   return null;
 }
 
-// ── State / reducer ───────────────────────────────────────────
 interface PulseState {
   activeTab: 'chat' | 'tasks';
   activeRoomId: number | null;
   rooms: Room[];
-  replyTo: string;
   newMessage: string;
   announceMode: boolean;
   announceText: string;
@@ -224,7 +261,6 @@ const initialState: PulseState = {
   activeTab: 'chat',
   activeRoomId: null,
   rooms: [],
-  replyTo: '',
   newMessage: '',
   announceMode: false,
   announceText: '',
@@ -236,18 +272,10 @@ type PulseAction =
   | { type: 'REFRESH_CHANNELS'; rooms: Room[] }
   | { type: 'MERGE_DM'; room: Room }
   | { type: 'SET_ROOM'; roomId: number }
-  | { type: 'SET_REPLY'; text: string }
-  | { type: 'CLEAR_REPLY' }
   | { type: 'SET_MESSAGE'; text: string }
-  | { type: 'SEND_MESSAGE'; roomId: number; text: string; replyTo: string }
-  | { type: 'SEND_FILE'; roomId: number; fileName: string; fileType: 'image' | 'pdf' | 'doc'; fileSize: string }
-  | { type: 'SEND_MARCUS_FILE_REPLY'; roomId: number }
-  | { type: 'ADD_REACTION'; roomId: number; messageId: string; emoji: string }
-  | { type: 'UPGRADE_TICK'; roomId: number; messageId: string; tick: 'delivered' | 'read' }
   | { type: 'CLEAR_UNREAD'; roomId: number }
   | { type: 'SET_ANNOUNCE_MODE'; value: boolean }
-  | { type: 'SET_ANNOUNCE_TEXT'; text: string }
-  | { type: 'SEND_ANNOUNCE'; text: string };
+  | { type: 'SET_ANNOUNCE_TEXT'; text: string };
 
 function pulseReducer(state: PulseState, action: PulseAction): PulseState {
   switch (action.type) {
@@ -276,99 +304,8 @@ function pulseReducer(state: PulseState, action: PulseAction): PulseState {
     }
     case 'SET_ROOM':
       return { ...state, activeRoomId: action.roomId };
-    case 'SET_REPLY':
-      return { ...state, replyTo: action.text };
-    case 'CLEAR_REPLY':
-      return { ...state, replyTo: '' };
     case 'SET_MESSAGE':
       return { ...state, newMessage: action.text };
-    case 'SEND_MESSAGE': {
-      const newMsg: Message = {
-        id: Date.now().toString() + '-m',
-        av: 'AQ', avatarColor: '#4F8EF7', user: 'You', role: 'Admin',
-        roleColor: 'rgba(79,142,247,.12)', roleTextColor: '#4F8EF7',
-        time: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-        text: action.text, isSystem: false, isWarn: false, tick: 'sent',
-        reactions: [],
-        replyTo: action.replyTo || undefined,
-      };
-      return {
-        ...state,
-        newMessage: '',
-        replyTo: '',
-        rooms: state.rooms.map(r =>
-          r.id === action.roomId ? { ...r, messages: [...r.messages, newMsg] } : r
-        ),
-      };
-    }
-    case 'SEND_FILE': {
-      const fileMsg: Message = {
-        id: Date.now().toString() + '-f',
-        av: 'AQ', avatarColor: '#4F8EF7', user: 'You', role: 'Admin',
-        roleColor: 'rgba(79,142,247,.12)', roleTextColor: '#4F8EF7',
-        time: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-        text: action.fileType === 'image' ? 'Photo sent.' : 'File sent.',
-        isSystem: false, isWarn: false, tick: 'sent', reactions: [],
-        fileAttachment: { type: action.fileType, name: action.fileName, size: action.fileSize },
-      };
-      return {
-        ...state,
-        rooms: state.rooms.map(r =>
-          r.id === action.roomId ? { ...r, messages: [...r.messages, fileMsg] } : r
-        ),
-      };
-    }
-    case 'SEND_MARCUS_FILE_REPLY': {
-      const marcusMsg: Message = {
-        id: Date.now().toString() + '-mc',
-        av: 'SA', avatarColor: '#7C3AED', user: 'System Admin', role: 'AI',
-        roleColor: 'rgba(124,58,237,.12)', roleTextColor: '#7C3AED',
-        time: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-        text: '✦ Marcus AI: Photo detected — attaching to latest open delivery invoice as Proof of Delivery.',
-        isSystem: true, isWarn: false, tick: 'read', reactions: [],
-      };
-      return {
-        ...state,
-        rooms: state.rooms.map(r =>
-          r.id === action.roomId ? { ...r, messages: [...r.messages, marcusMsg] } : r
-        ),
-      };
-    }
-    case 'ADD_REACTION': {
-      return {
-        ...state,
-        rooms: state.rooms.map(r => {
-          if (r.id !== action.roomId) return r;
-          return {
-            ...r,
-            messages: r.messages.map(m => {
-              if (m.id !== action.messageId) return m;
-              const exists = m.reactions.find(rx => rx.emoji === action.emoji);
-              const reactions = exists
-                ? exists.count === 1
-                  ? m.reactions.filter(rx => rx.emoji !== action.emoji)
-                  : m.reactions.map(rx => rx.emoji === action.emoji ? { ...rx, count: rx.count + 1 } : rx)
-                : [...m.reactions, { emoji: action.emoji, count: 1 }];
-              return { ...m, reactions };
-            }),
-          };
-        }),
-      };
-    }
-    case 'UPGRADE_TICK': {
-      return {
-        ...state,
-        rooms: state.rooms.map(r => {
-          if (r.id !== action.roomId) return r;
-          return {
-            ...r,
-            messages: r.messages.map(m =>
-              m.id === action.messageId ? { ...m, tick: action.tick } : m
-            ),
-          };
-        }),
-      };
-    }
     case 'CLEAR_UNREAD':
       return {
         ...state,
@@ -378,29 +315,10 @@ function pulseReducer(state: PulseState, action: PulseAction): PulseState {
       return { ...state, announceMode: action.value, announceText: '' };
     case 'SET_ANNOUNCE_TEXT':
       return { ...state, announceText: action.text };
-    case 'SEND_ANNOUNCE': {
-      const announceMsg: Message = {
-        id: Date.now().toString() + '-an',
-        av: 'SA', avatarColor: '#7C3AED', user: 'System Admin', role: 'Broadcast',
-        roleColor: 'rgba(124,58,237,.12)', roleTextColor: '#7C3AED',
-        time: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-        text: '📢 ANNOUNCEMENT: ' + action.text,
-        isSystem: true, isWarn: false, tick: 'read', reactions: [],
-      };
-      return {
-        ...state,
-        announceMode: false,
-        announceText: '',
-        rooms: state.rooms.map(r => ({ ...r, messages: [...r.messages, announceMsg] })),
-      };
-    }
     default:
       return state;
   }
 }
-
-// ── helpers ───────────────────────────────────────────────────
-const truncate = (s: string, n: number) => (s.length > n ? s.slice(0, n) + '...' : s);
 
 // Spec colour tokens — fallback to spec hex so the page renders
 // correctly even without theme.css updates.
@@ -420,6 +338,85 @@ const C = {
   br2:    'var(--br2, rgba(255,255,255,.12))',
 } as const;
 
+function renderMessageBodyWithMentions(body: string, highlights: MentionHighlight[]): ReactNode[] {
+  if (highlights.length === 0) return [body];
+
+  const nodes: ReactNode[] = [];
+  let i = 0;
+  while (i < body.length) {
+    if (body[i] === '@') {
+      const afterAt = body.slice(i + 1);
+      let matched: MentionHighlight | null = null;
+      for (const h of highlights) {
+        if (afterAt.toLowerCase().startsWith(h.label.toLowerCase())) {
+          matched = h;
+          break;
+        }
+      }
+      if (matched) {
+        const len = 1 + matched.label.length;
+        nodes.push(
+          <span
+            key={`mention-${i}-${matched.label}`}
+            style={{
+              color: C.blue,
+              fontWeight: matched.isSelf ? 700 : 600,
+              background: matched.isSelf ? 'rgba(79,142,247,.15)' : undefined,
+              borderRadius: matched.isSelf ? 3 : undefined,
+              padding: matched.isSelf ? '0 2px' : undefined,
+            }}
+          >
+            {body.slice(i, i + len)}
+          </span>,
+        );
+        i += len;
+        continue;
+      }
+    }
+    const nextAt = body.indexOf('@', i + 1);
+    const end = nextAt === -1 ? body.length : nextAt;
+    if (end > i) nodes.push(body.slice(i, end));
+    i = end === i ? i + 1 : end;
+  }
+  return nodes;
+}
+
+function RoomUnreadBadges({ room }: { room: Room }) {
+  return (
+    <>
+      {room.hasUnreadMention && (
+        <span
+          title="Unread mention"
+          style={{
+            fontSize: 9,
+            padding: '1px 5px',
+            borderRadius: 8,
+            background: 'rgba(79,142,247,.2)',
+            color: C.blue,
+            fontWeight: 700,
+            flexShrink: 0,
+          }}
+        >
+          @
+        </span>
+      )}
+      {room.unreadCount > 0 && (
+        <span style={{
+          fontSize: 9,
+          padding: '1px 5px',
+          borderRadius: 8,
+          background: 'rgba(239,68,68,.2)',
+          color: '#EF4444',
+          fontWeight: 600,
+          flexShrink: 0,
+        }}>
+          {room.unreadCount}
+        </span>
+      )}
+    </>
+  );
+}
+
 // ── Main component ───────────────────────────────────────────
 export default function PulseDashboard() {
   const { user: authUser, hasRole } = useAuth();
@@ -429,7 +426,6 @@ export default function PulseDashboard() {
     typeof window !== 'undefined' ? window.innerWidth < 900 : false
   );
   const [mobileChatNavOpen, setMobileChatNavOpen] = useState<boolean>(false);
-  const [pinnedDismissed, setPinnedDismissed] = useState<Record<number, boolean>>({});
   const [channelsLoading, setChannelsLoading] = useState(true);
   const [channelsError, setChannelsError] = useState<string | null>(null);
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
@@ -450,11 +446,16 @@ export default function PulseDashboard() {
   const [newTaskModalOpen, setNewTaskModalOpen] = useState(false);
   const [createTaskSubmitting, setCreateTaskSubmitting] = useState(false);
   const [createTaskError, setCreateTaskError] = useState<string | null>(null);
+  const [mentionableUsers, setMentionableUsers] = useState<MentionableUser[]>([]);
+  const [pendingMentions, setPendingMentions] = useState<PendingMention[]>([]);
+  const [mentionPopupOpen, setMentionPopupOpen] = useState(false);
+  const [mentionHighlightIndex, setMentionHighlightIndex] = useState(0);
+  const [composerCursor, setComposerCursor] = useState(0);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const marcusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const mentionPopupRef = useRef<HTMLDivElement>(null);
   const activeChannelRef = useRef<number | null>(null);
   const latestIdRef = useRef<number | null>(null);
   const initialLoadInFlightRef = useRef(false);
@@ -498,6 +499,72 @@ export default function PulseDashboard() {
   useEffect(() => {
     void loadChannels();
   }, [loadChannels]);
+
+  useEffect(() => {
+    const channelId = state.activeRoomId;
+    if (channelId == null) {
+      setMentionableUsers([]);
+      return;
+    }
+
+    let cancelled = false;
+    void getMentionableUsers(channelId)
+      .then((rows) => {
+        if (!cancelled) setMentionableUsers(rows);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          console.warn('Failed to load mentionable users:', err);
+          setMentionableUsers([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [state.activeRoomId]);
+
+  const mentionHighlights = useMemo(
+    () => buildMentionHighlights(mentionableUsers, authUser),
+    [mentionableUsers, authUser],
+  );
+
+  const mentionContext = useMemo(
+    () => (mentionPopupOpen ? getMentionContext(state.newMessage, composerCursor) : null),
+    [mentionPopupOpen, state.newMessage, composerCursor],
+  );
+
+  const mentionSuggestions = useMemo(
+    () => (mentionContext ? filterMentionableUsers(mentionableUsers, mentionContext.query) : []),
+    [mentionContext, mentionableUsers],
+  );
+
+  const showMentionPopup =
+    mentionPopupOpen && mentionContext != null && mentionSuggestions.length > 0;
+
+  useEffect(() => {
+    if (!mentionPopupOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (mentionPopupRef.current?.contains(e.target as Node)) return;
+      if (composerTextareaRef.current?.contains(e.target as Node)) return;
+      setMentionPopupOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [mentionPopupOpen]);
+
+  useEffect(() => {
+    if (!mentionPopupOpen || !mentionContext) return;
+    if (mentionSuggestions.length === 0) {
+      setMentionPopupOpen(false);
+    }
+  }, [mentionPopupOpen, mentionContext, mentionSuggestions.length]);
+
+  useEffect(() => {
+    if (!showMentionPopup) return;
+    setMentionHighlightIndex((idx) =>
+      mentionSuggestions.length === 0 ? 0 : Math.min(idx, mentionSuggestions.length - 1),
+    );
+  }, [showMentionPopup, mentionSuggestions.length, mentionContext?.query]);
 
   const loadTenantUsers = useCallback(async () => {
     setUsersLoading(true);
@@ -769,13 +836,6 @@ export default function PulseDashboard() {
     initialScrollDoneRef.current = true;
   }, [messages, messagesLoading]);
 
-  // Cleanup marcus timer on unmount
-  useEffect(() => {
-    return () => {
-      if (marcusTimerRef.current) clearTimeout(marcusTimerRef.current);
-    };
-  }, []);
-
   const activeRoom = state.activeRoomId != null
     ? state.rooms.find(r => r.id === state.activeRoomId)
     : undefined;
@@ -852,11 +912,109 @@ export default function PulseDashboard() {
   }
 
   // ── Send handlers ──────────────────────────────────────────
+  function selectMention(user: MentionableUser) {
+    const ta = composerTextareaRef.current;
+    const text = state.newMessage;
+    const cursor = ta?.selectionStart ?? composerCursor;
+    const ctx = getMentionContext(text, cursor);
+    if (!ctx) return;
+
+    const display = mentionDisplayLabel(user);
+    const insert = `@${display} `;
+    const insertText = `@${display}`;
+    const newText = text.slice(0, ctx.start) + insert + text.slice(cursor);
+
+    dispatch({ type: 'SET_MESSAGE', text: newText });
+    setPendingMentions((prev) => [
+      ...prev.filter((p) => p.userId !== user.id),
+      { userId: user.id, insertText },
+    ]);
+    setMentionPopupOpen(false);
+
+    const newCursor = ctx.start + insert.length;
+    requestAnimationFrame(() => {
+      ta?.focus();
+      ta?.setSelectionRange(newCursor, newCursor);
+      setComposerCursor(newCursor);
+    });
+  }
+
+  function openMentionAtCursor() {
+    const ta = composerTextareaRef.current;
+    const cursor = ta?.selectionStart ?? state.newMessage.length;
+    const before = state.newMessage.slice(0, cursor);
+    const after = state.newMessage.slice(cursor);
+    const needsSpace = before.length > 0 && !/\s$/.test(before);
+    const prefix = needsSpace ? ' @' : '@';
+    const newText = before + prefix + after;
+    const newCursor = before.length + prefix.length;
+
+    dispatch({ type: 'SET_MESSAGE', text: newText });
+    setComposerCursor(newCursor);
+    setMentionPopupOpen(true);
+    setMentionHighlightIndex(0);
+
+    requestAnimationFrame(() => {
+      ta?.focus();
+      ta?.setSelectionRange(newCursor, newCursor);
+    });
+  }
+
+  function handleComposerChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const { value, selectionStart } = e.target;
+    dispatch({ type: 'SET_MESSAGE', text: value });
+    const cursor = selectionStart ?? value.length;
+    setComposerCursor(cursor);
+    const ctx = getMentionContext(value, cursor);
+    if (ctx) {
+      const suggestions = filterMentionableUsers(mentionableUsers, ctx.query);
+      if (suggestions.length > 0) {
+        setMentionPopupOpen(true);
+        setMentionHighlightIndex(0);
+      } else {
+        setMentionPopupOpen(false);
+      }
+    } else {
+      setMentionPopupOpen(false);
+    }
+  }
+
+  function handleComposerKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (showMentionPopup && mentionSuggestions.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMentionHighlightIndex((idx) => Math.min(idx + 1, mentionSuggestions.length - 1));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMentionHighlightIndex((idx) => Math.max(idx - 1, 0));
+        return;
+      }
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        selectMention(mentionSuggestions[mentionHighlightIndex]!);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setMentionPopupOpen(false);
+        return;
+      }
+    }
+
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      void handleSendMessage();
+    }
+  }
+
   async function handleSendMessage() {
     const text = state.newMessage.trim();
     if (!text || state.activeRoomId == null) return;
 
     const channelId = state.activeRoomId;
+    const mentionedIds = filterPendingMentionIds(text, pendingMentions);
     const tempId = -Date.now();
     const optimistic: DisplayMessage = {
       id: tempId,
@@ -873,13 +1031,14 @@ export default function PulseDashboard() {
     };
 
     dispatch({ type: 'SET_MESSAGE', text: '' });
-    dispatch({ type: 'CLEAR_REPLY' });
+    setPendingMentions([]);
+    setMentionPopupOpen(false);
     setSendError(null);
     nearBottomRef.current = true;
     setMessages((prev) => [...prev, optimistic]);
 
     try {
-      const sent = await sendMessage(channelId, text);
+      const sent = await sendMessage(channelId, text, mentionedIds);
       if (activeChannelRef.current !== channelId) return;
       setMessages((prev) => {
         const withoutDup = prev.filter((m) => m.id !== sent.id);
@@ -905,35 +1064,6 @@ export default function PulseDashboard() {
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
       setSendError(err instanceof Error ? err.message : 'Failed to send message');
     }
-  }
-
-  function handleFilePick(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file || state.activeRoomId == null) return;
-    const sizeKB = file.size / 1024;
-    const sizeLabel = sizeKB > 1024 ? `${(sizeKB / 1024).toFixed(1)} MB` : `${Math.round(sizeKB)} KB`;
-    const nameLower = file.name.toLowerCase();
-    let type: 'image' | 'pdf' | 'doc' = 'doc';
-    if (file.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|heic|bmp)$/i.test(nameLower)) {
-      type = 'image';
-    } else if (nameLower.endsWith('.pdf')) {
-      type = 'pdf';
-    } else {
-      type = 'doc';
-    }
-    dispatch({
-      type: 'SEND_FILE', roomId: state.activeRoomId,
-      fileName: file.name, fileType: type, fileSize: sizeLabel,
-    });
-    // For image uploads, Marcus AI posts an auto-reply ~1.2s later
-    if (type === 'image') {
-      const roomId = state.activeRoomId;
-      if (marcusTimerRef.current) clearTimeout(marcusTimerRef.current);
-      marcusTimerRef.current = setTimeout(() => {
-        dispatch({ type: 'SEND_MARCUS_FILE_REPLY', roomId });
-      }, 1200);
-    }
-    if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
   async function handleAnnounceSend() {
@@ -1124,7 +1254,6 @@ export default function PulseDashboard() {
                     onMouseEnter={e => { if (!active) (e.currentTarget.style.background = 'rgba(255,255,255,.04)'); }}
                     onMouseLeave={e => { if (!active) (e.currentTarget.style.background = 'transparent'); }}
                   >
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: r.dotColor, flexShrink: 0 }} />
                     <span style={{
                       fontSize: 12,
                       color: active ? C.t : C.t2,
@@ -1133,18 +1262,7 @@ export default function PulseDashboard() {
                     }}>
                       {r.name}
                     </span>
-                    {r.unreadCount > 0 && (
-                      <span style={{
-                        fontSize: 9,
-                        padding: '1px 5px',
-                        borderRadius: 8,
-                        background: r.unreadColor === 'red' ? 'rgba(239,68,68,.2)' : 'rgba(245,158,11,.2)',
-                        color: r.unreadColor === 'red' ? '#EF4444' : '#F59E0B',
-                        fontWeight: 600,
-                      }}>
-                        {r.unreadCount}
-                      </span>
-                    )}
+                    <RoomUnreadBadges room={r} />
                   </div>
                 );
               })}
@@ -1276,15 +1394,6 @@ export default function PulseDashboard() {
                     onMouseEnter={e => { if (!active) (e.currentTarget.style.background = 'rgba(255,255,255,.04)'); }}
                     onMouseLeave={e => { if (!active) (e.currentTarget.style.background = 'transparent'); }}
                   >
-                    <div style={{
-                      width: 22, height: 22, borderRadius: '50%',
-                      background: r.dotColor, color: '#fff',
-                      fontSize: 8, fontWeight: 700,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      flexShrink: 0,
-                    }}>
-                      {(r.otherUsername || r.name).slice(0, 2).toUpperCase()}
-                    </div>
                     <span style={{
                       fontSize: 11,
                       color: active ? C.t : C.t2,
@@ -1293,18 +1402,7 @@ export default function PulseDashboard() {
                     }}>
                       {r.name}
                     </span>
-                    {r.unreadCount > 0 && (
-                      <span style={{
-                        fontSize: 9,
-                        padding: '1px 5px',
-                        borderRadius: 8,
-                        background: 'rgba(239,68,68,.2)',
-                        color: '#EF4444',
-                        fontWeight: 600,
-                      }}>
-                        {r.unreadCount}
-                      </span>
-                    )}
+                    <RoomUnreadBadges room={r} />
                   </div>
                 );
               })}
@@ -1377,7 +1475,6 @@ export default function PulseDashboard() {
                     <Users size={16} />
                   </button>
                 )}
-                <span style={{ width: 10, height: 10, borderRadius: '50%', background: activeRoom.dotColor, flexShrink: 0 }} />
                 <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                   <span style={{ fontSize: 13, fontWeight: 600, color: C.t }}>
                     {activeRoom.type === 'dm' ? activeRoom.name : `#${activeRoom.name}`}
@@ -1418,35 +1515,6 @@ export default function PulseDashboard() {
                 )}
               </div>
             </div>
-
-            {/* Pinned bar */}
-            {activeRoom.pinned && !pinnedDismissed[activeRoom.id] && (
-              <div style={{
-                background: 'rgba(79,142,247,.06)',
-                borderBottom: '1px solid rgba(79,142,247,.15)',
-                padding: '5px 14px',
-                fontSize: 10, color: C.t2,
-                display: 'flex', alignItems: 'center', gap: 6,
-                flexShrink: 0,
-              }}>
-                <span style={{ color: C.blue }}>📍</span>
-                <span style={{ color: C.blue, fontWeight: 600 }}>Pinned:</span>
-                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {activeRoom.pinned}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setPinnedDismissed(p => ({ ...p, [activeRoom.id]: true }))}
-                  style={{
-                    background: 'transparent', border: 'none', color: C.t3, cursor: 'pointer',
-                    padding: 2, display: 'flex', alignItems: 'center',
-                  }}
-                  aria-label="Dismiss pinned"
-                >
-                  <X size={11} />
-                </button>
-              </div>
-            )}
 
             <div
               ref={messagesScrollRef}
@@ -1578,7 +1646,7 @@ export default function PulseDashboard() {
                         maxWidth: '85%',
                         opacity: msg.pending ? 0.75 : 1,
                       }}>
-                        {msg.body}
+                        {renderMessageBodyWithMentions(msg.body, mentionHighlights)}
                       </div>
                     </div>
                   </div>
@@ -1587,29 +1655,6 @@ export default function PulseDashboard() {
               <div ref={messagesEndRef} />
             </div>
               </>
-            )}
-
-            {activeRoom && state.replyTo && (
-              <div style={{
-                margin: '0 14px',
-                background: 'rgba(79,142,247,.08)',
-                borderLeft: `2px solid ${C.blue}`,
-                borderRadius: '0 7px 7px 0',
-                padding: '5px 9px',
-                display: 'flex', justifyContent: 'space-between',
-                fontSize: 11, color: C.t2,
-                flexShrink: 0,
-              }}>
-                <span>↩ Replying to: {truncate(state.replyTo, 60)}</span>
-                <button
-                  type="button"
-                  onClick={() => dispatch({ type: 'CLEAR_REPLY' })}
-                  style={{ background: 'transparent', border: 'none', color: C.t3, cursor: 'pointer' }}
-                  aria-label="Cancel reply"
-                >
-                  <X size={11} />
-                </button>
-              </div>
             )}
 
             {activeRoom && (
@@ -1640,7 +1685,7 @@ export default function PulseDashboard() {
               right: 0,
               zIndex: 100,
               display: 'flex',
-              alignItems: 'center',
+              alignItems: 'flex-end',
               gap: 8,
               padding: '8px 12px',
               borderTop: '1px solid rgba(255,255,255,.12)',
@@ -1648,72 +1693,107 @@ export default function PulseDashboard() {
             } : {
               flexShrink: 0,
               display: 'flex',
-              alignItems: 'center',
+              alignItems: 'flex-end',
               gap: 8,
               padding: '8px 12px',
               borderTop: `1px solid ${C.br2}`,
               background: C.bg,
               zIndex: 10,
             }}>
-              {/* Hidden file input */}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*,.pdf,.doc,.docx"
-                onChange={handleFilePick}
-                style={{ display: 'none' }}
-              />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                aria-label="Attach file"
-                style={{
-                  background: 'transparent', border: 'none', cursor: 'pointer',
-                  color: C.t2, padding: 4, display: 'flex', alignItems: 'center',
-                }}
-              >
-                <Paperclip size={16} />
-              </button>
-              <button
-                type="button"
-                aria-label="Emoji (decorative)"
-                style={{
-                  background: 'transparent', border: 'none', cursor: 'pointer',
-                  color: C.t2, padding: 4, display: 'flex', alignItems: 'center',
-                }}
-              >
-                <Smile size={16} />
-              </button>
-              <textarea
-                rows={1}
-                value={state.newMessage}
-                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                  dispatch({ type: 'SET_MESSAGE', text: e.target.value })
-                }
-                onKeyDown={(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    void handleSendMessage();
-                  }
-                }}
-                placeholder={`Message #${activeRoom.name}...`}
-                style={{
-                  flex: 1,
-                  background: C.bg4,
-                  border: `1px solid ${C.br2}`,
-                  borderRadius: 9,
-                  padding: '8px 12px',
-                  fontSize: 12,
-                  color: C.t,
-                  outline: 'none',
-                  minWidth: 0,
-                  resize: 'none',
-                  fontFamily: 'inherit',
-                  lineHeight: 1.4,
-                  maxHeight: 120,
-                }}
-              />
-              <span style={{ fontSize: 10, color: C.t3 }}>@</span>
+              <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
+                {showMentionPopup && (
+                  <div
+                    ref={mentionPopupRef}
+                    style={{
+                      position: 'absolute',
+                      bottom: '100%',
+                      left: 0,
+                      right: 0,
+                      marginBottom: 6,
+                      zIndex: 90,
+                      background: C.bg3,
+                      border: `1px solid ${C.br2}`,
+                      borderRadius: 8,
+                      boxShadow: '0 8px 24px rgba(0,0,0,.35)',
+                      maxHeight: 200,
+                      overflowY: 'auto',
+                    }}
+                  >
+                    {mentionSuggestions.map((u, idx) => (
+                      <button
+                        key={u.id}
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => selectMention(u)}
+                        style={{
+                          width: '100%',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'flex-start',
+                          gap: 2,
+                          padding: '8px 12px',
+                          background: idx === mentionHighlightIndex ? 'rgba(79,142,247,.12)' : 'transparent',
+                          border: 'none',
+                          borderBottom: `1px solid ${C.br2}`,
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                        }}
+                        onMouseEnter={() => setMentionHighlightIndex(idx)}
+                      >
+                        <span style={{ fontSize: 11, fontWeight: 600, color: C.t }}>
+                          {mentionDisplayLabel(u)}
+                        </span>
+                        <span style={{ fontSize: 9, color: C.t3 }}>@{u.username}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6 }}>
+                  <button
+                    type="button"
+                    onClick={openMentionAtCursor}
+                    title="Mention someone"
+                    style={{
+                      background: 'rgba(79,142,247,.1)',
+                      border: `1px solid rgba(79,142,247,.25)`,
+                      borderRadius: 7,
+                      padding: '7px 8px',
+                      color: C.blue,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <AtSign size={14} />
+                  </button>
+                  <textarea
+                    ref={composerTextareaRef}
+                    rows={1}
+                    value={state.newMessage}
+                    onChange={handleComposerChange}
+                    onKeyDown={handleComposerKeyDown}
+                    onClick={(e) => setComposerCursor(e.currentTarget.selectionStart ?? 0)}
+                    onKeyUp={(e) => setComposerCursor(e.currentTarget.selectionStart ?? 0)}
+                    placeholder={`Message #${activeRoom.name}...`}
+                    style={{
+                      flex: 1,
+                      background: C.bg4,
+                      border: `1px solid ${C.br2}`,
+                      borderRadius: 9,
+                      padding: '8px 12px',
+                      fontSize: 12,
+                      color: C.t,
+                      outline: 'none',
+                      minWidth: 0,
+                      resize: 'none',
+                      fontFamily: 'inherit',
+                      lineHeight: 1.4,
+                      maxHeight: 120,
+                    }}
+                  />
+                </div>
+              </div>
               <button
                 type="button"
                 onClick={() => void handleSendMessage()}
