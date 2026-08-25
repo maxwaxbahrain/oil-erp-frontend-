@@ -128,8 +128,12 @@ export async function getMessages(
     };
 }
 
-export async function getMentionableUsers(): Promise<MentionableUser[]> {
-    const r = await authFetch(`${CHAT_API}/mentionable-users`);
+export async function getMentionableUsers(channelId?: number): Promise<MentionableUser[]> {
+    const qs =
+        channelId != null
+            ? `?channel_id=${encodeURIComponent(String(channelId))}`
+            : '';
+    const r = await authFetch(`${CHAT_API}/mentionable-users${qs}`);
     if (!r.ok) throw new Error(`Failed to load mentionable users (${r.status})`);
     const rows = await r.json();
     return (Array.isArray(rows) ? rows : []).map((row) => {

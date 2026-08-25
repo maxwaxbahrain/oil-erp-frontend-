@@ -501,18 +501,27 @@ export default function PulseDashboard() {
   }, [loadChannels]);
 
   useEffect(() => {
+    const channelId = state.activeRoomId;
+    if (channelId == null) {
+      setMentionableUsers([]);
+      return;
+    }
+
     let cancelled = false;
-    void getMentionableUsers()
+    void getMentionableUsers(channelId)
       .then((rows) => {
         if (!cancelled) setMentionableUsers(rows);
       })
       .catch((err) => {
-        console.warn('Failed to load mentionable users:', err);
+        if (!cancelled) {
+          console.warn('Failed to load mentionable users:', err);
+          setMentionableUsers([]);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [state.activeRoomId]);
 
   const mentionHighlights = useMemo(
     () => buildMentionHighlights(mentionableUsers, authUser),
