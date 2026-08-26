@@ -1,12 +1,21 @@
 import { useState, useEffect, useRef } from 'react';
 import { 
   FileText, Mic, Square, Loader2, CheckCircle2, Clock, 
-  Trash2, ChevronDown, ChevronUp, AlertCircle, FileAudio, Users, Target, Download, X, Video, Share2, Mail, MessageSquare, Smartphone
+  Trash2, ChevronDown, ChevronUp, AlertCircle, FileAudio, Users, Target, Download, X, Video, Share2, Mail, MessageSquare, Smartphone, Sparkles
 } from 'lucide-react';
-import { useMeetingRecorder, getSavedNotes, deleteNote, type MeetingNote } from '../../hooks/useMeetingRecorder';
+import { useMeetingRecorder, TRANSCRIPT_SAVED_RETRY, type MeetingNote } from '../../hooks/useMeetingRecorder';
 import jsPDF from 'jspdf';
 import { getEmployees, type Employee } from '../../services/payrollService';
-import { getChannels, sendMessage } from '../../services/chatService';
+import { getChannels, sendMessage, type ChatChannel } from '../../services/chatService';
+import {
+  deleteMeeting,
+  getMeeting,
+  listMeetings,
+  processMeetingTranscript,
+  updateMeeting,
+  type Meeting,
+  type MeetingListItem,
+} from '../../services/meetingService';
 
 function formatDuration(seconds: number) {
   const m = Math.floor(seconds / 60);
@@ -20,12 +29,27 @@ function formatDate(isoStr: string) {
   });
 }
 
+function buildPulseShareText(note: MeetingNote | MeetingListItem): string {
+  const header = `📄 Meeting Notes: ${note.title}\n📅 Date: ${formatDate(note.meeting_date)}\n👥 Attendees: ${note.members?.join(', ') || 'None'}`;
+  const decisions = `✅ Decisions:\n${note.decisions?.map(d => '• ' + d.decision).join('\n') || 'None'}`;
+  const actions = `🎯 Action Items:\n${note.action_items?.map(a => '• [' + a.owner + '] ' + a.task).join('\n') || 'None'}`;
+  if ((note.summary || '').trim()) {
+    return `${header}\n\n📝 Summary:\n${note.summary}\n\n${decisions}\n\n${actions}`;
+  }
+  return `${header}\n\n${decisions}\n\n${actions}`;
+}
+
 export default function MeetingNotes() {
   const { status, isSupported, liveTranscript, duration, startRecording, stopRecording, analyzeTranscript, lastNote, error } = useMeetingRecorder();
   
   const [title, setTitle] = useState('');
-  const [savedNotes, setSavedNotes] = useState<MeetingNote[]>([]);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [savedNotes, setSavedNotes] = useState<MeetingListItem[]>([]);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [fullMeetings, setFullMeetings] = useState<Record<number, Meeting>>({});
+  const [transcriptLoadingId, setTranscriptLoadingId] = useState<number | null>(null);
+  const [summarizingId, setSummarizingId] = useState<number | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [transcriptLoadError, setTranscriptLoadError] = useState<Record<number, string>>({});
 
   // BUG FIX 1: Add Members via Employee Portal Search
   const [memberInput, setMemberInput] = useState('');
@@ -43,12 +67,60 @@ export default function MeetingNotes() {
   const [showMeetNotice, setShowMeetNotice] = useState(false);
 
   // Feature 3: Share menu
-  const [shareOpenId, setShareOpenId] = useState<string | null>(null);
+  const [shareOpenId, setShareOpenId] = useState<number | 'recent' | null>(null);
   const shareMenuRef = useRef<HTMLDivElement>(null);
+  const [pulseShareNote, setPulseShareNote] = useState<MeetingNote | MeetingListItem | null>(null);
+  const [pulseChannels, setPulseChannels] = useState<ChatChannel[]>([]);
+  const [pulseChannelId, setPulseChannelId] = useState<number | null>(null);
+  const [pulseShareStatus, setPulseShareStatus] = useState<'idle' | 'loading' | 'posting' | 'success' | 'error'>('idle');
+  const [pulseShareMessage, setPulseShareMessage] = useState<string | null>(null);
+  const [sharedInSession, setSharedInSession] = useState<Partial<Record<number | 'recent', string>>>({});
+
+  const refreshNotes = async (): Promise<MeetingListItem[]> => {
+    try {
+      const rows = await listMeetings(50);
+      setSavedNotes(rows);
+      return rows;
+    } catch {
+      setSavedNotes([]);
+      return [];
+    }
+  };
+
+  const loadFullMeeting = async (id: number) => {
+    setTranscriptLoadingId(id);
+    try {
+      const full = await getMeeting(id);
+      setFullMeetings((prev) => ({ ...prev, [id]: full }));
+      setTranscriptLoadError((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    } catch {
+      setTranscriptLoadError((prev) => ({
+        ...prev,
+        [id]: 'Could not load this transcript. Try expanding again.',
+      }));
+    } finally {
+      setTranscriptLoadingId(null);
+    }
+  };
 
   useEffect(() => {
-    setSavedNotes(getSavedNotes());
-  }, [status]); 
+    let cancelled = false;
+    (async () => {
+      const rows = await refreshNotes();
+      if (cancelled) return;
+      if (status === 'error' && error === TRANSCRIPT_SAVED_RETRY && rows[0]) {
+        setExpandedId(rows[0].id);
+        await loadFullMeeting(rows[0].id);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [status, error]); 
 
   useEffect(() => {
     getEmployees().then(setEmployees);
@@ -68,14 +140,58 @@ export default function MeetingNotes() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleDelete = (id: string) => {
-    deleteNote(id);
-    setSavedNotes(getSavedNotes());
-    if (expandedId === id) setExpandedId(null);
+  const handleDelete = async (id: number) => {
+    try {
+      await deleteMeeting(id);
+      setSavedNotes((prev) => prev.filter((n) => n.id !== id));
+      setFullMeetings((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      if (expandedId === id) setExpandedId(null);
+    } catch {
+      await refreshNotes();
+    }
   };
 
-  const toggleExpand = (id: string) => {
-    setExpandedId(prev => prev === id ? null : id);
+  const toggleExpand = async (id: number) => {
+    if (expandedId === id) {
+      setExpandedId(null);
+      return;
+    }
+    setExpandedId(id);
+    if (fullMeetings[id]) {
+      setTranscriptLoadError((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      return;
+    }
+    await loadFullMeeting(id);
+  };
+
+  const handleGenerateSummary = async (id: number) => {
+    setHistoryError(null);
+    setSummarizingId(id);
+    try {
+      const full = fullMeetings[id] ?? await getMeeting(id);
+      setFullMeetings((prev) => ({ ...prev, [id]: full }));
+      const analysis = await processMeetingTranscript(full.transcript, full.title);
+      const updated = await updateMeeting(id, {
+        summary: analysis.summary,
+        decisions: analysis.decisions,
+        action_items: analysis.action_items,
+        key_topics: analysis.key_topics,
+      });
+      setFullMeetings((prev) => ({ ...prev, [id]: updated }));
+      await refreshNotes();
+    } catch {
+      setHistoryError('Transcript is saved. Summary could not be generated — try again.');
+    } finally {
+      setSummarizingId(null);
+    }
   };
 
   const handleMemberInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -105,7 +221,15 @@ export default function MeetingNotes() {
   };
 
   // Feature 2: PDF Download
-  const handleDownloadPDF = (note: MeetingNote) => {
+  const handleDownloadPDF = (note: {
+    title: string;
+    meeting_date: string;
+    duration_seconds: number;
+    members: string[];
+    summary: string;
+    decisions: MeetingNote['decisions'];
+    action_items: MeetingNote['action_items'];
+  }) => {
     const doc = new jsPDF();
     let y = 20;
     
@@ -123,9 +247,9 @@ export default function MeetingNotes() {
     
     doc.setFontSize(11);
     doc.setTextColor(100, 100, 100);
-    doc.text(`Date: ${formatDate(note.date)}`, 20, y);
+    doc.text(`Date: ${formatDate(note.meeting_date)}`, 20, y);
     y += 6;
-    doc.text(`Duration: ${formatDuration(note.duration)}`, 20, y);
+    doc.text(`Duration: ${formatDuration(note.duration_seconds)}`, 20, y);
     y += 6;
     if (note.members && note.members.length > 0) {
       doc.text(`Attendees: ${note.members.join(', ')}`, 20, y);
@@ -180,7 +304,7 @@ export default function MeetingNotes() {
       });
     }
 
-    doc.save(`Meeting-Notes-${note.date.split('T')[0]}.pdf`);
+    doc.save(`Meeting-Notes-${note.meeting_date.split('T')[0]}.pdf`);
   };
 
   const handleZoomAnalyse = () => {
@@ -189,32 +313,68 @@ export default function MeetingNotes() {
   };
 
   // FEATURE 3: Share Options
-  const shareToPulse = async (note: MeetingNote) => {
-    const summary = `📄 Meeting Notes: ${note.title}\n📅 Date: ${formatDate(note.date)}\n👥 Attendees: ${note.members?.join(', ') || 'None'}\n\n📝 Summary:\n${note.summary}\n\n✅ Decisions:\n${note.decisions?.map(d => '• ' + d.decision).join('\n') || 'None'}\n\n🎯 Action Items:\n${note.action_items?.map(a => '• [' + a.owner + '] ' + a.task).join('\n') || 'None'}`;
+  const sessionShareKey = (note: MeetingNote | MeetingListItem): number | 'recent' =>
+    note.id ?? 'recent';
 
+  const openPulsePicker = async (note: MeetingNote | MeetingListItem) => {
+    setShareOpenId(null);
+    setPulseShareNote(note);
+    setPulseShareStatus('loading');
+    setPulseShareMessage(null);
+    setPulseChannelId(null);
     try {
-      const channels = await getChannels();
-      const general =
-        channels.find((c) => c.is_default) ??
-        channels.find((c) => c.type === 'channel');
-      if (!general) {
-        throw new Error('General channel not found');
+      const channels = (await getChannels()).filter((c) => c.type === 'channel');
+      setPulseChannels(channels);
+      const preferred = channels.find((c) => c.is_default) ?? channels[0];
+      setPulseChannelId(preferred ? preferred.id : null);
+      if (channels.length === 0) {
+        setPulseShareStatus('error');
+        setPulseShareMessage('No Pulse channels available.');
+      } else {
+        setPulseShareStatus('idle');
       }
-      await sendMessage(general.id, summary);
-      alert('Shared to Pulse (General) successfully!');
     } catch {
-      alert('Failed to share to Pulse.');
+      setPulseChannels([]);
+      setPulseShareStatus('error');
+      setPulseShareMessage('Could not load Pulse channels.');
     }
+  };
+
+  const closePulsePicker = () => {
+    setPulseShareNote(null);
+    setPulseChannels([]);
+    setPulseChannelId(null);
+    setPulseShareStatus('idle');
+    setPulseShareMessage(null);
+  };
+
+  const confirmPulseShare = async () => {
+    if (!pulseShareNote || pulseChannelId == null) return;
+    const channel = pulseChannels.find((c) => c.id === pulseChannelId);
+    if (!channel) return;
+    setPulseShareStatus('posting');
+    setPulseShareMessage(null);
+    try {
+      await sendMessage(channel.id, buildPulseShareText(pulseShareNote), []);
+      setPulseShareStatus('success');
+      setPulseShareMessage(`Shared to Pulse (${channel.name}) successfully!`);
+      setSharedInSession((prev) => ({
+        ...prev,
+        [sessionShareKey(pulseShareNote)]: channel.name,
+      }));
+    } catch {
+      setPulseShareStatus('error');
+      setPulseShareMessage('Failed to share to Pulse.');
+    }
+  };
+
+  const shareViaEmail = (note: MeetingNote | MeetingListItem) => {
+    const summary = `Meeting Notes: ${note.title}\nDate: ${formatDate(note.meeting_date)}\nAttendees: ${note.members?.join(', ') || 'None'}\n\nSummary:\n${note.summary}\n\nDecisions:\n${note.decisions?.map(d => '• ' + d.decision).join('\n') || 'None'}\n\nAction Items:\n${note.action_items?.map(a => '• [' + a.owner + '] ' + a.task).join('\n') || 'None'}`;
+    window.open(`mailto:?subject=Meeting Notes — ${formatDate(note.meeting_date)}&body=${encodeURIComponent(summary)}`);
     setShareOpenId(null);
   };
 
-  const shareViaEmail = (note: MeetingNote) => {
-    const summary = `Meeting Notes: ${note.title}\nDate: ${formatDate(note.date)}\nAttendees: ${note.members?.join(', ') || 'None'}\n\nSummary:\n${note.summary}\n\nDecisions:\n${note.decisions?.map(d => '• ' + d.decision).join('\n') || 'None'}\n\nAction Items:\n${note.action_items?.map(a => '• [' + a.owner + '] ' + a.task).join('\n') || 'None'}`;
-    window.open(`mailto:?subject=Meeting Notes — ${formatDate(note.date)}&body=${encodeURIComponent(summary)}`);
-    setShareOpenId(null);
-  };
-
-  const shareViaSMS = (note: MeetingNote) => {
+  const shareViaSMS = (note: MeetingNote | MeetingListItem) => {
     const summary = `Meeting: ${note.title}\nDecisions:\n${note.decisions?.map(d => '• ' + d.decision).join('\n') || 'None'}\nAction Items:\n${note.action_items?.map(a => '• [' + a.owner + '] ' + a.task).join('\n') || 'None'}`;
     window.open(`sms:?body=${encodeURIComponent(summary)}`);
     setShareOpenId(null);
@@ -331,7 +491,7 @@ export default function MeetingNotes() {
         ) : (
           <div className="flex flex-col items-center justify-center gap-3 py-8 text-purple-600 font-bold">
             <Loader2 size={32} className="animate-spin" />
-            <p className="text-lg">Analyzing transcript with AI...</p>
+            <p className="text-lg">Saving transcript, then analyzing with AI...</p>
           </div>
         )}
 
@@ -422,11 +582,15 @@ export default function MeetingNotes() {
                 </button>
                 {shareOpenId === 'recent' && (
                   <div className="absolute right-0 top-full mt-2 w-64 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden">
-                    <button onClick={() => shareToPulse(lastNote)} className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 border-b border-gray-100 transition-colors">
+                    <button onClick={() => void openPulsePicker(lastNote)} className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 border-b border-gray-100 transition-colors">
                       <MessageSquare size={16} className="text-gray-500" />
                       <div>
                         <div className="text-sm font-bold text-gray-900">Pulse Team Chat</div>
-                        <div className="text-xs text-gray-500">Post to General channel</div>
+                        <div className="text-xs text-gray-500">
+                          {sharedInSession[sessionShareKey(lastNote)]
+                            ? `Shared to ${sharedInSession[sessionShareKey(lastNote)]} (this session)`
+                            : 'Choose a Pulse channel'}
+                        </div>
                       </div>
                     </button>
                     <button onClick={() => shareViaEmail(lastNote)} className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 border-b border-gray-100 transition-colors">
@@ -509,6 +673,11 @@ export default function MeetingNotes() {
       {/* Past Meetings List */}
       <div className="pt-4">
         <h2 className="text-xl font-black text-gray-900 mb-4">Past Meetings History</h2>
+        {historyError && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-xl mb-4 text-sm font-medium">
+            {historyError}
+          </div>
+        )}
         
         {savedNotes.length === 0 ? (
           <div className="text-center py-12 bg-white border border-gray-200 rounded-2xl">
@@ -518,7 +687,14 @@ export default function MeetingNotes() {
         ) : (
           <div className="space-y-3">
             {savedNotes.map((note) => (
-              <div key={note.id} className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm hover:shadow transition-shadow">
+              <div
+                key={note.id}
+                className={`bg-white border rounded-2xl overflow-hidden shadow-sm hover:shadow transition-shadow ${
+                  expandedId === note.id && error === TRANSCRIPT_SAVED_RETRY
+                    ? 'border-purple-400 ring-2 ring-purple-200'
+                    : 'border-gray-200'
+                }`}
+              >
                 <div 
                   className="p-5 flex items-center justify-between cursor-pointer hover:bg-gray-50 transition-colors"
                   onClick={() => toggleExpand(note.id)}
@@ -526,9 +702,9 @@ export default function MeetingNotes() {
                   <div className="flex-1">
                     <h3 className="font-black text-gray-900 text-lg">{note.title}</h3>
                     <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-gray-500 font-medium">
-                      <span>{formatDate(note.date)}</span>
-                      {note.duration > 0 && (
-                        <span className="flex items-center gap-1"><Clock size={14} /> {formatDuration(note.duration)}</span>
+                      <span>{formatDate(note.meeting_date)}</span>
+                      {note.duration_seconds > 0 && (
+                        <span className="flex items-center gap-1"><Clock size={14} /> {formatDuration(note.duration_seconds)}</span>
                       )}
                       {note.members && note.members.length > 0 && (
                         <span className="flex items-center gap-1 text-purple-600 bg-purple-50 px-2 py-0.5 rounded">
@@ -541,6 +717,16 @@ export default function MeetingNotes() {
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
+                    {!note.summary.trim() && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); void handleGenerateSummary(note.id); }}
+                        disabled={summarizingId === note.id}
+                        className="px-3 py-1.5 text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors flex items-center gap-1 disabled:opacity-50"
+                      >
+                        {summarizingId === note.id ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                        Generate summary
+                      </button>
+                    )}
                     <button 
                       onClick={(e) => { e.stopPropagation(); handleDownloadPDF(note); }}
                       className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
@@ -584,9 +770,13 @@ export default function MeetingNotes() {
                         </button>
                         {shareOpenId === note.id && (
                           <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden">
-                            <button onClick={() => shareToPulse(note)} className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 border-b border-gray-100 transition-colors">
+                            <button onClick={() => void openPulsePicker(note)} className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 border-b border-gray-100 transition-colors">
                               <MessageSquare size={14} className="text-gray-500" />
-                              <span className="text-sm font-bold text-gray-900">Pulse Chat</span>
+                              <span className="text-sm font-bold text-gray-900">
+                                {sharedInSession[note.id]
+                                  ? `Pulse Chat · ${sharedInSession[note.id]} (this session)`
+                                  : 'Pulse Chat'}
+                              </span>
                             </button>
                             <button onClick={() => shareViaEmail(note)} className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 border-b border-gray-100 transition-colors">
                               <Mail size={14} className="text-gray-500" />
@@ -649,8 +839,16 @@ export default function MeetingNotes() {
 
                     <div>
                       <h4 className="text-sm font-black text-gray-900 border-b border-gray-200 pb-2 mb-2 mt-4">Raw Transcript</h4>
-                      <div className="bg-white border border-gray-200 rounded-xl p-4 h-32 overflow-y-auto text-sm text-gray-600">
-                        {note.transcript}
+                      <div className={`bg-white border rounded-xl p-4 h-32 overflow-y-auto text-sm ${
+                        transcriptLoadError[note.id]
+                          ? 'border-red-200 text-red-700'
+                          : 'border-gray-200 text-gray-600'
+                      }`}>
+                        {transcriptLoadError[note.id]
+                          ? transcriptLoadError[note.id]
+                          : transcriptLoadingId === note.id && !fullMeetings[note.id]
+                            ? 'Loading transcript...'
+                            : (fullMeetings[note.id]?.transcript || 'Transcript unavailable.')}
                       </div>
                     </div>
                   </div>
@@ -660,6 +858,103 @@ export default function MeetingNotes() {
           </div>
         )}
       </div>
+
+      {/* Pulse channel picker — session-only "already shared"; API cannot persist shared_message_id */}
+      {pulseShareNote && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+            <div className="bg-purple-600 p-6 flex items-center justify-between text-white">
+              <div className="flex items-center gap-3">
+                <MessageSquare size={28} />
+                <h2 className="text-xl font-black">Share to Pulse</h2>
+              </div>
+              <button onClick={closePulsePicker} className="text-purple-100 hover:text-white transition-colors">
+                <X size={24} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-gray-600 font-medium">
+                Choose a channel for “{pulseShareNote.title}”.
+              </p>
+              {pulseShareStatus === 'loading' ? (
+                <div className="flex items-center justify-center gap-2 py-8 text-purple-600 font-bold">
+                  <Loader2 size={24} className="animate-spin" />
+                  Loading channels...
+                </div>
+              ) : (
+                <div className="border border-gray-200 rounded-xl max-h-64 overflow-y-auto">
+                  {pulseChannels.length === 0 ? (
+                    <div className="p-4 text-sm text-gray-500 text-center">No channels to share to.</div>
+                  ) : (
+                    pulseChannels.map((channel) => (
+                      <label
+                        key={channel.id}
+                        className={`flex items-center gap-3 px-4 py-3 cursor-pointer border-b border-gray-100 last:border-0 ${
+                          pulseChannelId === channel.id ? 'bg-purple-50' : 'hover:bg-gray-50'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="pulse-channel"
+                          checked={pulseChannelId === channel.id}
+                          onChange={() => setPulseChannelId(channel.id)}
+                          disabled={pulseShareStatus === 'posting' || pulseShareStatus === 'success'}
+                        />
+                        <div>
+                          <div className="text-sm font-bold text-gray-900">{channel.name}</div>
+                          {channel.is_default && (
+                            <div className="text-xs text-purple-600 font-medium">Default channel</div>
+                          )}
+                        </div>
+                      </label>
+                    ))
+                  )}
+                </div>
+              )}
+              {pulseShareMessage && (
+                <div
+                  className={`p-3 rounded-xl text-sm font-medium ${
+                    pulseShareStatus === 'success'
+                      ? 'bg-green-50 border border-green-200 text-green-800'
+                      : 'bg-red-50 border border-red-200 text-red-700'
+                  }`}
+                >
+                  {pulseShareMessage}
+                </div>
+              )}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={closePulsePicker}
+                  className="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold transition-colors"
+                >
+                  {pulseShareStatus === 'success' ? 'Done' : 'Cancel'}
+                </button>
+                {pulseShareStatus !== 'success' && (
+                  <button
+                    onClick={() => void confirmPulseShare()}
+                    disabled={
+                      pulseChannelId == null ||
+                      pulseShareStatus === 'loading' ||
+                      pulseShareStatus === 'posting' ||
+                      pulseChannels.length === 0
+                    }
+                    className="flex-1 px-4 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {pulseShareStatus === 'posting' ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" />
+                        Sharing...
+                      </>
+                    ) : (
+                      'Share'
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* FEATURE 1: Google Meet Extension Modal */}
       {showMeetNotice && (
