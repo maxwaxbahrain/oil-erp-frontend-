@@ -58,6 +58,9 @@ export function useMeetingRecorder() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentTitleRef = useRef('');
   const currentMembersRef = useRef<string[]>([]);
+  const tabHiddenWhileRecordingRef = useRef(false);
+
+  const [tabBackgroundWarning, setTabBackgroundWarning] = useState(false);
 
   const winAny = window as any;
   const isSupported = typeof window !== 'undefined' && !!(winAny.SpeechRecognition || winAny.webkitSpeechRecognition);
@@ -121,6 +124,36 @@ export function useMeetingRecorder() {
       }
     };
   }, [isSupported]);
+
+  useEffect(() => {
+    if (status !== 'recording') return;
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        tabHiddenWhileRecordingRef.current = true;
+      } else if (
+        document.visibilityState === 'visible' &&
+        tabHiddenWhileRecordingRef.current
+      ) {
+        setTabBackgroundWarning(true);
+      }
+    };
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [status]);
+
+  useEffect(() => {
+    if (status !== 'recording') return;
+
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [status]);
 
   const saveThenSummarize = useCallback(async (opts: {
     transcript: string;
@@ -206,6 +239,8 @@ export function useMeetingRecorder() {
       setDuration(0);
       setError(null);
       setLastNote(null);
+      tabHiddenWhileRecordingRef.current = false;
+      setTabBackgroundWarning(false);
       currentTitleRef.current = title || 'Team Meeting';
       currentMembersRef.current = selectedMembers;
       startTimeRef.current = Date.now();
@@ -275,6 +310,7 @@ export function useMeetingRecorder() {
     stopRecording,
     analyzeTranscript,
     lastNote,
-    error
+    error,
+    tabBackgroundWarning,
   };
 }
