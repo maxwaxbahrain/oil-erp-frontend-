@@ -1,5 +1,4 @@
 export const LOCKED_ROUTE_PREFIXES = [
-  '/pulse/notes',
   '/credit',
   '/crm',
   '/amazon',

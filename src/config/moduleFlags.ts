@@ -23,7 +23,7 @@ export const MODULE_FLAGS = {
 
   // Demo / mock-data screens
   pulse: true, // GA — live in production (Pulse team chat)
-  meeting_notes: PILOT_VISIBLE,
+  meeting_notes: true, // GA — live in production (Meeting Notes)
   credit_intelligence: PILOT_VISIBLE,
   crm_pipeline: PILOT_VISIBLE,
   amazon: PILOT_VISIBLE,
