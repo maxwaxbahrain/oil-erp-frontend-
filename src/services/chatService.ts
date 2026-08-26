@@ -21,6 +21,9 @@ export interface ChatMessage {
     body: string;
     created_at: string;
     edited_at: string | null;
+    attachment_name: string | null;
+    attachment_content_type: string | null;
+    has_attachment: boolean;
 }
 
 export interface MessageList {
@@ -50,6 +53,19 @@ export interface ChannelMembersMutationResponse {
 
 export interface LeaveChannelResponse {
     ok: boolean;
+}
+
+export interface ChatAttachmentUploadResponse {
+    attachment_key: string;
+    file_name: string;
+    content_type: string;
+    size_bytes: number;
+}
+
+export interface ChatAttachmentDownloadResponse {
+    download_url: string;
+    file_name: string | null;
+    content_type: string | null;
 }
 
 export interface SendMessageResponse {
@@ -102,6 +118,11 @@ function fromApiMessage(raw: Record<string, unknown>): ChatMessage {
         body: String(raw.body ?? ''),
         created_at: String(raw.created_at ?? ''),
         edited_at: raw.edited_at != null ? String(raw.edited_at) : null,
+        attachment_name: raw.attachment_name != null ? String(raw.attachment_name) : null,
+        attachment_content_type: raw.attachment_content_type != null
+            ? String(raw.attachment_content_type)
+            : null,
+        has_attachment: Boolean(raw.has_attachment),
     };
 }
 
@@ -155,7 +176,9 @@ export function mapChannelWriteError(err: unknown, fallback: string): string {
     const status = getChatErrorStatus(err);
     const raw = err instanceof Error && err.message.trim() ? err.message.trim() : fallback;
     if (status === 409) return 'A channel with that name already exists';
+    if (status === 413) return 'File is too large (max 10 MB)';
     if (status === 403) return "You don't have permission";
+    if (status === 502 || status === 503) return 'Attachment storage is unavailable';
     if (status === 400 || status === 404) return raw;
     return raw;
 }
@@ -308,16 +331,34 @@ export async function sendMessage(
     channelId: number,
     body: string,
     mentionedUserIds: number[] = [],
+    attachment?: {
+        attachment_key: string;
+        attachment_name?: string | null;
+        attachment_content_type?: string | null;
+    },
 ): Promise<SendMessageResponse> {
+    const payload: Record<string, unknown> = {
+        body,
+        mentioned_user_ids: mentionedUserIds,
+    };
+    if (attachment?.attachment_key) {
+        payload.attachment_key = attachment.attachment_key;
+        if (attachment.attachment_name) payload.attachment_name = attachment.attachment_name;
+        if (attachment.attachment_content_type) {
+            payload.attachment_content_type = attachment.attachment_content_type;
+        }
+    }
     const r = await authFetch(`${CHAT_API}/channels/${encodeURIComponent(String(channelId))}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            body,
-            mentioned_user_ids: mentionedUserIds,
-        }),
+        body: JSON.stringify(payload),
     });
-    if (!r.ok) throw new Error(`Failed to send message (${r.status})`);
+    if (!r.ok) {
+        throw chatRequestError(
+            r.status,
+            (await readErrorDetail(r)) || `Failed to send message (${r.status})`,
+        );
+    }
     const raw = (await r.json()) as Record<string, unknown>;
     return {
         id: Number(raw.id),
@@ -329,6 +370,52 @@ export async function sendMessage(
         mentioned_user_ids: Array.isArray(raw.mentioned_user_ids)
             ? raw.mentioned_user_ids.map((id) => Number(id))
             : [],
+    };
+}
+
+export async function uploadChatAttachment(
+    channelId: number,
+    file: File,
+): Promise<ChatAttachmentUploadResponse> {
+    const form = new FormData();
+    form.append('file', file);
+    const r = await authFetch(
+        `${CHAT_API}/channels/${encodeURIComponent(String(channelId))}/attachments`,
+        { method: 'POST', body: form },
+    );
+    if (!r.ok) {
+        throw chatRequestError(
+            r.status,
+            (await readErrorDetail(r)) || 'Failed to upload attachment',
+        );
+    }
+    const raw = (await r.json()) as Record<string, unknown>;
+    return {
+        attachment_key: String(raw.attachment_key ?? ''),
+        file_name: String(raw.file_name ?? file.name),
+        content_type: String(raw.content_type ?? file.type),
+        size_bytes: Number(raw.size_bytes ?? file.size),
+    };
+}
+
+export async function getAttachmentDownloadUrl(
+    channelId: number,
+    messageId: number,
+): Promise<ChatAttachmentDownloadResponse> {
+    const r = await authFetch(
+        `${CHAT_API}/channels/${encodeURIComponent(String(channelId))}/messages/${encodeURIComponent(String(messageId))}/attachment`,
+    );
+    if (!r.ok) {
+        throw chatRequestError(
+            r.status,
+            (await readErrorDetail(r)) || 'Failed to load attachment',
+        );
+    }
+    const raw = (await r.json()) as Record<string, unknown>;
+    return {
+        download_url: String(raw.download_url ?? ''),
+        file_name: raw.file_name != null ? String(raw.file_name) : null,
+        content_type: raw.content_type != null ? String(raw.content_type) : null,
     };
 }
 
