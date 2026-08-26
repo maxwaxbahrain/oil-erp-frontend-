@@ -140,7 +140,8 @@ import VoiceCoachingRules from '../pages/Voice/CoachingRules';
 import VoiceTenantOnboard from '../pages/Voice/TenantOnboard';
 import DataMigration from '../pages/Migration/DataMigration'; // CRM exports as 'CRM'
 import AIContentStudio from '../pages/Marketing/AIContentStudio';
-import { CustomerSegments, CampaignManager, MarketingAnalytics } from '../pages/Marketing/MarketingPages';
+import { CustomerSegments } from '../pages/Marketing/MarketingPages';
+import MarketingQueue from '../pages/Marketing/MarketingQueue';
 import CustomerServiceAgent from '../pages/Agents/CustomerServiceAgent';
 import BusinessAdvisorAgent from '../pages/Agents/BusinessAdvisorAgent';
 import EmailReplyAgent from '../pages/Agents/EmailReplyAgent';
@@ -409,8 +410,7 @@ export const AppRoutes = () => {
             <Route path="/marketing" element={<MarketingHub />} />
             <Route path="/marketing/studio" element={<AIContentStudio />} />
             <Route path="/marketing/segments" element={<CustomerSegments />} />
-            <Route path="/marketing/campaigns" element={<CampaignManager />} />
-            <Route path="/marketing/analytics" element={<MarketingAnalytics />} />
+            <Route path="/marketing/campaigns" element={<MarketingQueue />} />
             </Route>
             <Route element={<ProtectedRoute roles={SALES_INTEL_ROLES} />}>
             <Route path="/credit" element={<CreditIntelligence />} />

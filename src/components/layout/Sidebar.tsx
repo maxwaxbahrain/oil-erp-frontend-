@@ -349,8 +349,7 @@ export default function Sidebar({
                 <NavItem to="/marketing" icon={Megaphone} label="Marketing Hub" />
                 <NavItem to="/marketing/studio" icon={Zap} label="AI Content Studio" />
                 <NavItem to="/marketing/segments" icon={Users} label="Customer Segments" />
-                <NavItem to="/marketing/campaigns" icon={Send} label="Campaign Manager" />
-                <NavItem to="/marketing/analytics" icon={BarChart2} label="Analytics" />
+                <NavItem to="/marketing/campaigns" icon={Send} label="Queue" />
                 </>
                 )}
                 {showVoiceSection && (

@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { Zap, Send, Users, BarChart2, ArrowRight, ExternalLink } from 'lucide-react';
+import { Zap, Send, Users, ArrowRight, ExternalLink } from 'lucide-react';
 
 const CHANNELS = [
     {
@@ -96,7 +96,7 @@ const CHANNELS = [
         platformUrl: 'https://web.whatsapp.com',
         businessUrl: 'https://business.whatsapp.com',
         createUrl: 'https://web.whatsapp.com',
-        tips: 'Send bulk offers to your 160+ customers directly',
+        tips: 'Send bulk offers to your customers directly',
     },
     {
         id: 'sms',
@@ -134,9 +134,8 @@ const CHANNELS = [
 
 const FEATURES = [
     { icon: Zap, title: 'AI Content Studio', desc: 'Generate posts, captions, emails & SMS for all 8 channels at once', path: '/marketing/studio', badge: 'AI', badgeColor: 'bg-purple-600' },
-    { icon: Send, title: 'Campaign Manager', desc: 'Create, schedule and track multi-channel marketing campaigns', path: '/marketing/campaigns', badge: 'New', badgeColor: 'bg-emerald-600' },
-    { icon: Users, title: 'Customer Segments', desc: 'Auto-segment your 160+ customers by spend, recency & channel readiness', path: '/marketing/segments', badge: 'Smart', badgeColor: 'bg-blue-600' },
-    { icon: BarChart2, title: 'Marketing Analytics', desc: 'Track reach, engagement & conversions across all channels', path: '/marketing/analytics', badge: 'Live', badgeColor: 'bg-orange-500' },
+    { icon: Send, title: 'Queue', desc: 'Review, approve, and archive generated drafts', path: '/marketing/campaigns', badge: 'New', badgeColor: 'bg-emerald-600' },
+    { icon: Users, title: 'Customer Segments', desc: 'Auto-segment customers by spend, recency & channel readiness', path: '/marketing/segments', badge: 'Smart', badgeColor: 'bg-blue-600' },
 ];
 
 export default function MarketingHub() {
@@ -153,11 +152,11 @@ export default function MarketingHub() {
                         <span className="text-4xl">📣</span>
                         <div>
                             <h1 className="text-2xl font-black text-white uppercase tracking-tight">AI Marketing Suite</h1>
-                            <p className="text-gray-400 text-sm">8 channels · AI-generated content · Automated campaigns</p>
+                            <p className="text-gray-400 text-sm">8 channels · AI-generated content</p>
                         </div>
                     </div>
                     <p className="text-gray-300 text-sm leading-relaxed max-w-2xl mb-5">
-                        Your AI agent reads your ERP — products, customers, sales data — then creates targeted content for every platform. Generate all 8 channels in one click.
+                        Your AI agent uses your product catalog and customer count, then creates targeted content for every platform. Generate all 8 channels in one click.
                     </p>
                     <div className="flex flex-wrap gap-3">
                         <button onClick={() => navigate('/marketing/studio')}
@@ -175,7 +174,10 @@ export default function MarketingHub() {
             {/* Channel Cards */}
             <div>
                 <div className="flex items-center justify-between mb-4">
-                    <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Connected Channels — Click to Open Platform</p>
+                    <div>
+                        <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Platform Shortcuts</p>
+                        <p className="text-[10px] text-gray-400 mt-0.5">Opens the platform's website — publishing from SOLTOL arrives in Phase 2.</p>
+                    </div>
                     <button onClick={() => navigate('/marketing/studio')}
                         className="flex items-center gap-1.5 text-xs font-black text-purple-600 hover:text-purple-800 transition-all">
                         Generate Content for All <ArrowRight size={12} />
@@ -208,7 +210,11 @@ export default function MarketingHub() {
                             {/* Action buttons */}
                             <div className="flex gap-1.5">
                                 <button
-                                    onClick={() => navigate(`/marketing/studio?channel=${ch.id}`)}
+                                    onClick={() => navigate(
+                                        ch.id === 'whatsapp' || ch.id === 'sms'
+                                            ? '/marketing/studio'
+                                            : `/marketing/studio?channel=${ch.id}`
+                                    )}
                                     className={`flex-1 flex items-center justify-center gap-1 py-2 text-[10px] font-black text-white rounded-lg ${ch.color} ${ch.hoverColor} transition-all`}>
                                     <Zap size={10} /> Create
                                 </button>

@@ -1,26 +1,10 @@
 import { useState, useEffect } from 'react';
 import { authFetch } from '../../api/axios';
-// TC-80 — Read segment context from query params in CampaignManager.
-import { useSearchParams } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Send, Zap, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Zap, RefreshCw } from 'lucide-react';
 import { getCustomers, getInvoices, type Customer } from '../../services/api';
 
 const API = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
-const CAMPAIGNS_KEY = 'bettano_campaigns';
-
-interface Campaign {
-    id: string;
-    name: string;
-    type: string;
-    channels: string[];
-    status: 'draft' | 'scheduled' | 'sent';
-    audience: string;
-    audienceCount: number;
-    createdAt: string;
-    scheduledAt?: string;
-    content?: Record<string, string>;
-}
 
 interface Segment {
     id: string;
@@ -29,10 +13,6 @@ interface Segment {
     color: string;
     customers: Customer[];
     criteria: string;
-}
-
-function getCampaigns(): Campaign[] {
-    try { return JSON.parse(localStorage.getItem(CAMPAIGNS_KEY) || '[]'); } catch { return []; }
 }
 
 // ─── Customer Segments Page ───────────────────────────────────
@@ -172,185 +152,6 @@ export function CustomerSegments() {
                         <p className="text-[10px] mt-2 opacity-60">Tap to create campaign →</p>
                     </div>
                 ))}
-            </div>
-        </div>
-    );
-}
-
-// ─── Campaign Manager Page ────────────────────────────────────
-export function CampaignManager() {
-    const navigate = useNavigate();
-    const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-    // TC-80 — Surface the segment context when arriving via a segment card.
-    const [params] = useSearchParams();
-    const segmentName = params.get('segmentName');
-    const segmentCount = params.get('count');
-
-    useEffect(() => { setCampaigns(getCampaigns()); }, []);
-
-    const STATUS_STYLE: Record<string, string> = {
-        draft: 'bg-gray-100 text-gray-600',
-        scheduled: 'bg-amber-100 text-amber-700',
-        sent: 'bg-emerald-100 text-emerald-700',
-    };
-
-    return (
-        <div className="space-y-5 max-w-[1100px] mx-auto pb-10">
-            <div className="bg-gradient-to-r from-purple-900 to-pink-900 rounded-2xl p-6 text-white">
-                <button onClick={() => navigate('/marketing')} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-white mb-3"><ArrowLeft size={14} /> Marketing Hub</button>
-                <div className="flex items-center justify-between flex-wrap gap-4">
-                    <div>
-                        <h1 className="text-xl font-black uppercase">Campaign Manager</h1>
-                        <p className="text-gray-400 text-xs mt-0.5">{campaigns.length} campaigns · Create, schedule, and track</p>
-                    </div>
-                    <button onClick={() => navigate(segmentName
-                        ? `/marketing/studio?segment=${encodeURIComponent(segmentName)}&count=${segmentCount || ''}`
-                        : '/marketing/studio')}
-                        className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-pink-500 to-purple-600 rounded-xl text-sm font-black transition-all shadow-lg">
-                        <Plus size={16} /> New Campaign
-                    </button>
-                </div>
-            </div>
-
-            {/* TC-80 — Segment context banner. Shown when the user arrived
-                from /marketing/segments by clicking a segment card. */}
-            {segmentName && (
-                <div className="bg-purple-50 border-2 border-purple-200 rounded-2xl p-5 flex items-start gap-4">
-                    <div className="w-10 h-10 rounded-xl bg-purple-600 text-white flex items-center justify-center text-lg font-black">
-                        🎯
-                    </div>
-                    <div className="flex-1">
-                        <p className="text-xs font-black text-purple-700 uppercase tracking-widest">Segment selected</p>
-                        <p className="text-base font-black text-purple-900 mt-0.5">{segmentName}</p>
-                        <p className="text-xs text-purple-700 mt-1">
-                            {segmentCount ? `${segmentCount} customers` : 'Customer count unknown'} · Click "New Campaign" to create one targeted at this segment.
-                        </p>
-                    </div>
-                    <button onClick={() => navigate('/marketing/segments')}
-                        className="text-xs font-black text-purple-700 hover:text-purple-900 uppercase tracking-widest">
-                        ← Back to segments
-                    </button>
-                </div>
-            )}
-
-            {campaigns.length === 0 ? (
-                <div className="bg-white rounded-2xl border border-gray-100 p-16 text-center shadow-sm">
-                    <Send size={48} className="mx-auto text-gray-200 mb-4" />
-                    <p className="text-gray-500 font-black text-lg">No campaigns yet</p>
-                    <p className="text-gray-400 text-sm mt-1">Create your first campaign in the AI Content Studio</p>
-                    <button onClick={() => navigate('/marketing/studio')} className="mt-4 px-6 py-3 bg-gray-900 text-white rounded-xl text-sm font-black">
-                        Open Content Studio →
-                    </button>
-                </div>
-            ) : (
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                    <table className="w-full">
-                        <thead className="bg-gray-50 border-b border-gray-100">
-                            <tr>{['Campaign', 'Channels', 'Audience', 'Status', 'Created'].map(h => (
-                                <th key={h} className="px-5 py-3 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">{h}</th>
-                            ))}</tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-50">
-                            {campaigns.map(c => (
-                                <tr key={c.id} className="hover:bg-gray-50">
-                                    <td className="px-5 py-4 font-black text-sm text-gray-900">{c.name}</td>
-                                    <td className="px-5 py-4 text-sm text-gray-500">{c.channels.join(', ')}</td>
-                                    <td className="px-5 py-4 text-sm text-gray-500">{c.audienceCount} customers</td>
-                                    <td className="px-5 py-4"><span className={`text-[10px] font-black px-2 py-1 rounded-full ${STATUS_STYLE[c.status]}`}>{c.status}</span></td>
-                                    <td className="px-5 py-4 text-xs font-mono text-gray-400">{c.createdAt}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            )}
-        </div>
-    );
-}
-
-// ─── Marketing Analytics Page ─────────────────────────────────
-export function MarketingAnalytics() {
-    const navigate = useNavigate();
-
-    const MOCK_STATS = [
-        { channel: '📧 Email', sent: 145, opened: 89, clicked: 34, rate: '61%' },
-        { channel: '💬 WhatsApp', sent: 160, opened: 142, clicked: 98, rate: '89%' },
-        { channel: '📱 SMS', sent: 130, opened: 115, clicked: 45, rate: '88%' },
-        { channel: '📘 Facebook', reach: 2400, engaged: 340, clicked: 89, rate: '14%' },
-        { channel: '📸 Instagram', reach: 1800, engaged: 420, clicked: 67, rate: '23%' },
-        { channel: '💼 LinkedIn', reach: 890, engaged: 123, clicked: 45, rate: '14%' },
-    ];
-
-    return (
-        <div className="space-y-5 max-w-[1100px] mx-auto pb-10">
-            <div className="bg-gradient-to-r from-purple-900 to-pink-900 rounded-2xl p-6 text-white">
-                <button onClick={() => navigate('/marketing')} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-white mb-3"><ArrowLeft size={14} /> Marketing Hub</button>
-                <h1 className="text-xl font-black uppercase">Marketing Analytics</h1>
-                <p className="text-gray-400 text-xs mt-0.5">Track performance across all channels</p>
-            </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {[
-                    { label: 'Total Reach', value: '5,370', icon: '👁', color: 'text-blue-600' },
-                    { label: 'Total Engaged', value: '1,114', icon: '🤝', color: 'text-purple-600' },
-                    { label: 'Total Clicks', value: '378', icon: '👆', color: 'text-emerald-600' },
-                    { label: 'Avg. Engagement', value: '34%', icon: '📈', color: 'text-orange-600' },
-                ].map((s, i) => (
-                    <div key={i} className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
-                        <span className="text-2xl">{s.icon}</span>
-                        <p className={`text-2xl font-black mt-2 ${s.color}`}>{s.value}</p>
-                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-0.5">{s.label}</p>
-                    </div>
-                ))}
-            </div>
-
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                <div className="px-5 py-4 border-b border-gray-100">
-                    <p className="text-sm font-black text-gray-700">Channel Performance</p>
-                    <p className="text-xs text-gray-400 mt-0.5">Connect your accounts to see live data · Sample data shown below</p>
-                </div>
-                <table className="w-full">
-                    <thead className="bg-gray-50"><tr>
-                        {['Channel', 'Sent/Reach', 'Opened/Engaged', 'Clicked', 'Rate'].map(h => (
-                            <th key={h} className="px-5 py-3 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">{h}</th>
-                        ))}
-                    </tr></thead>
-                    <tbody className="divide-y divide-gray-50">
-                        {MOCK_STATS.map((row, i) => (
-                            <tr key={i} className="hover:bg-gray-50">
-                                <td className="px-5 py-4 font-black text-sm">{row.channel}</td>
-                                <td className="px-5 py-4 text-sm font-mono text-gray-700">{(row as any).sent || (row as any).reach}</td>
-                                <td className="px-5 py-4 text-sm font-mono text-gray-700">{(row as any).opened || (row as any).engaged}</td>
-                                <td className="px-5 py-4 text-sm font-mono text-emerald-600 font-black">{row.clicked}</td>
-                                <td className="px-5 py-4">
-                                    <span className="text-xs font-black bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">{row.rate}</span>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-
-            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5">
-                <p className="text-sm font-black text-amber-800 mb-2">Connect Your Accounts for Live Analytics</p>
-                <p className="text-xs text-amber-700">To see real data, connect your social media and email accounts. Currently showing sample data.</p>
-                <div className="flex flex-wrap gap-2 mt-3">
-                    {[
-                        { label: '📧 Mailchimp',         url: 'https://login.mailchimp.com/signup/' },
-                        { label: '💬 WhatsApp Business', url: 'https://business.whatsapp.com/' },
-                        { label: '📘 Meta Business',     url: 'https://business.facebook.com/' },
-                        { label: '📱 Twilio SMS',        url: 'https://www.twilio.com/try-twilio' },
-                    ].map((ch, i) => (
-                        <button
-                            key={i}
-                            onClick={() => window.open(ch.url, '_blank', 'noopener,noreferrer')}
-                            aria-label={`Connect ${ch.label} (opens in new tab)`}
-                            className="text-xs px-3 py-1.5 bg-white border border-amber-300 rounded-lg text-amber-700 font-bold hover:bg-amber-100 transition-all"
-                        >
-                            Connect {ch.label}
-                        </button>
-                    ))}
-                </div>
             </div>
         </div>
     );

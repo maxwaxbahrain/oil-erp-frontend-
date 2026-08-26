@@ -454,6 +454,9 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
       }
       throw new Error(error.detail || `HTTP ${response.status}`);
     }
+    if (response.status === 204) {
+      return undefined as T;
+    }
     return await response.json();
   } catch (error: any) {
     if (error.message.includes('Failed to fetch') || error.name === 'TypeError') {
@@ -1337,3 +1340,92 @@ export const runDueRecurringInvoices = async (): Promise<number> => {
     }
     return count;
 };
+
+export type MarketingPlatform =
+  | 'linkedin' | 'instagram' | 'tiktok' | 'facebook'
+  | 'x' | 'youtube' | 'google' | 'email';
+
+// Only draft, approved and archived are settable through the API; scheduled and posted are Phase 2 and read-only.
+export type MarketingStatus =
+  | 'draft' | 'approved' | 'archived' | 'scheduled' | 'posted';
+
+export interface MarketingPost {
+  id: number;
+  title: string;
+  body: string;
+  platform: MarketingPlatform;
+  status: MarketingStatus;
+  generation_id: string | null;
+  source_context: { products?: string[]; customer_count?: number } | null;
+  model_used: string | null;
+  scheduled_for: string | null;
+  posted_at: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export const generateMarketingPosts = (params: {
+  platforms: MarketingPlatform[];
+  campaign_type: string;
+  brand_voice?: string;
+  target_audience?: string;
+}): Promise<MarketingPost[]> =>
+  apiRequest<MarketingPost[]>('/marketing/generate', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+
+export const listMarketingPosts = (params?: {
+  status?: MarketingStatus;
+  platform?: MarketingPlatform;
+  generation_id?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<MarketingPost[]> => {
+  const qs = new URLSearchParams();
+  if (params) {
+    const entries: [string, string | number | undefined][] = [
+      ['status', params.status],
+      ['platform', params.platform],
+      ['generation_id', params.generation_id],
+      ['limit', params.limit],
+      ['offset', params.offset],
+    ];
+    for (const [key, value] of entries) {
+      if (value === undefined || value === '') continue;
+      qs.set(key, String(value));
+    }
+  }
+  const suffix = qs.toString() ? `?${qs.toString()}` : '';
+  return apiRequest<MarketingPost[]>(`/marketing/posts${suffix}`);
+};
+
+export const getMarketingPost = (id: number): Promise<MarketingPost> =>
+  apiRequest<MarketingPost>(`/marketing/posts/${id}`);
+
+export const createMarketingPost = (params: {
+  title: string;
+  body?: string;
+  platform: MarketingPlatform;
+  generation_id?: string;
+}): Promise<MarketingPost> =>
+  apiRequest<MarketingPost>('/marketing/posts', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+
+export const updateMarketingPost = (
+  id: number,
+  params: {
+    title?: string;
+    body?: string;
+    status?: 'draft' | 'approved' | 'archived';
+  },
+): Promise<MarketingPost> =>
+  apiRequest<MarketingPost>(`/marketing/posts/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(params),
+  });
+
+export const deleteMarketingPost = (id: number): Promise<void> =>
+  apiRequest<void>(`/marketing/posts/${id}`, { method: 'DELETE' });
