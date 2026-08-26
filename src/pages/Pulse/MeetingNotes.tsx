@@ -4,6 +4,7 @@ import {
   Trash2, ChevronDown, ChevronUp, AlertCircle, FileAudio, Users, Target, Download, X, Video, Share2, Mail, MessageSquare, Smartphone, Sparkles
 } from 'lucide-react';
 import { useMeetingRecorder, TRANSCRIPT_SAVED_RETRY, type MeetingNote } from '../../hooks/useMeetingRecorder';
+import { isStaging } from '../../config/appEnv';
 import jsPDF from 'jspdf';
 import { getEmployees, type Employee } from '../../services/payrollService';
 import { getChannels, sendMessage, type ChatChannel } from '../../services/chatService';
@@ -510,12 +511,14 @@ export default function MeetingNotes() {
             Join from Meeting Platform
           </h2>
           <div className="flex flex-col sm:flex-row gap-4 mb-4">
+            {isStaging && (
             <button 
               className="flex-1 bg-white border-2 border-blue-100 hover:border-blue-300 text-blue-700 px-4 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all"
               onClick={() => { setShowMeetNotice(true); setPasteMode(false); }}
             >
               <Video size={18} /> Google Meet (via Extension)
             </button>
+            )}
             <button 
               className={`flex-1 px-4 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all ${
                 pasteMode ? 'bg-blue-600 text-white' : 'bg-white border-2 border-blue-100 hover:border-blue-300 text-blue-700'
@@ -957,7 +960,7 @@ export default function MeetingNotes() {
       )}
 
       {/* FEATURE 1: Google Meet Extension Modal */}
-      {showMeetNotice && (
+      {isStaging && showMeetNotice && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
             <div className="bg-blue-600 p-6 flex items-center justify-between text-white">
