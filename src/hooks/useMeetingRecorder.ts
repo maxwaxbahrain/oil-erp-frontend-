@@ -1,22 +1,22 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { authFetch } from '../api/axios';
+import {
+  createMeeting,
+  processMeetingTranscript,
+  updateMeeting,
+  type Meeting,
+  type MeetingActionItem,
+  type MeetingDecision,
+} from '../services/meetingService';
 
-export interface ActionItem {
-  task: string;
-  owner: string;
-  deadline: string;
-}
+export type ActionItem = MeetingActionItem;
+export type Decision = MeetingDecision;
 
-export interface Decision {
-  decision: string;
-  context: string;
-}
-
+/** Display shape after record/paste. id is null only when the server save failed. */
 export interface MeetingNote {
-  id: string;
+  id: number | null;
   title: string;
-  date: string;
-  duration: number; // in seconds
+  meeting_date: string;
+  duration_seconds: number;
   transcript: string;
   summary: string;
   decisions: Decision[];
@@ -27,21 +27,23 @@ export interface MeetingNote {
 
 export type RecorderStatus = 'idle' | 'recording' | 'processing' | 'done' | 'error';
 
-export function getSavedNotes(): MeetingNote[] {
-  try {
-    const data = localStorage.getItem('soltol_meeting_notes');
-    return data ? JSON.parse(data) : [];
-  } catch {
-    return [];
-  }
-}
+export const TRANSCRIPT_SAVED_RETRY =
+  'Transcript was saved. The summary can be retried from history.';
 
-export function deleteNote(id: string) {
-  const notes = getSavedNotes();
-  const updated = notes.filter((n) => n.id !== id);
-  localStorage.setItem('soltol_meeting_notes', JSON.stringify(updated));
+function meetingToNote(row: Meeting): MeetingNote {
+  return {
+    id: row.id,
+    title: row.title,
+    meeting_date: row.meeting_date,
+    duration_seconds: row.duration_seconds,
+    transcript: row.transcript,
+    summary: row.summary,
+    decisions: row.decisions,
+    action_items: row.action_items,
+    key_topics: row.key_topics,
+    members: row.members,
+  };
 }
-
 
 export function useMeetingRecorder() {
   const [status, setStatus] = useState<RecorderStatus>('idle');
@@ -49,7 +51,7 @@ export function useMeetingRecorder() {
   const [liveTranscript, setLiveTranscript] = useState('');
   const [duration, setDuration] = useState(0);
   const [lastNote, setLastNote] = useState<MeetingNote | null>(null);
-  
+
   const recognitionRef = useRef<any>(null);
   const transcriptRef = useRef('');
   const startTimeRef = useRef<number>(0);
@@ -62,12 +64,12 @@ export function useMeetingRecorder() {
 
   useEffect(() => {
     if (!isSupported) return;
-    
+
     const SpeechRecognition = winAny.SpeechRecognition || winAny.webkitSpeechRecognition;
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
     recognition.interimResults = true;
-    
+
     recognition.onresult = (event: any) => {
       let interimStr = '';
       let newlyFinal = '';
@@ -81,7 +83,7 @@ export function useMeetingRecorder() {
       if (newlyFinal) {
         transcriptRef.current += newlyFinal;
       }
-      
+
       // Force immediate state update with full transcript so far
       setLiveTranscript(transcriptRef.current + interimStr);
     };
@@ -93,7 +95,7 @@ export function useMeetingRecorder() {
         setStatus('error');
       }
     };
-    
+
     // Automatically restart if it stops unexpectedly while status is 'recording'
     recognition.onend = () => {
       setStatus((currentStatus) => {
@@ -109,7 +111,7 @@ export function useMeetingRecorder() {
     };
 
     recognitionRef.current = recognition;
-    
+
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
       try {
@@ -119,6 +121,78 @@ export function useMeetingRecorder() {
       }
     };
   }, [isSupported]);
+
+  const saveThenSummarize = useCallback(async (opts: {
+    transcript: string;
+    title: string;
+    durationSeconds: number;
+    members: string[];
+  }) => {
+    const title = opts.title || 'Team Meeting';
+    const meetingDate = new Date().toISOString();
+    let saved: Meeting | null = null;
+
+    try {
+      saved = await createMeeting({
+        title,
+        meeting_date: meetingDate,
+        duration_seconds: opts.durationSeconds,
+        transcript: opts.transcript,
+        members: opts.members,
+      });
+    } catch {
+      saved = null;
+    }
+
+    try {
+      const analysis = await processMeetingTranscript(opts.transcript, title);
+
+      if (saved) {
+        try {
+          const updated = await updateMeeting(saved.id, {
+            summary: analysis.summary,
+            decisions: analysis.decisions,
+            action_items: analysis.action_items,
+            key_topics: analysis.key_topics,
+          });
+          setLastNote(meetingToNote(updated));
+          setError(null);
+          setStatus('done');
+        } catch {
+          setLastNote(null);
+          setError(TRANSCRIPT_SAVED_RETRY);
+          setStatus('error');
+        }
+        return;
+      }
+
+      setLastNote({
+        id: null,
+        title,
+        meeting_date: meetingDate,
+        duration_seconds: opts.durationSeconds,
+        transcript: opts.transcript,
+        summary: analysis.summary,
+        decisions: analysis.decisions,
+        action_items: analysis.action_items,
+        key_topics: analysis.key_topics,
+        members: opts.members,
+      });
+      setError(
+        'Could not save this meeting to the server. The summary is shown below but may be lost if you leave this page.',
+      );
+      setStatus('done');
+    } catch (err: any) {
+      if (saved) {
+        setLastNote(null);
+        setError(TRANSCRIPT_SAVED_RETRY);
+        setStatus('error');
+        return;
+      }
+      setError(err?.message || 'Error processing meeting notes.');
+      setStatus('error');
+    }
+  }, []);
 
   const startRecording = useCallback((title: string, selectedMembers: string[] = []) => {
     if (!isSupported || !recognitionRef.current) {
@@ -135,7 +209,7 @@ export function useMeetingRecorder() {
       currentTitleRef.current = title || 'Team Meeting';
       currentMembersRef.current = selectedMembers;
       startTimeRef.current = Date.now();
-      
+
       timerRef.current = setInterval(() => {
         setDuration(Math.floor((Date.now() - startTimeRef.current) / 1000));
       }, 1000);
@@ -157,7 +231,7 @@ export function useMeetingRecorder() {
     }
 
     setStatus('processing');
-    
+
     try {
       recognitionRef.current.stop();
     } catch (e) {
@@ -165,95 +239,32 @@ export function useMeetingRecorder() {
     }
 
     const finalTranscript = transcriptRef.current.trim() || liveTranscript.trim();
-    
+
     if (!finalTranscript) {
       setError('No speech detected.');
       setStatus('error');
       return;
     }
 
-    try {
-      const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/ai/meeting/process`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          transcript: finalTranscript,
-          meeting_title: currentTitleRef.current
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to process meeting notes.');
-      }
-
-      const data = await response.json();
-      
-      const note: MeetingNote = {
-        id: crypto.randomUUID(),
-        title: currentTitleRef.current,
-        date: new Date().toISOString(),
-        duration,
-        transcript: finalTranscript,
-        summary: data.summary || '',
-        decisions: data.decisions || [],
-        action_items: data.action_items || [],
-        key_topics: data.key_topics || [],
-        members: currentMembersRef.current || [],
-      };
-
-      const existingNotes = getSavedNotes();
-      localStorage.setItem('soltol_meeting_notes', JSON.stringify([note, ...existingNotes]));
-      
-      setLastNote(note);
-      setStatus('done');
-    } catch (err: any) {
-      setError(err?.message || 'Error processing meeting notes.');
-      setStatus('error');
-    }
-  }, [status, duration, liveTranscript]);
+    await saveThenSummarize({
+      transcript: finalTranscript,
+      title: currentTitleRef.current,
+      durationSeconds: duration,
+      members: currentMembersRef.current || [],
+    });
+  }, [status, duration, liveTranscript, saveThenSummarize]);
 
   const analyzeTranscript = useCallback(async (transcriptText: string, title: string, members: string[] = []) => {
     setStatus('processing');
     setError(null);
-    try {
-      const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/ai/meeting/process`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          transcript: transcriptText,
-          meeting_title: title || 'Team Meeting'
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to process meeting notes.');
-      }
-
-      const data = await response.json();
-      
-      const note: MeetingNote = {
-        id: crypto.randomUUID(),
-        title: title || 'Team Meeting',
-        date: new Date().toISOString(),
-        duration: 0,
-        transcript: transcriptText,
-        summary: data.summary || '',
-        decisions: data.decisions || [],
-        action_items: data.action_items || [],
-        key_topics: data.key_topics || [],
-        members: members,
-      };
-
-      const existingNotes = getSavedNotes();
-      localStorage.setItem('soltol_meeting_notes', JSON.stringify([note, ...existingNotes]));
-      
-      setLastNote(note);
-      setStatus('done');
-    } catch (err: any) {
-      setError(err?.message || 'Error processing meeting notes.');
-      setStatus('error');
-    }
-  }, []);
+    setLastNote(null);
+    await saveThenSummarize({
+      transcript: transcriptText,
+      title: title || 'Team Meeting',
+      durationSeconds: 0,
+      members,
+    });
+  }, [saveThenSummarize]);
 
   return {
     status,
