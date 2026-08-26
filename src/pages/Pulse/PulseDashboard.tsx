@@ -1,8 +1,8 @@
 // ──────────────────────────────────────────────────────────────
 // Pulse — Team Communication (live chat via chatService + tasks)
 // ──────────────────────────────────────────────────────────────
-import { useReducer, useEffect, useRef, useState, useCallback, useMemo, type ReactNode } from 'react';
-import { Send, Megaphone, Users, CheckSquare, RefreshCw, AtSign } from 'lucide-react';
+import { useReducer, useEffect, useRef, useState, useCallback, useMemo, type MutableRefObject, type ReactNode } from 'react';
+import { Send, Megaphone, Users, CheckSquare, RefreshCw, AtSign, Paperclip, FileText, X, Image as ImageIcon } from 'lucide-react';
 import {
   getChannels,
   getMessages,
@@ -13,6 +13,11 @@ import {
   createTask,
   updateTaskStatus,
   getMentionableUsers,
+  createChannel,
+  leaveChannel,
+  mapChannelWriteError,
+  uploadChatAttachment,
+  getAttachmentDownloadUrl,
   type ChatChannel,
   type ChatMessage,
   type ChatTask,
@@ -23,13 +28,44 @@ import {
 import { useAuth, type AuthRole } from '../../contexts/AuthContext';
 import api from '../../api/axios';
 import NewTaskModal from './NewTaskModal';
+import NewChannelModal from './NewChannelModal';
+import ChannelMembersPanel from './ChannelMembersPanel';
 
 const MESSAGE_POLL_MS = 4000;
 const TASKS_REFRESH_MS = 30_000;
 const SCROLL_NEAR_BOTTOM_PX = 80;
 const TASKS_ENABLED = true;
+const CHAT_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+const CHAT_ATTACHMENT_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'application/pdf',
+]);
 
 type DisplayMessage = ChatMessage & { pending?: boolean };
+
+interface PendingChatAttachment {
+  key: string;
+  file_name: string;
+  content_type: string;
+}
+
+function isImageAttachment(contentType: string | null | undefined): boolean {
+  const t = (contentType || '').toLowerCase();
+  return t === 'image/jpeg' || t === 'image/png' || t === 'image/webp';
+}
+
+function emptyAttachmentFields(): Pick<
+  ChatMessage,
+  'attachment_name' | 'attachment_content_type' | 'has_attachment'
+> {
+  return {
+    attachment_name: null,
+    attachment_content_type: null,
+    has_attachment: false,
+  };
+}
 
 interface Room {
   id: number;
@@ -176,6 +212,13 @@ function buildMentionHighlights(
   }
 
   return Array.from(byKey.values()).sort((a, b) => b.label.length - a.label.length);
+}
+
+function isNormalChannel(room: Room | undefined): boolean {
+  if (!room || room.type === 'dm') return false;
+  if (room.isDefault) return false;
+  if (room.name === 'General') return false;
+  return true;
 }
 
 function isOwnMessage(
@@ -417,6 +460,223 @@ function RoomUnreadBadges({ room }: { room: Room }) {
   );
 }
 
+function ChatImageThumb({
+  channelId,
+  messageId,
+  fileName,
+  cache,
+}: {
+  channelId: number;
+  messageId: number;
+  fileName: string | null;
+  cache: MutableRefObject<Map<number, string>>;
+}) {
+  const [url, setUrl] = useState<string | null>(() => cache.current.get(messageId) ?? null);
+  const placeholderRef = useRef<HTMLDivElement>(null);
+  const retriedRef = useRef(false);
+  const inFlightRef = useRef(false);
+
+  const loadUrl = useCallback(() => {
+    const cached = cache.current.get(messageId);
+    if (cached) {
+      setUrl(cached);
+      return;
+    }
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    const mapAtRequest = cache.current;
+    void getAttachmentDownloadUrl(channelId, messageId)
+      .then((res) => {
+        if (!res.download_url) return;
+        if (cache.current !== mapAtRequest) return;
+        mapAtRequest.set(messageId, res.download_url);
+        setUrl(res.download_url);
+      })
+      .catch(() => {
+        /* keep placeholder; user can still use the filename row */
+      })
+      .finally(() => {
+        inFlightRef.current = false;
+      });
+  }, [cache, channelId, messageId]);
+
+  useEffect(() => {
+    const cached = cache.current.get(messageId);
+    if (cached) {
+      setUrl(cached);
+      return;
+    }
+    const el = placeholderRef.current;
+    if (!el) return;
+
+    if (typeof IntersectionObserver === 'undefined') {
+      loadUrl();
+      return;
+    }
+
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          loadUrl();
+          io.disconnect();
+        }
+      },
+      { rootMargin: '80px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [cache, channelId, loadUrl, messageId]);
+
+  function handleImgError() {
+    if (retriedRef.current) return;
+    retriedRef.current = true;
+    cache.current.delete(messageId);
+    void getAttachmentDownloadUrl(channelId, messageId)
+      .then((res) => {
+        if (!res.download_url) return;
+        cache.current.set(messageId, res.download_url);
+        setUrl(res.download_url);
+      })
+      .catch(() => {});
+  }
+
+  if (!url) {
+    return (
+      <div
+        ref={placeholderRef}
+        style={{ fontSize: 10, color: C.t3, marginTop: 6, minHeight: 20 }}
+      >
+        Loading image…
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => window.open(url, '_blank', 'noopener,noreferrer')}
+      style={{
+        display: 'block',
+        marginTop: 6,
+        padding: 0,
+        border: `1px solid ${C.br2}`,
+        borderRadius: 8,
+        background: C.bg4,
+        cursor: 'pointer',
+        overflow: 'hidden',
+        maxWidth: 240,
+      }}
+    >
+      <img
+        src={url}
+        alt={fileName || 'Attachment'}
+        onError={handleImgError}
+        style={{
+          display: 'block',
+          maxWidth: 240,
+          maxHeight: 180,
+          objectFit: 'cover',
+        }}
+      />
+    </button>
+  );
+}
+
+function ChatFileLink({
+  channelId,
+  messageId,
+  fileName,
+}: {
+  channelId: number;
+  messageId: number;
+  fileName: string | null;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  async function handleOpen() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const res = await getAttachmentDownloadUrl(channelId, messageId);
+      if (res.download_url) {
+        window.open(res.download_url, '_blank', 'noopener,noreferrer');
+      }
+    } catch {
+      /* download errors surface as a no-op click; list path stays unsigned */
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => void handleOpen()}
+      disabled={busy}
+      style={{
+        marginTop: 6,
+        background: 'rgba(79,142,247,.1)',
+        border: '1px solid rgba(79,142,247,.25)',
+        borderRadius: 6,
+        padding: '4px 8px',
+        fontSize: 11,
+        fontWeight: 600,
+        color: C.blue,
+        cursor: busy ? 'not-allowed' : 'pointer',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 5,
+      }}
+    >
+      <FileText size={12} />
+      {busy ? 'Opening…' : (fileName || 'Download file')}
+    </button>
+  );
+}
+
+function ChatMessageAttachment({
+  channelId,
+  message,
+  cache,
+}: {
+  channelId: number;
+  message: DisplayMessage;
+  cache: MutableRefObject<Map<number, string>>;
+}) {
+  if (!message.has_attachment) return null;
+  const image = isImageAttachment(message.attachment_content_type);
+  return (
+    <div style={{ marginTop: 2, maxWidth: '85%' }}>
+      <div style={{
+        fontSize: 10,
+        color: C.t3,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 4,
+      }}>
+        {image ? <ImageIcon size={10} /> : <FileText size={10} />}
+        {message.attachment_name || 'Attachment'}
+      </div>
+      {message.pending ? (
+        <div style={{ fontSize: 10, color: C.t3, marginTop: 4 }}>Sending attachment…</div>
+      ) : image ? (
+        <ChatImageThumb
+          channelId={channelId}
+          messageId={message.id}
+          fileName={message.attachment_name}
+          cache={cache}
+        />
+      ) : (
+        <ChatFileLink
+          channelId={channelId}
+          messageId={message.id}
+          fileName={message.attachment_name}
+        />
+      )}
+    </div>
+  );
+}
+
 // ── Main component ───────────────────────────────────────────
 export default function PulseDashboard() {
   const { user: authUser, hasRole } = useAuth();
@@ -433,6 +693,8 @@ export default function PulseDashboard() {
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messagesError, setMessagesError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [pendingAttachment, setPendingAttachment] = useState<PendingChatAttachment | null>(null);
+  const [attachmentUploading, setAttachmentUploading] = useState(false);
   const [dmPickerOpen, setDmPickerOpen] = useState(false);
   const [tenantUsers, setTenantUsers] = useState<ApiUser[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
@@ -446,6 +708,15 @@ export default function PulseDashboard() {
   const [newTaskModalOpen, setNewTaskModalOpen] = useState(false);
   const [createTaskSubmitting, setCreateTaskSubmitting] = useState(false);
   const [createTaskError, setCreateTaskError] = useState<string | null>(null);
+  const [newChannelModalOpen, setNewChannelModalOpen] = useState(false);
+  const [createChannelSubmitting, setCreateChannelSubmitting] = useState(false);
+  const [createChannelError, setCreateChannelError] = useState<string | null>(null);
+  const [channelPickerUsers, setChannelPickerUsers] = useState<MentionableUser[]>([]);
+  const [channelPickerLoading, setChannelPickerLoading] = useState(false);
+  const [channelPickerError, setChannelPickerError] = useState<string | null>(null);
+  const [membersPanelOpen, setMembersPanelOpen] = useState(false);
+  const [leavingChannel, setLeavingChannel] = useState(false);
+  const [leaveError, setLeaveError] = useState<string | null>(null);
   const [mentionableUsers, setMentionableUsers] = useState<MentionableUser[]>([]);
   const [pendingMentions, setPendingMentions] = useState<PendingMention[]>([]);
   const [mentionPopupOpen, setMentionPopupOpen] = useState(false);
@@ -455,6 +726,8 @@ export default function PulseDashboard() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const attachInputRef = useRef<HTMLInputElement>(null);
+  const attachmentUrlCacheRef = useRef<Map<number, string>>(new Map());
   const mentionPopupRef = useRef<HTMLDivElement>(null);
   const activeChannelRef = useRef<number | null>(null);
   const latestIdRef = useRef<number | null>(null);
@@ -465,13 +738,18 @@ export default function PulseDashboard() {
   const nearBottomRef = useRef(true);
   const initialScrollDoneRef = useRef(false);
 
-  const loadChannels = useCallback(async () => {
+  const loadChannels = useCallback(async (opts?: { selectRoomId?: number }) => {
     setChannelsLoading(true);
     setChannelsError(null);
     try {
       const rows = await getChannels();
       const rooms = rows.map(channelToRoom);
+      const selected =
+        opts?.selectRoomId != null
+          ? rooms.find((r) => r.id === opts.selectRoomId)
+          : undefined;
       const defaultRoom =
+        selected ??
         rooms.find((r) => r.isDefault) ??
         rooms.find((r) => r.type === 'channel') ??
         rooms[0];
@@ -623,6 +901,31 @@ export default function PulseDashboard() {
     }
   }, [dmPickerOpen, loadTenantUsers]);
 
+  const loadChannelPickerUsers = useCallback(async () => {
+    setChannelPickerLoading(true);
+    setChannelPickerError(null);
+    try {
+      const rows = await getMentionableUsers();
+      setChannelPickerUsers(rows);
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : 'Failed to load users';
+      setChannelPickerError(raw.replace(/\s*\(\d{3}\)\s*$/, ''));
+    } finally {
+      setChannelPickerLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (newChannelModalOpen) {
+      void loadChannelPickerUsers();
+    }
+  }, [newChannelModalOpen, loadChannelPickerUsers]);
+
+  useEffect(() => {
+    setMembersPanelOpen(false);
+    setLeaveError(null);
+  }, [state.activeRoomId]);
+
   useEffect(() => {
     if (!dmPickerOpen) return;
     const onDocClick = (e: MouseEvent) => {
@@ -712,6 +1015,9 @@ export default function PulseDashboard() {
     nearBottomRef.current = true;
     initialScrollDoneRef.current = false;
     setSendError(null);
+    setPendingAttachment(null);
+    setAttachmentUploading(false);
+    attachmentUrlCacheRef.current = new Map();
 
     if (channelId == null) {
       setMessages([]);
@@ -911,6 +1217,44 @@ export default function PulseDashboard() {
     }
   }
 
+  async function handleCreateChannel(payload: {
+    name: string;
+    member_user_ids: number[];
+  }) {
+    setCreateChannelSubmitting(true);
+    setCreateChannelError(null);
+    try {
+      const created = await createChannel(payload.name, payload.member_user_ids);
+      setNewChannelModalOpen(false);
+      await loadChannels({ selectRoomId: created.id });
+      if (isMobile) setMobileChatNavOpen(false);
+    } catch (err) {
+      const message = mapChannelWriteError(err, 'Failed to create channel');
+      setCreateChannelError(message);
+      throw err;
+    } finally {
+      setCreateChannelSubmitting(false);
+    }
+  }
+
+  async function handleLeaveChannel() {
+    const room = state.activeRoomId != null
+      ? state.rooms.find((r) => r.id === state.activeRoomId)
+      : undefined;
+    if (!room || !isNormalChannel(room)) return;
+    setLeavingChannel(true);
+    setLeaveError(null);
+    try {
+      await leaveChannel(room.id);
+      setMembersPanelOpen(false);
+      await loadChannels();
+    } catch (err) {
+      setLeaveError(mapChannelWriteError(err, 'Failed to leave channel'));
+    } finally {
+      setLeavingChannel(false);
+    }
+  }
+
   // ── Send handlers ──────────────────────────────────────────
   function selectMention(user: MentionableUser) {
     const ta = composerTextareaRef.current;
@@ -1010,12 +1354,15 @@ export default function PulseDashboard() {
   }
 
   async function handleSendMessage() {
+    if (attachmentUploading) return;
     const text = state.newMessage.trim();
-    if (!text || state.activeRoomId == null) return;
+    if (state.activeRoomId == null) return;
+    if (!text && !pendingAttachment) return;
 
     const channelId = state.activeRoomId;
     const mentionedIds = filterPendingMentionIds(text, pendingMentions);
     const tempId = -Date.now();
+    const attachment = pendingAttachment;
     const optimistic: DisplayMessage = {
       id: tempId,
       sender_user_id: typeof authUser?.id === 'number'
@@ -1028,17 +1375,32 @@ export default function PulseDashboard() {
       created_at: new Date().toISOString(),
       edited_at: null,
       pending: true,
+      has_attachment: Boolean(attachment),
+      attachment_name: attachment?.file_name ?? null,
+      attachment_content_type: attachment?.content_type ?? null,
     };
 
     dispatch({ type: 'SET_MESSAGE', text: '' });
     setPendingMentions([]);
     setMentionPopupOpen(false);
+    setPendingAttachment(null);
     setSendError(null);
     nearBottomRef.current = true;
     setMessages((prev) => [...prev, optimistic]);
 
     try {
-      const sent = await sendMessage(channelId, text, mentionedIds);
+      const sent = await sendMessage(
+        channelId,
+        text,
+        mentionedIds,
+        attachment
+          ? {
+              attachment_key: attachment.key,
+              attachment_name: attachment.file_name,
+              attachment_content_type: attachment.content_type,
+            }
+          : undefined,
+      );
       if (activeChannelRef.current !== channelId) return;
       setMessages((prev) => {
         const withoutDup = prev.filter((m) => m.id !== sent.id);
@@ -1051,6 +1413,9 @@ export default function PulseDashboard() {
                 body: sent.body,
                 created_at: sent.created_at,
                 edited_at: null,
+                has_attachment: optimistic.has_attachment,
+                attachment_name: optimistic.attachment_name,
+                attachment_content_type: optimistic.attachment_content_type,
               }
             : m,
         );
@@ -1062,7 +1427,41 @@ export default function PulseDashboard() {
     } catch (err) {
       if (activeChannelRef.current !== channelId) return;
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
-      setSendError(err instanceof Error ? err.message : 'Failed to send message');
+      setPendingAttachment(attachment);
+      setSendError(mapChannelWriteError(err, 'Failed to send message'));
+    }
+  }
+
+  async function handlePickAttachment(file: File) {
+    if (state.activeRoomId == null || attachmentUploading) return;
+    const type = (file.type || '').toLowerCase();
+    if (!CHAT_ATTACHMENT_TYPES.has(type)) {
+      setSendError('Only JPEG, PNG, WebP images and PDFs are allowed');
+      return;
+    }
+    if (file.size > CHAT_ATTACHMENT_MAX_BYTES) {
+      setSendError('File is too large (max 10 MB)');
+      return;
+    }
+
+    const channelId = state.activeRoomId;
+    setSendError(null);
+    setAttachmentUploading(true);
+    try {
+      const uploaded = await uploadChatAttachment(channelId, file);
+      if (activeChannelRef.current !== channelId) return;
+      setPendingAttachment({
+        key: uploaded.attachment_key,
+        file_name: uploaded.file_name || file.name,
+        content_type: uploaded.content_type || file.type,
+      });
+    } catch (err) {
+      if (activeChannelRef.current !== channelId) return;
+      setSendError(mapChannelWriteError(err, 'Failed to upload attachment'));
+    } finally {
+      if (activeChannelRef.current === channelId) {
+        setAttachmentUploading(false);
+      }
     }
   }
 
@@ -1091,6 +1490,7 @@ export default function PulseDashboard() {
               body: sent.body,
               created_at: sent.created_at,
               edited_at: null,
+              ...emptyAttachmentFields(),
             },
           ];
         });
@@ -1200,8 +1600,37 @@ export default function PulseDashboard() {
               }}
             >
               {/* ROOMS header */}
-              <div style={{ fontSize: 9, color: C.t3, fontWeight: 700, letterSpacing: '.7px', padding: '10px 12px 4px' }}>
-                ROOMS
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 6,
+                padding: '10px 12px 4px',
+              }}>
+                <div style={{ fontSize: 9, color: C.t3, fontWeight: 700, letterSpacing: '.7px' }}>
+                  ROOMS
+                </div>
+                {isManagement && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCreateChannelError(null);
+                      setNewChannelModalOpen(true);
+                    }}
+                    style={{
+                      background: 'rgba(79,142,247,.1)',
+                      border: '1px solid rgba(79,142,247,.25)',
+                      borderRadius: 6,
+                      padding: '2px 7px',
+                      fontSize: 9,
+                      fontWeight: 600,
+                      color: C.blue,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    + New Channel
+                  </button>
+                )}
               </div>
               {channelsLoading && (
                 <div style={{ padding: '8px 12px', fontSize: 11, color: C.t3 }}>
@@ -1482,9 +1911,44 @@ export default function PulseDashboard() {
                   <span style={{ fontSize: 10, color: C.t3 }}>
                     {activeRoom.type === 'dm' ? 'Direct message' : 'Channel'}
                   </span>
+                  {leaveError && (
+                    <span style={{ fontSize: 10, color: C.red }}>{leaveError}</span>
+                  )}
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                {isManagement && isNormalChannel(activeRoom) && (
+                  <button
+                    type="button"
+                    onClick={() => setMembersPanelOpen(true)}
+                    style={{
+                      background: 'rgba(79,142,247,.08)',
+                      border: '1px solid rgba(79,142,247,.2)',
+                      borderRadius: 6, padding: '4px 9px', fontSize: 10, color: C.blue,
+                      fontWeight: 600, cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', gap: 5,
+                    }}
+                  >
+                    <Users size={11} /> Members
+                  </button>
+                )}
+                {isNormalChannel(activeRoom) && (
+                  <button
+                    type="button"
+                    disabled={leavingChannel}
+                    onClick={() => void handleLeaveChannel()}
+                    style={{
+                      background: 'rgba(239,68,68,.08)',
+                      border: '1px solid rgba(239,68,68,.2)',
+                      borderRadius: 6, padding: '4px 9px', fontSize: 10, color: C.red,
+                      fontWeight: 600,
+                      cursor: leavingChannel ? 'not-allowed' : 'pointer',
+                      opacity: leavingChannel ? 0.6 : 1,
+                    }}
+                  >
+                    {leavingChannel ? 'Leaving…' : 'Leave channel'}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => dispatch({ type: 'SET_ANNOUNCE_MODE', value: true })}
@@ -1646,8 +2110,15 @@ export default function PulseDashboard() {
                         maxWidth: '85%',
                         opacity: msg.pending ? 0.75 : 1,
                       }}>
-                        {renderMessageBodyWithMentions(msg.body, mentionHighlights)}
+                        {msg.body ? renderMessageBodyWithMentions(msg.body, mentionHighlights) : null}
                       </div>
+                      {activeRoom && (
+                        <ChatMessageAttachment
+                          channelId={activeRoom.id}
+                          message={msg}
+                          cache={attachmentUrlCacheRef}
+                        />
+                      )}
                     </div>
                   </div>
                 );
@@ -1748,6 +2219,53 @@ export default function PulseDashboard() {
                     ))}
                   </div>
                 )}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1, minWidth: 0 }}>
+                  {(attachmentUploading || pendingAttachment) && (
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      background: C.bg4,
+                      border: `1px solid ${C.br2}`,
+                      borderRadius: 8,
+                      padding: '5px 8px',
+                    }}>
+                      <Paperclip size={12} color={C.blue} />
+                      <span style={{ fontSize: 11, color: C.t, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {attachmentUploading
+                          ? 'Uploading…'
+                          : (pendingAttachment?.file_name || 'Attachment')}
+                      </span>
+                      {!attachmentUploading && pendingAttachment && (
+                        <button
+                          type="button"
+                          onClick={() => setPendingAttachment(null)}
+                          aria-label="Remove attachment"
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: C.t3,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            padding: 2,
+                          }}
+                        >
+                          <X size={12} />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  <input
+                    ref={attachInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = '';
+                      if (file) void handlePickAttachment(file);
+                    }}
+                  />
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6 }}>
                   <button
                     type="button"
@@ -1766,6 +2284,26 @@ export default function PulseDashboard() {
                     }}
                   >
                     <AtSign size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={attachmentUploading}
+                    onClick={() => attachInputRef.current?.click()}
+                    title="Attach a file"
+                    style={{
+                      background: 'rgba(79,142,247,.1)',
+                      border: `1px solid rgba(79,142,247,.25)`,
+                      borderRadius: 7,
+                      padding: '7px 8px',
+                      color: C.blue,
+                      cursor: attachmentUploading ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      flexShrink: 0,
+                      opacity: attachmentUploading ? 0.55 : 1,
+                    }}
+                  >
+                    <Paperclip size={14} />
                   </button>
                   <textarea
                     ref={composerTextareaRef}
@@ -1793,17 +2331,18 @@ export default function PulseDashboard() {
                     }}
                   />
                 </div>
+                </div>
               </div>
               <button
                 type="button"
                 onClick={() => void handleSendMessage()}
-                disabled={!state.newMessage.trim()}
+                disabled={attachmentUploading || (!state.newMessage.trim() && !pendingAttachment)}
                 style={{
                   background: C.blue, color: '#fff',
                   border: 'none', borderRadius: 7,
                   padding: '7px 12px', fontSize: 11, fontWeight: 700,
-                  cursor: state.newMessage.trim() ? 'pointer' : 'not-allowed',
-                  opacity: state.newMessage.trim() ? 1 : 0.55,
+                  cursor: attachmentUploading || (!state.newMessage.trim() && !pendingAttachment) ? 'not-allowed' : 'pointer',
+                  opacity: attachmentUploading || (!state.newMessage.trim() && !pendingAttachment) ? 0.55 : 1,
                   display: 'flex', alignItems: 'center', gap: 5,
                 }}
               >
@@ -2039,6 +2578,34 @@ export default function PulseDashboard() {
         submitting={createTaskSubmitting}
         error={createTaskError}
       />
+
+      {isManagement && (
+        <NewChannelModal
+          open={newChannelModalOpen}
+          onClose={() => {
+            if (!createChannelSubmitting) setNewChannelModalOpen(false);
+          }}
+          onSubmit={handleCreateChannel}
+          users={channelPickerUsers}
+          usersLoading={channelPickerLoading}
+          usersError={channelPickerError}
+          onRetryUsers={() => void loadChannelPickerUsers()}
+          currentUserId={resolveAuthUserId(authUser)}
+          submitting={createChannelSubmitting}
+          error={createChannelError}
+        />
+      )}
+
+      {isManagement && activeRoom && isNormalChannel(activeRoom) && (
+        <ChannelMembersPanel
+          open={membersPanelOpen}
+          channelId={activeRoom.id}
+          channelName={activeRoom.name}
+          currentUserId={resolveAuthUserId(authUser)}
+          canRemove={true}
+          onClose={() => setMembersPanelOpen(false)}
+        />
+      )}
 
       {/* Announce modal */}
       {state.announceMode && (
