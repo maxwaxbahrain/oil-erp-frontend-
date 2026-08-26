@@ -13,6 +13,9 @@ import {
   createTask,
   updateTaskStatus,
   getMentionableUsers,
+  createChannel,
+  leaveChannel,
+  mapChannelWriteError,
   type ChatChannel,
   type ChatMessage,
   type ChatTask,
@@ -23,6 +26,8 @@ import {
 import { useAuth, type AuthRole } from '../../contexts/AuthContext';
 import api from '../../api/axios';
 import NewTaskModal from './NewTaskModal';
+import NewChannelModal from './NewChannelModal';
+import ChannelMembersPanel from './ChannelMembersPanel';
 
 const MESSAGE_POLL_MS = 4000;
 const TASKS_REFRESH_MS = 30_000;
@@ -176,6 +181,13 @@ function buildMentionHighlights(
   }
 
   return Array.from(byKey.values()).sort((a, b) => b.label.length - a.label.length);
+}
+
+function isNormalChannel(room: Room | undefined): boolean {
+  if (!room || room.type === 'dm') return false;
+  if (room.isDefault) return false;
+  if (room.name === 'General') return false;
+  return true;
 }
 
 function isOwnMessage(
@@ -446,6 +458,15 @@ export default function PulseDashboard() {
   const [newTaskModalOpen, setNewTaskModalOpen] = useState(false);
   const [createTaskSubmitting, setCreateTaskSubmitting] = useState(false);
   const [createTaskError, setCreateTaskError] = useState<string | null>(null);
+  const [newChannelModalOpen, setNewChannelModalOpen] = useState(false);
+  const [createChannelSubmitting, setCreateChannelSubmitting] = useState(false);
+  const [createChannelError, setCreateChannelError] = useState<string | null>(null);
+  const [channelPickerUsers, setChannelPickerUsers] = useState<MentionableUser[]>([]);
+  const [channelPickerLoading, setChannelPickerLoading] = useState(false);
+  const [channelPickerError, setChannelPickerError] = useState<string | null>(null);
+  const [membersPanelOpen, setMembersPanelOpen] = useState(false);
+  const [leavingChannel, setLeavingChannel] = useState(false);
+  const [leaveError, setLeaveError] = useState<string | null>(null);
   const [mentionableUsers, setMentionableUsers] = useState<MentionableUser[]>([]);
   const [pendingMentions, setPendingMentions] = useState<PendingMention[]>([]);
   const [mentionPopupOpen, setMentionPopupOpen] = useState(false);
@@ -465,13 +486,18 @@ export default function PulseDashboard() {
   const nearBottomRef = useRef(true);
   const initialScrollDoneRef = useRef(false);
 
-  const loadChannels = useCallback(async () => {
+  const loadChannels = useCallback(async (opts?: { selectRoomId?: number }) => {
     setChannelsLoading(true);
     setChannelsError(null);
     try {
       const rows = await getChannels();
       const rooms = rows.map(channelToRoom);
+      const selected =
+        opts?.selectRoomId != null
+          ? rooms.find((r) => r.id === opts.selectRoomId)
+          : undefined;
       const defaultRoom =
+        selected ??
         rooms.find((r) => r.isDefault) ??
         rooms.find((r) => r.type === 'channel') ??
         rooms[0];
@@ -622,6 +648,31 @@ export default function PulseDashboard() {
       void loadTenantUsers();
     }
   }, [dmPickerOpen, loadTenantUsers]);
+
+  const loadChannelPickerUsers = useCallback(async () => {
+    setChannelPickerLoading(true);
+    setChannelPickerError(null);
+    try {
+      const rows = await getMentionableUsers();
+      setChannelPickerUsers(rows);
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : 'Failed to load users';
+      setChannelPickerError(raw.replace(/\s*\(\d{3}\)\s*$/, ''));
+    } finally {
+      setChannelPickerLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (newChannelModalOpen) {
+      void loadChannelPickerUsers();
+    }
+  }, [newChannelModalOpen, loadChannelPickerUsers]);
+
+  useEffect(() => {
+    setMembersPanelOpen(false);
+    setLeaveError(null);
+  }, [state.activeRoomId]);
 
   useEffect(() => {
     if (!dmPickerOpen) return;
@@ -908,6 +959,44 @@ export default function PulseDashboard() {
       throw err;
     } finally {
       setCreateTaskSubmitting(false);
+    }
+  }
+
+  async function handleCreateChannel(payload: {
+    name: string;
+    member_user_ids: number[];
+  }) {
+    setCreateChannelSubmitting(true);
+    setCreateChannelError(null);
+    try {
+      const created = await createChannel(payload.name, payload.member_user_ids);
+      setNewChannelModalOpen(false);
+      await loadChannels({ selectRoomId: created.id });
+      if (isMobile) setMobileChatNavOpen(false);
+    } catch (err) {
+      const message = mapChannelWriteError(err, 'Failed to create channel');
+      setCreateChannelError(message);
+      throw err;
+    } finally {
+      setCreateChannelSubmitting(false);
+    }
+  }
+
+  async function handleLeaveChannel() {
+    const room = state.activeRoomId != null
+      ? state.rooms.find((r) => r.id === state.activeRoomId)
+      : undefined;
+    if (!room || !isNormalChannel(room)) return;
+    setLeavingChannel(true);
+    setLeaveError(null);
+    try {
+      await leaveChannel(room.id);
+      setMembersPanelOpen(false);
+      await loadChannels();
+    } catch (err) {
+      setLeaveError(mapChannelWriteError(err, 'Failed to leave channel'));
+    } finally {
+      setLeavingChannel(false);
     }
   }
 
@@ -1200,8 +1289,37 @@ export default function PulseDashboard() {
               }}
             >
               {/* ROOMS header */}
-              <div style={{ fontSize: 9, color: C.t3, fontWeight: 700, letterSpacing: '.7px', padding: '10px 12px 4px' }}>
-                ROOMS
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 6,
+                padding: '10px 12px 4px',
+              }}>
+                <div style={{ fontSize: 9, color: C.t3, fontWeight: 700, letterSpacing: '.7px' }}>
+                  ROOMS
+                </div>
+                {isManagement && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCreateChannelError(null);
+                      setNewChannelModalOpen(true);
+                    }}
+                    style={{
+                      background: 'rgba(79,142,247,.1)',
+                      border: '1px solid rgba(79,142,247,.25)',
+                      borderRadius: 6,
+                      padding: '2px 7px',
+                      fontSize: 9,
+                      fontWeight: 600,
+                      color: C.blue,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    + New Channel
+                  </button>
+                )}
               </div>
               {channelsLoading && (
                 <div style={{ padding: '8px 12px', fontSize: 11, color: C.t3 }}>
@@ -1482,9 +1600,44 @@ export default function PulseDashboard() {
                   <span style={{ fontSize: 10, color: C.t3 }}>
                     {activeRoom.type === 'dm' ? 'Direct message' : 'Channel'}
                   </span>
+                  {leaveError && (
+                    <span style={{ fontSize: 10, color: C.red }}>{leaveError}</span>
+                  )}
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                {isManagement && isNormalChannel(activeRoom) && (
+                  <button
+                    type="button"
+                    onClick={() => setMembersPanelOpen(true)}
+                    style={{
+                      background: 'rgba(79,142,247,.08)',
+                      border: '1px solid rgba(79,142,247,.2)',
+                      borderRadius: 6, padding: '4px 9px', fontSize: 10, color: C.blue,
+                      fontWeight: 600, cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', gap: 5,
+                    }}
+                  >
+                    <Users size={11} /> Members
+                  </button>
+                )}
+                {isNormalChannel(activeRoom) && (
+                  <button
+                    type="button"
+                    disabled={leavingChannel}
+                    onClick={() => void handleLeaveChannel()}
+                    style={{
+                      background: 'rgba(239,68,68,.08)',
+                      border: '1px solid rgba(239,68,68,.2)',
+                      borderRadius: 6, padding: '4px 9px', fontSize: 10, color: C.red,
+                      fontWeight: 600,
+                      cursor: leavingChannel ? 'not-allowed' : 'pointer',
+                      opacity: leavingChannel ? 0.6 : 1,
+                    }}
+                  >
+                    {leavingChannel ? 'Leaving…' : 'Leave channel'}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => dispatch({ type: 'SET_ANNOUNCE_MODE', value: true })}
@@ -2039,6 +2192,34 @@ export default function PulseDashboard() {
         submitting={createTaskSubmitting}
         error={createTaskError}
       />
+
+      {isManagement && (
+        <NewChannelModal
+          open={newChannelModalOpen}
+          onClose={() => {
+            if (!createChannelSubmitting) setNewChannelModalOpen(false);
+          }}
+          onSubmit={handleCreateChannel}
+          users={channelPickerUsers}
+          usersLoading={channelPickerLoading}
+          usersError={channelPickerError}
+          onRetryUsers={() => void loadChannelPickerUsers()}
+          currentUserId={resolveAuthUserId(authUser)}
+          submitting={createChannelSubmitting}
+          error={createChannelError}
+        />
+      )}
+
+      {isManagement && activeRoom && isNormalChannel(activeRoom) && (
+        <ChannelMembersPanel
+          open={membersPanelOpen}
+          channelId={activeRoom.id}
+          channelName={activeRoom.name}
+          currentUserId={resolveAuthUserId(authUser)}
+          canRemove={true}
+          onClose={() => setMembersPanelOpen(false)}
+        />
+      )}
 
       {/* Announce modal */}
       {state.announceMode && (

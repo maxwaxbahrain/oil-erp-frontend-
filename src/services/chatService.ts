@@ -33,6 +33,23 @@ export interface CreateChannelResponse {
     name: string;
     type: string;
     is_default: boolean;
+    member_user_ids: number[];
+}
+
+export interface ChannelMember {
+    id: number;
+    username: string;
+    full_name: string | null;
+    is_active: boolean;
+    joined_at: string;
+}
+
+export interface ChannelMembersMutationResponse {
+    member_user_ids: number[];
+}
+
+export interface LeaveChannelResponse {
+    ok: boolean;
 }
 
 export interface SendMessageResponse {
@@ -88,6 +105,61 @@ function fromApiMessage(raw: Record<string, unknown>): ChatMessage {
     };
 }
 
+function parseMemberUserIds(raw: unknown): number[] {
+    return Array.isArray(raw) ? raw.map((id) => Number(id)) : [];
+}
+
+function fromApiChannelMember(raw: Record<string, unknown>): ChannelMember {
+    return {
+        id: Number(raw.id),
+        username: String(raw.username ?? ''),
+        full_name: raw.full_name != null ? String(raw.full_name) : null,
+        is_active: Boolean(raw.is_active),
+        joined_at: String(raw.joined_at ?? ''),
+    };
+}
+
+async function readErrorDetail(r: Response): Promise<string | null> {
+    try {
+        const body = (await r.json()) as Record<string, unknown>;
+        if (typeof body.detail === 'string' && body.detail.trim()) {
+            return body.detail.trim();
+        }
+        if (Array.isArray(body.detail)) {
+            const first = body.detail[0] as Record<string, unknown> | undefined;
+            if (first && typeof first.msg === 'string' && first.msg.trim()) {
+                return first.msg.trim();
+            }
+        }
+    } catch {
+        /* ignore unreadable error bodies */
+    }
+    return null;
+}
+
+function chatRequestError(status: number, message: string): Error {
+    const err = new Error(message);
+    (err as Error & { status: number }).status = status;
+    return err;
+}
+
+export function getChatErrorStatus(err: unknown): number | null {
+    if (typeof err === 'object' && err !== null && 'status' in err) {
+        const status = Number((err as { status: unknown }).status);
+        return Number.isFinite(status) ? status : null;
+    }
+    return null;
+}
+
+export function mapChannelWriteError(err: unknown, fallback: string): string {
+    const status = getChatErrorStatus(err);
+    const raw = err instanceof Error && err.message.trim() ? err.message.trim() : fallback;
+    if (status === 409) return 'A channel with that name already exists';
+    if (status === 403) return "You don't have permission";
+    if (status === 400 || status === 404) return raw;
+    return raw;
+}
+
 export async function getChannels(): Promise<ChatChannel[]> {
     const r = await authFetch(`${CHAT_API}/channels`);
     if (!r.ok) throw new Error(`Failed to load chat channels (${r.status})`);
@@ -97,14 +169,100 @@ export async function getChannels(): Promise<ChatChannel[]> {
     );
 }
 
-export async function createChannel(name: string): Promise<CreateChannelResponse> {
+export async function createChannel(
+    name: string,
+    memberUserIds: number[],
+): Promise<CreateChannelResponse> {
     const r = await authFetch(`${CHAT_API}/channels`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, member_user_ids: memberUserIds }),
     });
-    if (!r.ok) throw new Error(`Failed to create channel (${r.status})`);
-    return (await r.json()) as CreateChannelResponse;
+    if (!r.ok) {
+        throw chatRequestError(
+            r.status,
+            (await readErrorDetail(r)) || 'Failed to create channel',
+        );
+    }
+    const raw = (await r.json()) as Record<string, unknown>;
+    return {
+        id: Number(raw.id),
+        name: String(raw.name ?? ''),
+        type: String(raw.type ?? 'channel'),
+        is_default: Boolean(raw.is_default),
+        member_user_ids: parseMemberUserIds(raw.member_user_ids),
+    };
+}
+
+export async function getChannelMembers(channelId: number): Promise<ChannelMember[]> {
+    const r = await authFetch(
+        `${CHAT_API}/channels/${encodeURIComponent(String(channelId))}/members`,
+    );
+    if (!r.ok) {
+        throw chatRequestError(
+            r.status,
+            (await readErrorDetail(r)) || 'Failed to load channel members',
+        );
+    }
+    const rows = await r.json();
+    return (Array.isArray(rows) ? rows : []).map((row) =>
+        fromApiChannelMember(row as Record<string, unknown>),
+    );
+}
+
+export async function addChannelMembers(
+    channelId: number,
+    userIds: number[],
+): Promise<ChannelMembersMutationResponse> {
+    const r = await authFetch(
+        `${CHAT_API}/channels/${encodeURIComponent(String(channelId))}/members`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_ids: userIds }),
+        },
+    );
+    if (!r.ok) {
+        throw chatRequestError(
+            r.status,
+            (await readErrorDetail(r)) || 'Failed to add channel members',
+        );
+    }
+    const raw = (await r.json()) as Record<string, unknown>;
+    return { member_user_ids: parseMemberUserIds(raw.member_user_ids) };
+}
+
+export async function removeChannelMember(
+    channelId: number,
+    userId: number,
+): Promise<ChannelMembersMutationResponse> {
+    const r = await authFetch(
+        `${CHAT_API}/channels/${encodeURIComponent(String(channelId))}/members/${encodeURIComponent(String(userId))}`,
+        { method: 'DELETE' },
+    );
+    if (!r.ok) {
+        throw chatRequestError(
+            r.status,
+            (await readErrorDetail(r)) || 'Failed to remove channel member',
+        );
+    }
+    const raw = (await r.json()) as Record<string, unknown>;
+    return { member_user_ids: parseMemberUserIds(raw.member_user_ids) };
+}
+
+export async function leaveChannel(channelId: number): Promise<LeaveChannelResponse> {
+    const r = await authFetch(
+        `${CHAT_API}/channels/${encodeURIComponent(String(channelId))}/leave`,
+        { method: 'POST' },
+    );
+    if (!r.ok) {
+        throw chatRequestError(
+            r.status,
+            (await readErrorDetail(r)) || 'Failed to leave channel',
+        );
+    }
+    const raw = (await r.json()) as Record<string, unknown>;
+    return { ok: Boolean(raw.ok) };
 }
 
 export async function getMessages(
