@@ -6,7 +6,7 @@ import {
 import { useMeetingRecorder, TRANSCRIPT_SAVED_RETRY, type MeetingNote } from '../../hooks/useMeetingRecorder';
 import jsPDF from 'jspdf';
 import { getEmployees, type Employee } from '../../services/payrollService';
-import { getChannels, sendMessage } from '../../services/chatService';
+import { getChannels, sendMessage, type ChatChannel } from '../../services/chatService';
 import {
   deleteMeeting,
   getMeeting,
@@ -27,6 +27,16 @@ function formatDate(isoStr: string) {
   return new Date(isoStr).toLocaleDateString(undefined, { 
     year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' 
   });
+}
+
+function buildPulseShareText(note: MeetingNote | MeetingListItem): string {
+  const header = `📄 Meeting Notes: ${note.title}\n📅 Date: ${formatDate(note.meeting_date)}\n👥 Attendees: ${note.members?.join(', ') || 'None'}`;
+  const decisions = `✅ Decisions:\n${note.decisions?.map(d => '• ' + d.decision).join('\n') || 'None'}`;
+  const actions = `🎯 Action Items:\n${note.action_items?.map(a => '• [' + a.owner + '] ' + a.task).join('\n') || 'None'}`;
+  if ((note.summary || '').trim()) {
+    return `${header}\n\n📝 Summary:\n${note.summary}\n\n${decisions}\n\n${actions}`;
+  }
+  return `${header}\n\n${decisions}\n\n${actions}`;
 }
 
 export default function MeetingNotes() {
@@ -59,6 +69,12 @@ export default function MeetingNotes() {
   // Feature 3: Share menu
   const [shareOpenId, setShareOpenId] = useState<number | 'recent' | null>(null);
   const shareMenuRef = useRef<HTMLDivElement>(null);
+  const [pulseShareNote, setPulseShareNote] = useState<MeetingNote | MeetingListItem | null>(null);
+  const [pulseChannels, setPulseChannels] = useState<ChatChannel[]>([]);
+  const [pulseChannelId, setPulseChannelId] = useState<number | null>(null);
+  const [pulseShareStatus, setPulseShareStatus] = useState<'idle' | 'loading' | 'posting' | 'success' | 'error'>('idle');
+  const [pulseShareMessage, setPulseShareMessage] = useState<string | null>(null);
+  const [sharedInSession, setSharedInSession] = useState<Partial<Record<number | 'recent', string>>>({});
 
   const refreshNotes = async (): Promise<MeetingListItem[]> => {
     try {
@@ -297,23 +313,59 @@ export default function MeetingNotes() {
   };
 
   // FEATURE 3: Share Options
-  const shareToPulse = async (note: MeetingNote | MeetingListItem) => {
-    const summary = `📄 Meeting Notes: ${note.title}\n📅 Date: ${formatDate(note.meeting_date)}\n👥 Attendees: ${note.members?.join(', ') || 'None'}\n\n📝 Summary:\n${note.summary}\n\n✅ Decisions:\n${note.decisions?.map(d => '• ' + d.decision).join('\n') || 'None'}\n\n🎯 Action Items:\n${note.action_items?.map(a => '• [' + a.owner + '] ' + a.task).join('\n') || 'None'}`;
+  const sessionShareKey = (note: MeetingNote | MeetingListItem): number | 'recent' =>
+    note.id ?? 'recent';
 
-    try {
-      const channels = await getChannels();
-      const general =
-        channels.find((c) => c.is_default) ??
-        channels.find((c) => c.type === 'channel');
-      if (!general) {
-        throw new Error('General channel not found');
-      }
-      await sendMessage(general.id, summary);
-      alert('Shared to Pulse (General) successfully!');
-    } catch {
-      alert('Failed to share to Pulse.');
-    }
+  const openPulsePicker = async (note: MeetingNote | MeetingListItem) => {
     setShareOpenId(null);
+    setPulseShareNote(note);
+    setPulseShareStatus('loading');
+    setPulseShareMessage(null);
+    setPulseChannelId(null);
+    try {
+      const channels = (await getChannels()).filter((c) => c.type === 'channel');
+      setPulseChannels(channels);
+      const preferred = channels.find((c) => c.is_default) ?? channels[0];
+      setPulseChannelId(preferred ? preferred.id : null);
+      if (channels.length === 0) {
+        setPulseShareStatus('error');
+        setPulseShareMessage('No Pulse channels available.');
+      } else {
+        setPulseShareStatus('idle');
+      }
+    } catch {
+      setPulseChannels([]);
+      setPulseShareStatus('error');
+      setPulseShareMessage('Could not load Pulse channels.');
+    }
+  };
+
+  const closePulsePicker = () => {
+    setPulseShareNote(null);
+    setPulseChannels([]);
+    setPulseChannelId(null);
+    setPulseShareStatus('idle');
+    setPulseShareMessage(null);
+  };
+
+  const confirmPulseShare = async () => {
+    if (!pulseShareNote || pulseChannelId == null) return;
+    const channel = pulseChannels.find((c) => c.id === pulseChannelId);
+    if (!channel) return;
+    setPulseShareStatus('posting');
+    setPulseShareMessage(null);
+    try {
+      await sendMessage(channel.id, buildPulseShareText(pulseShareNote), []);
+      setPulseShareStatus('success');
+      setPulseShareMessage(`Shared to Pulse (${channel.name}) successfully!`);
+      setSharedInSession((prev) => ({
+        ...prev,
+        [sessionShareKey(pulseShareNote)]: channel.name,
+      }));
+    } catch {
+      setPulseShareStatus('error');
+      setPulseShareMessage('Failed to share to Pulse.');
+    }
   };
 
   const shareViaEmail = (note: MeetingNote | MeetingListItem) => {
@@ -530,11 +582,15 @@ export default function MeetingNotes() {
                 </button>
                 {shareOpenId === 'recent' && (
                   <div className="absolute right-0 top-full mt-2 w-64 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden">
-                    <button onClick={() => shareToPulse(lastNote)} className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 border-b border-gray-100 transition-colors">
+                    <button onClick={() => void openPulsePicker(lastNote)} className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 border-b border-gray-100 transition-colors">
                       <MessageSquare size={16} className="text-gray-500" />
                       <div>
                         <div className="text-sm font-bold text-gray-900">Pulse Team Chat</div>
-                        <div className="text-xs text-gray-500">Post to General channel</div>
+                        <div className="text-xs text-gray-500">
+                          {sharedInSession[sessionShareKey(lastNote)]
+                            ? `Shared to ${sharedInSession[sessionShareKey(lastNote)]} (this session)`
+                            : 'Choose a Pulse channel'}
+                        </div>
                       </div>
                     </button>
                     <button onClick={() => shareViaEmail(lastNote)} className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 border-b border-gray-100 transition-colors">
@@ -714,9 +770,13 @@ export default function MeetingNotes() {
                         </button>
                         {shareOpenId === note.id && (
                           <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden">
-                            <button onClick={() => shareToPulse(note)} className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 border-b border-gray-100 transition-colors">
+                            <button onClick={() => void openPulsePicker(note)} className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 border-b border-gray-100 transition-colors">
                               <MessageSquare size={14} className="text-gray-500" />
-                              <span className="text-sm font-bold text-gray-900">Pulse Chat</span>
+                              <span className="text-sm font-bold text-gray-900">
+                                {sharedInSession[note.id]
+                                  ? `Pulse Chat · ${sharedInSession[note.id]} (this session)`
+                                  : 'Pulse Chat'}
+                              </span>
                             </button>
                             <button onClick={() => shareViaEmail(note)} className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 border-b border-gray-100 transition-colors">
                               <Mail size={14} className="text-gray-500" />
@@ -798,6 +858,103 @@ export default function MeetingNotes() {
           </div>
         )}
       </div>
+
+      {/* Pulse channel picker — session-only "already shared"; API cannot persist shared_message_id */}
+      {pulseShareNote && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+            <div className="bg-purple-600 p-6 flex items-center justify-between text-white">
+              <div className="flex items-center gap-3">
+                <MessageSquare size={28} />
+                <h2 className="text-xl font-black">Share to Pulse</h2>
+              </div>
+              <button onClick={closePulsePicker} className="text-purple-100 hover:text-white transition-colors">
+                <X size={24} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-gray-600 font-medium">
+                Choose a channel for “{pulseShareNote.title}”.
+              </p>
+              {pulseShareStatus === 'loading' ? (
+                <div className="flex items-center justify-center gap-2 py-8 text-purple-600 font-bold">
+                  <Loader2 size={24} className="animate-spin" />
+                  Loading channels...
+                </div>
+              ) : (
+                <div className="border border-gray-200 rounded-xl max-h-64 overflow-y-auto">
+                  {pulseChannels.length === 0 ? (
+                    <div className="p-4 text-sm text-gray-500 text-center">No channels to share to.</div>
+                  ) : (
+                    pulseChannels.map((channel) => (
+                      <label
+                        key={channel.id}
+                        className={`flex items-center gap-3 px-4 py-3 cursor-pointer border-b border-gray-100 last:border-0 ${
+                          pulseChannelId === channel.id ? 'bg-purple-50' : 'hover:bg-gray-50'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="pulse-channel"
+                          checked={pulseChannelId === channel.id}
+                          onChange={() => setPulseChannelId(channel.id)}
+                          disabled={pulseShareStatus === 'posting' || pulseShareStatus === 'success'}
+                        />
+                        <div>
+                          <div className="text-sm font-bold text-gray-900">{channel.name}</div>
+                          {channel.is_default && (
+                            <div className="text-xs text-purple-600 font-medium">Default channel</div>
+                          )}
+                        </div>
+                      </label>
+                    ))
+                  )}
+                </div>
+              )}
+              {pulseShareMessage && (
+                <div
+                  className={`p-3 rounded-xl text-sm font-medium ${
+                    pulseShareStatus === 'success'
+                      ? 'bg-green-50 border border-green-200 text-green-800'
+                      : 'bg-red-50 border border-red-200 text-red-700'
+                  }`}
+                >
+                  {pulseShareMessage}
+                </div>
+              )}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={closePulsePicker}
+                  className="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold transition-colors"
+                >
+                  {pulseShareStatus === 'success' ? 'Done' : 'Cancel'}
+                </button>
+                {pulseShareStatus !== 'success' && (
+                  <button
+                    onClick={() => void confirmPulseShare()}
+                    disabled={
+                      pulseChannelId == null ||
+                      pulseShareStatus === 'loading' ||
+                      pulseShareStatus === 'posting' ||
+                      pulseChannels.length === 0
+                    }
+                    className="flex-1 px-4 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {pulseShareStatus === 'posting' ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" />
+                        Sharing...
+                      </>
+                    ) : (
+                      'Share'
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* FEATURE 1: Google Meet Extension Modal */}
       {showMeetNotice && (
