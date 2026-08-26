@@ -41,7 +41,7 @@ function buildPulseShareText(note: MeetingNote | MeetingListItem): string {
 }
 
 export default function MeetingNotes() {
-  const { status, isSupported, liveTranscript, duration, startRecording, stopRecording, analyzeTranscript, lastNote, error } = useMeetingRecorder();
+  const { status, isSupported, liveTranscript, duration, startRecording, stopRecording, analyzeTranscript, lastNote, error, tabBackgroundWarning } = useMeetingRecorder();
   
   const [title, setTitle] = useState('');
   const [savedNotes, setSavedNotes] = useState<MeetingListItem[]>([]);
@@ -391,7 +391,7 @@ export default function MeetingNotes() {
         </div>
         <div>
           <h1 className="text-2xl font-black text-gray-900">Meeting Notes</h1>
-          <p className="text-gray-500">Live AI transcription & action item extraction</p>
+          <p className="text-gray-500">Listens through this device&apos;s microphone and summarises with AI</p>
         </div>
       </div>
 
@@ -467,27 +467,43 @@ export default function MeetingNotes() {
                 <Mic size={24} /> Start Recording
               </button>
             </div>
+            <p className="text-sm text-gray-500">
+              Microphone only — best for in-room meetings. Phone or video calls on another device may be picked up poorly.
+            </p>
           </div>
         ) : status === 'recording' ? (
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-4">
-                <div className="w-4 h-4 bg-red-500 rounded-full animate-pulse" />
-                <div className="text-lg font-black text-gray-900">{title || 'Team Meeting'}</div>
-                <div className="text-gray-500 font-mono bg-gray-100 px-3 py-1 rounded-lg">{formatDuration(duration)}</div>
-              </div>
-              {members.length > 0 && (
-                <div className="text-sm text-gray-500 font-medium">
-                  Attendees: {members.join(', ')}
+          <div className="space-y-4">
+            <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-4">
+                  <div className="w-4 h-4 bg-red-500 rounded-full animate-pulse" />
+                  <div className="text-lg font-black text-gray-900">{title || 'Team Meeting'}</div>
+                  <div className="text-gray-500 font-mono bg-gray-100 px-3 py-1 rounded-lg">{formatDuration(duration)}</div>
                 </div>
-              )}
+                {members.length > 0 && (
+                  <div className="text-sm text-gray-500 font-medium">
+                    Attendees: {members.join(', ')}
+                  </div>
+                )}
+              </div>
+              <button 
+                onClick={stopRecording}
+                className="w-full md:w-auto bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors"
+              >
+                <Square size={20} fill="currentColor" /> Stop & Process
+              </button>
             </div>
-            <button 
-              onClick={stopRecording}
-              className="w-full md:w-auto bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors"
-            >
-              <Square size={20} fill="currentColor" /> Stop & Process
-            </button>
+            <p className="text-sm text-gray-500">
+              Keep this tab open and in front of you, with your microphone enabled.
+            </p>
+            {tabBackgroundWarning && (
+              <div className="bg-amber-50 border border-amber-200 text-amber-900 p-4 rounded-xl flex items-start gap-3">
+                <AlertCircle size={20} className="shrink-0 mt-0.5" />
+                <p className="text-sm font-medium">
+                  This tab was in the background during recording. Some speech may not have been captured.
+                </p>
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center gap-3 py-8 text-purple-600 font-bold">
