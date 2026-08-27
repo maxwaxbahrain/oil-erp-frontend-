@@ -3,17 +3,21 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Copy, RefreshCw, Send } from 'lucide-react';
 import {
     deleteMarketingPost,
+    listMarketingConnections,
     listMarketingPosts,
+    publishMarketingPost,
     updateMarketingPost,
+    type MarketingConnection,
     type MarketingPost,
 } from '../../services/api';
 
-type StatusTab = 'all' | 'draft' | 'approved' | 'archived';
+type StatusTab = 'all' | 'draft' | 'approved' | 'archived' | 'posted';
 
 const TABS: { id: StatusTab; label: string }[] = [
     { id: 'all', label: 'All' },
     { id: 'draft', label: 'Draft' },
     { id: 'approved', label: 'Approved' },
+    { id: 'posted', label: 'Posted' },
     { id: 'archived', label: 'Archived' },
 ];
 
@@ -29,6 +33,7 @@ const LOAD_ERROR = "Couldn't load posts. Check your connection and try again.";
 const ACTION_ERROR = "Couldn't update the post. Try again.";
 const DELETE_ERROR = "Couldn't delete the post. Try again.";
 const COPY_ERROR = "Couldn't copy to the clipboard.";
+const NO_CONNECTIONS_ERROR = 'No social accounts connected yet.';
 
 function formatCreatedAt(iso: string): string {
     const d = new Date(iso);
@@ -40,6 +45,21 @@ function formatCreatedAt(iso: string): string {
         hour: 'numeric',
         minute: '2-digit',
     });
+}
+
+function mapPublishError(err: unknown): string {
+    const text = err instanceof Error ? err.message : String(err);
+    const lower = text.toLowerCase();
+    if (lower.includes('not configured')) {
+        return 'Publishing is not configured on this server.';
+    }
+    if (text.includes('Already')) {
+        return 'This post was already published.';
+    }
+    if (lower.includes('approved')) {
+        return 'Only approved posts can be published.';
+    }
+    return 'Publishing failed. Try again.';
 }
 
 function truncateBody(body: string, limit = 200): { text: string; truncated: boolean } {
@@ -56,6 +76,8 @@ export default function MarketingQueue() {
     const [expanded, setExpanded] = useState<Record<number, boolean>>({});
     const [busyId, setBusyId] = useState<number | null>(null);
     const [copiedId, setCopiedId] = useState<number | null>(null);
+    const [connections, setConnections] = useState<MarketingConnection[] | null>(null);
+    const [pickerPostId, setPickerPostId] = useState<number | null>(null);
 
     const fetchPosts = useCallback(async (statusTab: StatusTab) => {
         setLoading(true);
@@ -94,6 +116,56 @@ export default function MarketingQueue() {
         } finally {
             setBusyId(null);
         }
+    };
+
+    const loadConnections = async (): Promise<MarketingConnection[]> => {
+        if (connections !== null) return connections;
+        const rows = await listMarketingConnections();
+        setConnections(rows);
+        return rows;
+    };
+
+    const runPublish = (postId: number, platformId: string) => {
+        if (busyId !== null) return;
+        setBusyId(postId);
+        setError(null);
+        void (async () => {
+            try {
+                await publishMarketingPost(postId, platformId);
+                setPickerPostId(null);
+                await fetchPosts(tab);
+            } catch (err) {
+                setError(mapPublishError(err));
+            } finally {
+                setBusyId(null);
+            }
+        })();
+    };
+
+    const onPublishClick = (post: MarketingPost) => {
+        if (busyId !== null) return;
+        setBusyId(post.id);
+        setError(null);
+        setPickerPostId(null);
+        void (async () => {
+            try {
+                const conns = await loadConnections();
+                if (conns.length === 0) {
+                    setError(NO_CONNECTIONS_ERROR);
+                    return;
+                }
+                if (conns.length === 1) {
+                    await publishMarketingPost(post.id, conns[0].platform_id);
+                    await fetchPosts(tab);
+                    return;
+                }
+                setPickerPostId(post.id);
+            } catch (err) {
+                setError(mapPublishError(err));
+            } finally {
+                setBusyId(null);
+            }
+        })();
     };
 
     const applyStatus = (id: number, status: 'draft' | 'approved' | 'archived') => {
@@ -140,6 +212,11 @@ export default function MarketingQueue() {
         }
         if (post.status === 'approved') {
             items.push({
+                label: 'Publish',
+                onClick: () => onPublishClick(post),
+                className: `${btn} border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100`,
+            });
+            items.push({
                 label: 'Back to draft',
                 onClick: () => applyStatus(post.id, 'draft'),
                 className: `${btn} border-gray-200 bg-white text-gray-700 hover:bg-gray-50`,
@@ -170,14 +247,41 @@ export default function MarketingQueue() {
         });
 
         return (
-            <div className="flex flex-wrap gap-2">
-                {items.map((item) => (
-                    <button key={item.label === 'Copied' ? 'Copy' : item.label} type="button" disabled={disabled} onClick={item.onClick} className={item.className}>
-                        {item.label === 'Copy' || item.label === 'Copied' ? (
-                            <span className="inline-flex items-center gap-1"><Copy size={12} /> {item.label}</span>
-                        ) : item.label}
-                    </button>
-                ))}
+            <div className="flex flex-col gap-2">
+                <div className="flex flex-wrap gap-2">
+                    {items.map((item) => (
+                        <button key={item.label === 'Copied' ? 'Copy' : item.label} type="button" disabled={disabled} onClick={item.onClick} className={item.className}>
+                            {item.label === 'Copy' || item.label === 'Copied' ? (
+                                <span className="inline-flex items-center gap-1"><Copy size={12} /> {item.label}</span>
+                            ) : item.label}
+                        </button>
+                    ))}
+                </div>
+                {pickerPostId === post.id && connections && connections.length > 1 && (
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Publish to</span>
+                        {connections.map((conn) => (
+                            <button
+                                key={conn.platform_id}
+                                type="button"
+                                disabled={disabled}
+                                onClick={() => runPublish(post.id, conn.platform_id)}
+                                className={`${btn} border-purple-200 bg-white text-purple-800 hover:bg-purple-50`}
+                            >
+                                {conn.platform}
+                                {conn.username ? ` · ${conn.username}` : ''}
+                            </button>
+                        ))}
+                        <button
+                            type="button"
+                            disabled={disabled}
+                            onClick={() => setPickerPostId(null)}
+                            className={`${btn} border-gray-200 bg-white text-gray-600 hover:bg-gray-50`}
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                )}
             </div>
         );
     };
@@ -271,13 +375,24 @@ export default function MarketingQueue() {
                                 <div className="flex items-start justify-between gap-3 flex-wrap">
                                     <div>
                                         <p className="text-base font-black text-gray-900">{post.title}</p>
+                                        {post.trigger_reason && (
+                                            <p className="text-xs italic text-gray-500 mt-0.5">{post.trigger_reason}</p>
+                                        )}
                                         <div className="flex flex-wrap items-center gap-2 mt-1">
                                             <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">{post.platform}</span>
                                             <span className={`text-[10px] font-black px-2 py-1 rounded-full ${STATUS_STYLE[post.status] || 'bg-gray-100 text-gray-600'}`}>
                                                 {post.status}
                                             </span>
                                             <span className="text-xs font-mono text-gray-400">{formatCreatedAt(post.created_at)}</span>
+                                            {post.status === 'posted' && post.posted_at && (
+                                                <span className="text-xs font-mono text-gray-400">
+                                                    Posted {formatCreatedAt(post.posted_at)}
+                                                </span>
+                                            )}
                                         </div>
+                                        {post.publish_error && (
+                                            <p className="text-xs text-amber-700 mt-1">{post.publish_error}</p>
+                                        )}
                                     </div>
                                 </div>
                                 <p className="text-sm text-gray-600 mt-3 leading-relaxed whitespace-pre-wrap">

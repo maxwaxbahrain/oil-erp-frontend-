@@ -1360,8 +1360,19 @@ export interface MarketingPost {
   model_used: string | null;
   scheduled_for: string | null;
   posted_at: string | null;
+  publora_post_group_id: string | null;
+  published_platform_id: string | null;
+  publish_error: string | null;
+  trigger_reason: string | null;
   created_at: string;
   updated_at: string | null;
+}
+
+export interface MarketingConnection {
+  platform_id: string;
+  platform: string;
+  username: string | null;
+  token_expires_at: string | null;
 }
 
 export const generateMarketingPosts = (params: {
@@ -1429,3 +1440,15 @@ export const updateMarketingPost = (
 
 export const deleteMarketingPost = (id: number): Promise<void> =>
   apiRequest<void>(`/marketing/posts/${id}`, { method: 'DELETE' });
+
+export const listMarketingConnections = (): Promise<MarketingConnection[]> =>
+  apiRequest<MarketingConnection[]>('/marketing/connections');
+
+export const publishMarketingPost = (
+  id: number,
+  platform_id: string,
+): Promise<MarketingPost> =>
+  apiRequest<MarketingPost>(`/marketing/posts/${id}/publish`, {
+    method: 'POST',
+    body: JSON.stringify({ platform_id }),
+  });
