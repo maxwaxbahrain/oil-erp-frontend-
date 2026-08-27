@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Copy, RefreshCw, Send } from 'lucide-react';
+import { ArrowLeft, Copy, ImagePlus, RefreshCw, Send } from 'lucide-react';
 import {
     deleteMarketingPost,
+    deleteMarketingPostMedia,
     listMarketingConnections,
     listMarketingPosts,
     publishMarketingPost,
     updateMarketingPost,
+    uploadMarketingPostMedia,
     type MarketingConnection,
     type MarketingPost,
 } from '../../services/api';
@@ -62,6 +64,27 @@ function mapPublishError(err: unknown): string {
     return 'Publishing failed. Try again.';
 }
 
+function mapMediaError(err: unknown): string {
+    const text = err instanceof Error ? err.message : String(err);
+    const lower = text.toLowerCase();
+    if (text.includes('10 MB') || lower.includes('too large')) {
+        return 'Image is too large (max 10 MB).';
+    }
+    if (lower.includes('does not match')) {
+        return "That file doesn't look like a real image.";
+    }
+    if (lower.includes('unsupported')) {
+        return 'Only JPG, PNG and WebP images are supported.';
+    }
+    if (lower.includes('not configured')) {
+        return 'Image storage is not set up on this server.';
+    }
+    if (lower.includes('published')) {
+        return "A published post can't be changed.";
+    }
+    return "Couldn't upload the image. Try again.";
+}
+
 function truncateBody(body: string, limit = 200): { text: string; truncated: boolean } {
     if (body.length <= limit) return { text: body, truncated: false };
     return { text: body.slice(0, limit).trimEnd() + '…', truncated: true };
@@ -78,6 +101,8 @@ export default function MarketingQueue() {
     const [copiedId, setCopiedId] = useState<number | null>(null);
     const [connections, setConnections] = useState<MarketingConnection[] | null>(null);
     const [pickerPostId, setPickerPostId] = useState<number | null>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [uploadTargetId, setUploadTargetId] = useState<number | null>(null);
 
     const fetchPosts = useCallback(async (statusTab: StatusTab) => {
         setLoading(true);
@@ -198,6 +223,49 @@ export default function MarketingQueue() {
         }
     };
 
+    const onAddImageClick = (postId: number) => {
+        if (busyId !== null) return;
+        setUploadTargetId(postId);
+        fileInputRef.current?.click();
+    };
+
+    const onFileInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        const postId = uploadTargetId;
+        setUploadTargetId(null);
+        if (!file || postId === null || busyId !== null) return;
+
+        setBusyId(postId);
+        setError(null);
+        void (async () => {
+            try {
+                await uploadMarketingPostMedia(postId, file);
+                await fetchPosts(tab);
+            } catch (err) {
+                setError(mapMediaError(err));
+            } finally {
+                setBusyId(null);
+            }
+        })();
+    };
+
+    const onRemoveImage = (postId: number) => {
+        if (busyId !== null) return;
+        setBusyId(postId);
+        setError(null);
+        void (async () => {
+            try {
+                await deleteMarketingPostMedia(postId);
+                await fetchPosts(tab);
+            } catch (err) {
+                setError(mapMediaError(err));
+            } finally {
+                setBusyId(null);
+            }
+        })();
+    };
+
     const actionButtons = (post: MarketingPost) => {
         const disabled = busyId === post.id;
         const btn = 'text-xs font-black px-3 py-1.5 rounded-lg border transition-all disabled:opacity-50';
@@ -235,6 +303,14 @@ export default function MarketingQueue() {
             });
         }
 
+        if (post.status !== 'posted') {
+            items.push({
+                label: 'Add image',
+                onClick: () => onAddImageClick(post.id),
+                className: `${btn} border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100`,
+            });
+        }
+
         items.push({
             label: copiedId === post.id ? 'Copied' : 'Copy',
             onClick: () => { void onCopy(post); },
@@ -253,6 +329,8 @@ export default function MarketingQueue() {
                         <button key={item.label === 'Copied' ? 'Copy' : item.label} type="button" disabled={disabled} onClick={item.onClick} className={item.className}>
                             {item.label === 'Copy' || item.label === 'Copied' ? (
                                 <span className="inline-flex items-center gap-1"><Copy size={12} /> {item.label}</span>
+                            ) : item.label === 'Add image' ? (
+                                <span className="inline-flex items-center gap-1"><ImagePlus size={12} /> {item.label}</span>
                             ) : item.label}
                         </button>
                     ))}
@@ -288,6 +366,13 @@ export default function MarketingQueue() {
 
     return (
         <div className="space-y-5 max-w-[1100px] mx-auto pb-10">
+            <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={onFileInputChange}
+            />
             <div className="bg-gradient-to-r from-purple-900 to-pink-900 rounded-2xl p-6 text-white">
                 <button onClick={() => navigate('/marketing')} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-white mb-3"><ArrowLeft size={14} /> Marketing Hub</button>
                 <div className="flex items-center justify-between flex-wrap gap-4">
@@ -406,6 +491,32 @@ export default function MarketingQueue() {
                                     >
                                         {isOpen ? 'Show less' : 'Show more'}
                                     </button>
+                                )}
+                                {post.media_url && (
+                                    <div className="mt-3 flex items-start gap-3 flex-wrap">
+                                        <img
+                                            src={post.media_url}
+                                            alt={post.media_file_name || 'Post image'}
+                                            className="max-h-[120px] rounded-xl border border-gray-100 object-contain bg-gray-50"
+                                        />
+                                        <div className="flex flex-col gap-2 min-w-0">
+                                            {post.media_file_name && (
+                                                <p className="text-xs font-bold text-gray-600 truncate max-w-[240px]">
+                                                    {post.media_file_name}
+                                                </p>
+                                            )}
+                                            {post.status !== 'posted' && (
+                                                <button
+                                                    type="button"
+                                                    disabled={busyId === post.id}
+                                                    onClick={() => onRemoveImage(post.id)}
+                                                    className="text-xs font-black px-3 py-1.5 rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition-all disabled:opacity-50 w-fit"
+                                                >
+                                                    Remove image
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
                                 )}
                                 <div className="mt-4">{actionButtons(post)}</div>
                             </div>

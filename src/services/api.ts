@@ -1364,6 +1364,9 @@ export interface MarketingPost {
   published_platform_id: string | null;
   publish_error: string | null;
   trigger_reason: string | null;
+  media_url: string | null;
+  media_file_name: string | null;
+  publora_media_id: string | null;
   created_at: string;
   updated_at: string | null;
 }
@@ -1452,3 +1455,33 @@ export const publishMarketingPost = (
     method: 'POST',
     body: JSON.stringify({ platform_id }),
   });
+
+export async function uploadMarketingPostMedia(id: number, file: File): Promise<MarketingPost> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(`${API_BASE_URL}/marketing/posts/${id}/media`, {
+    method: 'POST',
+    body: formData,
+    headers,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Request failed' }));
+    if (handlePaymentRequiredStatus(response.status, error.detail)) {
+      throw new Error(
+        typeof error.detail === 'string' ? error.detail : 'Your free trial has expired. Please upgrade to continue.',
+      );
+    }
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export const deleteMarketingPostMedia = (id: number): Promise<MarketingPost> =>
+  apiRequest<MarketingPost>(`/marketing/posts/${id}/media`, { method: 'DELETE' });
