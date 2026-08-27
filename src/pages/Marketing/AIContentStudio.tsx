@@ -313,8 +313,6 @@ export default function AIContentStudio() {
                                     <div className="mt-3 bg-amber-50 border border-amber-100 rounded-xl px-4 py-2.5">
                                         <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest mb-1">Next Step</p>
                                         <p className="text-xs text-amber-800">
-                                            {activeCh.id === 'whatsapp' && '→ Go to WhatsApp Business · Create broadcast list · Paste message · Send to contacts'}
-                                            {activeCh.id === 'sms' && '→ Use Twilio / TextMagic · Import customer phone numbers from ERP · Send bulk SMS'}
                                             {activeCh.id === 'email' && '→ Use Mailchimp / Brevo · Import customer emails from ERP · Create campaign · Schedule'}
                                             {activeCh.id === 'facebook' && '→ Go to Facebook Page · Create Post · Paste content · Add product photo · Schedule'}
                                             {activeCh.id === 'instagram' && '→ Open Instagram Business · New Post · Paste caption · Add oil product photo · Post'}
