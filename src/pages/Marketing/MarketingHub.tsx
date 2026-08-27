@@ -12,7 +12,6 @@ const CHANNELS = [
         borderColor: 'border-blue-200',
         textColor: 'text-blue-700',
         desc: 'Posts, ads & stories',
-        stat: '3B+ users',
         platformUrl: 'https://www.facebook.com/profile.php',
         businessUrl: 'https://business.facebook.com',
         createUrl: 'https://www.facebook.com/',
@@ -28,7 +27,6 @@ const CHANNELS = [
         borderColor: 'border-pink-200',
         textColor: 'text-pink-700',
         desc: 'Reels, posts & stories',
-        stat: '2B+ users',
         platformUrl: 'https://www.instagram.com',
         businessUrl: 'https://business.instagram.com',
         createUrl: 'https://www.instagram.com',
@@ -44,7 +42,6 @@ const CHANNELS = [
         borderColor: 'border-gray-200',
         textColor: 'text-gray-700',
         desc: 'Short video content',
-        stat: '1.5B+ users',
         platformUrl: 'https://www.tiktok.com',
         businessUrl: 'https://www.tiktok.com/business',
         createUrl: 'https://www.tiktok.com',
@@ -60,7 +57,6 @@ const CHANNELS = [
         borderColor: 'border-blue-200',
         textColor: 'text-blue-800',
         desc: 'B2B & professional posts',
-        stat: '1B+ professionals',
         platformUrl: 'https://www.linkedin.com/company',
         businessUrl: 'https://business.linkedin.com',
         createUrl: 'https://www.linkedin.com/feed',
@@ -76,43 +72,40 @@ const CHANNELS = [
         borderColor: 'border-red-200',
         textColor: 'text-red-700',
         desc: 'Video content & descriptions',
-        stat: '2.7B+ users',
         platformUrl: 'https://studio.youtube.com',
         businessUrl: 'https://studio.youtube.com',
         createUrl: 'https://studio.youtube.com',
         tips: 'Product demos, oil change guides & supplier factory tours',
     },
     {
-        id: 'whatsapp',
-        name: 'WhatsApp',
-        emoji: '💬',
-        color: 'bg-green-500',
-        hoverColor: 'hover:bg-green-600',
-        bgLight: 'bg-green-50',
-        borderColor: 'border-green-200',
-        textColor: 'text-green-700',
-        desc: 'Bulk messages & broadcasts',
-        stat: '2.5B+ users',
-        platformUrl: 'https://web.whatsapp.com',
-        businessUrl: 'https://business.whatsapp.com',
-        createUrl: 'https://web.whatsapp.com',
-        tips: 'Send bulk offers to your customers directly',
+        id: 'x',
+        name: 'X',
+        emoji: '𝕏',
+        color: 'bg-gray-900',
+        hoverColor: 'hover:bg-gray-800',
+        bgLight: 'bg-gray-50',
+        borderColor: 'border-gray-200',
+        textColor: 'text-gray-700',
+        desc: 'Short posts & timely updates',
+        platformUrl: 'https://x.com',
+        businessUrl: 'https://x.com',
+        createUrl: 'https://x.com',
+        tips: 'Hook first, a link or CTA, and light hashtags',
     },
     {
-        id: 'sms',
-        name: 'SMS',
-        emoji: '📱',
-        color: 'bg-amber-500',
-        hoverColor: 'hover:bg-amber-600',
-        bgLight: 'bg-amber-50',
-        borderColor: 'border-amber-200',
-        textColor: 'text-amber-700',
-        desc: 'Text message campaigns',
-        stat: '98% open rate',
-        platformUrl: 'https://console.twilio.com',
-        businessUrl: 'https://www.twilio.com/en-us/messaging/channels/sms',
-        createUrl: 'https://console.twilio.com',
-        tips: 'Flash sales & order confirmations via Twilio or TextMagic',
+        id: 'google',
+        name: 'Google',
+        emoji: '🔍',
+        color: 'bg-blue-600',
+        hoverColor: 'hover:bg-blue-700',
+        bgLight: 'bg-blue-50',
+        borderColor: 'border-blue-200',
+        textColor: 'text-blue-700',
+        desc: 'Business Profile posts & search ads',
+        platformUrl: 'https://business.google.com',
+        businessUrl: 'https://business.google.com',
+        createUrl: 'https://business.google.com',
+        tips: 'Local search posts and product highlights for workshops',
     },
     {
         id: 'email',
@@ -124,7 +117,6 @@ const CHANNELS = [
         borderColor: 'border-purple-200',
         textColor: 'text-purple-700',
         desc: 'Newsletter & sequences',
-        stat: 'Avg 42x ROI',
         platformUrl: 'https://mailchimp.com',
         businessUrl: 'https://mailchimp.com/features/email/',
         createUrl: 'https://mailchimp.com/create/',
@@ -201,20 +193,12 @@ export default function MarketingHub() {
                             <p className="text-sm font-black text-gray-900">{ch.name}</p>
                             <p className="text-[10px] text-gray-400 mb-2">{ch.desc}</p>
 
-                            <div className={`text-[10px] font-black ${ch.textColor} ${ch.bgLight} px-2 py-1 rounded-lg mb-3 inline-block`}>
-                                {ch.stat}
-                            </div>
-
                             <p className="text-[10px] text-gray-500 leading-relaxed mb-3 hidden group-hover:block">{ch.tips}</p>
 
                             {/* Action buttons */}
                             <div className="flex gap-1.5">
                                 <button
-                                    onClick={() => navigate(
-                                        ch.id === 'whatsapp' || ch.id === 'sms'
-                                            ? '/marketing/studio'
-                                            : `/marketing/studio?channel=${ch.id}`
-                                    )}
+                                    onClick={() => navigate(`/marketing/studio?channel=${ch.id}`)}
                                     className={`flex-1 flex items-center justify-center gap-1 py-2 text-[10px] font-black text-white rounded-lg ${ch.color} ${ch.hoverColor} transition-all`}>
                                     <Zap size={10} /> Create
                                 </button>

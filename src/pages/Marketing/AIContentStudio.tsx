@@ -7,15 +7,16 @@ import {
     type MarketingPost,
 } from '../../services/api';
 
+// these MUST match PLATFORM_CHAR_LIMITS in app/services/marketing_ai.py — the server truncates to those values, so any other number here produces a warning that contradicts what was saved.
 const CHANNELS: { id: MarketingPlatform; label: string; icon: string; maxChars: number; tone: string; format: string }[] = [
-    { id: 'linkedin',  label: 'LinkedIn',  icon: '💼', maxChars: 700,  tone: 'professional and authoritative', format: 'B2B angle, industry insight, professional tone, no hashtag spam' },
-    { id: 'instagram', label: 'Instagram', icon: '📸', maxChars: 300,  tone: 'visual and aspirational', format: 'short punchy caption with hashtags, lifestyle angle' },
-    { id: 'tiktok',    label: 'TikTok',    icon: '🎵', maxChars: 200,  tone: 'energetic and trending', format: 'hook in first line, video script idea, trending hashtags' },
-    { id: 'facebook',  label: 'Facebook',  icon: '📘', maxChars: 500,  tone: 'engaging and conversational', format: 'post with emojis, 3-4 paragraphs, call to action' },
+    { id: 'linkedin',  label: 'LinkedIn',  icon: '💼', maxChars: 3000, tone: 'professional and authoritative', format: 'B2B angle, industry insight, professional tone, no hashtag spam' },
+    { id: 'instagram', label: 'Instagram', icon: '📸', maxChars: 2200, tone: 'visual and aspirational', format: 'short punchy caption with hashtags, lifestyle angle' },
+    { id: 'tiktok',    label: 'TikTok',    icon: '🎵', maxChars: 2200, tone: 'energetic and trending', format: 'hook in first line, video script idea, trending hashtags' },
+    { id: 'facebook',  label: 'Facebook',  icon: '📘', maxChars: 2000, tone: 'engaging and conversational', format: 'post with emojis, 3-4 paragraphs, call to action' },
     { id: 'x',         label: 'X',         icon: '𝕏',  maxChars: 280,  tone: 'concise and timely', format: 'short post under 280 chars, hook first, link or CTA, light hashtags' },
-    { id: 'youtube',   label: 'YouTube',   icon: '▶️', maxChars: 500,  tone: 'informative and trustworthy', format: 'video title + description with keywords, chapters, CTA' },
-    { id: 'google',    label: 'Google',    icon: '🔍', maxChars: 500,  tone: 'clear and search-friendly', format: 'Business Profile post or search ad copy, keywords, local CTA' },
-    { id: 'email',     label: 'Email',     icon: '📧', maxChars: 1000, tone: 'professional but warm', format: 'subject line + body, personalization placeholder [NAME], CTA button text' },
+    { id: 'youtube',   label: 'YouTube',   icon: '▶️', maxChars: 5000, tone: 'informative and trustworthy', format: 'video title + description with keywords, chapters, CTA' },
+    { id: 'google',    label: 'Google',    icon: '🔍', maxChars: 1500, tone: 'clear and search-friendly', format: 'Business Profile post or search ad copy, keywords, local CTA' },
+    { id: 'email',     label: 'Email',     icon: '📧', maxChars: 5000, tone: 'professional but warm', format: 'subject line + body, personalization placeholder [NAME], CTA button text' },
 ];
 
 const CAMPAIGN_TYPES = [
