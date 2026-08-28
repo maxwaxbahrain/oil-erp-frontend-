@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Copy, ImagePlus, RefreshCw, Send } from 'lucide-react';
+import { ArrowLeft, Copy, ImagePlus, RefreshCw, Send, Sparkles } from 'lucide-react';
 import {
     deleteMarketingPost,
     deleteMarketingPostMedia,
+    generateMarketingPostImage,
     listMarketingConnections,
     listMarketingPosts,
     publishMarketingPost,
@@ -85,6 +86,24 @@ function mapMediaError(err: unknown): string {
     return "Couldn't upload the image. Try again.";
 }
 
+function mapGenerateImageError(err: unknown): string {
+    const text = err instanceof Error ? err.message : String(err);
+    const lower = text.toLowerCase();
+    if (lower.includes('not configured')) {
+        return 'Image generation is not set up on this server.';
+    }
+    if (lower.includes('rate') || text.includes('429')) {
+        return "You've hit the AI limit for now. Try again in a couple of hours.";
+    }
+    if (lower.includes('published')) {
+        return "A published post can't be changed.";
+    }
+    if (lower.includes('no image')) {
+        return 'The image service returned nothing. Try a different prompt.';
+    }
+    return "Couldn't generate the image. Try again.";
+}
+
 function truncateBody(body: string, limit = 200): { text: string; truncated: boolean } {
     if (body.length <= limit) return { text: body, truncated: false };
     return { text: body.slice(0, limit).trimEnd() + '…', truncated: true };
@@ -103,6 +122,9 @@ export default function MarketingQueue() {
     const [pickerPostId, setPickerPostId] = useState<number | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [uploadTargetId, setUploadTargetId] = useState<number | null>(null);
+    const [promptBoxPostId, setPromptBoxPostId] = useState<number | null>(null);
+    const [promptDraft, setPromptDraft] = useState('');
+    const [generatingImage, setGeneratingImage] = useState(false);
 
     const fetchPosts = useCallback(async (statusTab: StatusTab) => {
         setLoading(true);
@@ -266,6 +288,40 @@ export default function MarketingQueue() {
         })();
     };
 
+    const onGenerateImageClick = (postId: number) => {
+        if (busyId !== null) return;
+        setPromptBoxPostId(postId);
+        setPromptDraft('');
+        setError(null);
+    };
+
+    const onCancelGenerate = () => {
+        if (busyId !== null) return;
+        setPromptBoxPostId(null);
+        setPromptDraft('');
+    };
+
+    const onSubmitGenerate = (postId: number) => {
+        const prompt = promptDraft.trim();
+        if (prompt.length < 3 || busyId !== null) return;
+        setBusyId(postId);
+        setGeneratingImage(true);
+        setError(null);
+        void (async () => {
+            try {
+                await generateMarketingPostImage(postId, prompt);
+                setPromptBoxPostId(null);
+                setPromptDraft('');
+                await fetchPosts(tab);
+            } catch (err) {
+                setError(mapGenerateImageError(err));
+            } finally {
+                setBusyId(null);
+                setGeneratingImage(false);
+            }
+        })();
+    };
+
     const actionButtons = (post: MarketingPost) => {
         const disabled = busyId === post.id;
         const btn = 'text-xs font-black px-3 py-1.5 rounded-lg border transition-all disabled:opacity-50';
@@ -309,6 +365,11 @@ export default function MarketingQueue() {
                 onClick: () => onAddImageClick(post.id),
                 className: `${btn} border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100`,
             });
+            items.push({
+                label: 'Generate image',
+                onClick: () => onGenerateImageClick(post.id),
+                className: `${btn} border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100`,
+            });
         }
 
         items.push({
@@ -331,6 +392,8 @@ export default function MarketingQueue() {
                                 <span className="inline-flex items-center gap-1"><Copy size={12} /> {item.label}</span>
                             ) : item.label === 'Add image' ? (
                                 <span className="inline-flex items-center gap-1"><ImagePlus size={12} /> {item.label}</span>
+                            ) : item.label === 'Generate image' ? (
+                                <span className="inline-flex items-center gap-1"><Sparkles size={12} /> {item.label}</span>
                             ) : item.label}
                         </button>
                     ))}
@@ -358,6 +421,49 @@ export default function MarketingQueue() {
                         >
                             Cancel
                         </button>
+                    </div>
+                )}
+                {promptBoxPostId === post.id && (
+                    <div className="pt-2 p-3 rounded-xl border border-violet-200 bg-violet-50/40 space-y-2">
+                        {generatingImage && busyId === post.id ? (
+                            <p className="text-xs font-bold text-violet-700 inline-flex items-center gap-2">
+                                <RefreshCw size={12} className="animate-spin shrink-0" />
+                                Generating image…
+                            </p>
+                        ) : (
+                            <>
+                                <input
+                                    type="text"
+                                    value={promptDraft}
+                                    onChange={(e) => setPromptDraft(e.target.value)}
+                                    placeholder="Describe the image, e.g. busy auto workshop, mechanic changing oil"
+                                    maxLength={1000}
+                                    className="w-full text-sm px-3 py-2 rounded-lg border border-violet-200 bg-white focus:outline-none focus:ring-2 focus:ring-violet-300"
+                                />
+                                <p className="text-[11px] text-gray-500 leading-snug">
+                                    Generated images are best for scenes and backgrounds. Upload a real photo
+                                    when the actual product must be shown.
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                    <button
+                                        type="button"
+                                        disabled={disabled || promptDraft.trim().length < 3}
+                                        onClick={() => onSubmitGenerate(post.id)}
+                                        className={`${btn} border-violet-300 bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50`}
+                                    >
+                                        Generate
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={disabled}
+                                        onClick={onCancelGenerate}
+                                        className={`${btn} border-gray-200 bg-white text-gray-600 hover:bg-gray-50`}
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            </>
+                        )}
                     </div>
                 )}
             </div>

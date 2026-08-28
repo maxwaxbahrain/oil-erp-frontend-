@@ -1485,3 +1485,12 @@ export async function uploadMarketingPostMedia(id: number, file: File): Promise<
 
 export const deleteMarketingPostMedia = (id: number): Promise<MarketingPost> =>
   apiRequest<MarketingPost>(`/marketing/posts/${id}/media`, { method: 'DELETE' });
+
+export const generateMarketingPostImage = (
+  id: number,
+  prompt: string,
+): Promise<MarketingPost> =>
+  apiRequest<MarketingPost>(`/marketing/posts/${id}/generate-image`, {
+    method: 'POST',
+    body: JSON.stringify({ prompt }),
+  });
