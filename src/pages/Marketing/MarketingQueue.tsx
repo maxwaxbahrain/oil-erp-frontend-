@@ -69,6 +69,15 @@ function mapPublishError(err: unknown): string {
 function mapMediaError(err: unknown): string {
     const text = err instanceof Error ? err.message : String(err);
     const lower = text.toLowerCase();
+    if (lower.includes('too small')) {
+        return text;
+    }
+    if (lower.includes('at least 256')) {
+        return text;
+    }
+    if (lower.includes('too large')) {
+        return text;
+    }
     if (text.includes('10 MB') || lower.includes('too large')) {
         return 'Image is too large (max 10 MB).';
     }
@@ -90,6 +99,15 @@ function mapMediaError(err: unknown): string {
 function mapGenerateImageError(err: unknown): string {
     const text = err instanceof Error ? err.message : String(err);
     const lower = text.toLowerCase();
+    if (lower.includes('too small')) {
+        return text;
+    }
+    if (lower.includes('at least 256')) {
+        return text;
+    }
+    if (lower.includes('too large')) {
+        return text;
+    }
     if (lower.includes('not configured')) {
         return 'Image generation is not set up on this server.';
     }
@@ -470,6 +488,11 @@ export default function MarketingQueue() {
                         </button>
                     ))}
                 </div>
+                {post.status !== 'posted' && (
+                    <p className="text-[11px] text-gray-500 leading-snug">
+                        Images: JPG, PNG or WebP · under 10 MB · at least 256x256, and 1024px or larger gives much better AI results
+                    </p>
+                )}
                 {pickerPostId === post.id && connections && connections.length > 1 && (
                     <div className="flex flex-wrap items-center gap-2 pt-1">
                         <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Publish to</span>
