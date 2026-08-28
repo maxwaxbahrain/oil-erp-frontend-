@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Copy, ImagePlus, RefreshCw, Send, Sparkles } from 'lucide-react';
+import { ArrowLeft, Copy, ImagePlus, RefreshCw, Send, Sparkles, Wand2 } from 'lucide-react';
 import {
     deleteMarketingPost,
     deleteMarketingPostMedia,
+    editMarketingPostImage,
     generateMarketingPostImage,
     listMarketingConnections,
     listMarketingPosts,
@@ -104,6 +105,27 @@ function mapGenerateImageError(err: unknown): string {
     return "Couldn't generate the image. Try again.";
 }
 
+function mapEditImageError(err: unknown): string {
+    const text = err instanceof Error ? err.message : String(err);
+    const lower = text.toLowerCase();
+    if (lower.includes('no image to edit')) {
+        return 'Upload or generate an image first.';
+    }
+    if (lower.includes('not configured')) {
+        return 'Image editing is not set up on this server.';
+    }
+    if (lower.includes('rate') || text.includes('429')) {
+        return "You've hit the AI limit for now. Try again in a couple of hours.";
+    }
+    if (lower.includes('published')) {
+        return "A published post can't be changed.";
+    }
+    if (lower.includes('returned no image')) {
+        return 'The image service returned nothing. Try a different prompt.';
+    }
+    return "Couldn't edit the image. Try again.";
+}
+
 function truncateBody(body: string, limit = 200): { text: string; truncated: boolean } {
     if (body.length <= limit) return { text: body, truncated: false };
     return { text: body.slice(0, limit).trimEnd() + '…', truncated: true };
@@ -125,6 +147,9 @@ export default function MarketingQueue() {
     const [promptBoxPostId, setPromptBoxPostId] = useState<number | null>(null);
     const [promptDraft, setPromptDraft] = useState('');
     const [generatingImage, setGeneratingImage] = useState(false);
+    const [editPromptBoxPostId, setEditPromptBoxPostId] = useState<number | null>(null);
+    const [editPromptDraft, setEditPromptDraft] = useState('');
+    const [editingImage, setEditingImage] = useState(false);
 
     const fetchPosts = useCallback(async (statusTab: StatusTab) => {
         setLoading(true);
@@ -290,6 +315,8 @@ export default function MarketingQueue() {
 
     const onGenerateImageClick = (postId: number) => {
         if (busyId !== null) return;
+        setEditPromptBoxPostId(null);
+        setEditPromptDraft('');
         setPromptBoxPostId(postId);
         setPromptDraft('');
         setError(null);
@@ -299,6 +326,21 @@ export default function MarketingQueue() {
         if (busyId !== null) return;
         setPromptBoxPostId(null);
         setPromptDraft('');
+    };
+
+    const onEditImageClick = (postId: number) => {
+        if (busyId !== null) return;
+        setPromptBoxPostId(null);
+        setPromptDraft('');
+        setEditPromptBoxPostId(postId);
+        setEditPromptDraft('');
+        setError(null);
+    };
+
+    const onCancelEdit = () => {
+        if (busyId !== null) return;
+        setEditPromptBoxPostId(null);
+        setEditPromptDraft('');
     };
 
     const onSubmitGenerate = (postId: number) => {
@@ -318,6 +360,27 @@ export default function MarketingQueue() {
             } finally {
                 setBusyId(null);
                 setGeneratingImage(false);
+            }
+        })();
+    };
+
+    const onSubmitEdit = (postId: number) => {
+        const prompt = editPromptDraft.trim();
+        if (prompt.length < 3 || busyId !== null) return;
+        setBusyId(postId);
+        setEditingImage(true);
+        setError(null);
+        void (async () => {
+            try {
+                await editMarketingPostImage(postId, prompt);
+                setEditPromptBoxPostId(null);
+                setEditPromptDraft('');
+                await fetchPosts(tab);
+            } catch (err) {
+                setError(mapEditImageError(err));
+            } finally {
+                setBusyId(null);
+                setEditingImage(false);
             }
         })();
     };
@@ -370,6 +433,13 @@ export default function MarketingQueue() {
                 onClick: () => onGenerateImageClick(post.id),
                 className: `${btn} border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100`,
             });
+            if (post.media_url) {
+                items.push({
+                    label: 'Edit image',
+                    onClick: () => onEditImageClick(post.id),
+                    className: `${btn} border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700 hover:bg-fuchsia-100`,
+                });
+            }
         }
 
         items.push({
@@ -394,6 +464,8 @@ export default function MarketingQueue() {
                                 <span className="inline-flex items-center gap-1"><ImagePlus size={12} /> {item.label}</span>
                             ) : item.label === 'Generate image' ? (
                                 <span className="inline-flex items-center gap-1"><Sparkles size={12} /> {item.label}</span>
+                            ) : item.label === 'Edit image' ? (
+                                <span className="inline-flex items-center gap-1"><Wand2 size={12} /> {item.label}</span>
                             ) : item.label}
                         </button>
                     ))}
@@ -457,6 +529,49 @@ export default function MarketingQueue() {
                                         type="button"
                                         disabled={disabled}
                                         onClick={onCancelGenerate}
+                                        className={`${btn} border-gray-200 bg-white text-gray-600 hover:bg-gray-50`}
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                )}
+                {editPromptBoxPostId === post.id && (
+                    <div className="pt-2 p-3 rounded-xl border border-fuchsia-200 bg-fuchsia-50/40 space-y-2">
+                        {editingImage && busyId === post.id ? (
+                            <p className="text-xs font-bold text-fuchsia-700 inline-flex items-center gap-2">
+                                <RefreshCw size={12} className="animate-spin shrink-0" />
+                                Editing image…
+                            </p>
+                        ) : (
+                            <>
+                                <input
+                                    type="text"
+                                    value={editPromptDraft}
+                                    onChange={(e) => setEditPromptDraft(e.target.value)}
+                                    placeholder="Describe the scene, e.g. product on a busy workshop bench at golden hour"
+                                    maxLength={1000}
+                                    className="w-full text-sm px-3 py-2 rounded-lg border border-fuchsia-200 bg-white focus:outline-none focus:ring-2 focus:ring-fuchsia-300"
+                                />
+                                <p className="text-[11px] text-gray-500 leading-snug">
+                                    Uses your uploaded photo as the product — the real label stays visible.
+                                    Editing replaces the current image; download it first if you need to keep the original.
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                    <button
+                                        type="button"
+                                        disabled={disabled || editPromptDraft.trim().length < 3}
+                                        onClick={() => onSubmitEdit(post.id)}
+                                        className={`${btn} border-fuchsia-300 bg-fuchsia-600 text-white hover:bg-fuchsia-700 disabled:opacity-50`}
+                                    >
+                                        Edit
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={disabled}
+                                        onClick={onCancelEdit}
                                         className={`${btn} border-gray-200 bg-white text-gray-600 hover:bg-gray-50`}
                                     >
                                         Cancel

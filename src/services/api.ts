@@ -1494,3 +1494,12 @@ export const generateMarketingPostImage = (
     method: 'POST',
     body: JSON.stringify({ prompt }),
   });
+
+export const editMarketingPostImage = (
+  id: number,
+  prompt: string,
+): Promise<MarketingPost> =>
+  apiRequest<MarketingPost>(`/marketing/posts/${id}/edit-image`, {
+    method: 'POST',
+    body: JSON.stringify({ prompt }),
+  });
