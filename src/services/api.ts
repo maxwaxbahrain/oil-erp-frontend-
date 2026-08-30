@@ -1484,6 +1484,29 @@ export async function uploadMarketingPostMedia(id: number, file: File): Promise<
   return response.json();
 }
 
+export async function downloadMarketingPostMedia(id: number): Promise<Blob> {
+  const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(`${API_BASE_URL}/marketing/posts/${id}/media/download`, {
+    method: 'GET',
+    headers,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Request failed' }));
+    if (handlePaymentRequiredStatus(response.status, error.detail)) {
+      throw new Error(
+        typeof error.detail === 'string' ? error.detail : 'Your free trial has expired. Please upgrade to continue.',
+      );
+    }
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.blob();
+}
+
 export const deleteMarketingPostMedia = (id: number): Promise<MarketingPost> =>
   apiRequest<MarketingPost>(`/marketing/posts/${id}/media`, { method: 'DELETE' });
 

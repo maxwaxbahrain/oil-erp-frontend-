@@ -11,6 +11,7 @@ import { RefreshCw } from 'lucide-react';
 import { getCurrentUser } from '../../store/authStore';
 import {
     editMarketingPostImage,
+    downloadMarketingPostMedia,
     generateMarketingPostImage,
     getMarketingPost,
     listMarketingConnections,
@@ -103,6 +104,7 @@ export default function MarketingStudio() {
     const [working, setWorking] = useState(false);
     const [workingLabel, setWorkingLabel] = useState('');
     const [busy, setBusy] = useState(false);
+    const [downloading, setDownloading] = useState(false);
     const [connections, setConnections] = useState<MarketingConnection[] | null>(null);
     const [showPublishPicker, setShowPublishPicker] = useState(false);
 
@@ -259,18 +261,16 @@ export default function MarketingStudio() {
     };
 
     const onDownload = () => {
-        if (!post?.media_url) return;
-        setBusy(true);
+        if (!post?.media_url || downloading) return;
+        setDownloading(true);
         setError(null);
         void (async () => {
             try {
-                const response = await fetch(post.media_url!);
-                if (!response.ok) throw new Error('download failed');
-                const blob = await response.blob();
+                const blob = await downloadMarketingPostMedia(post.id);
                 const url = URL.createObjectURL(blob);
                 const anchor = document.createElement('a');
                 anchor.href = url;
-                anchor.download = post.media_file_name || 'marketing-image.png';
+                anchor.download = post.media_file_name || 'image.png';
                 document.body.appendChild(anchor);
                 anchor.click();
                 anchor.remove();
@@ -278,7 +278,7 @@ export default function MarketingStudio() {
             } catch {
                 setError("Couldn't download the image. Try again.");
             } finally {
-                setBusy(false);
+                setDownloading(false);
             }
         })();
     };
@@ -694,11 +694,11 @@ export default function MarketingStudio() {
                         <div className="ml-auto flex gap-2">
                             <button
                                 type="button"
-                                disabled={!post.media_url || busy || working}
+                                disabled={!post.media_url || busy || working || downloading}
                                 onClick={onDownload}
                                 className="rounded-md cursor-pointer text-[11.5px] font-bold px-3 py-2 border border-white/15 bg-white/5 text-gray-300 hover:bg-white/10 hover:text-white disabled:opacity-40"
                             >
-                                Download
+                                {downloading ? 'Downloading…' : 'Download'}
                             </button>
                             {canRevert && !posted && (
                                 <button
