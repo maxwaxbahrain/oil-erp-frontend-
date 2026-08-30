@@ -1511,25 +1511,68 @@ export const deleteMarketingPostMedia = (id: number): Promise<MarketingPost> =>
   apiRequest<MarketingPost>(`/marketing/posts/${id}/media`, { method: 'DELETE' });
 
 export type MarketingImageShape = 'square' | 'portrait' | 'landscape' | 'story';
+export type MarketingImageQuality = 'standard' | 'quality';
+export type MarketingImageCount = 1 | 2 | 4;
+
+export interface MarketingImageCandidate {
+  id: number;
+  url: string | null;
+  shape: string;
+  quality: string;
+  source: string;
+  created_at: string;
+}
+
+export interface MarketingCandidateBatch {
+  post_id: number;
+  candidates: MarketingImageCandidate[];
+}
+
+export function isMarketingCandidateBatch(
+  result: MarketingPost | MarketingCandidateBatch,
+): result is MarketingCandidateBatch {
+  return 'candidates' in result && Array.isArray(result.candidates);
+}
 
 export const generateMarketingPostImage = (
   id: number,
   prompt: string,
   shape: MarketingImageShape = 'square',
-): Promise<MarketingPost> =>
-  apiRequest<MarketingPost>(`/marketing/posts/${id}/generate-image`, {
+  quality: MarketingImageQuality = 'standard',
+  count: MarketingImageCount = 1,
+): Promise<MarketingPost | MarketingCandidateBatch> =>
+  apiRequest<MarketingPost | MarketingCandidateBatch>(`/marketing/posts/${id}/generate-image`, {
     method: 'POST',
-    body: JSON.stringify({ prompt, shape }),
+    body: JSON.stringify({ prompt, shape, quality, count }),
   });
 
 export const editMarketingPostImage = (
   id: number,
   prompt: string,
   shape: MarketingImageShape = 'square',
-): Promise<MarketingPost> =>
-  apiRequest<MarketingPost>(`/marketing/posts/${id}/edit-image`, {
+  quality: MarketingImageQuality = 'standard',
+  count: MarketingImageCount = 1,
+): Promise<MarketingPost | MarketingCandidateBatch> =>
+  apiRequest<MarketingPost | MarketingCandidateBatch>(`/marketing/posts/${id}/edit-image`, {
     method: 'POST',
-    body: JSON.stringify({ prompt, shape }),
+    body: JSON.stringify({ prompt, shape, quality, count }),
+  });
+
+export const pickMarketingCandidate = (
+  id: number,
+  candidateId: number,
+): Promise<MarketingPost> =>
+  apiRequest<MarketingPost>(`/marketing/posts/${id}/media/pick`, {
+    method: 'POST',
+    body: JSON.stringify({ candidate_id: candidateId }),
+  });
+
+export const listMarketingCandidates = (id: number): Promise<MarketingCandidateBatch> =>
+  apiRequest<MarketingCandidateBatch>(`/marketing/posts/${id}/media/candidates`);
+
+export const discardMarketingCandidates = (id: number): Promise<{ deleted: number }> =>
+  apiRequest<{ deleted: number }>(`/marketing/posts/${id}/media/candidates`, {
+    method: 'DELETE',
   });
 
 export const revertMarketingPostImage = (id: number): Promise<MarketingPost> =>

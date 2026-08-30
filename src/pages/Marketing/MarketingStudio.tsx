@@ -10,16 +10,23 @@ import { Link, useParams } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
 import { getCurrentUser } from '../../store/authStore';
 import {
+    discardMarketingCandidates,
     editMarketingPostImage,
     downloadMarketingPostMedia,
     generateMarketingPostImage,
     getMarketingPost,
+    isMarketingCandidateBatch,
+    listMarketingCandidates,
     listMarketingConnections,
+    pickMarketingCandidate,
     publishMarketingPost,
     revertMarketingPostImage,
     updateMarketingPost,
     uploadMarketingPostMedia,
+    type MarketingCandidateBatch,
     type MarketingConnection,
+    type MarketingImageCount,
+    type MarketingImageQuality,
     type MarketingImageShape,
     type MarketingPost,
 } from '../../services/api';
@@ -31,12 +38,28 @@ import {
 } from './MarketingQueue';
 
 type StudioMode = 'generate' | 'edit';
-type CanvasView = 'current' | 'compare';
+type CanvasView = 'current' | 'compare' | 'sheet';
 type CaptionSaveState = 'saved' | 'unsaved' | 'saving';
 
 const PROMPT_MAX = 1000;
 const CAPTION_MAX = 3000;
 const BRANDING_SUFFIX = ', keep the product and all branding exactly as it is';
+
+const IMAGE_RATES = {
+    standard: { generate: 0.035, edit: 0.035 },
+    quality: { generate: 0.03, edit: 0.045 },
+} as const;
+
+const COUNT_OPTIONS: MarketingImageCount[] = [1, 2, 4];
+
+const QUALITY_OPTIONS: {
+    id: MarketingImageQuality;
+    label: string;
+    sub: string;
+}[] = [
+    { id: 'standard', label: 'Standard', sub: 'Products, labels, text' },
+    { id: 'quality', label: 'Quality', sub: 'Faces and hands' },
+];
 
 const SHAPES: {
     id: MarketingImageShape;
@@ -82,6 +105,37 @@ function growTextarea(el: HTMLTextAreaElement | null, maxHeight: number) {
     el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
 }
 
+function formatUsd(amount: number): string {
+    return `$${amount.toFixed(2)}`;
+}
+
+function actionButtonLabel(
+    mode: StudioMode,
+    quality: MarketingImageQuality,
+    count: MarketingImageCount,
+): { main: string; cost: string } {
+    const rate = IMAGE_RATES[quality][mode === 'generate' ? 'generate' : 'edit'];
+    const total = rate * count;
+    if (count === 1) {
+        return {
+            main: mode === 'generate' ? 'Generate image' : 'Edit photo',
+            cost: formatUsd(total),
+        };
+    }
+    const noun = mode === 'generate' ? 'versions' : 'edits';
+    return { main: `Make ${count} ${noun}`, cost: formatUsd(total) };
+}
+
+function workingLabelFor(mode: StudioMode, count: MarketingImageCount): string {
+    if (count === 1) return mode === 'edit' ? 'Editing…' : 'Generating…';
+    const noun = mode === 'generate' ? 'versions' : 'edits';
+    return `Making ${count} ${noun}…`;
+}
+
+function candidateNumber(index: number): string {
+    return String(index + 1).padStart(2, '0');
+}
+
 export default function MarketingStudio() {
     const { postId: postIdParam } = useParams<{ postId: string }>();
     const postId = Number(postIdParam);
@@ -95,10 +149,14 @@ export default function MarketingStudio() {
     const [error, setError] = useState<string | null>(null);
     const [mode, setMode] = useState<StudioMode>('edit');
     const [shape, setShape] = useState<MarketingImageShape>('square');
+    const [quality, setQuality] = useState<MarketingImageQuality>('standard');
+    const [count, setCount] = useState<MarketingImageCount>(1);
     const [prompt, setPrompt] = useState('');
     const [caption, setCaption] = useState('');
     const [captionSave, setCaptionSave] = useState<CaptionSaveState>('saved');
     const [canvasView, setCanvasView] = useState<CanvasView>('current');
+    const [candidateBatch, setCandidateBatch] = useState<MarketingCandidateBatch | null>(null);
+    const [selectedCandidateId, setSelectedCandidateId] = useState<number | null>(null);
     const [comparePos, setComparePos] = useState(52);
     const [dragging, setDragging] = useState(false);
     const [working, setWorking] = useState(false);
@@ -110,31 +168,61 @@ export default function MarketingStudio() {
 
     const user = getCurrentUser();
 
-    const loadPost = useCallback(async () => {
+    const loadPost = useCallback(async (opts?: { silent?: boolean }) => {
         if (!Number.isFinite(postId) || postId <= 0) {
             setError('Invalid post.');
-            setLoading(false);
-            return;
+            if (!opts?.silent) setLoading(false);
+            return false;
         }
-        setLoading(true);
-        setError(null);
+        if (!opts?.silent) {
+            setLoading(true);
+            setError(null);
+        }
         try {
-            const row = await getMarketingPost(postId);
+            const [row, batch] = await Promise.all([
+                getMarketingPost(postId),
+                listMarketingCandidates(postId),
+            ]);
             setPost(row);
             setCaption(row.body);
             setCaptionSave('saved');
             if (!row.media_url) setMode('generate');
+            if (batch.candidates.length > 0) {
+                setCandidateBatch(batch);
+                setSelectedCandidateId((prev) => {
+                    if (prev !== null && batch.candidates.some((c) => c.id === prev)) {
+                        return prev;
+                    }
+                    return batch.candidates[0]?.id ?? null;
+                });
+            } else {
+                setCandidateBatch(null);
+                setSelectedCandidateId(null);
+            }
+            return batch.candidates.length > 0;
         } catch {
-            setError("Couldn't load this post. Check your connection and try again.");
-            setPost(null);
+            if (!opts?.silent) {
+                setError("Couldn't load this post. Check your connection and try again.");
+                setPost(null);
+            }
+            return false;
         } finally {
-            setLoading(false);
+            if (!opts?.silent) setLoading(false);
         }
     }, [postId]);
 
     useEffect(() => {
-        void loadPost();
+        void (async () => {
+            const hasBatch = await loadPost();
+            if (hasBatch) setCanvasView('sheet');
+        })();
     }, [loadPost]);
+
+    useEffect(() => {
+        if (!candidateBatch?.candidates.length && canvasView === 'sheet') {
+            setCanvasView('current');
+        }
+    }, [candidateBatch, canvasView]);
 
     useEffect(() => {
         growTextarea(promptRef.current, 240);
@@ -198,6 +286,7 @@ export default function MarketingStudio() {
                 const updated = await uploadMarketingPostMedia(post.id, file);
                 setPost(updated);
                 setMode('edit');
+                await loadPost({ silent: true });
             } catch (err) {
                 setError(mapMediaError(err));
             } finally {
@@ -217,21 +306,63 @@ export default function MarketingStudio() {
         }
 
         setWorking(true);
-        setWorkingLabel(isEdit ? 'Editing…' : 'Generating…');
+        setWorkingLabel(workingLabelFor(mode, count));
         setError(null);
         void (async () => {
             try {
                 const apiPrompt = isEdit ? `${trimmed}${BRANDING_SUFFIX}` : trimmed;
-                const updated = isEdit
-                    ? await editMarketingPostImage(post.id, apiPrompt, shape)
-                    : await generateMarketingPostImage(post.id, apiPrompt, shape);
-                setPost(updated);
-                setCanvasView('current');
+                const result = isEdit
+                    ? await editMarketingPostImage(post.id, apiPrompt, shape, quality, count)
+                    : await generateMarketingPostImage(post.id, apiPrompt, shape, quality, count);
+                if (isMarketingCandidateBatch(result)) {
+                    setCandidateBatch(result);
+                    setSelectedCandidateId(result.candidates[0]?.id ?? null);
+                    setCanvasView('sheet');
+                } else {
+                    setPost(result);
+                    setCandidateBatch(null);
+                    setSelectedCandidateId(null);
+                    setCanvasView('current');
+                }
             } catch (err) {
                 setError(isEdit ? mapEditImageError(err) : mapGenerateImageError(err));
             } finally {
                 setWorking(false);
                 setWorkingLabel('');
+            }
+        })();
+    };
+
+    const onPickCandidate = () => {
+        if (!post || selectedCandidateId === null || busy || working || posted) return;
+        setBusy(true);
+        setError(null);
+        void (async () => {
+            try {
+                await pickMarketingCandidate(post.id, selectedCandidateId);
+                setCanvasView('current');
+                await loadPost({ silent: true });
+            } catch {
+                setError("Couldn't apply that image. Try again.");
+            } finally {
+                setBusy(false);
+            }
+        })();
+    };
+
+    const onDiscardCandidates = () => {
+        if (!post || !candidateBatch?.candidates.length || busy || working || posted) return;
+        setBusy(true);
+        setError(null);
+        void (async () => {
+            try {
+                await discardMarketingCandidates(post.id);
+                setCanvasView('current');
+                await loadPost({ silent: true });
+            } catch {
+                setError("Couldn't discard the versions. Try again.");
+            } finally {
+                setBusy(false);
             }
         })();
     };
@@ -245,6 +376,7 @@ export default function MarketingStudio() {
                 const updated = await revertMarketingPostImage(post.id);
                 setPost(updated);
                 setCanvasView('current');
+                await loadPost({ silent: true });
             } catch (err) {
                 const text = err instanceof Error ? err.message : String(err);
                 if (text.includes('Nothing to revert')) {
@@ -318,6 +450,7 @@ export default function MarketingStudio() {
             try {
                 const updated = await publishMarketingPost(post.id, platformId);
                 setPost(updated);
+                await loadPost({ silent: true });
             } catch (err) {
                 setError(mapPublishError(err));
             } finally {
@@ -381,6 +514,9 @@ export default function MarketingStudio() {
     const shapeLabel = SHAPES.find((s) => s.id === shape)?.label ?? 'Square';
     const makeDisabled = working || busy || prompt.trim().length < 3 || (mode === 'edit' && !post.media_url);
     const posted = post.status === 'posted';
+    const hasBatch = (candidateBatch?.candidates.length ?? 0) > 0;
+    const actionLabel = actionButtonLabel(mode, quality, count);
+    const batchCount = candidateBatch?.candidates.length ?? 0;
 
     return (
         <div className="h-screen overflow-hidden bg-[#F7F8FA] text-[#111827] text-sm flex flex-col">
@@ -528,18 +664,46 @@ export default function MarketingStudio() {
                         </div>
 
                         <div className="text-[10px] font-extrabold uppercase tracking-widest text-[#9CA3AF] mt-4 mb-2">
+                            Quality
+                        </div>
+                        <div className="grid grid-cols-2 gap-1.5">
+                            {QUALITY_OPTIONS.map((q) => (
+                                <button
+                                    key={q.id}
+                                    type="button"
+                                    disabled={posted || working}
+                                    onClick={() => setQuality(q.id)}
+                                    className={`rounded-lg border px-2 py-2.5 flex flex-col items-center gap-1 cursor-pointer disabled:opacity-40 ${
+                                        quality === q.id
+                                            ? 'border-violet-600 bg-violet-50 text-violet-700'
+                                            : 'border-[#E4E7EC] text-[#9CA3AF] hover:border-gray-300 hover:text-[#6B7280]'
+                                    }`}
+                                >
+                                    <span className="text-[9px] font-extrabold uppercase leading-none">{q.label}</span>
+                                    <span className="text-[8.5px] text-center leading-tight opacity-80">{q.sub}</span>
+                                </button>
+                            ))}
+                        </div>
+
+                        <div className="text-[10px] font-extrabold uppercase tracking-widest text-[#9CA3AF] mt-4 mb-2">
                             How many to try
                         </div>
                         <div className="flex gap-1.5">
-                            <button type="button" className="flex-1 rounded-lg border border-violet-600 bg-violet-50 text-violet-700 text-xs font-extrabold py-2">
-                                1
-                            </button>
-                            <button type="button" disabled className="flex-1 rounded-lg border border-[#E4E7EC] text-[#9CA3AF] text-xs font-extrabold py-2 opacity-50 relative">
-                                2 <span className="block text-[8px] font-semibold normal-case">soon</span>
-                            </button>
-                            <button type="button" disabled className="flex-1 rounded-lg border border-[#E4E7EC] text-[#9CA3AF] text-xs font-extrabold py-2 opacity-50 relative">
-                                4 <span className="block text-[8px] font-semibold normal-case">soon</span>
-                            </button>
+                            {COUNT_OPTIONS.map((n) => (
+                                <button
+                                    key={n}
+                                    type="button"
+                                    disabled={posted || working}
+                                    onClick={() => setCount(n)}
+                                    className={`flex-1 rounded-lg border text-xs font-extrabold py-2 disabled:opacity-40 ${
+                                        count === n
+                                            ? 'border-violet-600 bg-violet-50 text-violet-700'
+                                            : 'border-[#E4E7EC] text-[#9CA3AF] hover:border-gray-300 hover:text-[#6B7280]'
+                                    }`}
+                                >
+                                    {n}
+                                </button>
+                            ))}
                         </div>
 
                         {!posted && (
@@ -549,8 +713,8 @@ export default function MarketingStudio() {
                                 onClick={onMakeImage}
                                 className="w-full mt-4 border-none rounded-lg cursor-pointer bg-gradient-to-br from-violet-600 to-pink-600 text-white text-[13px] font-extrabold py-3 flex items-center justify-center gap-2 shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                {mode === 'generate' ? 'Generate image' : 'Edit image'}
-                                <span className="text-[10.5px] opacity-80 font-semibold">$0.035</span>
+                                {actionLabel.main}
+                                <span className="text-[10.5px] opacity-80 font-semibold">{actionLabel.cost}</span>
                             </button>
                         )}
 
@@ -599,9 +763,28 @@ export default function MarketingStudio() {
                 <div className="flex flex-col bg-[#0C0C12] min-h-0 overflow-hidden">
                     <div className="h-[42px] border-b border-white/10 flex items-center px-4 gap-2.5 shrink-0">
                         <span className="text-[10px] font-extrabold uppercase tracking-widest text-gray-500">
-                            Preview · <b className="text-purple-500">{shapeLabel}</b>
+                            {canvasView === 'sheet' && hasBatch ? (
+                                <>
+                                    Contact sheet · <b className="text-purple-500">{batchCount} versions</b> · {shapeLabel}
+                                </>
+                            ) : (
+                                <>
+                                    Preview · <b className="text-purple-500">{shapeLabel}</b>
+                                </>
+                            )}
                         </span>
                         <div className="ml-auto flex bg-white/5 border border-white/10 rounded-md p-0.5">
+                            {hasBatch && (
+                                <button
+                                    type="button"
+                                    onClick={() => setCanvasView('sheet')}
+                                    className={`border-none cursor-pointer text-[10.5px] font-bold px-2.5 py-1 rounded ${
+                                        canvasView === 'sheet' ? 'bg-white/10 text-gray-100' : 'bg-transparent text-gray-500'
+                                    }`}
+                                >
+                                    Contact sheet
+                                </button>
+                            )}
                             <button
                                 type="button"
                                 onClick={() => setCanvasView('current')}
@@ -625,13 +808,72 @@ export default function MarketingStudio() {
                         </div>
                     </div>
 
-                    <div className="flex-1 grid place-items-center p-6 relative min-h-0 bg-[length:48px_48px] bg-[linear-gradient(rgba(255,255,255,0.014)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.014)_1px,transparent_1px)]">
+                    <div className="flex-1 flex flex-col items-center justify-center p-6 relative min-h-0 overflow-y-auto bg-[length:48px_48px] bg-[linear-gradient(rgba(255,255,255,0.014)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.014)_1px,transparent_1px)]">
                         {working && (
                             <div className="absolute inset-0 z-20 bg-black/50 grid place-items-center">
                                 <p className="text-sm font-bold text-white inline-flex items-center gap-2">
                                     <RefreshCw size={16} className="animate-spin" />
                                     {workingLabel}
                                 </p>
+                            </div>
+                        )}
+
+                        {canvasView === 'sheet' && hasBatch && candidateBatch && (
+                            <div className="w-full max-w-[540px] flex flex-col gap-4">
+                                <div className="grid grid-cols-2 gap-3">
+                                    {candidateBatch.candidates.map((cand, index) => (
+                                        <button
+                                            key={cand.id}
+                                            type="button"
+                                            onClick={() => setSelectedCandidateId(cand.id)}
+                                            className={`relative aspect-square rounded overflow-hidden cursor-pointer border-2 shadow-2xl text-left p-0 ${
+                                                selectedCandidateId === cand.id
+                                                    ? 'border-violet-500'
+                                                    : 'border-transparent hover:border-white/20'
+                                            }`}
+                                        >
+                                            <span className="absolute top-1.5 left-2 text-[9px] font-black text-white/85 z-10 drop-shadow">
+                                                {candidateNumber(index)}
+                                            </span>
+                                            {selectedCandidateId === cand.id && (
+                                                <span className="absolute bottom-2 right-2 text-[9px] font-extrabold uppercase tracking-widest bg-violet-500 text-white px-2 py-0.5 rounded z-10">
+                                                    Chosen
+                                                </span>
+                                            )}
+                                            {cand.url ? (
+                                                <img
+                                                    src={cand.url}
+                                                    alt={`Version ${candidateNumber(index)}`}
+                                                    className="w-full h-full object-cover bg-black"
+                                                />
+                                            ) : (
+                                                <div className="w-full h-full grid place-items-center bg-black/40 text-gray-500 text-xs font-bold">
+                                                    No preview
+                                                </div>
+                                            )}
+                                        </button>
+                                    ))}
+                                </div>
+                                {!posted && (
+                                    <div className="flex gap-2 justify-center">
+                                        <button
+                                            type="button"
+                                            disabled={selectedCandidateId === null || busy || working}
+                                            onClick={onPickCandidate}
+                                            className="rounded-md cursor-pointer text-[11.5px] font-extrabold px-4 py-2 border border-emerald-400 bg-emerald-400 text-emerald-950 hover:bg-emerald-300 disabled:opacity-40"
+                                        >
+                                            Use this one
+                                        </button>
+                                        <button
+                                            type="button"
+                                            disabled={busy || working}
+                                            onClick={onDiscardCandidates}
+                                            className="rounded-md cursor-pointer text-[11.5px] font-bold px-4 py-2 border border-white/15 bg-white/5 text-gray-300 hover:bg-white/10 hover:text-white disabled:opacity-40"
+                                        >
+                                            Discard all
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         )}
 
