@@ -142,6 +142,7 @@ import DataMigration from '../pages/Migration/DataMigration'; // CRM exports as 
 import AIContentStudio from '../pages/Marketing/AIContentStudio';
 import { CustomerSegments } from '../pages/Marketing/MarketingPages';
 import MarketingQueue from '../pages/Marketing/MarketingQueue';
+import MarketingStudio from '../pages/Marketing/MarketingStudio';
 import CustomerServiceAgent from '../pages/Agents/CustomerServiceAgent';
 import BusinessAdvisorAgent from '../pages/Agents/BusinessAdvisorAgent';
 import EmailReplyAgent from '../pages/Agents/EmailReplyAgent';
@@ -409,6 +410,7 @@ export const AppRoutes = () => {
             <Route path="/voice/coaching-rules" element={<VoiceCoachingRules />} />
             <Route path="/marketing" element={<MarketingHub />} />
             <Route path="/marketing/studio" element={<AIContentStudio />} />
+            <Route path="/marketing/studio/:postId" element={<MarketingStudio />} />
             <Route path="/marketing/segments" element={<CustomerSegments />} />
             <Route path="/marketing/campaigns" element={<MarketingQueue />} />
             </Route>

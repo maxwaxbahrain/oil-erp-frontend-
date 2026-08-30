@@ -51,7 +51,7 @@ function formatCreatedAt(iso: string): string {
     });
 }
 
-function mapPublishError(err: unknown): string {
+export function mapPublishError(err: unknown): string {
     const text = err instanceof Error ? err.message : String(err);
     const lower = text.toLowerCase();
     if (lower.includes('not configured')) {
@@ -66,7 +66,7 @@ function mapPublishError(err: unknown): string {
     return 'Publishing failed. Try again.';
 }
 
-function mapMediaError(err: unknown): string {
+export function mapMediaError(err: unknown): string {
     const text = err instanceof Error ? err.message : String(err);
     const lower = text.toLowerCase();
     if (lower.includes('too small')) {
@@ -96,7 +96,7 @@ function mapMediaError(err: unknown): string {
     return "Couldn't upload the image. Try again.";
 }
 
-function mapGenerateImageError(err: unknown): string {
+export function mapGenerateImageError(err: unknown): string {
     const text = err instanceof Error ? err.message : String(err);
     const lower = text.toLowerCase();
     if (lower.includes('too small')) {
@@ -123,7 +123,7 @@ function mapGenerateImageError(err: unknown): string {
     return "Couldn't generate the image. Try again.";
 }
 
-function mapEditImageError(err: unknown): string {
+export function mapEditImageError(err: unknown): string {
     const text = err instanceof Error ? err.message : String(err);
     const lower = text.toLowerCase();
     if (lower.includes('no image to edit')) {
@@ -441,6 +441,11 @@ export default function MarketingQueue() {
         }
 
         if (post.status !== 'posted') {
+            items.push({
+                label: 'Open in Studio',
+                onClick: () => navigate(`/marketing/studio/${post.id}`),
+                className: `${btn} border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100`,
+            });
             items.push({
                 label: 'Add image',
                 onClick: () => onAddImageClick(post.id),

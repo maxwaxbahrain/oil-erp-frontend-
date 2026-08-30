@@ -1366,6 +1366,7 @@ export interface MarketingPost {
   trigger_reason: string | null;
   media_url: string | null;
   media_file_name: string | null;
+  original_media_url: string | null;
   publora_media_id: string | null;
   created_at: string;
   updated_at: string | null;
@@ -1486,20 +1487,29 @@ export async function uploadMarketingPostMedia(id: number, file: File): Promise<
 export const deleteMarketingPostMedia = (id: number): Promise<MarketingPost> =>
   apiRequest<MarketingPost>(`/marketing/posts/${id}/media`, { method: 'DELETE' });
 
+export type MarketingImageShape = 'square' | 'portrait' | 'landscape' | 'story';
+
 export const generateMarketingPostImage = (
   id: number,
   prompt: string,
+  shape: MarketingImageShape = 'square',
 ): Promise<MarketingPost> =>
   apiRequest<MarketingPost>(`/marketing/posts/${id}/generate-image`, {
     method: 'POST',
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({ prompt, shape }),
   });
 
 export const editMarketingPostImage = (
   id: number,
   prompt: string,
+  shape: MarketingImageShape = 'square',
 ): Promise<MarketingPost> =>
   apiRequest<MarketingPost>(`/marketing/posts/${id}/edit-image`, {
     method: 'POST',
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({ prompt, shape }),
+  });
+
+export const revertMarketingPostImage = (id: number): Promise<MarketingPost> =>
+  apiRequest<MarketingPost>(`/marketing/posts/${id}/revert-image`, {
+    method: 'POST',
   });
