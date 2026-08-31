@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Copy, ImagePlus, RefreshCw, Send, Sparkles, Wand2 } from 'lucide-react';
+import AutoGrowTextarea from '../../components/AutoGrowTextarea';
 import {
     deleteMarketingPost,
     deleteMarketingPostMedia,
@@ -532,13 +533,12 @@ export default function MarketingQueue() {
                             </p>
                         ) : (
                             <>
-                                <input
-                                    type="text"
+                                <AutoGrowTextarea
                                     value={promptDraft}
                                     onChange={(e) => setPromptDraft(e.target.value)}
                                     placeholder="Describe the image, e.g. busy auto workshop, mechanic changing oil"
                                     maxLength={1000}
-                                    className="w-full text-sm px-3 py-2 rounded-lg border border-violet-200 bg-white focus:outline-none focus:ring-2 focus:ring-violet-300"
+                                    className="w-full text-sm px-3 py-2 rounded-lg border border-violet-200 bg-white focus:outline-none focus:ring-2 focus:ring-violet-300 resize-none"
                                 />
                                 <p className="text-[11px] text-gray-500 leading-snug">
                                     Generated images are best for scenes and backgrounds. Upload a real photo
@@ -575,13 +575,12 @@ export default function MarketingQueue() {
                             </p>
                         ) : (
                             <>
-                                <input
-                                    type="text"
+                                <AutoGrowTextarea
                                     value={editPromptDraft}
                                     onChange={(e) => setEditPromptDraft(e.target.value)}
                                     placeholder="Describe the scene, e.g. product on a busy workshop bench at golden hour"
                                     maxLength={1000}
-                                    className="w-full text-sm px-3 py-2 rounded-lg border border-fuchsia-200 bg-white focus:outline-none focus:ring-2 focus:ring-fuchsia-300"
+                                    className="w-full text-sm px-3 py-2 rounded-lg border border-fuchsia-200 bg-white focus:outline-none focus:ring-2 focus:ring-fuchsia-300 resize-none"
                                 />
                                 <p className="text-[11px] text-gray-500 leading-snug">
                                     Uses your uploaded photo as the product — the real label stays visible.

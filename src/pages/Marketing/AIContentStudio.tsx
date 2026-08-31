@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Zap, Copy, Check, RefreshCw, Download } from 'lucide-react';
+import AutoGrowTextarea from '../../components/AutoGrowTextarea';
 import {
     generateMarketingPosts,
     type MarketingPlatform,
@@ -185,14 +186,14 @@ export default function AIContentStudio() {
                         <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Campaign Details</p>
                         <div>
                             <label className="block text-xs font-black text-gray-500 uppercase mb-1.5">Target Audience</label>
-                            <input value={targetAudience} onChange={e => setTargetAudience(e.target.value)}
-                                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-400"
+                            <AutoGrowTextarea value={targetAudience} onChange={e => setTargetAudience(e.target.value)}
+                                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-400 resize-none"
                                 placeholder="e.g. Fleet managers NYC" />
                         </div>
                         <div>
                             <label className="block text-xs font-black text-gray-500 uppercase mb-1.5">Brand Voice</label>
-                            <input value={brandVoice} onChange={e => setBrandVoice(e.target.value)}
-                                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-400"
+                            <AutoGrowTextarea value={brandVoice} onChange={e => setBrandVoice(e.target.value)}
+                                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-400 resize-none"
                                 placeholder="e.g. professional, trusted expert" />
                         </div>
                     </div>

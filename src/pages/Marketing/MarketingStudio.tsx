@@ -8,6 +8,7 @@ import {
 } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
+import AutoGrowTextarea from '../../components/AutoGrowTextarea';
 import { getCurrentUser } from '../../store/authStore';
 import {
     discardMarketingCandidates,
@@ -99,12 +100,6 @@ function initials(name: string): string {
     return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-function growTextarea(el: HTMLTextAreaElement | null, maxHeight: number) {
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
-}
-
 function formatUsd(amount: number): string {
     return `$${amount.toFixed(2)}`;
 }
@@ -140,8 +135,6 @@ export default function MarketingStudio() {
     const { postId: postIdParam } = useParams<{ postId: string }>();
     const postId = Number(postIdParam);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const promptRef = useRef<HTMLTextAreaElement>(null);
-    const captionRef = useRef<HTMLTextAreaElement>(null);
     const compareRef = useRef<HTMLDivElement>(null);
 
     const [post, setPost] = useState<MarketingPost | null>(null);
@@ -223,14 +216,6 @@ export default function MarketingStudio() {
             setCanvasView('current');
         }
     }, [candidateBatch, canvasView]);
-
-    useEffect(() => {
-        growTextarea(promptRef.current, 240);
-    }, [prompt]);
-
-    useEffect(() => {
-        growTextarea(captionRef.current, 400);
-    }, [caption]);
 
     const canCompare =
         !!post?.original_media_url &&
@@ -620,11 +605,11 @@ export default function MarketingStudio() {
                             {mode === 'generate' ? 'Describe the scene' : 'What should change'}
                         </div>
                         <div className="border border-[#E4E7EC] rounded-[11px] bg-white focus-within:border-violet-300 focus-within:ring-[3px] focus-within:ring-violet-100">
-                            <textarea
-                                ref={promptRef}
+                            <AutoGrowTextarea
                                 value={prompt}
                                 onChange={(e) => setPrompt(e.target.value)}
                                 maxLength={PROMPT_MAX}
+                                maxHeight={240}
                                 disabled={posted || working}
                                 placeholder={
                                     mode === 'generate'
@@ -1030,8 +1015,7 @@ export default function MarketingStudio() {
                                     <p className="text-[10px] text-[#9CA3AF] mt-1.5">Published posts cannot be edited here.</p>
                                 </div>
                             ) : (
-                                <textarea
-                                    ref={captionRef}
+                                <AutoGrowTextarea
                                     value={caption}
                                     onChange={(e) => {
                                         const next = e.target.value.slice(0, CAPTION_MAX);
@@ -1040,6 +1024,7 @@ export default function MarketingStudio() {
                                     }}
                                     onBlur={onCaptionBlur}
                                     maxLength={CAPTION_MAX}
+                                    maxHeight={400}
                                     className="w-full bg-white border border-[#E4E7EC] rounded-lg text-[12.5px] leading-relaxed p-3 resize-none outline-none min-h-[130px] focus:border-violet-300 focus:ring-[3px] focus:ring-violet-100"
                                 />
                             )}
