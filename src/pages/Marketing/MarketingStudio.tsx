@@ -37,6 +37,7 @@ import {
     mapMediaError,
     mapPublishError,
 } from './MarketingQueue';
+import VideoPanel from './VideoPanel';
 
 type StudioMode = 'generate' | 'edit';
 type CanvasView = 'current' | 'compare' | 'sheet';
@@ -944,6 +945,13 @@ export default function MarketingStudio() {
                                 Save
                             </Link>
                         </div>
+                    </div>
+
+                    <div className="border-t border-white/10 px-4 py-4 shrink-0 overflow-y-auto max-h-[45%]">
+                        <div className="text-[10px] font-extrabold uppercase tracking-widest text-gray-500 mb-3">
+                            Video
+                        </div>
+                        <VideoPanel postId={post.id} hasImage={!!post.media_url} />
                     </div>
                 </div>
 

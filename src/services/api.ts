@@ -1580,3 +1580,43 @@ export const revertMarketingPostImage = (id: number): Promise<MarketingPost> =>
   apiRequest<MarketingPost>(`/marketing/posts/${id}/revert-image`, {
     method: 'POST',
   });
+
+export type MarketingVideoStatus = 'queued' | 'rendering' | 'ready' | 'failed';
+export type MarketingVideoPreset = 'slow_push_in' | 'light_drift' | 'particle_float';
+export type MarketingVideoResolution = '480p' | '720p';
+
+export interface MarketingVideo {
+  id: number;
+  post_id: number;
+  status: MarketingVideoStatus;
+  preset: string;
+  resolution: string;
+  seed: number | null;
+  custom_prompt: string | null;
+  error_message: string | null;
+  url: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export const generateMarketingPostVideo = (
+  id: number,
+  body: {
+    preset?: MarketingVideoPreset;
+    custom_prompt?: string | null;
+    resolution?: MarketingVideoResolution;
+    seed?: number | null;
+  } = {},
+): Promise<MarketingVideo> =>
+  apiRequest<MarketingVideo>(`/marketing/posts/${id}/generate-video`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const listMarketingPostVideos = (id: number): Promise<MarketingVideo[]> =>
+  apiRequest<MarketingVideo[]>(`/marketing/posts/${id}/videos`);
+
+export const deleteMarketingPostVideo = (postId: number, videoId: number): Promise<void> =>
+  apiRequest<void>(`/marketing/posts/${postId}/videos/${videoId}`, {
+    method: 'DELETE',
+  });
