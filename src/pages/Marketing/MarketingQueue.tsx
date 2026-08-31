@@ -15,6 +15,7 @@ import {
     type MarketingConnection,
     type MarketingPost,
 } from '../../services/api';
+import { formatDateTime } from '../../utils/formatters';
 
 type StatusTab = 'all' | 'draft' | 'approved' | 'archived' | 'posted';
 
@@ -39,18 +40,6 @@ const ACTION_ERROR = "Couldn't update the post. Try again.";
 const DELETE_ERROR = "Couldn't delete the post. Try again.";
 const COPY_ERROR = "Couldn't copy to the clipboard.";
 const NO_CONNECTIONS_ERROR = 'No social accounts connected yet.';
-
-function formatCreatedAt(iso: string): string {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    return d.toLocaleString(undefined, {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-    });
-}
 
 export function mapPublishError(err: unknown): string {
     const text = err instanceof Error ? err.message : String(err);
@@ -716,10 +705,10 @@ export default function MarketingQueue() {
                                             <span className={`text-[10px] font-black px-2 py-1 rounded-full ${STATUS_STYLE[post.status] || 'bg-gray-100 text-gray-600'}`}>
                                                 {post.status}
                                             </span>
-                                            <span className="text-xs font-mono text-gray-400">{formatCreatedAt(post.created_at)}</span>
+                                            <span className="text-xs font-mono text-gray-400">{formatDateTime(post.created_at)}</span>
                                             {post.status === 'posted' && post.posted_at && (
                                                 <span className="text-xs font-mono text-gray-400">
-                                                    Posted {formatCreatedAt(post.posted_at)}
+                                                    Posted {formatDateTime(post.posted_at)}
                                                 </span>
                                             )}
                                         </div>

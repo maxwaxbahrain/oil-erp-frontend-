@@ -45,6 +45,27 @@ export function formatDateOnly(
     return parsed.toLocaleDateString(locale, options ?? DEFAULT_DATE_ONLY_OPTIONS);
 }
 
+/** Parse an API datetime. Backend sends naive UTC without a zone
+ *  suffix; treat zoneless strings as UTC. Aware strings pass through. */
+export function parseApiDateTime(iso: string | null | undefined): Date | null {
+    if (!iso) return null;
+    const hasZone = /(Z|[+-]\d{2}:?\d{2})$/.test(iso);
+    const d = new Date(hasZone ? iso : `${iso}Z`);
+    return Number.isNaN(d.getTime()) ? null : d;
+}
+
+export function formatDateTime(iso: string | null | undefined): string {
+    const d = parseApiDateTime(iso);
+    if (!d) return iso ?? '';
+    return d.toLocaleString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+    });
+}
+
 export const formatCurrency = (amount: number): string => {
     return new Intl.NumberFormat('en-US', {
         style: 'currency',
