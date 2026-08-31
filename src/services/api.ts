@@ -1583,7 +1583,7 @@ export const revertMarketingPostImage = (id: number): Promise<MarketingPost> =>
 
 export type MarketingVideoStatus = 'queued' | 'rendering' | 'ready' | 'failed';
 export type MarketingVideoPreset = 'slow_push_in' | 'light_drift' | 'particle_float';
-export type MarketingVideoResolution = '480p' | '720p';
+export type MarketingVideoResolution = '580p' | '720p';
 
 export interface MarketingVideo {
   id: number;

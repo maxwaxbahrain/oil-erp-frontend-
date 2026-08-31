@@ -36,7 +36,7 @@ const PRESET_OPTIONS: { id: MarketingVideoPreset; label: string }[] = [
 ];
 
 const RESOLUTION_OPTIONS: { id: MarketingVideoResolution; label: string }[] = [
-    { id: '480p', label: '480p · $0.20' },
+    { id: '580p', label: '580p · $0.20' },
     { id: '720p', label: '720p · $0.40' },
 ];
 
@@ -79,7 +79,7 @@ export default function VideoPanel({
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [preset, setPreset] = useState<MarketingVideoPreset>('slow_push_in');
-    const [resolution, setResolution] = useState<MarketingVideoResolution>('480p');
+    const [resolution, setResolution] = useState<MarketingVideoResolution>('580p');
     const [customPrompt, setCustomPrompt] = useState('');
 
     const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
