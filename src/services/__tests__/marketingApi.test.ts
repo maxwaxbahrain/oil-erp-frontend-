@@ -30,6 +30,7 @@ describe('marketing API', () => {
     await generateMarketingPosts({
       platforms: ['linkedin', 'x'],
       campaign_type: 'summer promo',
+      post_topic: 'Same-day drum delivery when a shop runs out mid-shift',
       brand_voice: 'professional',
     });
 
@@ -39,6 +40,7 @@ describe('marketing API', () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
       platforms: ['linkedin', 'x'],
       campaign_type: 'summer promo',
+      post_topic: 'Same-day drum delivery when a shop runs out mid-shift',
       brand_voice: 'professional',
     });
   });

@@ -1382,6 +1382,7 @@ export interface MarketingConnection {
 export const generateMarketingPosts = (params: {
   platforms: MarketingPlatform[];
   campaign_type: string;
+  post_topic: string;
   brand_voice?: string;
   target_audience?: string;
 }): Promise<MarketingPost[]> =>

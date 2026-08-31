@@ -62,6 +62,7 @@ export default function AIContentStudio() {
     const location = useLocation();
     const [campaignType, setCampaignType] = useState('product_promo');
     const [targetAudience, setTargetAudience] = useState('B2B fleet managers and auto workshops in NYC');
+    const [postTopic, setPostTopic] = useState('');
     const [selectedChannels, setSelectedChannels] = useState<Set<string>>(new Set(['linkedin', 'instagram', 'facebook', 'email']));
     const [generating, setGenerating] = useState(false);
     const [generated, setGenerated] = useState<GeneratedContent[]>([]);
@@ -105,6 +106,7 @@ export default function AIContentStudio() {
             const posts = await generateMarketingPosts({
                 platforms,
                 campaign_type: campaignLabel,
+                post_topic: postTopic.trim(),
                 brand_voice: brandVoice,
                 target_audience: targetAudience,
             });
@@ -185,6 +187,19 @@ export default function AIContentStudio() {
                     <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm space-y-4">
                         <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Campaign Details</p>
                         <div>
+                            <label className="block text-xs font-black text-gray-500 uppercase mb-1.5">What is this post about?</label>
+                            <AutoGrowTextarea
+                                value={postTopic}
+                                onChange={(e) => setPostTopic(e.target.value.slice(0, 300))}
+                                maxLength={300}
+                                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-400 resize-none"
+                                placeholder="One thing only, e.g. same-day delivery when a shop runs out mid-day"
+                            />
+                            <p className="text-[11px] text-gray-400 mt-1.5 leading-snug">
+                                One topic per campaign. This is what stops every post sounding the same.
+                            </p>
+                        </div>
+                        <div>
                             <label className="block text-xs font-black text-gray-500 uppercase mb-1.5">Target Audience</label>
                             <AutoGrowTextarea value={targetAudience} onChange={e => setTargetAudience(e.target.value)}
                                 className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-400 resize-none"
@@ -219,7 +234,7 @@ export default function AIContentStudio() {
                         </div>
                     )}
 
-                    <button onClick={generateContent} disabled={generating || selectedChannels.size === 0}
+                    <button onClick={generateContent} disabled={generating || selectedChannels.size === 0 || postTopic.trim().length < 5}
                         className="w-full flex items-center justify-center gap-3 py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-2xl font-black text-sm hover:opacity-90 disabled:opacity-50 transition-all shadow-lg shadow-purple-500/20">
                         {generating ? <><RefreshCw size={18} className="animate-spin" /> Generating {selectedChannels.size} pieces...</>
                             : <><Zap size={18} /> Generate {selectedChannels.size} Channel{selectedChannels.size !== 1 ? 's' : ''}</>}
