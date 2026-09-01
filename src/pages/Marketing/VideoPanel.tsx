@@ -72,7 +72,19 @@ function optionLabel<T extends string>(
     return options.find((option) => option.id === value)?.label ?? value;
 }
 
+const LEGACY_PRESET_LABELS: Record<string, string> = {
+    slow_push_in: 'Slow push in',
+    light_drift: 'Light drift',
+    particle_float: 'Particle float',
+};
+
 function clipLookSummary(row: MarketingVideo): string {
+    if (row.custom_prompt?.trim()) {
+        return 'Custom prompt';
+    }
+    if (row.camera == null && row.preset) {
+        return LEGACY_PRESET_LABELS[row.preset] ?? row.preset;
+    }
     return [
         optionLabel(row.camera, CAMERA_OPTIONS),
         optionLabel(row.scene, SCENE_OPTIONS),

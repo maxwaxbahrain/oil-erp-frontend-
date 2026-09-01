@@ -1592,6 +1592,7 @@ export interface MarketingVideo {
   id: number;
   post_id: number;
   status: MarketingVideoStatus;
+  preset: string;
   camera: string | null;
   scene: string | null;
   mood: string | null;
