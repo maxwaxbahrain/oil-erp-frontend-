@@ -63,12 +63,19 @@ const PRICE_PER_SECOND: Record<MarketingVideoResolution, number> = {
 };
 const RESOLUTION_OPTIONS: MarketingVideoResolution[] = ['480p', '580p', '720p'];
 const DURATION_OPTIONS: MarketingVideoDuration[] = [5, 8, 10];
-const CHARS_PER_SECOND = 12;
+const CHARS_PER_SECOND = 9;
+const DIGIT_WEIGHT = 3;
+function speechWeight(script: string): number {
+    const s = script.trim();
+    let n = s.length;
+    for (const ch of s) if (ch >= '0' && ch <= '9') n += DIGIT_WEIGHT - 1;
+    return n;
+}
 const VOICE_OPTIONS: { id: MarketingVideoVoice; label: string }[] = [
-    { id: 'Craig (en)', label: 'Craig' },
-    { id: 'Mark (en)', label: 'Mark' },
     { id: 'Sarah (en)', label: 'Sarah' },
     { id: 'Ashley (en)', label: 'Ashley' },
+    { id: 'Craig (en)', label: 'Craig' },
+    { id: 'Mark (en)', label: 'Mark' },
 ];
 const MAX_ROWS = 15;
 
@@ -187,7 +194,7 @@ export default function VideoPanel({
     const [captionOn, setCaptionOn] = useState(false);
     const [voiceOn, setVoiceOn] = useState(false);
     const [voiceScript, setVoiceScript] = useState('');
-    const [voiceName, setVoiceName] = useState<MarketingVideoVoice>('Craig (en)');
+    const [voiceName, setVoiceName] = useState<MarketingVideoVoice>('Sarah (en)');
 
     const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const prevLengthRef = useRef(0);
@@ -351,7 +358,7 @@ export default function VideoPanel({
     };
 
     const voiceCharCap = duration * CHARS_PER_SECOND;
-    const voiceCharCount = voiceScript.trim().length;
+    const voiceCharCount = speechWeight(voiceScript);
     const voiceOverCap = voiceOn && voiceCharCount > voiceCharCap;
     const generateDisabled = !hasImage || busy || voiceOverCap;
     const selectClassName =
@@ -637,7 +644,7 @@ export default function VideoPanel({
                                     voiceOverCap ? 'text-red-700' : 'text-[#9CA3AF]'
                                 }`}
                             >
-                                {voiceCharCount}/{voiceCharCap} characters · about{' '}
+                                {voiceCharCount}/{voiceCharCap} · about{' '}
                                 {(voiceCharCount / CHARS_PER_SECOND).toFixed(1)}s of speech
                                 {voiceOverCap
                                     ? ' — choose a longer clip or shorten the script'
