@@ -65,6 +65,7 @@ const RESOLUTION_OPTIONS: MarketingVideoResolution[] = ['480p', '580p', '720p'];
 const DURATION_OPTIONS: MarketingVideoDuration[] = [5, 8, 10];
 const CHARS_PER_SECOND = 9;
 const DIGIT_WEIGHT = 3;
+const LIPSYNC_COST_USD = 0.20;
 function speechWeight(script: string): number {
     const s = script.trim();
     let n = s.length;
@@ -195,6 +196,7 @@ export default function VideoPanel({
     const [voiceOn, setVoiceOn] = useState(false);
     const [voiceScript, setVoiceScript] = useState('');
     const [voiceName, setVoiceName] = useState<MarketingVideoVoice>('Sarah (en)');
+    const [lipsync, setLipsync] = useState(false);
 
     const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const prevLengthRef = useRef(0);
@@ -267,6 +269,12 @@ export default function VideoPanel({
     }, [canMatchPreviousSeed]);
 
     useEffect(() => {
+        if (!voiceOn) {
+            setLipsync(false);
+        }
+    }, [voiceOn]);
+
+    useEffect(() => {
         if (videos.length > prevLengthRef.current && videos.length > 0) {
             document
                 .getElementById(`video-row-${videos[0].id}`)
@@ -287,6 +295,7 @@ export default function VideoPanel({
         caption_position?: MarketingVideoCaptionPosition;
         voice_script?: string | null;
         voice_name?: MarketingVideoVoice;
+        lipsync?: boolean;
     }) => {
         setBusy(true);
         setError(null);
@@ -321,6 +330,7 @@ export default function VideoPanel({
             ...(voiceOn && voiceScript.trim()
                 ? { voice_script: voiceScript.trim(), voice_name: voiceName }
                 : {}),
+            ...(voiceOn && voiceScript.trim() && lipsync ? { lipsync: true } : {}),
         });
     };
 
@@ -337,6 +347,7 @@ export default function VideoPanel({
             caption_position: (row.caption_position as MarketingVideoCaptionPosition) ?? undefined,
             voice_script: row.voice_script ?? undefined,
             voice_name: (row.voice_name as MarketingVideoVoice) ?? undefined,
+            lipsync: row.lipsync || undefined,
         });
     };
 
@@ -417,6 +428,11 @@ export default function VideoPanel({
                                     {row.voice_script ? (
                                         <span className="text-[10px] font-extrabold uppercase tracking-widest px-2 py-0.5 rounded bg-gray-100 text-gray-600">
                                             Voice
+                                        </span>
+                                    ) : null}
+                                    {row.lipsync ? (
+                                        <span className="text-[10px] font-extrabold uppercase tracking-widest px-2 py-0.5 rounded bg-gray-100 text-gray-600">
+                                            Lip-sync
                                         </span>
                                     ) : null}
                                     <span className="text-[10px] font-mono text-[#9CA3AF] ml-auto">
@@ -671,6 +687,20 @@ export default function VideoPanel({
                     </div>
                 )}
 
+                {voiceOn && (
+                    <label className="flex items-center gap-2 text-xs font-semibold text-[#374151] cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={lipsync}
+                            disabled={!hasImage || busy}
+                            onChange={(e) => setLipsync(e.target.checked)}
+                            className="rounded border-[#D1D5DB] text-violet-600 focus:ring-violet-200 disabled:opacity-40"
+                        />
+                        Make the person&apos;s lips move
+                        <span className="text-[10px] font-semibold text-[#9CA3AF]">+$0.20</span>
+                    </label>
+                )}
+
                 {canMatchPreviousSeed && (
                     <label className="flex items-center gap-2 text-xs font-semibold text-[#374151] cursor-pointer">
                         <input
@@ -713,7 +743,9 @@ export default function VideoPanel({
                     {busy ? 'Starting…' : 'Generate video'}
                 </button>
                 <p className="text-[10px] text-[#9CA3AF] leading-relaxed">
-                    This render costs {priceLabel(resolution, duration)} from your AI budget.
+                    {lipsync
+                        ? `This render costs $${(PRICE_PER_SECOND[resolution] * duration + LIPSYNC_COST_USD).toFixed(2)} from your AI budget.`
+                        : `This render costs ${priceLabel(resolution, duration)} from your AI budget.`}
                 </p>
             </div>
         </div>

@@ -1607,6 +1607,7 @@ export interface MarketingVideo {
   caption_position: string | null;
   voice_script: string | null;
   voice_name: string | null;
+  lipsync: boolean;
   error_message: string | null;
   url: string | null;
   created_at: string;
@@ -1627,6 +1628,7 @@ export const generateMarketingPostVideo = (
     caption_position?: MarketingVideoCaptionPosition;
     voice_script?: string | null;
     voice_name?: MarketingVideoVoice;
+    lipsync?: boolean;
   } = {},
 ): Promise<MarketingVideo> =>
   apiRequest<MarketingVideo>(`/marketing/posts/${id}/generate-video`, {
