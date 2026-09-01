@@ -9,6 +9,7 @@ import {
     type MarketingVideoCamera,
     type MarketingVideoCaptionPosition,
     type MarketingVideoDuration,
+    type MarketingVideoVoice,
     type MarketingVideoMood,
     type MarketingVideoResolution,
     type MarketingVideoScene,
@@ -62,6 +63,13 @@ const PRICE_PER_SECOND: Record<MarketingVideoResolution, number> = {
 };
 const RESOLUTION_OPTIONS: MarketingVideoResolution[] = ['480p', '580p', '720p'];
 const DURATION_OPTIONS: MarketingVideoDuration[] = [5, 8, 10];
+const CHARS_PER_SECOND = 12;
+const VOICE_OPTIONS: { id: MarketingVideoVoice; label: string }[] = [
+    { id: 'Craig (en)', label: 'Craig' },
+    { id: 'Mark (en)', label: 'Mark' },
+    { id: 'Sarah (en)', label: 'Sarah' },
+    { id: 'Ashley (en)', label: 'Ashley' },
+];
 const MAX_ROWS = 15;
 
 function priceLabel(r: MarketingVideoResolution, d: MarketingVideoDuration): string {
@@ -177,6 +185,9 @@ export default function VideoPanel({
     const [caption, setCaption] = useState('');
     const [captionPosition, setCaptionPosition] = useState<MarketingVideoCaptionPosition>('bottom');
     const [captionOn, setCaptionOn] = useState(false);
+    const [voiceOn, setVoiceOn] = useState(false);
+    const [voiceScript, setVoiceScript] = useState('');
+    const [voiceName, setVoiceName] = useState<MarketingVideoVoice>('Craig (en)');
 
     const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const prevLengthRef = useRef(0);
@@ -267,6 +278,8 @@ export default function VideoPanel({
         seed?: number | null;
         caption?: string | null;
         caption_position?: MarketingVideoCaptionPosition;
+        voice_script?: string | null;
+        voice_name?: MarketingVideoVoice;
     }) => {
         setBusy(true);
         setError(null);
@@ -298,6 +311,9 @@ export default function VideoPanel({
             ...(captionOn && caption.trim()
                 ? { caption: caption.trim(), caption_position: captionPosition }
                 : {}),
+            ...(voiceOn && voiceScript.trim()
+                ? { voice_script: voiceScript.trim(), voice_name: voiceName }
+                : {}),
         });
     };
 
@@ -312,6 +328,8 @@ export default function VideoPanel({
             seed: row.seed ?? undefined,
             caption: row.caption ?? undefined,
             caption_position: (row.caption_position as MarketingVideoCaptionPosition) ?? undefined,
+            voice_script: row.voice_script ?? undefined,
+            voice_name: (row.voice_name as MarketingVideoVoice) ?? undefined,
         });
     };
 
@@ -332,7 +350,10 @@ export default function VideoPanel({
         }
     };
 
-    const generateDisabled = !hasImage || busy;
+    const voiceCharCap = duration * CHARS_PER_SECOND;
+    const voiceCharCount = voiceScript.trim().length;
+    const voiceOverCap = voiceOn && voiceCharCount > voiceCharCap;
+    const generateDisabled = !hasImage || busy || voiceOverCap;
     const selectClassName =
         'w-full rounded-lg border border-[#E4E7EC] bg-white px-3 py-2 text-xs font-semibold text-[#111827] disabled:opacity-40';
     const fieldLabelClassName =
@@ -384,6 +405,11 @@ export default function VideoPanel({
                                     {row.caption ? (
                                         <span className="text-[10px] font-extrabold uppercase tracking-widest px-2 py-0.5 rounded bg-gray-100 text-gray-600">
                                             Caption
+                                        </span>
+                                    ) : null}
+                                    {row.voice_script ? (
+                                        <span className="text-[10px] font-extrabold uppercase tracking-widest px-2 py-0.5 rounded bg-gray-100 text-gray-600">
+                                            Voice
                                         </span>
                                     ) : null}
                                     <span className="text-[10px] font-mono text-[#9CA3AF] ml-auto">
@@ -578,6 +604,61 @@ export default function VideoPanel({
                             >
                                 <option value="bottom">Bottom</option>
                                 <option value="top">Top</option>
+                            </select>
+                        </div>
+                    </div>
+                )}
+
+                <label className="flex items-center gap-2 text-xs font-semibold text-[#374151] cursor-pointer">
+                    <input
+                        type="checkbox"
+                        checked={voiceOn}
+                        disabled={!hasImage || busy}
+                        onChange={(e) => setVoiceOn(e.target.checked)}
+                        className="rounded border-[#D1D5DB] text-violet-600 focus:ring-violet-200 disabled:opacity-40"
+                    />
+                    Add a voiceover
+                </label>
+                {voiceOn && (
+                    <div className="space-y-3">
+                        <div>
+                            <label className={fieldLabelClassName}>Script</label>
+                            <AutoGrowTextarea
+                                value={voiceScript}
+                                onChange={(e) => setVoiceScript(e.target.value.slice(0, 200))}
+                                maxLength={200}
+                                maxHeight={160}
+                                disabled={!hasImage || busy}
+                                placeholder="e.g. Bettano 20W-50. Same-day delivery across Queens."
+                                className="w-full rounded-lg border border-[#E4E7EC] bg-white px-3 py-2 text-xs leading-relaxed resize-none outline-none min-h-[72px] focus:border-violet-300 focus:ring-[3px] focus:ring-violet-100 disabled:opacity-40"
+                            />
+                            <p
+                                className={`mt-1 text-[10px] ${
+                                    voiceOverCap ? 'text-red-700' : 'text-[#9CA3AF]'
+                                }`}
+                            >
+                                {voiceCharCount}/{voiceCharCap} characters · about{' '}
+                                {(voiceCharCount / CHARS_PER_SECOND).toFixed(1)}s of speech
+                                {voiceOverCap
+                                    ? ' — choose a longer clip or shorten the script'
+                                    : ''}
+                            </p>
+                        </div>
+                        <div>
+                            <label className={fieldLabelClassName}>Voice</label>
+                            <select
+                                value={voiceName}
+                                disabled={!hasImage || busy}
+                                onChange={(e) =>
+                                    setVoiceName(e.target.value as MarketingVideoVoice)
+                                }
+                                className={selectClassName}
+                            >
+                                {VOICE_OPTIONS.map((option) => (
+                                    <option key={option.id} value={option.id}>
+                                        {option.label}
+                                    </option>
+                                ))}
                             </select>
                         </div>
                     </div>

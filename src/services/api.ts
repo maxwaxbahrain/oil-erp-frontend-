@@ -1588,6 +1588,7 @@ export type MarketingVideoMood = 'warm' | 'cool' | 'neutral';
 export type MarketingVideoResolution = '480p' | '580p' | '720p';
 export type MarketingVideoDuration = 5 | 8 | 10;
 export type MarketingVideoCaptionPosition = 'top' | 'bottom';
+export type MarketingVideoVoice = 'Craig (en)' | 'Mark (en)' | 'Sarah (en)' | 'Ashley (en)';
 
 export interface MarketingVideo {
   id: number;
@@ -1604,6 +1605,8 @@ export interface MarketingVideo {
   custom_prompt: string | null;
   caption: string | null;
   caption_position: string | null;
+  voice_script: string | null;
+  voice_name: string | null;
   error_message: string | null;
   url: string | null;
   created_at: string;
@@ -1622,6 +1625,8 @@ export const generateMarketingPostVideo = (
     seed?: number | null;
     caption?: string | null;
     caption_position?: MarketingVideoCaptionPosition;
+    voice_script?: string | null;
+    voice_name?: MarketingVideoVoice;
   } = {},
 ): Promise<MarketingVideo> =>
   apiRequest<MarketingVideo>(`/marketing/posts/${id}/generate-video`, {
