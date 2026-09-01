@@ -7,6 +7,7 @@ import {
     listMarketingPostVideos,
     type MarketingVideo,
     type MarketingVideoCamera,
+    type MarketingVideoCaptionPosition,
     type MarketingVideoDuration,
     type MarketingVideoMood,
     type MarketingVideoResolution,
@@ -128,9 +129,11 @@ function newestReadyWithSeed(rows: MarketingVideo[]): MarketingVideo | undefined
 export default function VideoPanel({
     postId,
     hasImage,
+    postTitle,
 }: {
     postId: number;
     hasImage: boolean;
+    postTitle: string;
 }) {
     const [videos, setVideos] = useState<MarketingVideo[]>([]);
     const [loading, setLoading] = useState(true);
@@ -143,6 +146,9 @@ export default function VideoPanel({
     const [duration, setDuration] = useState<MarketingVideoDuration>(5);
     const [customPrompt, setCustomPrompt] = useState('');
     const [matchPreviousSeed, setMatchPreviousSeed] = useState(false);
+    const [caption, setCaption] = useState('');
+    const [captionPosition, setCaptionPosition] = useState<MarketingVideoCaptionPosition>('bottom');
+    const [captionOn, setCaptionOn] = useState(false);
 
     const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const prevLengthRef = useRef(0);
@@ -231,6 +237,8 @@ export default function VideoPanel({
         duration_seconds?: MarketingVideoDuration;
         custom_prompt?: string | null;
         seed?: number | null;
+        caption?: string | null;
+        caption_position?: MarketingVideoCaptionPosition;
     }) => {
         setBusy(true);
         setError(null);
@@ -259,6 +267,9 @@ export default function VideoPanel({
             ...(matchPreviousSeed && seedSource?.seed != null
                 ? { seed: seedSource.seed }
                 : {}),
+            ...(captionOn && caption.trim()
+                ? { caption: caption.trim(), caption_position: captionPosition }
+                : {}),
         });
     };
 
@@ -271,6 +282,8 @@ export default function VideoPanel({
             duration_seconds: row.duration_seconds as MarketingVideoDuration,
             custom_prompt: row.custom_prompt ?? undefined,
             seed: row.seed ?? undefined,
+            caption: row.caption ?? undefined,
+            caption_position: (row.caption_position as MarketingVideoCaptionPosition) ?? undefined,
         });
     };
 
@@ -340,6 +353,11 @@ export default function VideoPanel({
                                     <span className="text-xs text-[#6B7280]">
                                         {row.resolution} · {row.duration_seconds}s
                                     </span>
+                                    {row.caption ? (
+                                        <span className="text-[10px] font-extrabold uppercase tracking-widest px-2 py-0.5 rounded bg-gray-100 text-gray-600">
+                                            Caption
+                                        </span>
+                                    ) : null}
                                     <span className="text-[10px] font-mono text-[#9CA3AF] ml-auto">
                                         {formatDateTime(row.created_at)}
                                     </span>
@@ -492,6 +510,55 @@ export default function VideoPanel({
                         ))}
                     </select>
                 </div>
+
+                <label className="flex items-center gap-2 text-xs font-semibold text-[#374151] cursor-pointer">
+                    <input
+                        type="checkbox"
+                        checked={captionOn}
+                        disabled={generateDisabled}
+                        onChange={(e) => {
+                            const on = e.target.checked;
+                            setCaptionOn(on);
+                            if (on && !caption) {
+                                setCaption(postTitle.slice(0, 60));
+                            }
+                        }}
+                        className="rounded border-[#D1D5DB] text-violet-600 focus:ring-violet-200 disabled:opacity-40"
+                    />
+                    Add a caption
+                </label>
+                {captionOn && (
+                    <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3">
+                        <div>
+                            <label className={fieldLabelClassName}>Caption</label>
+                            <input
+                                type="text"
+                                value={caption}
+                                maxLength={60}
+                                disabled={generateDisabled}
+                                onChange={(e) => setCaption(e.target.value.slice(0, 60))}
+                                className={selectClassName}
+                            />
+                            <p className="mt-1 text-[10px] text-[#9CA3AF] text-right">
+                                {caption.length}/60
+                            </p>
+                        </div>
+                        <div>
+                            <label className={fieldLabelClassName}>Position</label>
+                            <select
+                                value={captionPosition}
+                                disabled={generateDisabled}
+                                onChange={(e) =>
+                                    setCaptionPosition(e.target.value as MarketingVideoCaptionPosition)
+                                }
+                                className={selectClassName}
+                            >
+                                <option value="bottom">Bottom</option>
+                                <option value="top">Top</option>
+                            </select>
+                        </div>
+                    </div>
+                )}
 
                 {canMatchPreviousSeed && (
                     <label className="flex items-center gap-2 text-xs font-semibold text-[#374151] cursor-pointer">
