@@ -24,6 +24,8 @@ const DELETE_ERROR = "Couldn't delete the video. Try again.";
 const IN_PROGRESS_ERROR = 'A render is already in progress';
 const NOT_CONFIGURED_ERROR = 'Video generation is not configured on this server.';
 const DELETE_IN_PROGRESS_ERROR = 'Wait for the render to finish first.';
+const SESSION_EXPIRED_ERROR = 'Your session expired. Refresh the page and sign in again.';
+const REJECTED_ERROR = 'That request was rejected. Check the settings and try again.';
 const NO_IMAGE_HINT = 'Add an image to the post first';
 
 const STATUS_STYLE: Record<string, string> = {
@@ -94,6 +96,15 @@ function clipLookSummary(row: MarketingVideo): string {
     ].join(' · ');
 }
 
+function isUnauthorizedMessage(text: string): boolean {
+    const lower = text.toLowerCase();
+    return (
+        lower.includes('unauthorized') ||
+        lower.includes('not authenticated') ||
+        /\b401\b/.test(text)
+    );
+}
+
 function mapGenerateError(err: unknown): string {
     const text = err instanceof Error ? err.message : String(err);
     if (text.includes('already in progress')) {
@@ -102,6 +113,22 @@ function mapGenerateError(err: unknown): string {
     if (text.toLowerCase().includes('not configured')) {
         return NOT_CONFIGURED_ERROR;
     }
+    if (isUnauthorizedMessage(text)) {
+        return SESSION_EXPIRED_ERROR;
+    }
+    const trimmed = text.trim();
+    const is400or422 = /\b400\b/.test(trimmed) || /\b422\b/.test(trimmed);
+    const bareStatus = /^HTTP (400|422)$/.test(trimmed);
+    const genericDetail = !trimmed || trimmed === 'Request failed' || trimmed === '[object Object]';
+    if (is400or422) {
+        if (!bareStatus && !genericDetail) {
+            return trimmed;
+        }
+        return REJECTED_ERROR;
+    }
+    if (!genericDetail && !/^HTTP \d{3}$/.test(trimmed)) {
+        return trimmed;
+    }
     return GENERATE_ERROR;
 }
 
@@ -109,6 +136,9 @@ function mapDeleteError(err: unknown): string {
     const text = err instanceof Error ? err.message : String(err);
     if (text.includes('render in progress') || text.includes('Cannot delete')) {
         return DELETE_IN_PROGRESS_ERROR;
+    }
+    if (isUnauthorizedMessage(text)) {
+        return SESSION_EXPIRED_ERROR;
     }
     return DELETE_ERROR;
 }
@@ -129,11 +159,9 @@ function newestReadyWithSeed(rows: MarketingVideo[]): MarketingVideo | undefined
 export default function VideoPanel({
     postId,
     hasImage,
-    postTitle,
 }: {
     postId: number;
     hasImage: boolean;
-    postTitle: string;
 }) {
     const [videos, setVideos] = useState<MarketingVideo[]>([]);
     const [loading, setLoading] = useState(true);
@@ -516,13 +544,7 @@ export default function VideoPanel({
                         type="checkbox"
                         checked={captionOn}
                         disabled={generateDisabled}
-                        onChange={(e) => {
-                            const on = e.target.checked;
-                            setCaptionOn(on);
-                            if (on && !caption) {
-                                setCaption(postTitle.slice(0, 60));
-                            }
-                        }}
+                        onChange={(e) => setCaptionOn(e.target.checked)}
                         className="rounded border-[#D1D5DB] text-violet-600 focus:ring-violet-200 disabled:opacity-40"
                     />
                     Add a caption
@@ -536,6 +558,7 @@ export default function VideoPanel({
                                 value={caption}
                                 maxLength={60}
                                 disabled={generateDisabled}
+                                placeholder="e.g. Bettano 20W-50 — same-day delivery"
                                 onChange={(e) => setCaption(e.target.value.slice(0, 60))}
                                 className={selectClassName}
                             />

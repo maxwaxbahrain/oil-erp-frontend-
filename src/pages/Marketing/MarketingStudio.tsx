@@ -951,7 +951,7 @@ export default function MarketingStudio() {
                         <div className="text-[10px] font-extrabold uppercase tracking-widest text-gray-500 mb-3">
                             Video
                         </div>
-                        <VideoPanel postId={post.id} hasImage={!!post.media_url} postTitle={post.title} />
+                        <VideoPanel postId={post.id} hasImage={!!post.media_url} />
                     </div>
                 </div>
 
