@@ -1583,7 +1583,8 @@ export const revertMarketingPostImage = (id: number): Promise<MarketingPost> =>
 
 export type MarketingVideoStatus = 'queued' | 'rendering' | 'ready' | 'failed';
 export type MarketingVideoPreset = 'slow_push_in' | 'light_drift' | 'particle_float';
-export type MarketingVideoResolution = '580p' | '720p';
+export type MarketingVideoResolution = '480p' | '580p' | '720p';
+export type MarketingVideoDuration = 5 | 8;
 
 export interface MarketingVideo {
   id: number;
@@ -1591,6 +1592,8 @@ export interface MarketingVideo {
   status: MarketingVideoStatus;
   preset: string;
   resolution: string;
+  duration_seconds: number;
+  aspect_ratio: string;
   seed: number | null;
   custom_prompt: string | null;
   error_message: string | null;
@@ -1605,6 +1608,7 @@ export const generateMarketingPostVideo = (
     preset?: MarketingVideoPreset;
     custom_prompt?: string | null;
     resolution?: MarketingVideoResolution;
+    duration_seconds?: MarketingVideoDuration;
     seed?: number | null;
   } = {},
 ): Promise<MarketingVideo> =>

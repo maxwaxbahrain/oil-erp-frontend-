@@ -6,6 +6,7 @@ import {
     generateMarketingPostVideo,
     listMarketingPostVideos,
     type MarketingVideo,
+    type MarketingVideoDuration,
     type MarketingVideoPreset,
     type MarketingVideoResolution,
 } from '../../services/api';
@@ -35,10 +36,17 @@ const PRESET_OPTIONS: { id: MarketingVideoPreset; label: string }[] = [
     { id: 'particle_float', label: 'Particle float' },
 ];
 
-const RESOLUTION_OPTIONS: { id: MarketingVideoResolution; label: string }[] = [
-    { id: '580p', label: '580p · $0.20' },
-    { id: '720p', label: '720p · $0.40' },
-];
+const PRICE_PER_SECOND: Record<MarketingVideoResolution, number> = {
+    '480p': 0.04,
+    '580p': 0.06,
+    '720p': 0.08,
+};
+const RESOLUTION_OPTIONS: MarketingVideoResolution[] = ['480p', '580p', '720p'];
+const DURATION_OPTIONS: MarketingVideoDuration[] = [5, 8];
+
+function priceLabel(r: MarketingVideoResolution, d: MarketingVideoDuration): string {
+    return `$${(PRICE_PER_SECOND[r] * d).toFixed(2)}`;
+}
 
 function presetLabel(preset: string): string {
     return PRESET_OPTIONS.find((option) => option.id === preset)?.label ?? preset;
@@ -79,7 +87,8 @@ export default function VideoPanel({
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [preset, setPreset] = useState<MarketingVideoPreset>('slow_push_in');
-    const [resolution, setResolution] = useState<MarketingVideoResolution>('580p');
+    const [resolution, setResolution] = useState<MarketingVideoResolution>('720p');
+    const [duration, setDuration] = useState<MarketingVideoDuration>(5);
     const [customPrompt, setCustomPrompt] = useState('');
 
     const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -141,6 +150,7 @@ export default function VideoPanel({
     const runGenerate = async (body: {
         preset?: MarketingVideoPreset;
         resolution?: MarketingVideoResolution;
+        duration_seconds?: MarketingVideoDuration;
         custom_prompt?: string | null;
     }) => {
         setBusy(true);
@@ -163,6 +173,7 @@ export default function VideoPanel({
         void runGenerate({
             preset,
             resolution,
+            duration_seconds: duration,
             custom_prompt: customPrompt.trim() ? customPrompt.trim() : null,
         });
     };
@@ -171,6 +182,7 @@ export default function VideoPanel({
         void runGenerate({
             preset: row.preset as MarketingVideoPreset,
             resolution: row.resolution as MarketingVideoResolution,
+            duration_seconds: row.duration_seconds as MarketingVideoDuration,
             custom_prompt: row.custom_prompt ?? undefined,
         });
     };
@@ -227,7 +239,9 @@ export default function VideoPanel({
                                 <span className="text-xs font-bold text-[#111827]">
                                     {presetLabel(row.preset)}
                                 </span>
-                                <span className="text-xs text-[#6B7280]">{row.resolution}</span>
+                                <span className="text-xs text-[#6B7280]">
+                                    {row.resolution} · {row.duration_seconds}s
+                                </span>
                                 <span className="text-[10px] font-mono text-[#9CA3AF] ml-auto">
                                     {formatDateTime(row.created_at)}
                                 </span>
@@ -324,9 +338,29 @@ export default function VideoPanel({
                         onChange={(e) => setResolution(e.target.value as MarketingVideoResolution)}
                         className="w-full rounded-lg border border-[#E4E7EC] bg-white px-3 py-2 text-xs font-semibold text-[#111827] disabled:opacity-40"
                     >
-                        {RESOLUTION_OPTIONS.map((option) => (
-                            <option key={option.id} value={option.id}>
-                                {option.label}
+                        {RESOLUTION_OPTIONS.map((r) => (
+                            <option key={r} value={r}>
+                                {r} · {priceLabel(r, duration)}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+
+                <div>
+                    <label className="block text-[10px] font-extrabold uppercase tracking-widest text-[#9CA3AF] mb-1.5">
+                        Duration
+                    </label>
+                    <select
+                        value={duration}
+                        disabled={generateDisabled}
+                        onChange={(e) =>
+                            setDuration(Number(e.target.value) as MarketingVideoDuration)
+                        }
+                        className="w-full rounded-lg border border-[#E4E7EC] bg-white px-3 py-2 text-xs font-semibold text-[#111827] disabled:opacity-40"
+                    >
+                        {DURATION_OPTIONS.map((d) => (
+                            <option key={d} value={d}>
+                                {d} seconds
                             </option>
                         ))}
                     </select>
@@ -361,7 +395,7 @@ export default function VideoPanel({
                     {busy ? 'Starting…' : 'Generate video'}
                 </button>
                 <p className="text-[10px] text-[#9CA3AF] leading-relaxed">
-                    Each render costs the shown amount from your AI budget.
+                    This render costs {priceLabel(resolution, duration)} from your AI budget.
                 </p>
             </div>
         </div>
