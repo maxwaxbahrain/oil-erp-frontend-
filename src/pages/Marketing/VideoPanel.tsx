@@ -59,6 +59,18 @@ const PRICE_PER_SECOND: Record<MarketingVideoResolution, number> = {
 };
 const RESOLUTION_OPTIONS: MarketingVideoResolution[] = ['480p', '580p', '720p'];
 const DURATION_OPTIONS: MarketingVideoDuration[] = [5, 8, 10];
+const VISIBLE_ROWS = 3;
+
+function isPendingVideo(row: MarketingVideo): boolean {
+    return row.status === 'queued' || row.status === 'rendering';
+}
+
+function collapsedVisibleVideos(rows: MarketingVideo[]): MarketingVideo[] {
+    const pending = rows.filter(isPendingVideo);
+    const rest = rows.filter((row) => !isPendingVideo(row));
+    const slots = Math.max(0, VISIBLE_ROWS - pending.length);
+    return [...pending, ...rest.slice(0, slots)];
+}
 
 function priceLabel(r: MarketingVideoResolution, d: MarketingVideoDuration): string {
     return `$${(PRICE_PER_SECOND[r] * d).toFixed(2)}`;
@@ -142,11 +154,16 @@ export default function VideoPanel({
     const [duration, setDuration] = useState<MarketingVideoDuration>(5);
     const [customPrompt, setCustomPrompt] = useState('');
     const [matchPreviousSeed, setMatchPreviousSeed] = useState(false);
+    const [showAll, setShowAll] = useState(false);
 
     const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const seedSource = useMemo(() => newestReadyWithSeed(videos), [videos]);
     const canMatchPreviousSeed = seedSource != null;
+    const displayedVideos = useMemo(
+        () => (showAll ? videos : collapsedVisibleVideos(videos)),
+        [videos, showAll],
+    );
 
     const stopPolling = useCallback(() => {
         if (pollTimerRef.current) {
@@ -290,97 +307,6 @@ export default function VideoPanel({
                 </div>
             )}
 
-            {loading ? (
-                <p className="text-xs text-gray-400 inline-flex items-center gap-2">
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    Loading videos…
-                </p>
-            ) : videos.length === 0 ? (
-                <p className="text-xs text-gray-400">No videos yet.</p>
-            ) : (
-                <ul className="space-y-3">
-                    {videos.map((row) => (
-                        <li
-                            key={row.id}
-                            className="rounded-lg border border-[#E4E7EC] bg-white p-3"
-                        >
-                            <div className="flex flex-wrap items-center gap-2 mb-2">
-                                <span
-                                    className={`text-[10px] font-extrabold uppercase tracking-widest px-2 py-0.5 rounded ${
-                                        STATUS_STYLE[row.status] ?? STATUS_STYLE.queued
-                                    }`}
-                                >
-                                    {row.status}
-                                </span>
-                                <span className="text-xs font-bold text-[#111827]">
-                                    {clipLookSummary(row)}
-                                </span>
-                                <span className="text-xs text-[#6B7280]">
-                                    {row.resolution} · {row.duration_seconds}s
-                                </span>
-                                <span className="text-[10px] font-mono text-[#9CA3AF] ml-auto">
-                                    {formatDateTime(row.created_at)}
-                                </span>
-                            </div>
-
-                            {row.status === 'ready' && row.url && (
-                                <div className="space-y-2">
-                                    <video
-                                        controls
-                                        preload="metadata"
-                                        src={row.url}
-                                        className="w-full rounded-md bg-black max-h-48"
-                                    />
-                                    <button
-                                        type="button"
-                                        disabled={busy}
-                                        onClick={() => void onDelete(row.id)}
-                                        className="text-[11px] font-bold px-3 py-1.5 rounded-md border border-[#E4E7EC] bg-white text-[#6B7280] hover:bg-[#F1F3F6] disabled:opacity-40"
-                                    >
-                                        Delete
-                                    </button>
-                                </div>
-                            )}
-
-                            {row.status === 'failed' && (
-                                <div className="space-y-2">
-                                    {row.error_message && (
-                                        <p className="text-xs text-red-700 leading-snug">
-                                            {row.error_message}
-                                        </p>
-                                    )}
-                                    <div className="flex gap-2">
-                                        <button
-                                            type="button"
-                                            disabled={busy || !hasImage}
-                                            onClick={() => onTryAgain(row)}
-                                            className="text-[11px] font-bold px-3 py-1.5 rounded-md border border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100 disabled:opacity-40"
-                                        >
-                                            Try again
-                                        </button>
-                                        <button
-                                            type="button"
-                                            disabled={busy}
-                                            onClick={() => void onDelete(row.id)}
-                                            className="text-[11px] font-bold px-3 py-1.5 rounded-md border border-[#E4E7EC] bg-white text-[#6B7280] hover:bg-[#F1F3F6] disabled:opacity-40"
-                                        >
-                                            Delete
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {(row.status === 'queued' || row.status === 'rendering') && (
-                                <p className="text-xs text-[#6B7280] inline-flex items-center gap-2">
-                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                                    {row.status === 'queued' ? 'Queued…' : 'Rendering…'}
-                                </p>
-                            )}
-                        </li>
-                    ))}
-                </ul>
-            )}
-
             <div className="rounded-lg border border-[#E4E7EC] bg-[#F7F8FA] p-3 space-y-3">
                 {!hasImage && (
                     <p className="text-xs font-semibold text-[#6B7280]">{NO_IMAGE_HINT}</p>
@@ -515,6 +441,110 @@ export default function VideoPanel({
                     This render costs {priceLabel(resolution, duration)} from your AI budget.
                 </p>
             </div>
+
+            {loading ? (
+                <p className="text-xs text-gray-400 inline-flex items-center gap-2">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    Loading videos…
+                </p>
+            ) : videos.length === 0 ? (
+                <p className="text-xs text-gray-400">No videos yet.</p>
+            ) : (
+                <>
+                    <ul className="space-y-3">
+                        {displayedVideos.map((row) => (
+                            <li
+                                key={row.id}
+                                className="rounded-lg border border-[#E4E7EC] bg-white p-3"
+                            >
+                                <div className="flex flex-wrap items-center gap-2 mb-2">
+                                    <span
+                                        className={`text-[10px] font-extrabold uppercase tracking-widest px-2 py-0.5 rounded ${
+                                            STATUS_STYLE[row.status] ?? STATUS_STYLE.queued
+                                        }`}
+                                    >
+                                        {row.status}
+                                    </span>
+                                    <span className="text-xs font-bold text-[#111827]">
+                                        {clipLookSummary(row)}
+                                    </span>
+                                    <span className="text-xs text-[#6B7280]">
+                                        {row.resolution} · {row.duration_seconds}s
+                                    </span>
+                                    <span className="text-[10px] font-mono text-[#9CA3AF] ml-auto">
+                                        {formatDateTime(row.created_at)}
+                                    </span>
+                                </div>
+
+                                {row.status === 'ready' && row.url && (
+                                    <div className="space-y-2">
+                                        <video
+                                            controls
+                                            preload="metadata"
+                                            src={row.url}
+                                            className="w-full rounded-md bg-black max-h-48"
+                                        />
+                                        <button
+                                            type="button"
+                                            disabled={busy}
+                                            onClick={() => void onDelete(row.id)}
+                                            className="text-[11px] font-bold px-3 py-1.5 rounded-md border border-[#E4E7EC] bg-white text-[#6B7280] hover:bg-[#F1F3F6] disabled:opacity-40"
+                                        >
+                                            Delete
+                                        </button>
+                                    </div>
+                                )}
+
+                                {row.status === 'failed' && (
+                                    <div className="space-y-2">
+                                        {row.error_message && (
+                                            <p className="text-xs text-red-700 leading-snug">
+                                                {row.error_message}
+                                            </p>
+                                        )}
+                                        <div className="flex gap-2">
+                                            <button
+                                                type="button"
+                                                disabled={busy || !hasImage}
+                                                onClick={() => onTryAgain(row)}
+                                                className="text-[11px] font-bold px-3 py-1.5 rounded-md border border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100 disabled:opacity-40"
+                                            >
+                                                Try again
+                                            </button>
+                                            <button
+                                                type="button"
+                                                disabled={busy}
+                                                onClick={() => void onDelete(row.id)}
+                                                className="text-[11px] font-bold px-3 py-1.5 rounded-md border border-[#E4E7EC] bg-white text-[#6B7280] hover:bg-[#F1F3F6] disabled:opacity-40"
+                                            >
+                                                Delete
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {(row.status === 'queued' || row.status === 'rendering') && (
+                                    <p className="text-xs text-[#6B7280] inline-flex items-center gap-2">
+                                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                        {row.status === 'queued' ? 'Queued…' : 'Rendering…'}
+                                    </p>
+                                )}
+                            </li>
+                        ))}
+                    </ul>
+                    {videos.length > VISIBLE_ROWS && (
+                        <button
+                            type="button"
+                            onClick={() => setShowAll((prev) => !prev)}
+                            className="text-[10px] font-bold text-[#9CA3AF] hover:text-[#6B7280]"
+                        >
+                            {showAll
+                                ? 'Show fewer'
+                                : `Show ${videos.length - VISIBLE_ROWS} older`}
+                        </button>
+                    )}
+                </>
+            )}
         </div>
     );
 }
