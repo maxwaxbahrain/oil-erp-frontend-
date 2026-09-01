@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import AutoGrowTextarea from '../../components/AutoGrowTextarea';
 import {
@@ -6,9 +6,11 @@ import {
     generateMarketingPostVideo,
     listMarketingPostVideos,
     type MarketingVideo,
+    type MarketingVideoCamera,
     type MarketingVideoDuration,
-    type MarketingVideoPreset,
+    type MarketingVideoMood,
     type MarketingVideoResolution,
+    type MarketingVideoScene,
 } from '../../services/api';
 import { formatDateTime } from '../../utils/formatters';
 
@@ -30,10 +32,24 @@ const STATUS_STYLE: Record<string, string> = {
     failed: 'bg-red-100 text-red-700',
 };
 
-const PRESET_OPTIONS: { id: MarketingVideoPreset; label: string }[] = [
-    { id: 'slow_push_in', label: 'Slow push in' },
-    { id: 'light_drift', label: 'Light drift' },
-    { id: 'particle_float', label: 'Particle float' },
+const CAMERA_OPTIONS: { id: MarketingVideoCamera; label: string }[] = [
+    { id: 'push_in', label: 'Slow push in' },
+    { id: 'arc', label: 'Gentle arc' },
+    { id: 'pan', label: 'Slow pan' },
+    { id: 'locked', label: 'Locked still' },
+];
+
+const SCENE_OPTIONS: { id: MarketingVideoScene; label: string }[] = [
+    { id: 'lights', label: 'Lights and glow' },
+    { id: 'breeze', label: 'Soft breeze' },
+    { id: 'particles', label: 'Drifting particles' },
+    { id: 'minimal', label: 'Minimal' },
+];
+
+const MOOD_OPTIONS: { id: MarketingVideoMood; label: string }[] = [
+    { id: 'warm', label: 'Warm' },
+    { id: 'cool', label: 'Cool' },
+    { id: 'neutral', label: 'Neutral' },
 ];
 
 const PRICE_PER_SECOND: Record<MarketingVideoResolution, number> = {
@@ -42,14 +58,26 @@ const PRICE_PER_SECOND: Record<MarketingVideoResolution, number> = {
     '720p': 0.08,
 };
 const RESOLUTION_OPTIONS: MarketingVideoResolution[] = ['480p', '580p', '720p'];
-const DURATION_OPTIONS: MarketingVideoDuration[] = [5, 8];
+const DURATION_OPTIONS: MarketingVideoDuration[] = [5, 8, 10];
 
 function priceLabel(r: MarketingVideoResolution, d: MarketingVideoDuration): string {
     return `$${(PRICE_PER_SECOND[r] * d).toFixed(2)}`;
 }
 
-function presetLabel(preset: string): string {
-    return PRESET_OPTIONS.find((option) => option.id === preset)?.label ?? preset;
+function optionLabel<T extends string>(
+    value: string | null | undefined,
+    options: { id: T; label: string }[],
+): string {
+    if (!value) return value ?? '—';
+    return options.find((option) => option.id === value)?.label ?? value;
+}
+
+function clipLookSummary(row: MarketingVideo): string {
+    return [
+        optionLabel(row.camera, CAMERA_OPTIONS),
+        optionLabel(row.scene, SCENE_OPTIONS),
+        optionLabel(row.mood, MOOD_OPTIONS),
+    ].join(' · ');
 }
 
 function mapGenerateError(err: unknown): string {
@@ -75,6 +103,15 @@ function hasPendingVideos(rows: MarketingVideo[]): boolean {
     return rows.some((row) => row.status === 'queued' || row.status === 'rendering');
 }
 
+function newestReadyWithSeed(rows: MarketingVideo[]): MarketingVideo | undefined {
+    return rows
+        .filter((row) => row.status === 'ready' && row.seed != null)
+        .sort(
+            (a, b) =>
+                new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+        )[0];
+}
+
 export default function VideoPanel({
     postId,
     hasImage,
@@ -86,12 +123,18 @@ export default function VideoPanel({
     const [loading, setLoading] = useState(true);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [preset, setPreset] = useState<MarketingVideoPreset>('slow_push_in');
+    const [camera, setCamera] = useState<MarketingVideoCamera>('push_in');
+    const [scene, setScene] = useState<MarketingVideoScene>('lights');
+    const [mood, setMood] = useState<MarketingVideoMood>('neutral');
     const [resolution, setResolution] = useState<MarketingVideoResolution>('720p');
     const [duration, setDuration] = useState<MarketingVideoDuration>(5);
     const [customPrompt, setCustomPrompt] = useState('');
+    const [matchPreviousSeed, setMatchPreviousSeed] = useState(false);
 
     const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+    const seedSource = useMemo(() => newestReadyWithSeed(videos), [videos]);
+    const canMatchPreviousSeed = seedSource != null;
 
     const stopPolling = useCallback(() => {
         if (pollTimerRef.current) {
@@ -147,11 +190,20 @@ export default function VideoPanel({
         };
     }, [postId, stopPolling, syncPolling]);
 
+    useEffect(() => {
+        if (!canMatchPreviousSeed) {
+            setMatchPreviousSeed(false);
+        }
+    }, [canMatchPreviousSeed]);
+
     const runGenerate = async (body: {
-        preset?: MarketingVideoPreset;
+        camera?: MarketingVideoCamera;
+        scene?: MarketingVideoScene;
+        mood?: MarketingVideoMood;
         resolution?: MarketingVideoResolution;
         duration_seconds?: MarketingVideoDuration;
         custom_prompt?: string | null;
+        seed?: number | null;
     }) => {
         setBusy(true);
         setError(null);
@@ -171,19 +223,27 @@ export default function VideoPanel({
 
     const onGenerate = () => {
         void runGenerate({
-            preset,
+            camera,
+            scene,
+            mood,
             resolution,
             duration_seconds: duration,
             custom_prompt: customPrompt.trim() ? customPrompt.trim() : null,
+            ...(matchPreviousSeed && seedSource?.seed != null
+                ? { seed: seedSource.seed }
+                : {}),
         });
     };
 
     const onTryAgain = (row: MarketingVideo) => {
         void runGenerate({
-            preset: row.preset as MarketingVideoPreset,
+            camera: row.camera as MarketingVideoCamera,
+            scene: row.scene as MarketingVideoScene,
+            mood: row.mood as MarketingVideoMood,
             resolution: row.resolution as MarketingVideoResolution,
             duration_seconds: row.duration_seconds as MarketingVideoDuration,
             custom_prompt: row.custom_prompt ?? undefined,
+            seed: row.seed ?? undefined,
         });
     };
 
@@ -205,6 +265,10 @@ export default function VideoPanel({
     };
 
     const generateDisabled = !hasImage || busy;
+    const selectClassName =
+        'w-full rounded-lg border border-[#E4E7EC] bg-white px-3 py-2 text-xs font-semibold text-[#111827] disabled:opacity-40';
+    const fieldLabelClassName =
+        'block text-[10px] font-extrabold uppercase tracking-widest text-[#9CA3AF] mb-1.5';
 
     return (
         <div className="space-y-4">
@@ -237,7 +301,7 @@ export default function VideoPanel({
                                     {row.status}
                                 </span>
                                 <span className="text-xs font-bold text-[#111827]">
-                                    {presetLabel(row.preset)}
+                                    {clipLookSummary(row)}
                                 </span>
                                 <span className="text-xs text-[#6B7280]">
                                     {row.resolution} · {row.duration_seconds}s
@@ -310,33 +374,63 @@ export default function VideoPanel({
                     <p className="text-xs font-semibold text-[#6B7280]">{NO_IMAGE_HINT}</p>
                 )}
 
-                <div>
-                    <label className="block text-[10px] font-extrabold uppercase tracking-widest text-[#9CA3AF] mb-1.5">
-                        Motion preset
-                    </label>
-                    <select
-                        value={preset}
-                        disabled={generateDisabled}
-                        onChange={(e) => setPreset(e.target.value as MarketingVideoPreset)}
-                        className="w-full rounded-lg border border-[#E4E7EC] bg-white px-3 py-2 text-xs font-semibold text-[#111827] disabled:opacity-40"
-                    >
-                        {PRESET_OPTIONS.map((option) => (
-                            <option key={option.id} value={option.id}>
-                                {option.label}
-                            </option>
-                        ))}
-                    </select>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                        <label className={fieldLabelClassName}>Camera</label>
+                        <select
+                            value={camera}
+                            disabled={generateDisabled}
+                            onChange={(e) => setCamera(e.target.value as MarketingVideoCamera)}
+                            className={selectClassName}
+                        >
+                            {CAMERA_OPTIONS.map((option) => (
+                                <option key={option.id} value={option.id}>
+                                    {option.label}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label className={fieldLabelClassName}>Scene</label>
+                        <select
+                            value={scene}
+                            disabled={generateDisabled}
+                            onChange={(e) => setScene(e.target.value as MarketingVideoScene)}
+                            className={selectClassName}
+                        >
+                            {SCENE_OPTIONS.map((option) => (
+                                <option key={option.id} value={option.id}>
+                                    {option.label}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label className={fieldLabelClassName}>Mood</label>
+                        <select
+                            value={mood}
+                            disabled={generateDisabled}
+                            onChange={(e) => setMood(e.target.value as MarketingVideoMood)}
+                            className={selectClassName}
+                        >
+                            {MOOD_OPTIONS.map((option) => (
+                                <option key={option.id} value={option.id}>
+                                    {option.label}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
                 </div>
 
                 <div>
-                    <label className="block text-[10px] font-extrabold uppercase tracking-widest text-[#9CA3AF] mb-1.5">
-                        Resolution
-                    </label>
+                    <label className={fieldLabelClassName}>Resolution</label>
                     <select
                         value={resolution}
                         disabled={generateDisabled}
                         onChange={(e) => setResolution(e.target.value as MarketingVideoResolution)}
-                        className="w-full rounded-lg border border-[#E4E7EC] bg-white px-3 py-2 text-xs font-semibold text-[#111827] disabled:opacity-40"
+                        className={selectClassName}
                     >
                         {RESOLUTION_OPTIONS.map((r) => (
                             <option key={r} value={r}>
@@ -347,16 +441,14 @@ export default function VideoPanel({
                 </div>
 
                 <div>
-                    <label className="block text-[10px] font-extrabold uppercase tracking-widest text-[#9CA3AF] mb-1.5">
-                        Duration
-                    </label>
+                    <label className={fieldLabelClassName}>Duration</label>
                     <select
                         value={duration}
                         disabled={generateDisabled}
                         onChange={(e) =>
                             setDuration(Number(e.target.value) as MarketingVideoDuration)
                         }
-                        className="w-full rounded-lg border border-[#E4E7EC] bg-white px-3 py-2 text-xs font-semibold text-[#111827] disabled:opacity-40"
+                        className={selectClassName}
                     >
                         {DURATION_OPTIONS.map((d) => (
                             <option key={d} value={d}>
@@ -365,6 +457,19 @@ export default function VideoPanel({
                         ))}
                     </select>
                 </div>
+
+                {canMatchPreviousSeed && (
+                    <label className="flex items-center gap-2 text-xs font-semibold text-[#374151] cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={matchPreviousSeed}
+                            disabled={generateDisabled}
+                            onChange={(e) => setMatchPreviousSeed(e.target.checked)}
+                            className="rounded border-[#D1D5DB] text-violet-600 focus:ring-violet-200 disabled:opacity-40"
+                        />
+                        Match previous clip&apos;s look
+                    </label>
+                )}
 
                 <details className="group">
                     <summary className="cursor-pointer text-[10px] font-extrabold uppercase tracking-widest text-[#9CA3AF] list-none">
@@ -381,7 +486,7 @@ export default function VideoPanel({
                             className="w-full rounded-lg border border-[#E4E7EC] bg-white px-3 py-2 text-xs leading-relaxed resize-none outline-none min-h-[72px] focus:border-violet-300 focus:ring-[3px] focus:ring-violet-100 disabled:opacity-40"
                         />
                         <p className="text-[10px] text-[#9CA3AF]">
-                            Overrides the preset when filled.
+                            Overrides the composed look when filled.
                         </p>
                     </div>
                 </details>
