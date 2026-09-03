@@ -65,7 +65,10 @@ const RESOLUTION_OPTIONS: MarketingVideoResolution[] = ['480p', '580p', '720p'];
 const DURATION_OPTIONS: MarketingVideoDuration[] = [5, 8, 10];
 const CHARS_PER_SECOND = 9;
 const DIGIT_WEIGHT = 3;
-const LIPSYNC_COST_USD = 0.20;
+const LIPSYNC_COST_PER_MINUTE_USD = 0.70;
+function lipsyncCost(duration: MarketingVideoDuration): number {
+    return (LIPSYNC_COST_PER_MINUTE_USD * duration) / 60;
+}
 function speechWeight(script: string): number {
     const s = script.trim();
     let n = s.length;
@@ -697,7 +700,7 @@ export default function VideoPanel({
                             className="rounded border-[#D1D5DB] text-violet-600 focus:ring-violet-200 disabled:opacity-40"
                         />
                         Make the person&apos;s lips move
-                        <span className="text-[10px] font-semibold text-[#9CA3AF]">+$0.20</span>
+                        <span className="text-[10px] font-semibold text-[#9CA3AF]">{`+$${lipsyncCost(duration).toFixed(2)}`}</span>
                     </label>
                 )}
 
@@ -744,7 +747,7 @@ export default function VideoPanel({
                 </button>
                 <p className="text-[10px] text-[#9CA3AF] leading-relaxed">
                     {lipsync
-                        ? `This render costs $${(PRICE_PER_SECOND[resolution] * duration + LIPSYNC_COST_USD).toFixed(2)} from your AI budget.`
+                        ? `This render costs $${(PRICE_PER_SECOND[resolution] * duration + lipsyncCost(duration)).toFixed(2)} from your AI budget.`
                         : `This render costs ${priceLabel(resolution, duration)} from your AI budget.`}
                 </p>
             </div>
