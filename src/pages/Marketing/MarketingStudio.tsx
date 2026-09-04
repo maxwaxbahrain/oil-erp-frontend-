@@ -38,6 +38,7 @@ import {
     mapPublishError,
 } from './MarketingQueue';
 import VideoPanel from './VideoPanel';
+import AdPanel from './AdPanel';
 
 type StudioMode = 'generate' | 'edit';
 type CanvasView = 'current' | 'compare' | 'sheet';
@@ -952,6 +953,10 @@ export default function MarketingStudio() {
                             Video
                         </div>
                         <VideoPanel postId={post.id} hasImage={!!post.media_url} />
+                        <div className="text-[10px] font-extrabold uppercase tracking-widest text-gray-500 mb-3 mt-6">
+                            Studio Ad
+                        </div>
+                        <AdPanel postId={post.id} hasImage={!!post.media_url} />
                     </div>
                 </div>
 

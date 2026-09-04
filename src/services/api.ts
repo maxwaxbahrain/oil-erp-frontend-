@@ -1643,3 +1643,150 @@ export const deleteMarketingPostVideo = (postId: number, videoId: number): Promi
   apiRequest<void>(`/marketing/posts/${postId}/videos/${videoId}`, {
     method: 'DELETE',
   });
+
+export type MarketingAdStatus =
+  | 'draft'
+  | 'approved'
+  | 'rendering'
+  | 'assembling'
+  | 'ready'
+  | 'failed';
+
+export type MarketingAdSceneStatus = 'pending' | 'rendering' | 'ready' | 'failed';
+
+export type MarketingAdResolution = '720p' | '1080p';
+
+export type MarketingAdPresenterMode = 'none' | 'character';
+
+export type MarketingAdVoice = 'Craig (en)' | 'Mark (en)' | 'Sarah (en)' | 'Ashley (en)';
+
+export interface MarketingAdScene {
+  id: number;
+  position: number;
+  description: string;
+  voice_line: string | null;
+  lipsync: boolean;
+  status: MarketingAdSceneStatus;
+  error_message: string | null;
+  clip_url: string | null;
+}
+
+export interface MarketingAd {
+  id: number;
+  post_id: number;
+  idea: string;
+  scene_count: number;
+  aspect_ratio: string;
+  resolution: string;
+  voice_name: string | null;
+  presenter_mode?: MarketingAdPresenterMode;
+  status: MarketingAdStatus;
+  estimated_cost_usd: number;
+  error_message: string | null;
+  url: string | null;
+  created_at: string;
+  approved_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  scenes: MarketingAdScene[];
+}
+
+export interface BrandKit {
+  spoken_name: string | null;
+  voice_name: string | null;
+  presenter_url: string | null;
+  product_url: string | null;
+  presenter_consent_at: string | null;
+  presenter_kind?: 'photo';
+}
+
+export const listMarketingPostAds = (postId: number): Promise<MarketingAd[]> =>
+  apiRequest<MarketingAd[]>(`/marketing/posts/${postId}/ads`);
+
+export const getMarketingPostAd = (postId: number, adId: number): Promise<MarketingAd> =>
+  apiRequest<MarketingAd>(`/marketing/posts/${postId}/ads/${adId}`);
+
+export const createMarketingPostAd = (
+  postId: number,
+  body: {
+    idea: string;
+    scene_count: 3 | 6;
+    resolution?: MarketingAdResolution;
+    presenter_mode?: MarketingAdPresenterMode;
+    product_hint?: string | null;
+    voice_name?: MarketingAdVoice | null;
+    aspect_ratio?: string;
+  },
+): Promise<MarketingAd> =>
+  apiRequest<MarketingAd>(`/marketing/posts/${postId}/ads`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const patchMarketingAdScene = (
+  postId: number,
+  adId: number,
+  sceneId: number,
+  body: {
+    description?: string;
+    voice_line?: string;
+    lipsync?: boolean;
+  },
+): Promise<MarketingAd> =>
+  apiRequest<MarketingAd>(`/marketing/posts/${postId}/ads/${adId}/scenes/${sceneId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+
+export const approveMarketingAd = (postId: number, adId: number): Promise<MarketingAd> =>
+  apiRequest<MarketingAd>(`/marketing/posts/${postId}/ads/${adId}/approve`, {
+    method: 'POST',
+  });
+
+export const deleteMarketingAd = (postId: number, adId: number): Promise<void> =>
+  apiRequest<void>(`/marketing/posts/${postId}/ads/${adId}`, {
+    method: 'DELETE',
+  });
+
+export const getBrandKit = (): Promise<BrandKit> =>
+  apiRequest<BrandKit>('/marketing/brand-kit');
+
+export const updateBrandKit = (body: {
+  spoken_name?: string | null;
+  voice_name?: MarketingAdVoice | null;
+}): Promise<BrandKit> =>
+  apiRequest<BrandKit>('/marketing/brand-kit', {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+
+export async function uploadBrandKitProduct(file: File): Promise<BrandKit> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(`${API_BASE_URL}/marketing/brand-kit/product`, {
+    method: 'POST',
+    body: formData,
+    headers,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Request failed' }));
+    if (handlePaymentRequiredStatus(response.status, error.detail)) {
+      throw new Error(
+        typeof error.detail === 'string'
+          ? error.detail
+          : 'Your free trial has expired. Please upgrade to continue.',
+      );
+    }
+    throw new Error(
+      typeof error.detail === 'string' ? error.detail : `HTTP ${response.status}`,
+    );
+  }
+
+  return response.json();
+}
