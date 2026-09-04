@@ -104,7 +104,12 @@ function toApi(input: any) {
     issueDate: input.issueDate,
     expiryDate: input.expiryDate || null,
     reason: input.reason,
-    items: input.items || [],
+    items: (input.items || []).map((item: any) => ({
+      description: String(item.description ?? ''),
+      quantity: Number(item.quantity) || 0,
+      rate: Number(item.unitPrice ?? item.rate ?? 0),
+      amount: Number(item.amount) || 0,
+    })),
     subtotal: Number(input.subtotal ?? 0),
     tax: Number(input.tax ?? 0),
     totalCreditAmount: Number(input.totalCreditAmount ?? 0),
