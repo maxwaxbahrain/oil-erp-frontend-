@@ -178,9 +178,11 @@ function newestReadyWithSeed(rows: MarketingVideo[]): MarketingVideo | undefined
 export default function VideoPanel({
     postId,
     hasImage,
+    showList = true,
 }: {
     postId: number;
     hasImage: boolean;
+    showList?: boolean;
 }) {
     const [videos, setVideos] = useState<MarketingVideo[]>([]);
     const [loading, setLoading] = useState(true);
@@ -388,14 +390,14 @@ export default function VideoPanel({
                 </div>
             )}
 
-            {loading ? (
+            {showList && loading ? (
                 <p className="text-xs text-gray-400 inline-flex items-center gap-2">
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                     Loading videos…
                 </p>
-            ) : videos.length === 0 ? (
+            ) : showList && videos.length === 0 ? (
                 <p className="text-xs text-gray-400">No videos yet.</p>
-            ) : (
+            ) : showList ? (
                 <>
                     {videos.length > MAX_ROWS && (
                         <p className="text-[10px] text-[#9CA3AF]">
@@ -500,7 +502,7 @@ export default function VideoPanel({
                         ))}
                     </ul>
                 </>
-            )}
+            ) : null}
 
             <div className="rounded-lg border border-[#E4E7EC] bg-[#F7F8FA] p-3 space-y-3">
                 {!hasImage && (

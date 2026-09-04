@@ -214,9 +214,13 @@ function DraftSceneFields({
 export default function AdPanel({
     postId,
     hasImage: _hasImage,
+    showList = true,
+    productHint,
 }: {
     postId: number;
     hasImage: boolean;
+    showList?: boolean;
+    productHint?: string;
 }) {
     const [ads, setAds] = useState<MarketingAd[]>([]);
     const [brandKit, setBrandKit] = useState<BrandKit | null>(null);
@@ -232,7 +236,9 @@ export default function AdPanel({
 
     const [idea, setIdea] = useState('');
     const [sceneCount, setSceneCount] = useState<3 | 6>(3);
-    const [resolution, setResolution] = useState<MarketingAdResolution>('1080p');
+    const [resolution, setResolution] = useState<MarketingAdResolution>(
+        showList ? '1080p' : '720p',
+    );
     const [creating, setCreating] = useState(false);
     const [createError, setCreateError] = useState<string | null>(null);
 
@@ -442,9 +448,63 @@ export default function AdPanel({
     const createDisabled =
         creating || busy || !hasProductPhoto || idea.trim().length < IDEA_MIN;
 
+    const productLabel = productHint?.trim() || 'Your product';
+    const spokenLabel = brandKit?.spoken_name?.trim() || '—';
+
     if (loading) {
         return <p className="text-xs text-[#6B7280]">Loading ads…</p>;
     }
+
+    const brandKitEditor = (
+        <div className="space-y-3">
+            <div>
+                <label className={fieldLabelClassName}>Product photo</label>
+                <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    disabled={brandKitBusy}
+                    onChange={(e) => void onUploadProduct(e.target.files?.[0] ?? null)}
+                    className="block w-full text-xs text-[#374151]"
+                />
+            </div>
+            <div>
+                <label className={fieldLabelClassName}>Spoken name</label>
+                <input
+                    type="text"
+                    maxLength={120}
+                    value={editSpokenName}
+                    disabled={brandKitBusy}
+                    onChange={(e) => setEditSpokenName(e.target.value)}
+                    className={inputClassName}
+                    placeholder="How the company name is said aloud"
+                />
+            </div>
+            <div>
+                <label className={fieldLabelClassName}>Voice</label>
+                <select
+                    value={editVoice}
+                    disabled={brandKitBusy}
+                    onChange={(e) => setEditVoice(e.target.value as MarketingAdVoice)}
+                    className={selectClassName}
+                >
+                    {VOICE_OPTIONS.map((option) => (
+                        <option key={option.id} value={option.id}>
+                            {option.label}
+                        </option>
+                    ))}
+                </select>
+            </div>
+            {brandKitError && <p className="text-xs text-red-700">{brandKitError}</p>}
+            <button
+                type="button"
+                disabled={brandKitBusy}
+                onClick={() => void onSaveBrandKit()}
+                className="text-[11px] font-bold px-3 py-1.5 rounded-md border border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100 disabled:opacity-40"
+            >
+                Save
+            </button>
+        </div>
+    );
 
     return (
         <div className="space-y-4">
@@ -454,101 +514,90 @@ export default function AdPanel({
                 </p>
             )}
 
-            {/* Brand Kit strip */}
-            <div className="rounded-lg border border-[#E4E7EC] bg-white p-3">
-                {!brandKitExpanded ? (
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#374151]">
-                        <span>
-                            Product photo:{' '}
-                            <strong>{hasProductPhoto ? '✓ set' : 'not set'}</strong>
-                        </span>
-                        <span className="text-[#D1D5DB]">·</span>
-                        <span>
-                            Spoken as:{' '}
-                            <strong>{brandKit?.spoken_name?.trim() || '—'}</strong>
-                        </span>
-                        <span className="text-[#D1D5DB]">·</span>
-                        <span>
-                            Voice: <strong>{voiceShortName(brandKit?.voice_name)}</strong>
-                        </span>
-                        <button
-                            type="button"
-                            className="ml-auto text-[11px] font-bold text-violet-700 hover:text-violet-900"
-                            onClick={() => setBrandKitExpanded(true)}
-                        >
-                            Edit
-                        </button>
-                    </div>
-                ) : (
-                    <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                            <span className={fieldLabelClassName}>Brand Kit</span>
+            {/* Brand Kit */}
+            {showList ? (
+                <div className="rounded-lg border border-[#E4E7EC] bg-white p-3">
+                    {!brandKitExpanded ? (
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#374151]">
+                            <span>
+                                Product photo:{' '}
+                                <strong>{hasProductPhoto ? '✓ set' : 'not set'}</strong>
+                            </span>
+                            <span className="text-[#D1D5DB]">·</span>
+                            <span>
+                                Spoken as: <strong>{spokenLabel}</strong>
+                            </span>
+                            <span className="text-[#D1D5DB]">·</span>
+                            <span>
+                                Voice: <strong>{voiceShortName(brandKit?.voice_name)}</strong>
+                            </span>
                             <button
                                 type="button"
-                                className="text-[11px] font-bold text-[#6B7280] hover:text-[#111827]"
-                                onClick={() => setBrandKitExpanded(false)}
+                                className="ml-auto text-[11px] font-bold text-violet-700 hover:text-violet-900"
+                                onClick={() => setBrandKitExpanded(true)}
                             >
-                                Collapse
+                                Edit
                             </button>
                         </div>
-                        <div>
-                            <label className={fieldLabelClassName}>Product photo</label>
-                            <input
-                                type="file"
-                                accept="image/jpeg,image/png,image/webp"
-                                disabled={brandKitBusy}
-                                onChange={(e) => void onUploadProduct(e.target.files?.[0] ?? null)}
-                                className="block w-full text-xs text-[#374151]"
-                            />
+                    ) : (
+                        <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                                <span className={fieldLabelClassName}>Brand Kit</span>
+                                <button
+                                    type="button"
+                                    className="text-[11px] font-bold text-[#6B7280] hover:text-[#111827]"
+                                    onClick={() => setBrandKitExpanded(false)}
+                                >
+                                    Collapse
+                                </button>
+                            </div>
+                            {brandKitEditor}
                         </div>
-                        <div>
-                            <label className={fieldLabelClassName}>Spoken name</label>
-                            <input
-                                type="text"
-                                maxLength={120}
-                                value={editSpokenName}
-                                disabled={brandKitBusy}
-                                onChange={(e) => setEditSpokenName(e.target.value)}
-                                className={inputClassName}
-                                placeholder="How the company name is said aloud"
-                            />
+                    )}
+                </div>
+            ) : (
+                <div className="rounded-lg border border-[#E4E7EC] bg-white p-3 space-y-3">
+                    <div className="flex gap-3 items-start">
+                        <div className="w-14 h-14 rounded-md bg-[#F1F3F6] border border-[#E4E7EC] shrink-0 overflow-hidden grid place-items-center">
+                            {brandKit?.product_url ? (
+                                <img
+                                    src={brandKit.product_url}
+                                    alt=""
+                                    className="w-full h-full object-cover"
+                                />
+                            ) : (
+                                <span className="text-[9px] font-bold text-[#9CA3AF]">Photo</span>
+                            )}
                         </div>
-                        <div>
-                            <label className={fieldLabelClassName}>Voice</label>
-                            <select
-                                value={editVoice}
-                                disabled={brandKitBusy}
-                                onChange={(e) => setEditVoice(e.target.value as MarketingAdVoice)}
-                                className={selectClassName}
-                            >
-                                {VOICE_OPTIONS.map((option) => (
-                                    <option key={option.id} value={option.id}>
-                                        {option.label}
-                                    </option>
-                                ))}
-                            </select>
+                        <div className="min-w-0 flex-1">
+                            <p className="text-sm font-bold text-[#111827] leading-snug">
+                                {productLabel} will be in every scene
+                            </p>
+                            <p className="text-xs text-[#6B7280] mt-1 leading-relaxed">
+                                Narrated by {voiceShortName(brandKit?.voice_name ?? editVoice)}
+                                {' · '}
+                                company said as &ldquo;{spokenLabel}&rdquo;
+                                {' · '}
+                                <button
+                                    type="button"
+                                    className="font-bold text-violet-700 hover:text-violet-900"
+                                    onClick={() => setBrandKitExpanded((v) => !v)}
+                                >
+                                    change
+                                </button>
+                            </p>
                         </div>
-                        {brandKitError && (
-                            <p className="text-xs text-red-700">{brandKitError}</p>
-                        )}
-                        <button
-                            type="button"
-                            disabled={brandKitBusy}
-                            onClick={() => void onSaveBrandKit()}
-                            className="text-[11px] font-bold px-3 py-1.5 rounded-md border border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100 disabled:opacity-40"
-                        >
-                            Save
-                        </button>
                     </div>
-                )}
-            </div>
+                    {brandKitExpanded && brandKitEditor}
+                </div>
+            )}
 
-            {/* Storyboard editor — newest draft, above list */}
+            {/* Plan editor — newest draft, above list */}
             {draftAd && (
                 <div className="rounded-lg border border-violet-200 bg-violet-50/40 p-3 space-y-3">
                     <div className="flex items-center justify-between gap-2">
                         <span className="text-xs font-extrabold text-[#111827]">
-                            Storyboard draft
+                            {showList ? 'Storyboard draft' : 'Plan'}
                         </span>
                         <button
                             type="button"
@@ -607,7 +656,7 @@ export default function AdPanel({
             )}
 
             {/* Existing ads list */}
-            {listedAds.length > 0 && (
+            {showList && listedAds.length > 0 && (
                 <ul className="space-y-3">
                     {listedAds.map((row) => {
                         const progress = sceneProgressLine(row);
@@ -735,7 +784,9 @@ export default function AdPanel({
                 )}
 
                 <div>
-                    <label className={fieldLabelClassName}>Ad idea</label>
+                    <label className={fieldLabelClassName}>
+                        {showList ? 'Ad idea' : 'What should the ad say?'}
+                    </label>
                     <AutoGrowTextarea
                         value={idea}
                         disabled={createDisabled}
@@ -748,72 +799,129 @@ export default function AdPanel({
                     </p>
                 </div>
 
-                <div>
-                    <span className={fieldLabelClassName}>Length</span>
-                    <div className="grid grid-cols-2 gap-2">
-                        {(
-                            [
-                                { count: 3 as const, label: '24 seconds · 3 scenes' },
-                                { count: 6 as const, label: '48 seconds · 6 scenes' },
-                            ] as const
-                        ).map((option) => (
-                            <label
-                                key={option.count}
-                                className={`flex items-center gap-2 rounded-md border px-3 py-2 cursor-pointer text-xs font-semibold ${
-                                    sceneCount === option.count
-                                        ? 'border-violet-500 bg-violet-50 text-violet-900'
-                                        : 'border-[#E4E7EC] bg-white text-[#374151]'
-                                } ${createDisabled ? 'opacity-40 pointer-events-none' : ''}`}
-                            >
-                                <input
-                                    type="radio"
-                                    name="ad-scene-count"
-                                    value={option.count}
-                                    checked={sceneCount === option.count}
-                                    disabled={createDisabled}
-                                    onChange={() => setSceneCount(option.count)}
-                                    className="sr-only"
-                                />
-                                {option.label}
-                            </label>
-                        ))}
-                    </div>
-                </div>
+                {showList ? (
+                    <>
+                        <div>
+                            <span className={fieldLabelClassName}>Length</span>
+                            <div className="grid grid-cols-2 gap-2">
+                                {(
+                                    [
+                                        { count: 3 as const, label: '24 seconds · 3 scenes' },
+                                        { count: 6 as const, label: '48 seconds · 6 scenes' },
+                                    ] as const
+                                ).map((option) => (
+                                    <label
+                                        key={option.count}
+                                        className={`flex items-center gap-2 rounded-md border px-3 py-2 cursor-pointer text-xs font-semibold ${
+                                            sceneCount === option.count
+                                                ? 'border-violet-500 bg-violet-50 text-violet-900'
+                                                : 'border-[#E4E7EC] bg-white text-[#374151]'
+                                        } ${createDisabled ? 'opacity-40 pointer-events-none' : ''}`}
+                                    >
+                                        <input
+                                            type="radio"
+                                            name="ad-scene-count"
+                                            value={option.count}
+                                            checked={sceneCount === option.count}
+                                            disabled={createDisabled}
+                                            onChange={() => setSceneCount(option.count)}
+                                            className="sr-only"
+                                        />
+                                        {option.label}
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
 
-                <div>
-                    <span className={fieldLabelClassName}>Quality</span>
-                    <div className="grid grid-cols-2 gap-2">
-                        {(
-                            [
-                                { res: '720p' as const, label: 'Standard · 720p' },
-                                { res: '1080p' as const, label: 'Studio · 1080p' },
-                            ] as const
-                        ).map((option) => (
-                            <label
-                                key={option.res}
-                                className={`flex flex-col rounded-md border px-3 py-2 cursor-pointer ${
-                                    resolution === option.res
-                                        ? 'border-violet-500 bg-violet-50 text-violet-900'
-                                        : 'border-[#E4E7EC] bg-white text-[#374151]'
-                                } ${createDisabled ? 'opacity-40 pointer-events-none' : ''}`}
-                            >
-                                <input
-                                    type="radio"
-                                    name="ad-resolution"
-                                    value={option.res}
-                                    checked={resolution === option.res}
+                        <div>
+                            <span className={fieldLabelClassName}>Quality</span>
+                            <div className="grid grid-cols-2 gap-2">
+                                {(
+                                    [
+                                        { res: '720p' as const, label: 'Standard · 720p' },
+                                        { res: '1080p' as const, label: 'Studio · 1080p' },
+                                    ] as const
+                                ).map((option) => (
+                                    <label
+                                        key={option.res}
+                                        className={`flex flex-col rounded-md border px-3 py-2 cursor-pointer ${
+                                            resolution === option.res
+                                                ? 'border-violet-500 bg-violet-50 text-violet-900'
+                                                : 'border-[#E4E7EC] bg-white text-[#374151]'
+                                        } ${createDisabled ? 'opacity-40 pointer-events-none' : ''}`}
+                                    >
+                                        <input
+                                            type="radio"
+                                            name="ad-resolution"
+                                            value={option.res}
+                                            checked={resolution === option.res}
+                                            disabled={createDisabled}
+                                            onChange={() => setResolution(option.res)}
+                                            className="sr-only"
+                                        />
+                                        <span className="text-xs font-semibold">{option.label}</span>
+                                        <span className="text-[10px] font-mono text-[#6B7280]">
+                                            {veoPreviewUsd(sceneCount, option.res)}
+                                        </span>
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+                    </>
+                ) : (
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-[#374151]">
+                        <span className="font-extrabold uppercase tracking-widest text-[10px] text-[#9CA3AF]">
+                            Length
+                        </span>
+                        <span className="inline-flex gap-3">
+                            {(
+                                [
+                                    { count: 3 as const, label: '24s' },
+                                    { count: 6 as const, label: '48s' },
+                                ] as const
+                            ).map((option) => (
+                                <button
+                                    key={option.count}
+                                    type="button"
                                     disabled={createDisabled}
-                                    onChange={() => setResolution(option.res)}
-                                    className="sr-only"
-                                />
-                                <span className="text-xs font-semibold">{option.label}</span>
-                                <span className="text-[10px] font-mono text-[#6B7280]">
-                                    {veoPreviewUsd(sceneCount, option.res)}
-                                </span>
-                            </label>
-                        ))}
+                                    onClick={() => setSceneCount(option.count)}
+                                    className={`font-semibold disabled:opacity-40 ${
+                                        sceneCount === option.count
+                                            ? 'text-violet-700 underline decoration-violet-600 decoration-2 underline-offset-4'
+                                            : 'text-[#6B7280] hover:text-[#374151]'
+                                    }`}
+                                >
+                                    {option.label}
+                                </button>
+                            ))}
+                        </span>
+                        <span className="font-extrabold uppercase tracking-widest text-[10px] text-[#9CA3AF] ml-2">
+                            Quality
+                        </span>
+                        <span className="inline-flex gap-3">
+                            {(
+                                [
+                                    { res: '720p' as const, label: 'Standard' },
+                                    { res: '1080p' as const, label: 'Studio' },
+                                ] as const
+                            ).map((option) => (
+                                <button
+                                    key={option.res}
+                                    type="button"
+                                    disabled={createDisabled}
+                                    onClick={() => setResolution(option.res)}
+                                    className={`font-semibold disabled:opacity-40 ${
+                                        resolution === option.res
+                                            ? 'text-violet-700 underline decoration-violet-600 decoration-2 underline-offset-4'
+                                            : 'text-[#6B7280] hover:text-[#374151]'
+                                    }`}
+                                >
+                                    {option.label} {veoPreviewUsd(sceneCount, option.res)}
+                                </button>
+                            ))}
+                        </span>
                     </div>
-                </div>
+                )}
 
                 {createError && (
                     <p className="text-xs text-red-700 leading-snug" role="alert">
@@ -827,8 +935,13 @@ export default function AdPanel({
                     onClick={() => void onCreateStoryboard()}
                     className="w-full text-[11px] font-extrabold px-3 py-2 rounded-md border border-violet-600 bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-40"
                 >
-                    {creating ? 'Writing…' : 'Write the storyboard'}
+                    {creating ? 'Writing…' : showList ? 'Write the storyboard' : 'Write the plan — free'}
                 </button>
+                {!showList && (
+                    <p className="text-[10px] text-[#9CA3AF] leading-relaxed">
+                        You&apos;ll read and edit three scenes. Nothing is charged until you approve.
+                    </p>
+                )}
             </div>
         </div>
     );

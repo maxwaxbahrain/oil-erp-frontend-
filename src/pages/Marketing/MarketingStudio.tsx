@@ -37,12 +37,13 @@ import {
     mapMediaError,
     mapPublishError,
 } from './MarketingQueue';
-import VideoPanel from './VideoPanel';
-import AdPanel from './AdPanel';
+import VideoTab from './VideoTab';
 
 type StudioMode = 'generate' | 'edit';
 type CanvasView = 'current' | 'compare' | 'sheet';
+type StudioTab = 'post' | 'image' | 'video' | 'publish';
 type CaptionSaveState = 'saved' | 'unsaved' | 'saving';
+type TitleSaveState = 'saved' | 'unsaved' | 'saving';
 
 const PROMPT_MAX = 1000;
 const CAPTION_MAX = 3000;
@@ -149,6 +150,9 @@ export default function MarketingStudio() {
     const [prompt, setPrompt] = useState('');
     const [caption, setCaption] = useState('');
     const [captionSave, setCaptionSave] = useState<CaptionSaveState>('saved');
+    const [title, setTitle] = useState('');
+    const [titleSave, setTitleSave] = useState<TitleSaveState>('saved');
+    const [tab, setTab] = useState<StudioTab>('post');
     const [canvasView, setCanvasView] = useState<CanvasView>('current');
     const [candidateBatch, setCandidateBatch] = useState<MarketingCandidateBatch | null>(null);
     const [selectedCandidateId, setSelectedCandidateId] = useState<number | null>(null);
@@ -181,6 +185,8 @@ export default function MarketingStudio() {
             setPost(row);
             setCaption(row.body);
             setCaptionSave('saved');
+            setTitle(row.title);
+            setTitleSave('saved');
             if (!row.media_url) setMode('generate');
             if (batch.candidates.length > 0) {
                 setCandidateBatch(batch);
@@ -421,6 +427,25 @@ export default function MarketingStudio() {
         })();
     };
 
+    const onTitleBlur = () => {
+        if (!post || post.status === 'posted') return;
+        if (title === post.title) {
+            setTitleSave('saved');
+            return;
+        }
+        setTitleSave('saving');
+        void (async () => {
+            try {
+                const updated = await updateMarketingPost(post.id, { title });
+                setPost(updated);
+                setTitleSave('saved');
+            } catch {
+                setTitleSave('unsaved');
+                setError("Couldn't save the title. Try again.");
+            }
+        })();
+    };
+
     const loadConnections = async (): Promise<MarketingConnection[]> => {
         if (connections !== null) return connections;
         const rows = await listMarketingConnections();
@@ -549,7 +574,190 @@ export default function MarketingStudio() {
                 </div>
             )}
 
-            <div className="grid grid-cols-[344px_1fr_352px] flex-1 min-h-0 max-xl:grid-cols-[320px_1fr_330px] max-lg:grid-cols-[300px_1fr]">
+            {/* Studio tabs */}
+            <div className="border-b border-[#E4E7EC] bg-white px-[18px] flex gap-1 shrink-0">
+                {(
+                    [
+                        { id: 'post' as const, label: 'Post' },
+                        { id: 'image' as const, label: 'Image' },
+                        { id: 'video' as const, label: 'Video' },
+                        { id: 'publish' as const, label: 'Publish' },
+                    ] as const
+                ).map((item) => (
+                    <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setTab(item.id)}
+                        className={`px-4 py-2.5 text-[10px] font-extrabold uppercase tracking-widest border-b-2 -mb-px bg-transparent cursor-pointer ${
+                            tab === item.id
+                                ? 'text-[#111827] border-violet-600'
+                                : 'text-[#9CA3AF] border-transparent hover:text-[#6B7280]'
+                        }`}
+                    >
+                        {item.label}
+                    </button>
+                ))}
+            </div>
+
+            {tab === 'post' && (
+                <div className="flex-1 min-h-0 overflow-y-auto bg-white p-6">
+                    <div className="max-w-xl mx-auto space-y-5">
+                        <div>
+                            <div className="flex items-center mb-1.5">
+                                <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#9CA3AF]">
+                                    Title
+                                </span>
+                                {titleSave === 'unsaved' && (
+                                    <span className="ml-auto text-[10px] font-bold text-amber-700">Unsaved</span>
+                                )}
+                                {titleSave === 'saving' && (
+                                    <span className="ml-auto text-[10px] font-bold text-gray-500">Saving…</span>
+                                )}
+                                {titleSave === 'saved' && title === post.title && (
+                                    <span className="ml-auto text-[10px] font-bold text-emerald-700">Saved</span>
+                                )}
+                            </div>
+                            {posted ? (
+                                <div className="w-full bg-[#F7F8FA] border border-[#E4E7EC] rounded-lg text-sm font-bold p-3 text-[#374151]">
+                                    {title}
+                                </div>
+                            ) : (
+                                <input
+                                    type="text"
+                                    value={title}
+                                    onChange={(e) => {
+                                        setTitle(e.target.value);
+                                        setTitleSave(e.target.value === post.title ? 'saved' : 'unsaved');
+                                    }}
+                                    onBlur={onTitleBlur}
+                                    className="w-full bg-white border border-[#E4E7EC] rounded-lg text-sm font-bold p-3 outline-none focus:border-violet-300 focus:ring-[3px] focus:ring-violet-100"
+                                />
+                            )}
+                        </div>
+
+                        <div>
+                            <div className="flex items-center mb-1.5">
+                                <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#9CA3AF]">
+                                    Body
+                                </span>
+                                <span className="ml-auto text-[10px] text-[#9CA3AF] font-mono">
+                                    {caption.length} / {CAPTION_MAX}
+                                </span>
+                                {captionSave === 'unsaved' && (
+                                    <span className="ml-2 text-[10px] font-bold text-amber-700">Unsaved</span>
+                                )}
+                                {captionSave === 'saving' && (
+                                    <span className="ml-2 text-[10px] font-bold text-gray-500">Saving…</span>
+                                )}
+                                {captionSave === 'saved' && caption === post.body && (
+                                    <span className="ml-2 text-[10px] font-bold text-emerald-700">Saved</span>
+                                )}
+                            </div>
+                            {posted ? (
+                                <div className="w-full bg-[#F7F8FA] border border-[#E4E7EC] rounded-lg text-[12.5px] leading-relaxed p-3 whitespace-pre-wrap text-[#6B7280] min-h-[160px]">
+                                    {caption}
+                                </div>
+                            ) : (
+                                <AutoGrowTextarea
+                                    value={caption}
+                                    onChange={(e) => {
+                                        const next = e.target.value.slice(0, CAPTION_MAX);
+                                        setCaption(next);
+                                        setCaptionSave(next === post.body ? 'saved' : 'unsaved');
+                                    }}
+                                    onBlur={onCaptionBlur}
+                                    maxLength={CAPTION_MAX}
+                                    maxHeight={400}
+                                    className="w-full bg-white border border-[#E4E7EC] rounded-lg text-[12.5px] leading-relaxed p-3 resize-none outline-none min-h-[160px] focus:border-violet-300 focus:ring-[3px] focus:ring-violet-100"
+                                />
+                            )}
+                        </div>
+
+                        <div>
+                            <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#9CA3AF] block mb-1.5">
+                                Platform
+                            </span>
+                            <div className="inline-flex text-[11px] font-extrabold uppercase tracking-widest px-3 py-1.5 rounded-lg bg-[#F1F3F6] border border-[#E4E7EC] text-[#374151]">
+                                {post.platform}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {tab === 'video' && <VideoTab post={post} />}
+
+            {tab === 'publish' && (
+                <div className="flex-1 min-h-0 overflow-y-auto bg-[#F7F8FA] p-4">
+                    <div className="max-w-md mx-auto">
+                        <div className="bg-white border border-[#E4E7EC] rounded-lg overflow-hidden">
+                            <div className="flex gap-2 p-3 pb-2 items-center">
+                                <div className="w-[33px] h-[33px] rounded-full bg-gradient-to-br from-purple-500 to-pink-500 grid place-items-center text-white text-xs font-black shrink-0">
+                                    {initials(user.name)}
+                                </div>
+                                <div>
+                                    <div className="text-[12.5px] font-bold leading-tight">{user.name}</div>
+                                    <div className="text-[10.5px] text-[#6B7280] mt-0.5">Now</div>
+                                </div>
+                            </div>
+                            <div className="px-3 pb-2.5 text-[12.5px] leading-relaxed whitespace-pre-wrap">
+                                {caption || 'Your caption will appear here…'}
+                            </div>
+                            <div className="aspect-square bg-[#111] relative overflow-hidden">
+                                {post.media_url ? (
+                                    <img src={post.media_url} alt="" className="w-full h-full object-cover" />
+                                ) : (
+                                    <div className="w-full h-full grid place-items-center text-gray-600 text-xs">
+                                        No image
+                                    </div>
+                                )}
+                            </div>
+                            <div className="flex gap-4 px-3 py-2 border-t border-[#EDEFF3] text-[11px] text-[#6B7280] font-semibold">
+                                <span>Like</span>
+                                <span>Comment</span>
+                                <span>Repost</span>
+                            </div>
+                        </div>
+
+                        {posted ? (
+                            <p className="mt-4 text-[11px] font-bold text-purple-700">This post was published.</p>
+                        ) : (
+                            <>
+                                {showPublishPicker && connections && connections.length > 1 && (
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                        <span className="text-[10px] font-extrabold uppercase tracking-widest text-gray-400 w-full">
+                                            Publish to
+                                        </span>
+                                        {connections.map((conn) => (
+                                            <button
+                                                key={conn.platform_id}
+                                                type="button"
+                                                disabled={busy}
+                                                onClick={() => runPublish(conn.platform_id)}
+                                                className="text-xs font-bold px-3 py-1.5 rounded-lg border border-purple-200 bg-purple-50 text-purple-800 hover:bg-purple-100 disabled:opacity-50"
+                                            >
+                                                {conn.platform}
+                                                {conn.username ? ` · ${conn.username}` : ''}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                                <button
+                                    type="button"
+                                    disabled={busy || working || post.status === 'archived'}
+                                    onClick={onApproveAndPublish}
+                                    className="w-full mt-3.5 bg-emerald-600 border-none rounded-lg py-3 cursor-pointer text-white text-[13px] font-extrabold disabled:opacity-50"
+                                >
+                                    {post.status === 'approved' ? 'Publish' : 'Approve and publish'}
+                                </button>
+                            </>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {tab === 'image' && (
+            <div className="grid grid-cols-[344px_1fr] flex-1 min-h-0 max-xl:grid-cols-[320px_1fr] max-lg:grid-cols-1">
 
                 {/* LEFT */}
                 <div className="border-r border-[#E4E7EC] bg-white flex flex-col min-h-0 overflow-hidden">
@@ -947,138 +1155,9 @@ export default function MarketingStudio() {
                             </Link>
                         </div>
                     </div>
-
-                    <div className="border-t border-white/10 px-4 py-4 shrink-0 overflow-y-auto max-h-[45%]">
-                        <div className="text-[10px] font-extrabold uppercase tracking-widest text-gray-500 mb-3">
-                            Video
-                        </div>
-                        <VideoPanel postId={post.id} hasImage={!!post.media_url} />
-                        <div className="text-[10px] font-extrabold uppercase tracking-widest text-gray-500 mb-3 mt-6">
-                            Studio Ad
-                        </div>
-                        <AdPanel postId={post.id} hasImage={!!post.media_url} />
-                    </div>
-                </div>
-
-                {/* RIGHT */}
-                <div className="border-l border-[#E4E7EC] bg-white flex flex-col min-h-0 overflow-hidden max-lg:hidden">
-                    <div className="flex px-3 pt-2.5 gap-0.5 border-b border-[#EDEFF3]">
-                        <button type="button" className="flex-1 py-2 border-none bg-transparent text-[10.5px] font-extrabold border-b-2 border-violet-600 text-[#111827] -mb-px">
-                            LinkedIn
-                        </button>
-                        <button type="button" disabled className="flex-1 py-2 border-none bg-transparent text-[10.5px] font-extrabold border-b-2 border-transparent text-[#9CA3AF] opacity-50">
-                            Instagram <span className="block text-[8px] font-semibold normal-case">soon</span>
-                        </button>
-                        <button type="button" disabled className="flex-1 py-2 border-none bg-transparent text-[10.5px] font-extrabold border-b-2 border-transparent text-[#9CA3AF] opacity-50">
-                            Facebook <span className="block text-[8px] font-semibold normal-case">soon</span>
-                        </button>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto p-3 bg-[#F7F8FA]">
-                        <div className="bg-white border border-[#E4E7EC] rounded-lg overflow-hidden">
-                            <div className="flex gap-2 p-3 pb-2 items-center">
-                                <div className="w-[33px] h-[33px] rounded-full bg-gradient-to-br from-purple-500 to-pink-500 grid place-items-center text-white text-xs font-black shrink-0">
-                                    {initials(user.name)}
-                                </div>
-                                <div>
-                                    <div className="text-[12.5px] font-bold leading-tight">{user.name}</div>
-                                    <div className="text-[10.5px] text-[#6B7280] mt-0.5">Now</div>
-                                </div>
-                            </div>
-                            <div className="px-3 pb-2.5 text-[12.5px] leading-relaxed whitespace-pre-wrap">
-                                {caption || 'Your caption will appear here…'}
-                            </div>
-                            <div className="aspect-square bg-[#111] relative overflow-hidden">
-                                {post.media_url ? (
-                                    <img src={post.media_url} alt="" className="w-full h-full object-cover" />
-                                ) : (
-                                    <div className="w-full h-full grid place-items-center text-gray-600 text-xs">No image</div>
-                                )}
-                            </div>
-                            <div className="flex gap-4 px-3 py-2 border-t border-[#EDEFF3] text-[11px] text-[#6B7280] font-semibold">
-                                <span>Like</span>
-                                <span>Comment</span>
-                                <span>Repost</span>
-                            </div>
-                        </div>
-
-                        <div className="mt-3.5">
-                            <div className="flex items-center mb-1.5">
-                                <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#9CA3AF]">
-                                    Caption
-                                </span>
-                                <span className="ml-auto text-[10px] text-[#9CA3AF] font-mono">
-                                    {caption.length} / {CAPTION_MAX}
-                                </span>
-                                {captionSave === 'unsaved' && (
-                                    <span className="ml-2 text-[10px] font-bold text-amber-700">Unsaved</span>
-                                )}
-                                {captionSave === 'saving' && (
-                                    <span className="ml-2 text-[10px] font-bold text-gray-500">Saving…</span>
-                                )}
-                                {captionSave === 'saved' && caption === post.body && (
-                                    <span className="ml-2 text-[10px] font-bold text-emerald-700">Saved</span>
-                                )}
-                            </div>
-                            {posted ? (
-                                <div>
-                                    <div className="w-full bg-white border border-[#E4E7EC] rounded-lg text-[12.5px] leading-relaxed p-3 whitespace-pre-wrap text-[#6B7280] min-h-[130px]">
-                                        {caption}
-                                    </div>
-                                    <p className="text-[10px] text-[#9CA3AF] mt-1.5">Published posts cannot be edited here.</p>
-                                </div>
-                            ) : (
-                                <AutoGrowTextarea
-                                    value={caption}
-                                    onChange={(e) => {
-                                        const next = e.target.value.slice(0, CAPTION_MAX);
-                                        setCaption(next);
-                                        setCaptionSave(next === post.body ? 'saved' : 'unsaved');
-                                    }}
-                                    onBlur={onCaptionBlur}
-                                    maxLength={CAPTION_MAX}
-                                    maxHeight={400}
-                                    className="w-full bg-white border border-[#E4E7EC] rounded-lg text-[12.5px] leading-relaxed p-3 resize-none outline-none min-h-[130px] focus:border-violet-300 focus:ring-[3px] focus:ring-violet-100"
-                                />
-                            )}
-                        </div>
-
-                        {posted ? (
-                            <p className="mt-4 text-[11px] font-bold text-purple-700">This post was published.</p>
-                        ) : (
-                            <>
-                                {showPublishPicker && connections && connections.length > 1 && (
-                                    <div className="mt-3 flex flex-wrap gap-2">
-                                        <span className="text-[10px] font-extrabold uppercase tracking-widest text-gray-400 w-full">
-                                            Publish to
-                                        </span>
-                                        {connections.map((conn) => (
-                                            <button
-                                                key={conn.platform_id}
-                                                type="button"
-                                                disabled={busy}
-                                                onClick={() => runPublish(conn.platform_id)}
-                                                className="text-xs font-bold px-3 py-1.5 rounded-lg border border-purple-200 bg-purple-50 text-purple-800 hover:bg-purple-100 disabled:opacity-50"
-                                            >
-                                                {conn.platform}
-                                                {conn.username ? ` · ${conn.username}` : ''}
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
-                                <button
-                                    type="button"
-                                    disabled={busy || working || post.status === 'archived'}
-                                    onClick={onApproveAndPublish}
-                                    className="w-full mt-3.5 bg-emerald-600 border-none rounded-lg py-3 cursor-pointer text-white text-[13px] font-extrabold disabled:opacity-50"
-                                >
-                                    {post.status === 'approved' ? 'Publish' : 'Approve and publish'}
-                                </button>
-                            </>
-                        )}
-                    </div>
                 </div>
             </div>
+            )}
         </div>
     );
 }
