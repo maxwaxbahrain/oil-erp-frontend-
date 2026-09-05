@@ -92,6 +92,38 @@ describe('creditNoteService.toApi line-item mapping', () => {
       amount: 150,
     });
   });
+
+  it('(f) patch without items key must omit items from serialized body', async () => {
+    const { authFetch } = await import('../../api/axios');
+    vi.mocked(authFetch).mockImplementation(mockAuthFetchOk());
+
+    const { updateCreditNote } = await import('../creditNoteService');
+
+    await updateCreditNote('1', { status: 'cancelled' });
+
+    const body = JSON.parse(String(vi.mocked(authFetch).mock.calls[0][1]?.body));
+    expect(body).not.toHaveProperty('items');
+  });
+
+  it('(g) patch with items still maps unitPrice to rate', async () => {
+    const { authFetch } = await import('../../api/axios');
+    vi.mocked(authFetch).mockImplementation(mockAuthFetchOk());
+
+    const { updateCreditNote } = await import('../creditNoteService');
+
+    await updateCreditNote('1', {
+      items: [{ description: 'Widget', quantity: 20, unitPrice: 22, amount: 440 }],
+      status: 'issued',
+    });
+
+    const body = JSON.parse(String(vi.mocked(authFetch).mock.calls[0][1]?.body));
+    expect(body.items[0]).toMatchObject({
+      description: 'Widget',
+      quantity: 20,
+      rate: 22,
+      amount: 440,
+    });
+  });
 });
 
 describe('creditNoteService.fromApi (toUi) line-item hydration', () => {

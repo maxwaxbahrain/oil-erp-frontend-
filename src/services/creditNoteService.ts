@@ -95,7 +95,7 @@ function toUi(row: any): CreditNote {
 }
 
 function toApi(input: any) {
-  return {
+  const body: any = {
     originalInvoiceId: input.originalInvoiceId ? Number(input.originalInvoiceId) : undefined,
     // TASK 7 — Forward Sales-Return backlink (numeric id + display number).
     originalReturnId: input.originalReturnId ? Number(input.originalReturnId) : undefined,
@@ -104,12 +104,6 @@ function toApi(input: any) {
     issueDate: input.issueDate,
     expiryDate: input.expiryDate || null,
     reason: input.reason,
-    items: (input.items || []).map((item: any) => ({
-      description: String(item.description ?? ''),
-      quantity: Number(item.quantity) || 0,
-      rate: Number(item.unitPrice ?? item.rate ?? 0),
-      amount: Number(item.amount) || 0,
-    })),
     subtotal: Number(input.subtotal ?? 0),
     tax: Number(input.tax ?? 0),
     totalCreditAmount: Number(input.totalCreditAmount ?? 0),
@@ -117,6 +111,15 @@ function toApi(input: any) {
     status: input.status,
     notes: input.notes || '',
   };
+  if (Array.isArray(input.items)) {
+    body.items = input.items.map((item: any) => ({
+      description: String(item.description ?? ''),
+      quantity: Number(item.quantity) || 0,
+      rate: Number(item.unitPrice ?? item.rate ?? 0),
+      amount: Number(item.amount) || 0,
+    }));
+  }
+  return body;
 }
 
 export async function getCreditNotes(): Promise<CreditNote[]> {
