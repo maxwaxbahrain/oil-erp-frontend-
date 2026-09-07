@@ -93,12 +93,6 @@ export default function OutstandingBills() {
                 };
             });
             setContactsByCustomerId(contacts);
-            const creditByCustomer: Record<string, number> = {};
-            (pays || []).forEach((p: any) => {
-                const cid = String(p?.customer_id ?? '');
-                if (!cid) return;
-                creditByCustomer[cid] = (creditByCustomer[cid] || 0) + (Number(p?.amount) || 0);
-            });
 
             // "Paid this month" = sum of payment amounts dated this calendar month.
             const now = new Date();
@@ -114,39 +108,7 @@ export default function OutstandingBills() {
             });
             setPaidThisMonth({ amount: paidAmt, count: paidCount });
 
-            // Apply credit oldest-first per customer.
-            const invoicesByCustomer: Record<string, Invoice[]> = {};
-            invs.forEach(inv => {
-                const cid = String(inv.customerId || '');
-                (invoicesByCustomer[cid] = invoicesByCustomer[cid] || []).push(inv);
-            });
-
-            const applied: Invoice[] = [];
-            Object.keys(invoicesByCustomer).forEach(cid => {
-                const list = [...invoicesByCustomer[cid]].sort(
-                    (a, b) => new Date(a.invoiceDate || a.createdAt || 0).getTime()
-                        - new Date(b.invoiceDate || b.createdAt || 0).getTime(),
-                );
-                let credit = creditByCustomer[cid] || 0;
-                list.forEach(inv => {
-                    const explicitPaid = Number(inv.amount_paid) || 0;
-                    const total = Number(inv.grandTotal) || 0;
-                    let remaining = total - explicitPaid;
-                    let fromCredit = 0;
-                    if (credit > 0 && remaining > 0.01) {
-                        fromCredit = Math.min(credit, remaining);
-                        credit -= fromCredit;
-                        remaining -= fromCredit;
-                    }
-                    applied.push({
-                        ...inv,
-                        amount_paid: explicitPaid + fromCredit,
-                        remaining_balance: Math.max(0, remaining),
-                    });
-                });
-            });
-
-            setAllInvoices(applied.filter(i => !isFullyPaid(i)));
+            setAllInvoices(invs.filter(i => !isFullyPaid(i)));
             setLoading(false);
         });
     }, []);
@@ -270,7 +232,7 @@ export default function OutstandingBills() {
                     dp > 0 ? `${dp}d` : '—',
                     formatCurrency(total),
                     formatCurrency(paid),
-                    formatCurrency(total - paid),
+                    formatCurrency(balanceOf(inv)),
                 ];
             }),
             foot: [['TOTAL', '', '', '', '', '', '', '', formatCurrency(totalOutstanding)]],
