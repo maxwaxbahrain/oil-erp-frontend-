@@ -840,7 +840,7 @@ export default function Invoices() {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
                   <div>
                     <p className="text-[10px] font-bold text-gray-500 uppercase">Status</p>
-                    <p className="font-black text-gray-900">{detailInvoice.payment_status ?? detailInvoice.status}</p>
+                    <p className="font-black text-gray-900">{detailInvoice.status}</p>
                   </div>
                   <div>
                     <p className="text-[10px] font-bold text-gray-500 uppercase">Amount paid</p>

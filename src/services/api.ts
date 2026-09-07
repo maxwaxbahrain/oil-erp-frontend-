@@ -969,7 +969,9 @@ function mapApiInvoiceToInvoice(inv: Record<string, unknown>): Invoice {
           : null,
     status: statusNorm,
     payment_status:
-      remaining_balance <= 0 && grandTotal > 0 ? 'Paid' : paid > 0 ? 'Advance Paid' : 'Unpaid',
+      statusNorm === 'Paid' ? 'Paid'
+      : statusNorm === 'Partial' ? 'Advance Paid'
+      : 'Unpaid',
     amount_paid: paid,
     remaining_balance,
     createdAt: inv.created_at != null ? String(inv.created_at) : new Date().toISOString(),

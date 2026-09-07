@@ -10,11 +10,14 @@ import { formatCurrency } from '../../services/settingsService';
 // Page-size for the bottom pager.
 const PAGE_SIZE = 25;
 
-// QuickBooks-style status derivation from actual amounts and dates.
-const balanceOf = (i: Invoice) => (Number(i.grandTotal) || 0) - (Number(i.amount_paid) || 0);
-const isFullyPaid = (i: Invoice) => balanceOf(i) <= 0.01;
-const isPartial = (i: Invoice) => Number(i.amount_paid) > 0 && balanceOf(i) > 0.01;
-const isUnpaidNoPayment = (i: Invoice) => Number(i.amount_paid || 0) === 0 && balanceOf(i) > 0.01;
+// Status badges use API-derived status + remaining_balance; date logic stays local.
+const balanceOf = (i: Invoice) => Number(i.remaining_balance ?? 0);
+const isFullyPaid = (i: Invoice) =>
+  String(i.status).toLowerCase() === 'paid' || balanceOf(i) <= 0.01;
+const isPartial = (i: Invoice) =>
+  String(i.status).toLowerCase() === 'partial' && balanceOf(i) > 0.01;
+const isUnpaidNoPayment = (i: Invoice) =>
+  String(i.status).toLowerCase() === 'unpaid' && balanceOf(i) > 0.01;
 
 const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 const todayStart = () => startOfDay(new Date());
