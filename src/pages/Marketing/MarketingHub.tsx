@@ -1,11 +1,23 @@
 import { useNavigate } from 'react-router-dom';
 import { Zap, Send, Users, BarChart2, ArrowRight, ExternalLink } from 'lucide-react';
 
+// Official Facebook brand mark. Sized to 24px to match the text-2xl emoji
+// glyphs the other channel cards render.
+function FacebookMark() {
+    return (
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className="w-6 h-6 text-white">
+            <path d="M15.12 5.32H17V2.14A26.11 26.11 0 0 0 14.26 2C11.54 2 9.68 3.66 9.68 6.7v2.62H6.61v3.56h3.07V22h3.68v-9.12h3.06l.46-3.56h-3.52V7.05c0-1.05.28-1.73 1.76-1.73Z" />
+        </svg>
+    );
+}
+
 const CHANNELS = [
     {
         id: 'facebook',
         name: 'Facebook',
         emoji: '📘',
+        icon: <FacebookMark />,
+        iconBg: 'bg-[#1877F2]',
         color: 'bg-blue-600',
         hoverColor: 'hover:bg-blue-700',
         bgLight: 'bg-blue-50',
@@ -186,8 +198,8 @@ export default function MarketingHub() {
                         <div key={ch.id} className={`bg-white border-2 ${ch.borderColor} rounded-2xl p-4 shadow-sm hover:shadow-lg transition-all group`}>
                             {/* Platform icon + open button */}
                             <div className="flex items-center justify-between mb-3">
-                                <div className={`w-12 h-12 ${ch.color} rounded-xl flex items-center justify-center text-2xl shadow-sm`}>
-                                    {ch.emoji}
+                                <div className={`w-12 h-12 ${ch.iconBg ?? ch.color} rounded-xl flex items-center justify-center text-2xl shadow-sm`}>
+                                    {ch.icon ?? ch.emoji}
                                 </div>
                                 <a href={ch.platformUrl} target="_blank" rel="noopener noreferrer"
                                     className={`flex items-center gap-1 text-[10px] font-black px-2.5 py-1.5 rounded-lg ${ch.bgLight} ${ch.textColor} hover:shadow-sm transition-all border ${ch.borderColor}`}
