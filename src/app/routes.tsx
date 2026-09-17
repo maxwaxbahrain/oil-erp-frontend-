@@ -67,6 +67,8 @@ import ExpenseMileageTracker from '../pages/Accounts/ExpenseMileageTracker';
 import ExpenseReports from '../pages/Accounts/ExpenseReports';
 // STEP 10 — Expense Settings (new route).
 import ExpenseSettingsPage from '../pages/Accounts/ExpenseSettingsPage';
+import Collections from '../pages/Finance/Collections';
+import CollectionsDriver from '../pages/Finance/CollectionsDriver';
 import PayrollManagement from '../pages/Accounts/PayrollManagement';
 import PurchasesDashboard from '../pages/Purchases/PurchasesDashboard';
 import PurchaseOrderForm from '../pages/Purchases/PurchaseOrderForm';
@@ -382,6 +384,8 @@ export const AppRoutes = () => {
             <Route path="/finance/expenses/mileage" element={<ExpenseMileageTracker />} />
             <Route path="/finance/expenses/reports" element={<ExpenseReports />} />
             <Route path="/finance/expenses/settings" element={<ExpenseSettingsPage />} />
+            <Route path="/finance/collections" element={<Collections />} />
+            <Route path="/finance/collections/driver" element={<CollectionsDriver />} />
             <Route path="/products/reports" element={<InventoryReports />} />
             <Route path="/inventory/adjustments" element={<InventoryAdjustment />} />
             <Route path="/reports/sales" element={<ProfitabilityReports />} />

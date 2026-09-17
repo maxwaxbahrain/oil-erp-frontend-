@@ -27,7 +27,7 @@ import {
     TrendingUp,
     User,
     MapPin
-, CalendarDays , Tag , BookOpen , Scale , Clock , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 , Mail , LogOut , Sparkles , Lock , Activity , Inbox } from 'lucide-react';
+, CalendarDays , Tag , BookOpen , Scale , Clock , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 , Mail , LogOut , Sparkles , Lock , Activity , Inbox , MessageSquare } from 'lucide-react';
 import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
 import { isProduction } from '../../config/appEnv';
@@ -292,6 +292,7 @@ export default function Sidebar({
                 <NavItem to="/reports/aged-receivable" icon={Clock} label="Aged Receivable" />
                 <NavItem to="/reports/aged-payable" icon={Clock} label="Aged Payable" />
                 <NavItem to="/reports/outstanding-bills" icon={FileText} label="Outstanding Bills" />
+                <NavItem to="/finance/collections" icon={MessageSquare} label="Collections" />
                 <NavItem to="/reports/financial" icon={PieChart} label="Profitability Analysis" />
                 {MODULE_FLAGS.reports_profitability_duplicate && (
                 <NavItem to="/reports/sales" icon={TrendingUp} label="Profitability Reports" />

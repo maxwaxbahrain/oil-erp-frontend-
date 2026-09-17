@@ -1792,3 +1792,127 @@ export async function uploadBrandKitProduct(file: File): Promise<BrandKit> {
 
   return response.json();
 }
+
+// ─── Collections (Phase 3.2) ───────────────────────────────────────────────
+
+export interface CollectionsGroupSummary {
+  customers: number;
+  invoices: number;
+  total: number;
+}
+
+export interface CollectionsGroups {
+  1: CollectionsGroupSummary;
+  2: CollectionsGroupSummary;
+  3: CollectionsGroupSummary;
+}
+
+export interface CollectionsRow {
+  invoice_id: number;
+  invoice_number: string;
+  customer_id: number;
+  customer_name: string;
+  customer_phone: string | null;
+  customer_email: string | null;
+  outstanding: number;
+  days_unpaid: number;
+  last_order: string;
+  group: 1 | 2 | 3;
+  action: string;
+  statement_message: string;
+  driver_line: string | null;
+  phone_missing: boolean;
+}
+
+export interface CollectionsReport {
+  as_of: string;
+  settings_used: CollectionsSettings;
+  groups: CollectionsGroups;
+  total: number;
+  rows: CollectionsRow[];
+}
+
+export interface CollectionsSettings {
+  sender_name: string;
+  zelle: string;
+  card_phone: string;
+  cheque_payee: string;
+  group1_days: number;
+  group2_days: number;
+  min_balance: number;
+  late_days: number;
+}
+
+export type CollectionsSettingsUpdate = Partial<CollectionsSettings>;
+
+export interface CollectionsLogEntry {
+  id: number;
+  tenant_id: number;
+  invoice_id: number;
+  customer_id: number;
+  user_id: number;
+  note: string;
+  promised_date: string | null;
+  promised_method: string | null;
+  status: string | null;
+  created_at: string | null;
+}
+
+export interface CollectionsLogCreate {
+  invoice_id: number;
+  note: string;
+  promised_date?: string | null;
+  promised_method?: string | null;
+  status?: string | null;
+}
+
+export const getCollectionsReport = (asOf?: string): Promise<CollectionsReport> => {
+  const qs = asOf ? `?as_of=${encodeURIComponent(asOf)}` : '';
+  return apiRequest<CollectionsReport>(`/credit/collections${qs}`);
+};
+
+export function getCollectionsCsvUrl(asOf?: string): string {
+  const qs = asOf ? `?as_of=${encodeURIComponent(asOf)}` : '';
+  return `${API_BASE_URL}/credit/collections.csv${qs}`;
+}
+
+export async function downloadCollectionsCsv(asOf?: string): Promise<void> {
+  const response = await authFetch(getCollectionsCsvUrl(asOf));
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Download failed' }));
+    throw new Error(
+      typeof error.detail === 'string' ? error.detail : `HTTP ${response.status}`,
+    );
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = 'collections.csv';
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+export const getCollectionsSettings = (): Promise<CollectionsSettings> =>
+  apiRequest<CollectionsSettings>('/credit/collections/settings');
+
+export const updateCollectionsSettings = (
+  body: CollectionsSettingsUpdate,
+): Promise<CollectionsSettings> =>
+  apiRequest<CollectionsSettings>('/credit/collections/settings', {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+
+export const createCollectionsLog = (
+  body: CollectionsLogCreate,
+): Promise<CollectionsLogEntry> =>
+  apiRequest<CollectionsLogEntry>('/credit/collections/log', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const listCollectionsLog = (invoiceId: number): Promise<CollectionsLogEntry[]> =>
+  apiRequest<CollectionsLogEntry[]>(
+    `/credit/collections/log?invoice_id=${encodeURIComponent(String(invoiceId))}`,
+  );
