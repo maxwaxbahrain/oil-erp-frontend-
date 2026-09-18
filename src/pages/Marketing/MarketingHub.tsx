@@ -292,7 +292,7 @@ export default function MarketingHub() {
                         const Icon = f.icon;
                         return (
                             <div key={i} onClick={() => navigate(f.path)}
-                                className="bg-white border border-gray-100 rounded-2xl p-5 cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transition-all group h-full flex flex-col">
+                                className="bg-white border border-gray-100 rounded-2xl !p-5 cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transition-all group h-full flex flex-col">
                                 <div className="flex items-start justify-between mb-3">
                                     <div className="w-10 h-10 bg-gray-900 rounded-xl flex items-center justify-center">
                                         <Icon size={18} className="text-white" />
