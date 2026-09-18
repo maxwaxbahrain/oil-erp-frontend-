@@ -440,6 +440,28 @@ export interface CreditHoldDetail {
   open_past_threshold?: number;
   enforced?: boolean;
   exempt_reason?: string | null;
+  manual?: boolean;
+  manual_reason?: string | null;
+  manual_set_by?: string | null;
+  manual_set_at?: string | null;
+}
+
+export interface ManualCreditHoldRow {
+  id: number;
+  name: string;
+  phone: string | null;
+  reason: string;
+  set_by: string;
+  set_at: string;
+}
+
+export interface ManualCreditHoldResponse extends CreditHoldDetail {
+  warning?: string | null;
+}
+
+export function isValidManualHoldReason(reason: string): boolean {
+  const trimmed = reason.trim();
+  return trimmed.length >= 3 && trimmed.length <= 255;
 }
 
 function formatApiErrorDetail(detail: unknown): string {
@@ -1986,3 +2008,22 @@ export const listCollectionsLog = (invoiceId: number): Promise<CollectionsLogEnt
 
 export const getCreditHold = (customerId: string | number): Promise<CreditHoldDetail> =>
   apiRequest<CreditHoldDetail>(`/credit/hold/${encodeURIComponent(String(customerId))}`);
+
+export const putManualCreditHold = (
+  customerId: string | number,
+  reason: string,
+): Promise<ManualCreditHoldResponse> =>
+  apiRequest<ManualCreditHoldResponse>(`/credit/hold/${encodeURIComponent(String(customerId))}`, {
+    method: 'PUT',
+    body: JSON.stringify({ reason: reason.trim() }),
+  });
+
+export const deleteManualCreditHold = (
+  customerId: string | number,
+): Promise<CreditHoldDetail> =>
+  apiRequest<CreditHoldDetail>(`/credit/hold/${encodeURIComponent(String(customerId))}`, {
+    method: 'DELETE',
+  });
+
+export const getManualCreditHolds = (): Promise<ManualCreditHoldRow[]> =>
+  apiRequest<ManualCreditHoldRow[]>('/credit/holds');

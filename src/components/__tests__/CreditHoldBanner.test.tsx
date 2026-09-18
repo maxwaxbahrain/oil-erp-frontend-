@@ -85,6 +85,37 @@ describe('CreditHoldBanner', () => {
     expect(container.textContent).not.toContain('Override and continue');
   });
 
+  it('renders nothing when mode is off even if held', () => {
+    const { container, root } = renderBanner({
+      hold: {
+        ...baseHold,
+        mode: 'off',
+        manual: true,
+        message: 'Manual hold recorded',
+      },
+      canOverride: true,
+      onOverride: vi.fn(),
+    });
+    roots.push(root);
+    expect(container.querySelector('[data-testid="credit-hold-banner"]')).toBeNull();
+  });
+
+  it('shows manual message when manual is true', () => {
+    const { container, root } = renderBanner({
+      hold: {
+        ...baseHold,
+        mode: 'warn',
+        manual: true,
+        message: 'Manual credit hold set by mgr-a: Pay before delivery',
+        invoices: [],
+      },
+      canOverride: false,
+    });
+    roots.push(root);
+    const banner = container.querySelector('[data-testid="credit-hold-banner"]');
+    expect(banner?.textContent).toContain('Manual credit hold set by mgr-a: Pay before delivery');
+  });
+
   it('shows cash-only wording for cash exempt hold', () => {
     const { container, root } = renderBanner({
       hold: {

@@ -11,7 +11,7 @@ function formatMoney(n: number): string {
 }
 
 export default function CreditHoldBanner({ hold, onOverride, canOverride }: CreditHoldBannerProps) {
-  if (!hold || !hold.held) return null;
+  if (!hold || !hold.held || hold.mode === 'off') return null;
 
   const isCashExempt = hold.exempt_reason === 'cash';
   const isBlock = hold.mode === 'block' && !isCashExempt;

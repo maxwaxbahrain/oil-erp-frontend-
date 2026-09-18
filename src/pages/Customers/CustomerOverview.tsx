@@ -37,9 +37,16 @@ import {
     type Payment
 } from '../../services/customerService';
 import {
+    deleteManualCreditHold,
+    getCreditHold,
     getCustomerLedger,
+    isValidManualHoldReason,
+    putManualCreditHold,
+    type CreditHoldDetail,
     type PartyLedgerRow,
 } from '../../services/api';
+import { useAuth } from '../../contexts/AuthContext';
+import { MANAGEMENT_ROLES } from '../../utils/rbac';
 import { getCustomerCreditNotes, updateCreditNote, type CreditNote } from '../../services/creditNoteService';
 // STEP 11B — load customer billable expenses for the Unbilled tab.
 import { saveExpense, type Expense } from '../../services/expenseService';
@@ -225,6 +232,8 @@ export default function CustomerOverview() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const location = useLocation();
+    const { hasRole } = useAuth();
+    const canManageCreditHold = hasRole(...MANAGEMENT_ROLES);
     const [activeTab, setActiveTab] = useState<'overview' | 'ledger' | 'sales' | 'payments' | 'credits' | 'unbilled' | 'expenses'>('overview');
     const [customer, setCustomer] = useState<Customer | null>(null);
     const [loading, setLoading] = useState(true);
@@ -286,6 +295,13 @@ export default function CustomerOverview() {
     // V3 spec — document vault toggle.
     const [showDocVault, setShowDocVault] = useState<boolean>(false);
 
+    const [creditHold, setCreditHold] = useState<CreditHoldDetail | null>(null);
+    const [creditHoldLoading, setCreditHoldLoading] = useState(false);
+    const [holdReason, setHoldReason] = useState('');
+    const [showHoldForm, setShowHoldForm] = useState(false);
+    const [holdBusy, setHoldBusy] = useState(false);
+    const [holdNotice, setHoldNotice] = useState<string | null>(null);
+
     // Check for tab parameter in URL
     useEffect(() => {
         const searchParams = new URLSearchParams(location.search);
@@ -322,6 +338,59 @@ export default function CustomerOverview() {
 
         fetchCustomer();
     }, [id, navigate]);
+
+    const loadCreditHold = async (customerId: string) => {
+        setCreditHoldLoading(true);
+        try {
+            const hold = await getCreditHold(customerId);
+            setCreditHold(hold);
+        } catch {
+            setCreditHold(null);
+        } finally {
+            setCreditHoldLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        if (!id) return;
+        void loadCreditHold(id);
+    }, [id]);
+
+    const holdReasonTrimmed = holdReason.trim();
+    const holdReasonValid = isValidManualHoldReason(holdReason);
+
+    const onPutManualHold = async () => {
+        if (!id || !holdReasonValid) return;
+        setHoldBusy(true);
+        setHoldNotice(null);
+        try {
+            const resp = await putManualCreditHold(id, holdReasonTrimmed);
+            setCreditHold(resp);
+            setHoldReason('');
+            setShowHoldForm(false);
+            if (resp.warning) setHoldNotice(resp.warning);
+        } catch {
+            setHoldNotice("Couldn't put customer on hold. Try again.");
+        } finally {
+            setHoldBusy(false);
+        }
+    };
+
+    const onReleaseManualHold = async () => {
+        if (!id) return;
+        if (!window.confirm('Release manual credit hold for this customer?')) return;
+        setHoldBusy(true);
+        setHoldNotice(null);
+        try {
+            const resp = await deleteManualCreditHold(id);
+            setCreditHold(resp);
+            setShowHoldForm(false);
+        } catch {
+            setHoldNotice("Couldn't release hold. Try again.");
+        } finally {
+            setHoldBusy(false);
+        }
+    };
 
     // Root B — fetch ledger for DISPLAY from the API (opening/closing/running
     // balances are backend-computed; the UI never recomputes them).
@@ -843,17 +912,6 @@ export default function CustomerOverview() {
                     >
                         📧 Send statement
                     </button>
-                    <button
-                        type="button"
-                        style={{
-                            background: 'rgba(239,68,68,.1)', color: '#B91C1C',
-                            border: '1px solid rgba(239,68,68,.25)', borderRadius: 8, padding: '7px 13px',
-                            fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
-                        }}
-                    >
-                        🚫 Credit hold
-                    </button>
-
                     {/* Documents — toggles vault below */}
                     <button
                         type="button"
@@ -868,6 +926,147 @@ export default function CustomerOverview() {
                         📁 Documents
                     </button>
                 </div>
+            </div>
+
+            <div style={{
+                margin: '12px 0 0',
+                padding: '12px 14px',
+                borderRadius: 10,
+                border: '1px solid rgba(255,255,255,.07)',
+                background: 'var(--bg2,#0a1726)',
+            }}>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase', color: 'var(--t3,#3E5678)', marginBottom: 6 }}>
+                    Credit hold
+                </div>
+                {creditHoldLoading ? (
+                    <p style={{ fontSize: 11, color: 'var(--t2,#8BA3C7)' }}>Loading…</p>
+                ) : !creditHold?.held ? (
+                    <p style={{ fontSize: 12, color: 'var(--t2,#8BA3C7)' }}>Not on hold</p>
+                ) : creditHold.manual && (creditHold.invoices?.length ?? 0) > 0 ? (
+                    <div style={{ fontSize: 12, color: 'var(--t,#EEF2FF)' }}>
+                        <p style={{ fontWeight: 700, marginBottom: 4 }}>Both — manual and automatic</p>
+                        {creditHold.manual_reason ? (
+                            <p style={{ color: 'var(--t2,#8BA3C7)' }}>Manual: {creditHold.manual_reason}</p>
+                        ) : null}
+                        {creditHold.manual_set_by ? (
+                            <p style={{ color: 'var(--t2,#8BA3C7)' }}>Set by {creditHold.manual_set_by}</p>
+                        ) : null}
+                        {creditHold.manual_set_at ? (
+                            <p style={{ color: 'var(--t2,#8BA3C7)' }}>Since {formatDateOnly(creditHold.manual_set_at)}</p>
+                        ) : null}
+                        {creditHold.message ? (
+                            <p style={{ marginTop: 6, color: 'var(--t2,#8BA3C7)' }}>{creditHold.message}</p>
+                        ) : null}
+                    </div>
+                ) : creditHold.manual ? (
+                    <div style={{ fontSize: 12, color: 'var(--t,#EEF2FF)' }}>
+                        <p style={{ fontWeight: 700, marginBottom: 4 }}>On hold (manual)</p>
+                        {creditHold.manual_reason ? (
+                            <p style={{ color: 'var(--t2,#8BA3C7)' }}>{creditHold.manual_reason}</p>
+                        ) : null}
+                        {creditHold.manual_set_by ? (
+                            <p style={{ color: 'var(--t2,#8BA3C7)' }}>Set by {creditHold.manual_set_by}</p>
+                        ) : null}
+                        {creditHold.manual_set_at ? (
+                            <p style={{ color: 'var(--t2,#8BA3C7)' }}>Since {formatDateOnly(creditHold.manual_set_at)}</p>
+                        ) : null}
+                    </div>
+                ) : (
+                    <div style={{ fontSize: 12, color: 'var(--t,#EEF2FF)' }}>
+                        <p style={{ fontWeight: 700, marginBottom: 4 }}>On hold (automatic)</p>
+                        {creditHold.message ? (
+                            <p style={{ color: 'var(--t2,#8BA3C7)' }}>{creditHold.message}</p>
+                        ) : null}
+                    </div>
+                )}
+                {creditHold?.mode === 'off' ? (
+                    <p style={{ marginTop: 8, fontSize: 11, color: 'var(--t3,#3E5678)' }}>
+                        Credit hold mode is off — holds are recorded but not enforced
+                    </p>
+                ) : null}
+                {holdNotice ? (
+                    <p style={{
+                        marginTop: 8, fontSize: 11, fontWeight: 600,
+                        color: holdNotice.includes("Couldn't") ? '#FCA5A5' : '#FCD34D',
+                    }}>
+                        {holdNotice}
+                    </p>
+                ) : null}
+                {canManageCreditHold ? (
+                    <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                        {creditHold?.manual ? (
+                            <button
+                                type="button"
+                                disabled={holdBusy}
+                                onClick={() => void onReleaseManualHold()}
+                                style={{
+                                    background: 'rgba(239,68,68,.1)', color: '#FCA5A5',
+                                    border: '1px solid rgba(239,68,68,.25)', borderRadius: 8, padding: '6px 12px',
+                                    fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                                }}
+                            >
+                                {holdBusy ? 'Working…' : 'Release'}
+                            </button>
+                        ) : showHoldForm ? (
+                            <div style={{ flex: '1 1 240px', maxWidth: 420 }}>
+                                <textarea
+                                    value={holdReason}
+                                    onChange={(e) => setHoldReason(e.target.value)}
+                                    rows={3}
+                                    placeholder="Reason (3–255 characters)"
+                                    style={{
+                                        width: '100%', borderRadius: 8, padding: '8px 10px', fontSize: 11,
+                                        background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.1)',
+                                        color: 'var(--t,#EEF2FF)',
+                                    }}
+                                />
+                                <p style={{ fontSize: 10, color: 'var(--t3,#3E5678)', marginTop: 4 }}>
+                                    {holdReasonTrimmed.length}/255
+                                </p>
+                                <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                                    <button
+                                        type="button"
+                                        disabled={holdBusy || !holdReasonValid}
+                                        onClick={() => void onPutManualHold()}
+                                        style={{
+                                            background: '#4F8EF7', color: '#fff', border: 'none',
+                                            borderRadius: 8, padding: '6px 12px', fontSize: 11, fontWeight: 600,
+                                            cursor: 'pointer', opacity: holdBusy || !holdReasonValid ? 0.5 : 1,
+                                        }}
+                                    >
+                                        {holdBusy ? 'Saving…' : 'Put on hold'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setShowHoldForm(false);
+                                            setHoldReason('');
+                                        }}
+                                        style={{
+                                            background: 'transparent', color: 'var(--t2,#8BA3C7)',
+                                            border: '1px solid rgba(255,255,255,.07)', borderRadius: 8, padding: '6px 12px',
+                                            fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                                        }}
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={() => setShowHoldForm(true)}
+                                style={{
+                                    background: 'rgba(245,158,11,.12)', color: '#FCD34D',
+                                    border: '1px solid rgba(245,158,11,.3)', borderRadius: 8, padding: '6px 12px',
+                                    fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                                }}
+                            >
+                                Put on hold
+                            </button>
+                        )}
+                    </div>
+                ) : null}
             </div>
 
             {/* ── V3 Stats Row — 6 cells, accounting-correct colour logic ── */}

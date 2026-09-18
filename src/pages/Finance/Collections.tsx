@@ -13,16 +13,24 @@ import {
 import AutoGrowTextarea from '../../components/AutoGrowTextarea';
 import {
   createCollectionsLog,
+  deleteManualCreditHold,
   downloadCollectionsCsv,
   getCollectionsReport,
   getCollectionsSettings,
+  getManualCreditHolds,
+  isValidManualHoldReason,
   listCollectionsLog,
+  putManualCreditHold,
   updateCollectionsSettings,
   type CollectionsLogEntry,
   type CollectionsReport,
   type CollectionsRow,
   type CollectionsSettings,
+  type ManualCreditHoldRow,
 } from '../../services/api';
+import { useAuth } from '../../contexts/AuthContext';
+import { searchCustomers, type Customer } from '../../services/customerService';
+import { MANAGEMENT_ROLES } from '../../utils/rbac';
 import { formatCurrency, formatDateOnly, formatDateTime } from '../../utils/formatters';
 
 export type GroupFilter = 1 | 2 | 3 | null;
@@ -143,6 +151,271 @@ function SummaryCard({
   );
 }
 
+function ManualHoldsSection() {
+  const { hasRole } = useAuth();
+  const [holds, setHolds] = useState<ManualCreditHoldRow[]>([]);
+  const [holdsLoading, setHoldsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Customer[]>([]);
+  const [searchBusy, setSearchBusy] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [reason, setReason] = useState('');
+  const [putWarning, setPutWarning] = useState<string | null>(null);
+  const [putBusy, setPutBusy] = useState(false);
+  const [releaseBusyId, setReleaseBusyId] = useState<number | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const loadHolds = useCallback(async () => {
+    setHoldsLoading(true);
+    try {
+      const rows = await getManualCreditHolds();
+      setHolds(rows);
+    } catch {
+      setHolds([]);
+    } finally {
+      setHoldsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadHolds();
+  }, [loadHolds]);
+
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setSearchBusy(true);
+      void searchCustomers(q)
+        .then((rows) => setSearchResults(rows.slice(0, 10)))
+        .catch(() => setSearchResults([]))
+        .finally(() => setSearchBusy(false));
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [searchQuery]);
+
+  const reasonTrimmed = reason.trim();
+  const reasonValid = isValidManualHoldReason(reason);
+
+  const onSelectCustomer = (customer: Customer) => {
+    setSelectedCustomer(customer);
+    setSearchQuery('');
+    setSearchResults([]);
+    setPutWarning(null);
+  };
+
+  const onPutHold = async () => {
+    if (!selectedCustomer || !reasonValid) return;
+    setPutBusy(true);
+    setPutWarning(null);
+    try {
+      const resp = await putManualCreditHold(selectedCustomer.id, reasonTrimmed);
+      setToast('On hold');
+      window.setTimeout(() => setToast(null), 2500);
+      if (resp.warning) setPutWarning(resp.warning);
+      setReason('');
+      setSelectedCustomer(null);
+      await loadHolds();
+    } catch {
+      setToast("Couldn't put customer on hold. Try again.");
+      window.setTimeout(() => setToast(null), 2500);
+    } finally {
+      setPutBusy(false);
+    }
+  };
+
+  const onRelease = async (row: ManualCreditHoldRow) => {
+    if (
+      !window.confirm(
+        `Release manual credit hold for ${row.name}? They will be able to place credit orders again (unless automatic hold applies).`,
+      )
+    ) {
+      return;
+    }
+    setReleaseBusyId(row.id);
+    try {
+      await deleteManualCreditHold(row.id);
+      await loadHolds();
+    } catch {
+      setToast("Couldn't release hold. Try again.");
+      window.setTimeout(() => setToast(null), 2500);
+    } finally {
+      setReleaseBusyId(null);
+    }
+  };
+
+  if (!hasRole(...MANAGEMENT_ROLES)) return null;
+
+  return (
+    <div className="pt-2 border-t border-gray-100 space-y-4">
+      <p className="text-[10px] font-black uppercase tracking-wider text-gray-400">Manual holds</p>
+
+      <label className="block">
+        <span className="text-[10px] font-black uppercase tracking-wider text-gray-400">
+          Search customer
+        </span>
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Name or phone…"
+          className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10"
+        />
+      </label>
+
+      {searchBusy && searchQuery.trim().length >= 2 ? (
+        <p className="text-xs text-gray-500">Searching…</p>
+      ) : null}
+
+      {searchResults.length > 0 ? (
+        <ul className="rounded-xl border border-gray-100 divide-y divide-gray-50 max-h-48 overflow-y-auto">
+          {searchResults.map((customer) => (
+            <li key={customer.id}>
+              <button
+                type="button"
+                onClick={() => onSelectCustomer(customer)}
+                className="w-full text-left px-3 py-2 hover:bg-gray-50"
+              >
+                <p className="text-sm font-bold text-gray-900">{customer.name}</p>
+                <p className="text-xs text-gray-500">{customer.phone || 'No phone'}</p>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {selectedCustomer ? (
+        <div className="rounded-xl border border-gray-100 p-3 space-y-3 bg-gray-50/50">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-sm font-bold text-gray-900">{selectedCustomer.name}</p>
+              <p className="text-xs text-gray-500">{selectedCustomer.phone || 'No phone'}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedCustomer(null);
+                setReason('');
+                setPutWarning(null);
+              }}
+              className="text-xs font-bold text-gray-500 hover:text-gray-800"
+            >
+              Clear
+            </button>
+          </div>
+          <label className="block">
+            <span className="text-[10px] font-black uppercase tracking-wider text-gray-400">
+              Reason
+            </span>
+            <AutoGrowTextarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              {reasonTrimmed.length}/255 · minimum 3 characters
+            </p>
+          </label>
+          <button
+            type="button"
+            disabled={putBusy || !reasonValid}
+            onClick={() => void onPutHold()}
+            className="px-4 py-2 rounded-xl bg-gray-900 text-white text-xs font-bold hover:opacity-90 disabled:opacity-50"
+          >
+            {putBusy ? 'Saving…' : 'Put on hold'}
+          </button>
+        </div>
+      ) : null}
+
+      {putWarning ? (
+        <div className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-start justify-between gap-2">
+          <p>{putWarning}</p>
+          <button
+            type="button"
+            onClick={() => setPutWarning(null)}
+            className="shrink-0 font-bold text-amber-900 hover:underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      ) : null}
+
+      {toast ? (
+        <p className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+          {toast}
+        </p>
+      ) : null}
+
+      <div className="overflow-x-auto rounded-xl border border-gray-100">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50/80 text-left border-b border-gray-100">
+              <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-gray-400">
+                Customer
+              </th>
+              <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-gray-400">
+                Phone
+              </th>
+              <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-gray-400">
+                Reason
+              </th>
+              <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-gray-400">
+                Set by
+              </th>
+              <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-gray-400">
+                Since
+              </th>
+              <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-gray-400">
+                &nbsp;
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {holdsLoading ? (
+              <tr>
+                <td colSpan={6} className="px-3 py-4 text-center text-xs text-gray-400">
+                  Loading…
+                </td>
+              </tr>
+            ) : holds.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-3 py-4 text-center text-xs text-gray-500">
+                  No customers on manual hold.
+                </td>
+              </tr>
+            ) : (
+              holds.map((row) => (
+                <tr key={row.id} className="border-b border-gray-50">
+                  <td className="px-3 py-2 font-bold text-gray-900">{row.name}</td>
+                  <td className="px-3 py-2 text-gray-600">{row.phone || '—'}</td>
+                  <td className="px-3 py-2 text-gray-700">{row.reason}</td>
+                  <td className="px-3 py-2 text-gray-600">{row.set_by}</td>
+                  <td className="px-3 py-2 text-gray-600">
+                    {row.set_at ? formatDateOnly(row.set_at) : '—'}
+                  </td>
+                  <td className="px-3 py-2">
+                    <button
+                      type="button"
+                      disabled={releaseBusyId === row.id}
+                      onClick={() => void onRelease(row)}
+                      className="px-2.5 py-1 rounded-lg border border-gray-200 text-[11px] font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      {releaseBusyId === row.id ? 'Releasing…' : 'Release'}
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function SettingsModal({
   open,
   settings,
@@ -253,6 +526,7 @@ function SettingsModal({
           <p className="text-xs text-gray-500">
             These details appear in every message and driver line.
           </p>
+          <ManualHoldsSection />
         </div>
         <div className="p-5 border-t border-gray-100 flex justify-end gap-2">
           <button
