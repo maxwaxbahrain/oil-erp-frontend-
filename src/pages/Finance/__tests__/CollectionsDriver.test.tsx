@@ -17,6 +17,8 @@ const mockReport: api.CollectionsReport = {
     group2_days: 105,
     min_balance: 100,
     late_days: 45,
+    credit_hold_mode: 'off',
+    credit_hold_days: 45,
   },
   groups: {
     1: { customers: 1, invoices: 1, total: 500 },

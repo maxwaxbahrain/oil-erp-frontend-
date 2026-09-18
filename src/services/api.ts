@@ -421,6 +421,86 @@ async function mockHandler<T>(endpoint: string, options: RequestInit = {}): Prom
   throw new Error(`Mock endpoint not found: ${endpoint}`);
 }
 
+export type CreditHoldMode = 'off' | 'warn' | 'block';
+
+export interface CreditHoldInvoice {
+  invoice_id: number;
+  invoice_number: string;
+  outstanding: number;
+  days_unpaid: number;
+}
+
+export interface CreditHoldDetail {
+  code?: string;
+  mode: CreditHoldMode;
+  held: boolean;
+  message?: string | null;
+  invoices?: CreditHoldInvoice[];
+  oldest_days?: number | null;
+  open_past_threshold?: number;
+  enforced?: boolean;
+  exempt_reason?: string | null;
+}
+
+function formatApiErrorDetail(detail: unknown): string {
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => {
+        if (item && typeof item === 'object' && 'msg' in item) {
+          return String((item as { msg?: string }).msg);
+        }
+        return JSON.stringify(item);
+      })
+      .join('; ');
+  }
+  if (detail && typeof detail === 'object') return JSON.stringify(detail);
+  return 'Request failed';
+}
+
+export class ApiError extends Error {
+  readonly status: number;
+  readonly detail: unknown;
+
+  constructor(status: number, detail: unknown) {
+    super(formatApiErrorDetail(detail));
+    this.name = 'ApiError';
+    this.status = status;
+    this.detail = detail;
+  }
+
+  get creditHoldDetail(): CreditHoldDetail | null {
+    if (this.status !== 409 || !isCreditHoldDetail(this.detail)) return null;
+    return this.detail;
+  }
+}
+
+export function isCreditHoldDetail(detail: unknown): detail is CreditHoldDetail {
+  return (
+    detail != null &&
+    typeof detail === 'object' &&
+    'code' in detail &&
+    (detail as { code?: string }).code === 'credit_hold'
+  );
+}
+
+export function isCashPaymentMethod(method: string | null | undefined): boolean {
+  const m = (method ?? '').trim().toLowerCase();
+  return m === 'cash' || m === 'cod' || m.includes('cash on delivery');
+}
+
+/** Client-side cash exemption display for credit-hold banner on create forms. */
+export function displayCreditHold(
+  hold: CreditHoldDetail | null,
+  isCashPayment: boolean,
+): CreditHoldDetail | null {
+  if (!hold || !hold.held) return null;
+  if (isCashPayment) {
+    return { ...hold, enforced: false, exempt_reason: 'cash' };
+  }
+  return hold;
+}
+
 async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
   const token = localStorage.getItem(ACCESS_TOKEN_KEY);
@@ -452,7 +532,7 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
           typeof error.detail === 'string' ? error.detail : 'Your free trial has expired. Please upgrade to continue.',
         );
       }
-      throw new Error(error.detail || `HTTP ${response.status}`);
+      throw new ApiError(response.status, error.detail ?? error);
     }
     if (response.status === 204) {
       return undefined as T;
@@ -471,21 +551,6 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
 // Customer APIs
 export const getCustomers = (): Promise<Customer[]> => apiRequest<Customer[]>('/customers/');
 export const getCustomer = (id: string): Promise<Customer> => apiRequest<Customer>(`/customers/${id}`);
-function formatApiErrorDetail(detail: unknown): string {
-  if (typeof detail === 'string') return detail;
-  if (Array.isArray(detail)) {
-    return detail
-      .map((item) => {
-        if (item && typeof item === 'object' && 'msg' in item) {
-          return String((item as { msg?: string }).msg);
-        }
-        return JSON.stringify(item);
-      })
-      .join('; ');
-  }
-  if (detail && typeof detail === 'object') return JSON.stringify(detail);
-  return 'Request failed';
-}
 
 /** POST /api/customers/ — trailing slash required (bare /customers 307 breaks fetch POST). */
 export async function createCustomer(data: Partial<Customer>): Promise<Customer> {
@@ -1841,6 +1906,8 @@ export interface CollectionsSettings {
   group2_days: number;
   min_balance: number;
   late_days: number;
+  credit_hold_mode: CreditHoldMode;
+  credit_hold_days: number;
 }
 
 export type CollectionsSettingsUpdate = Partial<CollectionsSettings>;
@@ -1916,3 +1983,6 @@ export const listCollectionsLog = (invoiceId: number): Promise<CollectionsLogEnt
   apiRequest<CollectionsLogEntry[]>(
     `/credit/collections/log?invoice_id=${encodeURIComponent(String(invoiceId))}`,
   );
+
+export const getCreditHold = (customerId: string | number): Promise<CreditHoldDetail> =>
+  apiRequest<CreditHoldDetail>(`/credit/hold/${encodeURIComponent(String(customerId))}`);

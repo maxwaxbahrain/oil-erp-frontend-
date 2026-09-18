@@ -1,4 +1,4 @@
-import { type Customer, API_BASE_URL } from './api';
+import { ApiError, type Customer, API_BASE_URL } from './api';
 import { withBearerAuth } from '../api/axios';
 const USE_MOCK = false;
 
@@ -62,6 +62,7 @@ export interface SalesOrderCreatePayload {
   payment_method?: string;
   payment_due_days?: number;
   payment_notes?: string;
+  credit_hold_override?: boolean;
 }
 
 // Mock Helpers
@@ -145,14 +146,14 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...init?.headers },
   }));
   if (!res.ok) {
-    let detail = `HTTP ${res.status}`;
+    let detail: unknown = `HTTP ${res.status}`;
     try {
       const err = await res.json();
-      if (err?.detail) detail = typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail);
+      detail = err?.detail ?? err;
     } catch {
       /* ignore */
     }
-    throw new Error(detail);
+    throw new ApiError(res.status, detail);
   }
   return res.json();
 }
@@ -193,6 +194,7 @@ export async function createSalesOrder(order: SalesOrderCreatePayload): Promise<
       payment_method: order.payment_method ?? null,
       payment_due_days: order.payment_due_days ?? null,
       payment_notes: order.payment_notes ?? '',
+      credit_hold_override: order.credit_hold_override ?? false,
     }),
   });
   return mapApiSalesOrder(raw);

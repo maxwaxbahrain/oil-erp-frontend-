@@ -204,6 +204,52 @@ function SettingsModal({
           {field('Group 2 days (recently quiet)', 'group2_days', 'number')}
           {field('Minimum balance', 'min_balance', 'number')}
           {field('Late days threshold', 'late_days', 'number')}
+          <div className="pt-2 border-t border-gray-100 space-y-3">
+            <p className="text-[10px] font-black uppercase tracking-wider text-gray-400">Credit hold</p>
+            <div className="space-y-2">
+              {(
+                [
+                  ['off', 'Off', 'Off: no checks'],
+                  ['warn', 'Warn', 'Warn: allow the order, show a warning, log it'],
+                  ['block', 'Block', 'Block: stop credit orders until the balance is cleared; managers can override'],
+                ] as const
+              ).map(([value, label, description]) => (
+                <label
+                  key={value}
+                  className="flex items-start gap-2 rounded-xl border border-gray-100 px-3 py-2 cursor-pointer hover:bg-gray-50"
+                >
+                  <input
+                    type="radio"
+                    name="credit_hold_mode"
+                    checked={(settings.credit_hold_mode ?? 'off') === value}
+                    onChange={() => onChange({ ...settings, credit_hold_mode: value })}
+                    className="mt-1"
+                  />
+                  <span className="text-sm">
+                    <span className="font-bold text-gray-900">{label}</span>
+                    <span className="block text-xs text-gray-500 font-medium">{description}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            <label className="block">
+              <span className="text-[10px] font-black uppercase tracking-wider text-gray-400">
+                Hold after (days)
+              </span>
+              <input
+                type="number"
+                min={1}
+                value={settings.credit_hold_days ?? 45}
+                onChange={(e) =>
+                  onChange({
+                    ...settings,
+                    credit_hold_days: Number(e.target.value),
+                  })
+                }
+                className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10"
+              />
+            </label>
+          </div>
           <p className="text-xs text-gray-500">
             These details appear in every message and driver line.
           </p>
