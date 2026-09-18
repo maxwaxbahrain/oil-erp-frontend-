@@ -287,13 +287,13 @@ export default function MarketingHub() {
             {/* Feature Cards */}
             <div>
                 <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-4">AI Marketing Tools</p>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 items-stretch">
                     {FEATURES.map((f, i) => {
                         const Icon = f.icon;
                         return (
                             <div key={i} onClick={() => navigate(f.path)}
-                                className="bg-white border border-gray-100 rounded-2xl p-5 cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transition-all group">
-                                <div className="flex items-center justify-between mb-3">
+                                className="bg-white border border-gray-100 rounded-2xl p-5 cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transition-all group h-full flex flex-col">
+                                <div className="flex items-start justify-between mb-3">
                                     <div className="w-10 h-10 bg-gray-900 rounded-xl flex items-center justify-center">
                                         <Icon size={18} className="text-white" />
                                     </div>
@@ -301,7 +301,7 @@ export default function MarketingHub() {
                                 </div>
                                 <h3 className="text-sm font-black text-gray-900 mb-1">{f.title}</h3>
                                 <p className="text-[11px] text-gray-500 leading-relaxed">{f.desc}</p>
-                                <div className="flex items-center gap-1 mt-3 text-xs font-black text-gray-400 group-hover:text-gray-700 group-hover:gap-2 transition-all">
+                                <div className="flex items-center gap-1 mt-auto pt-3 text-xs font-black text-gray-400 group-hover:text-gray-700 group-hover:gap-2 transition-all">
                                     Open <ArrowRight size={12} />
                                 </div>
                             </div>
