@@ -251,12 +251,12 @@ export default function MarketingHub() {
                     {CHANNELS.map((ch) => (
                         <div key={ch.id} className={`bg-white border-2 ${ch.borderColor} rounded-2xl p-4 shadow-sm hover:shadow-lg transition-all group`}>
                             {/* Platform icon + open button */}
-                            <div className="flex items-center justify-between mb-3">
-                                <div className={`w-12 h-12 ${ch.iconBg ?? ch.color} rounded-xl flex items-center justify-center text-2xl shadow-sm`}>
+                            <div className="flex items-start justify-between mb-3">
+                                <div className={`w-12 h-12 ${ch.iconBg ?? ch.color} rounded-xl flex items-center justify-center text-2xl leading-none overflow-hidden shrink-0 shadow-sm [&>svg]:block`}>
                                     {ch.icon ?? ch.emoji}
                                 </div>
                                 <a href={ch.platformUrl} target="_blank" rel="noopener noreferrer"
-                                    className={`flex items-center gap-1 text-[10px] font-black px-2.5 py-1.5 rounded-lg ${ch.bgLight} ${ch.textColor} hover:shadow-sm transition-all border ${ch.borderColor}`}
+                                    className="flex items-center gap-1 text-[10px] font-black px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:shadow-sm transition-all border border-blue-200"
                                     onClick={e => e.stopPropagation()}>
                                     Open <ExternalLink size={9} />
                                 </a>
