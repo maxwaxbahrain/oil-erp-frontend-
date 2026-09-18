@@ -444,13 +444,13 @@ function App() {
           if (sidebarOpen) setSidebarOpen(false);
         }}
       >
-        <header className="h-[64px] bg-redwood-midnight border-b border-redwood-border px-3 sm:px-8 flex items-center justify-between sticky top-0 z-30 shadow-sm print:hidden">
-          <div className="flex items-center gap-2 sm:gap-6">
+        <header className="h-[64px] bg-redwood-midnight border-b border-redwood-border px-3 sm:px-8 flex items-center gap-2 sticky top-0 z-30 shadow-sm print:hidden">
+          <div className="flex items-center gap-2 sm:gap-6 flex-shrink-0">
             <button
               onClick={() => setSidebarOpen(v => !v)}
               aria-label="Toggle sidebar"
               title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
-              className="p-2 text-redwood-text-muted hover:bg-redwood-bg-light rounded-sm transition-all border border-transparent hover:border-redwood-border"
+              className="p-2 text-redwood-text-muted hover:bg-redwood-bg-light rounded-sm transition-all border border-transparent hover:border-redwood-border flex-shrink-0"
             >
               <Menu size={20} />
             </button>
@@ -508,14 +508,13 @@ function App() {
           <div
             style={{
               flex: 1,
-              minWidth: 0,
+              minWidth: 160,
               height: '38px',
               background: 'rgba(255,255,255,.05)',
               border: '1.5px solid rgba(79,142,247,.4)',
               borderRadius: '9px',
               display: 'flex',
               alignItems: 'center',
-              margin: '0 7px',
               overflow: 'hidden',
             }}
           >
@@ -559,13 +558,13 @@ function App() {
             New Invoice
           </button>
 
-          <div className="flex items-center gap-2 sm:gap-6">
+          <div className="flex items-center gap-2 sm:gap-6 flex-shrink-0">
             {/* BUG #1 FIX: Removed Query ERP Records search bar */}
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-shrink-0">
               {/* FIX 4 — Live badge with pulsing green dot. */}
               <div
-                className="inline-flex items-center gap-[5px] rounded-full font-semibold"
+                className="inline-flex items-center gap-[5px] rounded-full font-semibold flex-shrink-0"
                 style={{
                   background: 'rgba(34,197,94,.12)',
                   border: '1px solid rgba(34,197,94,.2)',
@@ -616,16 +615,16 @@ function App() {
                 onClick={() => setIsLight((v) => !v)}
                 aria-label="Toggle light/dark mode"
                 title="Toggle light/dark mode"
-                className="p-2.5 text-redwood-text-muted hover:bg-redwood-bg-light hover:text-redwood-text-main rounded-sm transition-all"
+                className="p-2.5 text-redwood-text-muted hover:bg-redwood-bg-light hover:text-redwood-text-main rounded-sm transition-all flex-shrink-0"
               >
                 {isLight ? <Moon size={20} /> : <Sun size={20} />}
               </button>
-              <div className="relative" ref={notifsRef}>
+              <div className="relative flex-shrink-0" ref={notifsRef}>
                 <button
                   onClick={() => setNotifsOpen(v => !v)}
                   aria-label="Notifications"
                   aria-expanded={notifsOpen}
-                  className="p-2.5 text-redwood-text-muted hover:bg-redwood-bg-light hover:text-redwood-brand rounded-sm transition-all relative group"
+                  className="p-2.5 text-redwood-text-muted hover:bg-redwood-bg-light hover:text-redwood-brand rounded-sm transition-all relative group flex-shrink-0"
                 >
                   <Bell size={20} />
                   {notifs.length > 0 && (
@@ -659,7 +658,7 @@ function App() {
                 onClick={() => navigate('/settings')}
                 aria-label="Settings"
                 title="Settings"
-                className="p-2.5 text-redwood-text-muted hover:bg-redwood-bg-light hover:text-redwood-text-main rounded-sm transition-all"
+                className="p-2.5 text-redwood-text-muted hover:bg-redwood-bg-light hover:text-redwood-text-main rounded-sm transition-all flex-shrink-0"
               >
                 <Settings size={20} />
               </button>
