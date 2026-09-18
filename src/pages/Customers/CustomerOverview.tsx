@@ -61,6 +61,7 @@ import {
 import { WORLD_CURRENCIES } from '../../constants/currencies';
 import SearchableSelect from '../../components/common/SearchableSelect';
 import PaymentReceipt from './PaymentReceipt';
+import CustomerCreditTab from './CustomerCreditTab';
 
 interface CustomerStats {
     outstandingBalance: number;
@@ -234,7 +235,7 @@ export default function CustomerOverview() {
     const location = useLocation();
     const { hasRole } = useAuth();
     const canManageCreditHold = hasRole(...MANAGEMENT_ROLES);
-    const [activeTab, setActiveTab] = useState<'overview' | 'ledger' | 'sales' | 'payments' | 'credits' | 'unbilled' | 'expenses'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'ledger' | 'sales' | 'payments' | 'credits' | 'credit' | 'unbilled' | 'expenses'>('overview');
     const [customer, setCustomer] = useState<Customer | null>(null);
     const [loading, setLoading] = useState(true);
 
@@ -306,7 +307,7 @@ export default function CustomerOverview() {
     useEffect(() => {
         const searchParams = new URLSearchParams(location.search);
         const tab = searchParams.get('tab');
-        if (tab === 'ledger' || tab === 'sales' || tab === 'payments' || tab === 'credits') {
+        if (tab === 'ledger' || tab === 'sales' || tab === 'payments' || tab === 'credits' || tab === 'credit') {
             setActiveTab(tab);
         }
     }, [location.search]);
@@ -1165,6 +1166,7 @@ export default function CustomerOverview() {
                         { key: 'sales', label: 'Sales history' },
                         { key: 'payments', label: 'Payments' },
                         { key: 'credits', label: 'Credits' },
+                        { key: 'credit', label: 'Credit' },
                         { key: 'unbilled', label: 'Unbilled' },
                         { key: 'expenses', label: 'Expenses' }
                     ].map(tab => {
@@ -2375,6 +2377,15 @@ export default function CustomerOverview() {
                                 </div>
                             )}
                         </div>
+                    )}
+
+                    {activeTab === 'credit' && id && customer && (
+                        <CustomerCreditTab
+                            customerId={id}
+                            customerName={customer.name}
+                            creditLimit={(customer as Customer & { credit_limit?: number }).credit_limit}
+                            canManage={canManageCreditHold}
+                        />
                     )}
 
                     {/* STEP 11B — Unbilled Expenses tab */}

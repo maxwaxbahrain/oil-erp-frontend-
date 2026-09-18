@@ -2027,3 +2027,136 @@ export const deleteManualCreditHold = (
 
 export const getManualCreditHolds = (): Promise<ManualCreditHoldRow[]> =>
   apiRequest<ManualCreditHoldRow[]>('/credit/holds');
+
+export type PaymentScoreBand = 'GREEN' | 'YELLOW' | 'RED' | 'UNRATED';
+
+export interface PaymentScoreReason {
+  code: string;
+  text: string;
+  points: number;
+}
+
+export interface PaymentScore {
+  id: number;
+  customer_id: number;
+  score: number | null;
+  band: PaymentScoreBand;
+  reasons: PaymentScoreReason[];
+  metrics?: Record<string, unknown> & {
+    score_version?: string;
+    suggested_limit?: number;
+  };
+  suggested_limit: number;
+  as_of: string | null;
+  computed_at: string | null;
+}
+
+export interface CreditProviderSettings {
+  connected: boolean;
+  environment: string | null;
+  username_masked: string | null;
+  last_auth_ok_at: string | null;
+  last_error: string | null;
+}
+
+export interface CreditsafeMatch {
+  connect_id: string | null;
+  name: string | null;
+  address?: Record<string, unknown>;
+  status?: string | null;
+  reg_no?: string | null;
+}
+
+export interface CreditsafeSearchResponse {
+  matches: CreditsafeMatch[];
+  searches_used: number;
+}
+
+export interface CreditCheckRow {
+  id: number;
+  tenant_id: number;
+  customer_id: number | null;
+  company_name: string;
+  connect_id: string;
+  country: string;
+  environment: string;
+  credit_score: number | null;
+  risk_rating: string | null;
+  provider_credit_limit: number | null;
+  currency: string | null;
+  checked_by_user_id: number | null;
+  created_at: string | null;
+}
+
+export interface CreditsafeReportResponse {
+  check_id: number;
+  verified_credit_report: boolean;
+  data_source: string;
+  environment: string;
+  credit_score: number | null;
+  risk_rating: string | null;
+  provider_credit_limit: number | null;
+  currency: string | null;
+  company_name: string;
+  report: unknown;
+}
+
+export interface CreditCheckDetail extends CreditCheckRow {
+  report_json?: unknown;
+}
+
+export const getPaymentScore = (customerId: string | number): Promise<PaymentScore> =>
+  apiRequest<PaymentScore>(`/credit/score/${encodeURIComponent(String(customerId))}`);
+
+export const recomputePaymentScore = (customerId: string | number): Promise<PaymentScore> =>
+  apiRequest<PaymentScore>(`/credit/score/${encodeURIComponent(String(customerId))}/recompute`, {
+    method: 'POST',
+  });
+
+export const getPaymentScoreHistory = (
+  customerId: string | number,
+): Promise<PaymentScore[]> =>
+  apiRequest<PaymentScore[]>(
+    `/credit/score/${encodeURIComponent(String(customerId))}/history`,
+  );
+
+export const getCreditProviderSettings = (): Promise<CreditProviderSettings> =>
+  apiRequest<CreditProviderSettings>('/ai/credit/settings');
+
+export const getCreditChecks = (customerId?: string | number): Promise<CreditCheckRow[]> =>
+  apiRequest<CreditCheckRow[]>('/ai/credit/history').then((rows) => {
+    if (customerId == null) return rows;
+    const cid = Number(customerId);
+    return rows.filter((row) => row.customer_id === cid);
+  });
+
+export const searchCreditsafe = (
+  companyName: string,
+  options?: { country?: string; state?: string; city?: string },
+): Promise<CreditsafeSearchResponse> =>
+  apiRequest<CreditsafeSearchResponse>('/ai/credit/search', {
+    method: 'POST',
+    body: JSON.stringify({
+      company_name: companyName,
+      country: options?.country ?? 'US',
+      state: options?.state ?? '',
+      city: options?.city ?? '',
+    }),
+  });
+
+export const pullCreditsafeReport = (payload: {
+  connectId: string;
+  companyName: string;
+  customerId?: string | number;
+}): Promise<CreditsafeReportResponse> =>
+  apiRequest<CreditsafeReportResponse>('/ai/credit/report', {
+    method: 'POST',
+    body: JSON.stringify({
+      connect_id: payload.connectId,
+      company_name: payload.companyName,
+      customer_id: payload.customerId != null ? Number(payload.customerId) : undefined,
+    }),
+  });
+
+export const getCreditCheckDetail = (checkId: number): Promise<CreditCheckDetail> =>
+  apiRequest<CreditCheckDetail>(`/ai/credit/history/${encodeURIComponent(String(checkId))}`);
