@@ -249,10 +249,10 @@ export default function MarketingHub() {
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     {CHANNELS.map((ch) => (
-                        <div key={ch.id} className={`bg-white border-2 ${ch.borderColor} rounded-2xl p-4 shadow-sm hover:shadow-lg transition-all group`}>
+                        <div key={ch.id} className={`bg-white border-2 ${ch.borderColor} rounded-2xl !p-4 shadow-sm hover:shadow-lg transition-all group`}>
                             {/* Platform icon + open button */}
                             <div className="flex items-start justify-between mb-3">
-                                <div className={`w-12 h-12 ${ch.iconBg ?? ch.color} rounded-xl flex items-center justify-center text-2xl leading-none overflow-hidden shrink-0 shadow-sm [&>svg]:block`}>
+                                <div className={`w-12 h-12 ${ch.iconBg ?? ch.color} rounded-xl flex items-center justify-center text-2xl shadow-sm`}>
                                     {ch.icon ?? ch.emoji}
                                 </div>
                                 <a href={ch.platformUrl} target="_blank" rel="noopener noreferrer"
