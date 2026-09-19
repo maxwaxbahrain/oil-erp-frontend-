@@ -398,6 +398,7 @@ export const AppRoutes = () => {
             <Route path="/reports/demand-forecast" element={<AccountingSetupRequired />} />
             <Route path="/logistics/tracking" element={<VanTracking />} />
             <Route path="/logistics/route-planning" element={<RoutePlanning />} />
+            <Route path="/settings/credit-sources" element={<CreditDataSources />} />
             </Route>
 
             {/* Premium / AI — internal staff only (production lock retained) */}
@@ -457,7 +458,6 @@ export const AppRoutes = () => {
                 <Route path="/billing/success" element={<BillingCheckoutSuccess />} />
                 <Route path="/billing/cancel" element={<BillingCheckoutCancel />} />
                 <Route path="/settings/users" element={<UserManagement />} />
-                <Route path="/settings/credit-sources" element={<CreditDataSources />} />
             </Route>
 
             {/* Platform super-admin only (username === 'admin') */}

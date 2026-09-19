@@ -344,6 +344,17 @@ export default function CreditDataSources() {
               Coming soon — entity status, licences, judgments and reviews from public sources.
             </p>
           </div>
+
+          <div style={{ ...panel, padding: 24 }}>
+            <h2 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 8px' }}>
+              How the payment score was validated
+            </h2>
+            <p style={{ fontSize: 12, color: C.muted, margin: 0 }}>
+              Customers flagged YELLOW/RED went on to pay late or leave money unpaid 12 of 12 times in a
+              6-month test on a live distributor&apos;s ledger. GREEN means no warning signs in payment
+              history. The score is computed only from your own invoices and payments.
+            </p>
+          </div>
         </div>
       </div>
     </div>

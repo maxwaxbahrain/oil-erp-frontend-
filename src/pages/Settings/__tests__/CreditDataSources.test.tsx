@@ -58,6 +58,26 @@ describe('CreditDataSources', () => {
     await act(async () => {});
   }
 
+  it('renders payment score validation card text', async () => {
+    vi.spyOn(api, 'getCreditProviderSettings').mockResolvedValue({
+      connected: false,
+      environment: null,
+      username_masked: null,
+      last_auth_ok_at: null,
+      last_error: null,
+    });
+
+    await renderPage();
+
+    expect(container.textContent).toContain('How the payment score was validated');
+    expect(container.textContent).toContain(
+      'Customers flagged YELLOW/RED went on to pay late or leave money unpaid 12 of 12 times',
+    );
+    expect(container.textContent).toContain(
+      'The score is computed only from your own invoices and payments.',
+    );
+  });
+
   it('renders Not connected from mocked settings', async () => {
     vi.spyOn(api, 'getCreditProviderSettings').mockResolvedValue({
       connected: false,

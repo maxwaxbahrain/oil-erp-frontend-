@@ -523,15 +523,20 @@ export function displayCreditHold(
   return hold;
 }
 
-async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+export type ApiRequestOptions = RequestInit & {
+  skipBillingRedirect?: boolean;
+};
+
+async function apiRequest<T>(endpoint: string, options: ApiRequestOptions = {}): Promise<T> {
+  const { skipBillingRedirect, ...fetchOptions } = options;
   const url = `${API_BASE_URL}${endpoint}`;
   const token = localStorage.getItem(ACCESS_TOKEN_KEY);
   const config: RequestInit = {
-    ...options,
+    ...fetchOptions,
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
+      ...fetchOptions.headers,
     },
   };
 
@@ -549,6 +554,9 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
         return mockHandler<T>(endpoint, options);
       }
       const error = await response.json().catch(() => ({ detail: 'Request failed' }));
+      if (response.status === 402 && skipBillingRedirect) {
+        throw new ApiError(402, error.detail ?? error);
+      }
       if (handlePaymentRequiredStatus(response.status, error.detail)) {
         throw new Error(
           typeof error.detail === 'string' ? error.detail : 'Your free trial has expired. Please upgrade to continue.',
@@ -2121,7 +2129,7 @@ export const getPaymentScoreHistory = (
   );
 
 export const getCreditProviderSettings = (): Promise<CreditProviderSettings> =>
-  apiRequest<CreditProviderSettings>('/ai/credit/settings');
+  apiRequest<CreditProviderSettings>('/ai/credit/settings', { skipBillingRedirect: true });
 
 export const saveCreditProviderSettings = (payload: {
   username: string;
@@ -2139,7 +2147,7 @@ export const deleteCreditProviderSettings = (): Promise<{ ok: boolean }> =>
   });
 
 export const getCreditChecks = (customerId?: string | number): Promise<CreditCheckRow[]> =>
-  apiRequest<CreditCheckRow[]>('/ai/credit/history').then((rows) => {
+  apiRequest<CreditCheckRow[]>('/ai/credit/history', { skipBillingRedirect: true }).then((rows) => {
     if (customerId == null) return rows;
     const cid = Number(customerId);
     return rows.filter((row) => row.customer_id === cid);

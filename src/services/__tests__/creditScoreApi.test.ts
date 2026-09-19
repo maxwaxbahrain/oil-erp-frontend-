@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ACCESS_TOKEN_KEY } from '../../api/axios';
+import * as paymentRequired from '../../api/paymentRequired';
 import {
   API_BASE_URL,
   deleteCreditProviderSettings,
@@ -63,6 +64,18 @@ describe('credit score API', () => {
     await getPaymentScoreHistory(3);
 
     expect(fetchMock.mock.calls[0][0]).toBe(`${API_BASE_URL}/credit/score/3/history`);
+  });
+
+  it('getCreditProviderSettings with skipBillingRedirect does not redirect on 402', async () => {
+    const redirectSpy = vi.spyOn(paymentRequired, 'handlePaymentRequiredStatus');
+    localStorage.setItem(ACCESS_TOKEN_KEY, 'test-token');
+    const fetchMock = vi.fn().mockResolvedValue(
+      mockResp(false, 402, { detail: 'Trial expired for this tenant' }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(getCreditProviderSettings()).rejects.toThrow('Trial expired for this tenant');
+    expect(redirectSpy).not.toHaveBeenCalled();
   });
 
   it('getCreditProviderSettings requests GET /ai/credit/settings', async () => {

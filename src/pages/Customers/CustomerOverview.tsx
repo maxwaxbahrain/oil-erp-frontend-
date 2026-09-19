@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -40,10 +40,13 @@ import {
     deleteManualCreditHold,
     getCreditHold,
     getCustomerLedger,
+    getPaymentScore,
     isValidManualHoldReason,
     putManualCreditHold,
     type CreditHoldDetail,
     type PartyLedgerRow,
+    type PaymentScore,
+    type PaymentScoreBand,
 } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { MANAGEMENT_ROLES } from '../../utils/rbac';
@@ -87,6 +90,93 @@ interface LedgerEntry {
     relatedId?: string;
     van_number?: string;
     salesman_name?: string;
+}
+
+function overviewBandChipStyle(band: PaymentScoreBand): CSSProperties {
+    const colors: Record<PaymentScoreBand, { bg: string; text: string; border: string }> = {
+        GREEN: { bg: 'rgba(34,197,94,.12)', text: '#22C55E', border: 'rgba(34,197,94,.3)' },
+        YELLOW: { bg: 'rgba(245,158,11,.12)', text: '#FCD34D', border: 'rgba(245,158,11,.3)' },
+        RED: { bg: 'rgba(239,68,68,.12)', text: '#FCA5A5', border: 'rgba(239,68,68,.3)' },
+        UNRATED: { bg: 'rgba(148,163,184,.12)', text: '#94A3B8', border: 'rgba(148,163,184,.25)' },
+    };
+    const tone = colors[band];
+    return {
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '6px 12px',
+        borderRadius: 999,
+        background: tone.bg,
+        border: `1px solid ${tone.border}`,
+        color: tone.text,
+        fontSize: 12,
+        fontWeight: 700,
+        letterSpacing: '.04em',
+    };
+}
+
+export function PaymentReliabilityOverviewCard({
+    state,
+    score,
+    onSeeCreditTab,
+}: {
+    state: 'loading' | 'ready' | 'error';
+    score: PaymentScore | null;
+    onSeeCreditTab: () => void;
+}) {
+    const firstReason = score?.reasons?.[0]?.text;
+    const isUnrated = score?.band === 'UNRATED';
+
+    return (
+        <div style={{
+            background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.12)',
+            borderRadius: 12, padding: 14,
+        }}>
+            <div style={{ marginBottom: 10 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>
+                    Payment reliability
+                </span>
+            </div>
+
+            {state === 'loading' ? (
+                <p style={{ fontSize: 12, color: 'var(--t3,#3E5678)', margin: 0 }}>Loading…</p>
+            ) : state === 'error' || !score ? (
+                <p style={{ fontSize: 12, color: 'var(--t3,#3E5678)', margin: 0 }}>Unavailable</p>
+            ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <span style={overviewBandChipStyle(score.band)}>
+                        {score.band}
+                        {!isUnrated && score.score != null ? (
+                            <span style={{ fontSize: 16, fontWeight: 800 }}>{score.score}</span>
+                        ) : null}
+                    </span>
+                    {firstReason ? (
+                        <p style={{ fontSize: 11, color: 'var(--t3,#3E5678)', margin: 0 }}>
+                            {firstReason}
+                        </p>
+                    ) : null}
+                    <button
+                        type="button"
+                        onClick={onSeeCreditTab}
+                        style={{
+                            alignSelf: 'flex-start',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#4F8EF7',
+                            fontSize: 11,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            padding: 0,
+                            textDecoration: 'underline',
+                            fontFamily: 'inherit',
+                        }}
+                    >
+                        See Credit tab
+                    </button>
+                </div>
+            )}
+        </div>
+    );
 }
 
 
@@ -303,6 +393,9 @@ export default function CustomerOverview() {
     const [holdBusy, setHoldBusy] = useState(false);
     const [holdNotice, setHoldNotice] = useState<string | null>(null);
 
+    const [paymentScore, setPaymentScore] = useState<PaymentScore | null>(null);
+    const [paymentScoreState, setPaymentScoreState] = useState<'loading' | 'ready' | 'error'>('loading');
+
     // Check for tab parameter in URL
     useEffect(() => {
         const searchParams = new URLSearchParams(location.search);
@@ -355,6 +448,28 @@ export default function CustomerOverview() {
     useEffect(() => {
         if (!id) return;
         void loadCreditHold(id);
+    }, [id]);
+
+    useEffect(() => {
+        if (!id) return;
+        let cancelled = false;
+        setPaymentScoreState('loading');
+        getPaymentScore(id)
+            .then((data) => {
+                if (!cancelled) {
+                    setPaymentScore(data);
+                    setPaymentScoreState('ready');
+                }
+            })
+            .catch(() => {
+                if (!cancelled) {
+                    setPaymentScore(null);
+                    setPaymentScoreState('error');
+                }
+            });
+        return () => {
+            cancelled = true;
+        };
     }, [id]);
 
     const holdReasonTrimmed = holdReason.trim();
@@ -781,16 +896,6 @@ export default function CustomerOverview() {
       ? Math.max(..._sortedPayments.slice(0, 5).map((p: any) => Number(p.amount) || 0))
       : 1;
 
-    const _creditHealthLabel: string = _overdueAmount > 0
-      ? 'Overdue'
-      : _creditUsedPct > 80
-        ? 'Fair'
-        : 'Good';
-    const _creditHealthColor: string = _overdueAmount > 0
-      ? '#EF4444'
-      : _creditUsedPct > 80
-        ? '#F59E0B'
-        : '#22C55E';
     // ──────────────────────────────────────────────────────────────────
 
     return (
@@ -1262,66 +1367,11 @@ export default function CustomerOverview() {
                                 ))}
                             </div>
 
-                            {/* ── V3 4B — Credit health card ── */}
-                            <div style={{
-                                background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.12)',
-                                borderRadius: 12, padding: 14,
-                            }}>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                                    <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>💳 Credit health</span>
-                                    <span style={{ fontSize: 10, color: 'var(--t3,#3E5678)' }}>auto-calculated</span>
-                                </div>
-
-                                <div style={{ textAlign: 'center', padding: '6px 0 10px' }}>
-                                    <div style={{ fontSize: 22, fontWeight: 700, color: _creditHealthColor }}>
-                                        {_creditHealthLabel}
-                                    </div>
-                                    <div style={{ fontSize: 10, color: 'var(--t3,#3E5678)', marginTop: 2 }}>
-                                        Credit utilisation: {_creditUsedPct.toFixed(1)}%
-                                    </div>
-                                    <div style={{
-                                        height: 8, borderRadius: 8, background: 'rgba(255,255,255,.06)',
-                                        margin: '8px 0 4px', overflow: 'hidden',
-                                    }}>
-                                        <div style={{
-                                            height: 8, borderRadius: 8,
-                                            width: `${_creditUsedPct}%`,
-                                            background: _creditUsedPct < 50
-                                                ? '#22C55E'
-                                                : _creditUsedPct < 80
-                                                    ? '#F59E0B'
-                                                    : '#EF4444',
-                                            transition: 'width .6s ease',
-                                        }} />
-                                    </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--t3,#3E5678)' }}>
-                                        <span>Safe (0%)</span>
-                                        <span>Danger (100%)</span>
-                                    </div>
-                                </div>
-
-                                {((): Array<{ label: string; value: string; color: string }> => [
-                                    { label: 'Credit limit',     value: _creditLimitDisplay > 0 ? `$${_creditLimitDisplay.toFixed(2)}` : 'No limit',                                                color: '#4F8EF7' },
-                                    { label: 'Used',             value: `$${_balanceDisplay.toFixed(2)}`,                                                                                          color: 'var(--t,#EEF2FF)' },
-                                    { label: 'Available',        value: _creditLimitDisplay > 0
-                                                                      ? `$${Math.max(0, _creditLimitDisplay - _balanceDisplay).toFixed(2)}`
-                                                                      : 'Unlimited',
-                                                                  color: _creditLimitDisplay > 0 ? '#22C55E' : '#4F8EF7' },
-                                    { label: 'Overdue',          value: _overdueAmount > 0 ? `$${_overdueAmount.toFixed(2)}` : 'None ✓',                                                          color: _overdueAmount > 0 ? '#EF4444' : '#22C55E' },
-                                    { label: 'Avg payment days', value: '8 days ✓',                                                                                                                color: '#22C55E' },
-                                ])().map(row => (
-                                    <div
-                                        key={row.label}
-                                        style={{
-                                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                            padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,.04)', fontSize: 11,
-                                        }}
-                                    >
-                                        <span style={{ color: 'var(--t2,#8BA3C7)' }}>{row.label}</span>
-                                        <span style={{ color: row.color, fontWeight: 500 }}>{row.value}</span>
-                                    </div>
-                                ))}
-                            </div>
+                            <PaymentReliabilityOverviewCard
+                                state={paymentScoreState}
+                                score={paymentScore}
+                                onSeeCreditTab={() => setActiveTab('credit')}
+                            />
 
                             {/* ── V3 4C — Recent activity feed ── */}
                             <div style={{
