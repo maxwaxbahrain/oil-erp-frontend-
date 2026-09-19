@@ -131,13 +131,12 @@ export default function Sidebar({
         || (MODULE_FLAGS.pulse && showNav('/pulse'))
         || (MODULE_FLAGS.meeting_notes && showNav('/pulse/notes'));
     const showSalesIntelExtras = canSeeSalesIntel && (
-        (MODULE_FLAGS.credit_intelligence && showNav('/credit'))
-        || (MODULE_FLAGS.crm_pipeline && showNav('/crm'))
+        (MODULE_FLAGS.crm_pipeline && showNav('/crm'))
         || (MODULE_FLAGS.amazon && showNav('/amazon'))
     );
     const showSettingsSection = showNav('/portal')
         || showNav('/settings/password')
-        || (canSeeAdmin && (showNav('/settings') || showNav('/settings/users') || showNav('/migrate')));
+        || (canSeeAdmin && (showNav('/settings') || showNav('/settings/users') || showNav('/settings/credit-sources') || showNav('/migrate')));
 
     return (
         <aside className="w-[260px] bg-redwood-midnight text-white flex flex-col z-40 border-r border-white/5 shadow-2xl h-full print:hidden">
@@ -182,9 +181,6 @@ export default function Sidebar({
                 <NavItem to="/sales/recurring" icon={RefreshCw} label="Recurring Invoices" />
                 {canSeeSalesIntel && (
                 <>
-                {MODULE_FLAGS.credit_intelligence && (
-                <NavItem to="/credit" icon={Shield} label="Credit Intelligence" />
-                )}
                 {MODULE_FLAGS.crm_pipeline && (
                 <NavItem to="/crm" icon={BarChart2} label="CRM Pipeline" />
                 )}
@@ -397,6 +393,9 @@ export default function Sidebar({
                 {canSeeAdmin && (
                 <>
                 <NavItem to="/settings" icon={Settings} label="Settings" />
+                {MODULE_FLAGS.credit_intelligence && (
+                <NavItem to="/settings/credit-sources" icon={Shield} label="Credit data sources" />
+                )}
                 <NavItem to="/settings/users" icon={UserCheck} label="User Management" />
                 <NavItem to="/migrate" icon={Database} label="📥 Data Migration" />
                 </>

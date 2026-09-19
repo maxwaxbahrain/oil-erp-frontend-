@@ -113,7 +113,7 @@ import AnomalyDetection from '../pages/AI/AnomalyDetection';
 import AgentHub from '../pages/Agents/AgentHub';
 import NewsIntelligence from '../pages/News/NewsIntelligence';
 import MarketingHub from '../pages/Marketing/MarketingHub';
-import CreditIntelligence from '../pages/Credit/CreditIntelligence';
+import CreditDataSources from '../pages/Settings/CreditDataSources';
 import CRMPage from '../pages/CRM/CRM'; // CRM exports as 'CRM'
 import TaxSettings from '../pages/TaxSystem/TaxSettings';
 import TaxEngine from '../pages/TaxSystem/TaxEngine';
@@ -418,8 +418,8 @@ export const AppRoutes = () => {
             <Route path="/marketing/segments" element={<CustomerSegments />} />
             <Route path="/marketing/campaigns" element={<MarketingQueue />} />
             </Route>
+            <Route path="/credit" element={<Navigate to="/settings/credit-sources" replace />} />
             <Route element={<ProtectedRoute roles={SALES_INTEL_ROLES} />}>
-            <Route path="/credit" element={<CreditIntelligence />} />
             <Route path="/crm" element={<CRMPage />} />
             <Route path="/amazon" element={<AmazonIntegration />} />
             </Route>
@@ -457,6 +457,7 @@ export const AppRoutes = () => {
                 <Route path="/billing/success" element={<BillingCheckoutSuccess />} />
                 <Route path="/billing/cancel" element={<BillingCheckoutCancel />} />
                 <Route path="/settings/users" element={<UserManagement />} />
+                <Route path="/settings/credit-sources" element={<CreditDataSources />} />
             </Route>
 
             {/* Platform super-admin only (username === 'admin') */}

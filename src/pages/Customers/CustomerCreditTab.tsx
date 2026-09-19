@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type CSSProperties } from 'react';
+import { Link } from 'react-router-dom';
 import {
   getCreditCheckDetail,
   getCreditChecks,
@@ -378,7 +379,9 @@ export default function CustomerCreditTab({
                           {history.map((row) => (
                             <tr key={row.id}>
                               <td style={{ padding: '6px 8px', color: 'var(--t2,#8BA3C7)' }}>
-                                {row.computed_at ? formatDateOnly(row.computed_at) : '—'}
+                                {row.computed_at ?? row.as_of
+                                  ? formatDateOnly(row.computed_at ?? row.as_of)
+                                  : '—'}
                               </td>
                               <td style={{ padding: '6px 8px', color: 'var(--t,#EEF2FF)' }}>{row.band}</td>
                               <td style={{ padding: '6px 8px', color: 'var(--t,#EEF2FF)' }}>
@@ -437,9 +440,9 @@ export default function CustomerCreditTab({
         ) : !providerSettings?.connected ? (
           <div style={{ fontSize: 12, color: 'var(--t3,#3E5678)' }}>
             <p style={{ margin: '0 0 8px' }}>Creditsafe not connected</p>
-            <a href="/settings/credit-sources" style={{ color: '#4F8EF7', fontWeight: 600 }}>
+            <Link to="/settings/credit-sources" style={{ color: '#4F8EF7', fontWeight: 600 }}>
               Connect in Settings › Credit data sources
-            </a>
+            </Link>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -458,7 +461,7 @@ export default function CustomerCreditTab({
                 border: '1px solid rgba(79,142,247,.25)',
               }}
             >
-              {providerSettings.environment ?? 'sandbox'}
+              {providerSettings.environment ?? '—'}
             </span>
 
             {lastCheck ? (

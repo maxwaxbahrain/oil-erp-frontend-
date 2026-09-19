@@ -3,9 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ACCESS_TOKEN_KEY } from '../../api/axios';
 import {
   API_BASE_URL,
+  deleteCreditProviderSettings,
   getCreditChecks,
   getCreditProviderSettings,
   getPaymentScore,
+  saveCreditProviderSettings,
   getPaymentScoreHistory,
   pullCreditsafeReport,
   recomputePaymentScore,
@@ -73,6 +75,37 @@ describe('credit score API', () => {
     await getCreditProviderSettings();
 
     expect(fetchMock.mock.calls[0][0]).toBe(`${API_BASE_URL}/ai/credit/settings`);
+  });
+
+  it('saveCreditProviderSettings requests PUT /ai/credit/settings with credentials body', async () => {
+    localStorage.setItem(ACCESS_TOKEN_KEY, 'test-token');
+    const fetchMock = vi.fn().mockResolvedValue(
+      mockResp(true, 200, { connected: true, environment: 'sandbox' }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await saveCreditProviderSettings({
+      username: 'api-user',
+      password: 'secret-pass',
+      environment: 'sandbox',
+    });
+
+    expect(fetchMock.mock.calls[0][0]).toBe(`${API_BASE_URL}/ai/credit/settings`);
+    expect(fetchMock.mock.calls[0][1].method).toBe('PUT');
+    expect(fetchMock.mock.calls[0][1].body).toBe(
+      JSON.stringify({ username: 'api-user', password: 'secret-pass', environment: 'sandbox' }),
+    );
+  });
+
+  it('deleteCreditProviderSettings requests DELETE /ai/credit/settings', async () => {
+    localStorage.setItem(ACCESS_TOKEN_KEY, 'test-token');
+    const fetchMock = vi.fn().mockResolvedValue(mockResp(true, 200, { ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await deleteCreditProviderSettings();
+
+    expect(fetchMock.mock.calls[0][0]).toBe(`${API_BASE_URL}/ai/credit/settings`);
+    expect(fetchMock.mock.calls[0][1].method).toBe('DELETE');
   });
 
   it('getCreditChecks filters history rows by customer_id', async () => {

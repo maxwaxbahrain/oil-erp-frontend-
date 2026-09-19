@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as api from '../../../services/api';
@@ -34,12 +35,14 @@ describe('CustomerCreditTab', () => {
   async function renderTab(canManage = false) {
     await act(async () => {
       root.render(
-        <CustomerCreditTab
-          customerId="42"
-          customerName="Alpha Shop"
-          creditLimit={5000}
-          canManage={canManage}
-        />,
+        <MemoryRouter>
+          <CustomerCreditTab
+            customerId="42"
+            customerName="Alpha Shop"
+            creditLimit={5000}
+            canManage={canManage}
+          />
+        </MemoryRouter>,
       );
     });
     await act(async () => {});

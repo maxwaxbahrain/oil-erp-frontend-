@@ -2123,6 +2123,21 @@ export const getPaymentScoreHistory = (
 export const getCreditProviderSettings = (): Promise<CreditProviderSettings> =>
   apiRequest<CreditProviderSettings>('/ai/credit/settings');
 
+export const saveCreditProviderSettings = (payload: {
+  username: string;
+  password: string;
+  environment: 'sandbox' | 'production';
+}): Promise<CreditProviderSettings> =>
+  apiRequest<CreditProviderSettings>('/ai/credit/settings', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+
+export const deleteCreditProviderSettings = (): Promise<{ ok: boolean }> =>
+  apiRequest<{ ok: boolean }>('/ai/credit/settings', {
+    method: 'DELETE',
+  });
+
 export const getCreditChecks = (customerId?: string | number): Promise<CreditCheckRow[]> =>
   apiRequest<CreditCheckRow[]>('/ai/credit/history').then((rows) => {
     if (customerId == null) return rows;
