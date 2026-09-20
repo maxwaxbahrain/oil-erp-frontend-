@@ -418,8 +418,6 @@ export function CommandBar({
                                 flexShrink: 0,
                                 border: 'none',
                                 cursor: 'pointer',
-                                marginLeft: '4px',
-                                marginRight: '-12px',
                                 padding: 0,
                             }}
                         >

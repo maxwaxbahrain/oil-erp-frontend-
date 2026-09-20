@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -37,9 +37,19 @@ import {
     type Payment
 } from '../../services/customerService';
 import {
+    deleteManualCreditHold,
+    getCreditHold,
     getCustomerLedger,
+    getPaymentScore,
+    isValidManualHoldReason,
+    putManualCreditHold,
+    type CreditHoldDetail,
     type PartyLedgerRow,
+    type PaymentScore,
+    type PaymentScoreBand,
 } from '../../services/api';
+import { useAuth } from '../../contexts/AuthContext';
+import { MANAGEMENT_ROLES } from '../../utils/rbac';
 import { getCustomerCreditNotes, updateCreditNote, type CreditNote } from '../../services/creditNoteService';
 // STEP 11B — load customer billable expenses for the Unbilled tab.
 import { saveExpense, type Expense } from '../../services/expenseService';
@@ -54,6 +64,7 @@ import {
 import { WORLD_CURRENCIES } from '../../constants/currencies';
 import SearchableSelect from '../../components/common/SearchableSelect';
 import PaymentReceipt from './PaymentReceipt';
+import CustomerCreditTab from './CustomerCreditTab';
 
 interface CustomerStats {
     outstandingBalance: number;
@@ -79,6 +90,93 @@ interface LedgerEntry {
     relatedId?: string;
     van_number?: string;
     salesman_name?: string;
+}
+
+function overviewBandChipStyle(band: PaymentScoreBand): CSSProperties {
+    const colors: Record<PaymentScoreBand, { bg: string; text: string; border: string }> = {
+        GREEN: { bg: 'rgba(34,197,94,.12)', text: '#22C55E', border: 'rgba(34,197,94,.3)' },
+        YELLOW: { bg: 'rgba(245,158,11,.12)', text: '#FCD34D', border: 'rgba(245,158,11,.3)' },
+        RED: { bg: 'rgba(239,68,68,.12)', text: '#FCA5A5', border: 'rgba(239,68,68,.3)' },
+        UNRATED: { bg: 'rgba(148,163,184,.12)', text: '#94A3B8', border: 'rgba(148,163,184,.25)' },
+    };
+    const tone = colors[band];
+    return {
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '6px 12px',
+        borderRadius: 999,
+        background: tone.bg,
+        border: `1px solid ${tone.border}`,
+        color: tone.text,
+        fontSize: 12,
+        fontWeight: 700,
+        letterSpacing: '.04em',
+    };
+}
+
+export function PaymentReliabilityOverviewCard({
+    state,
+    score,
+    onSeeCreditTab,
+}: {
+    state: 'loading' | 'ready' | 'error';
+    score: PaymentScore | null;
+    onSeeCreditTab: () => void;
+}) {
+    const firstReason = score?.reasons?.[0]?.text;
+    const isUnrated = score?.band === 'UNRATED';
+
+    return (
+        <div style={{
+            background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.12)',
+            borderRadius: 12, padding: 14,
+        }}>
+            <div style={{ marginBottom: 10 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>
+                    Payment reliability
+                </span>
+            </div>
+
+            {state === 'loading' ? (
+                <p style={{ fontSize: 12, color: 'var(--t3,#3E5678)', margin: 0 }}>Loading…</p>
+            ) : state === 'error' || !score ? (
+                <p style={{ fontSize: 12, color: 'var(--t3,#3E5678)', margin: 0 }}>Unavailable</p>
+            ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <span style={overviewBandChipStyle(score.band)}>
+                        {score.band}
+                        {!isUnrated && score.score != null ? (
+                            <span style={{ fontSize: 16, fontWeight: 800 }}>{score.score}</span>
+                        ) : null}
+                    </span>
+                    {firstReason ? (
+                        <p style={{ fontSize: 11, color: 'var(--t3,#3E5678)', margin: 0 }}>
+                            {firstReason}
+                        </p>
+                    ) : null}
+                    <button
+                        type="button"
+                        onClick={onSeeCreditTab}
+                        style={{
+                            alignSelf: 'flex-start',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#4F8EF7',
+                            fontSize: 11,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            padding: 0,
+                            textDecoration: 'underline',
+                            fontFamily: 'inherit',
+                        }}
+                    >
+                        See Credit tab
+                    </button>
+                </div>
+            )}
+        </div>
+    );
 }
 
 
@@ -225,7 +323,9 @@ export default function CustomerOverview() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const location = useLocation();
-    const [activeTab, setActiveTab] = useState<'overview' | 'ledger' | 'sales' | 'payments' | 'credits' | 'unbilled' | 'expenses'>('overview');
+    const { hasRole } = useAuth();
+    const canManageCreditHold = hasRole(...MANAGEMENT_ROLES);
+    const [activeTab, setActiveTab] = useState<'overview' | 'ledger' | 'sales' | 'payments' | 'credits' | 'credit' | 'unbilled' | 'expenses'>('overview');
     const [customer, setCustomer] = useState<Customer | null>(null);
     const [loading, setLoading] = useState(true);
 
@@ -286,11 +386,21 @@ export default function CustomerOverview() {
     // V3 spec — document vault toggle.
     const [showDocVault, setShowDocVault] = useState<boolean>(false);
 
+    const [creditHold, setCreditHold] = useState<CreditHoldDetail | null>(null);
+    const [creditHoldLoading, setCreditHoldLoading] = useState(false);
+    const [holdReason, setHoldReason] = useState('');
+    const [showHoldForm, setShowHoldForm] = useState(false);
+    const [holdBusy, setHoldBusy] = useState(false);
+    const [holdNotice, setHoldNotice] = useState<string | null>(null);
+
+    const [paymentScore, setPaymentScore] = useState<PaymentScore | null>(null);
+    const [paymentScoreState, setPaymentScoreState] = useState<'loading' | 'ready' | 'error'>('loading');
+
     // Check for tab parameter in URL
     useEffect(() => {
         const searchParams = new URLSearchParams(location.search);
         const tab = searchParams.get('tab');
-        if (tab === 'ledger' || tab === 'sales' || tab === 'payments' || tab === 'credits') {
+        if (tab === 'ledger' || tab === 'sales' || tab === 'payments' || tab === 'credits' || tab === 'credit') {
             setActiveTab(tab);
         }
     }, [location.search]);
@@ -322,6 +432,81 @@ export default function CustomerOverview() {
 
         fetchCustomer();
     }, [id, navigate]);
+
+    const loadCreditHold = async (customerId: string) => {
+        setCreditHoldLoading(true);
+        try {
+            const hold = await getCreditHold(customerId);
+            setCreditHold(hold);
+        } catch {
+            setCreditHold(null);
+        } finally {
+            setCreditHoldLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        if (!id) return;
+        void loadCreditHold(id);
+    }, [id]);
+
+    useEffect(() => {
+        if (!id) return;
+        let cancelled = false;
+        setPaymentScoreState('loading');
+        getPaymentScore(id)
+            .then((data) => {
+                if (!cancelled) {
+                    setPaymentScore(data);
+                    setPaymentScoreState('ready');
+                }
+            })
+            .catch(() => {
+                if (!cancelled) {
+                    setPaymentScore(null);
+                    setPaymentScoreState('error');
+                }
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [id]);
+
+    const holdReasonTrimmed = holdReason.trim();
+    const holdReasonValid = isValidManualHoldReason(holdReason);
+
+    const onPutManualHold = async () => {
+        if (!id || !holdReasonValid) return;
+        setHoldBusy(true);
+        setHoldNotice(null);
+        try {
+            const resp = await putManualCreditHold(id, holdReasonTrimmed);
+            setCreditHold(resp);
+            setHoldReason('');
+            setShowHoldForm(false);
+            if (resp.warning) setHoldNotice(resp.warning);
+        } catch {
+            setHoldNotice("Couldn't put customer on hold. Try again.");
+        } finally {
+            setHoldBusy(false);
+        }
+    };
+
+    const onReleaseManualHold = async () => {
+        if (!id) return;
+        if (!window.confirm('Release manual credit hold for this customer?')) return;
+        setHoldBusy(true);
+        setHoldNotice(null);
+        try {
+            const resp = await deleteManualCreditHold(id);
+            setCreditHold(resp);
+            setShowHoldForm(false);
+        } catch {
+            setHoldNotice("Couldn't release hold. Try again.");
+        } finally {
+            setHoldBusy(false);
+        }
+    };
 
     // Root B — fetch ledger for DISPLAY from the API (opening/closing/running
     // balances are backend-computed; the UI never recomputes them).
@@ -711,16 +896,6 @@ export default function CustomerOverview() {
       ? Math.max(..._sortedPayments.slice(0, 5).map((p: any) => Number(p.amount) || 0))
       : 1;
 
-    const _creditHealthLabel: string = _overdueAmount > 0
-      ? 'Overdue'
-      : _creditUsedPct > 80
-        ? 'Fair'
-        : 'Good';
-    const _creditHealthColor: string = _overdueAmount > 0
-      ? '#EF4444'
-      : _creditUsedPct > 80
-        ? '#F59E0B'
-        : '#22C55E';
     // ──────────────────────────────────────────────────────────────────
 
     return (
@@ -843,17 +1018,6 @@ export default function CustomerOverview() {
                     >
                         📧 Send statement
                     </button>
-                    <button
-                        type="button"
-                        style={{
-                            background: 'rgba(239,68,68,.1)', color: '#B91C1C',
-                            border: '1px solid rgba(239,68,68,.25)', borderRadius: 8, padding: '7px 13px',
-                            fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
-                        }}
-                    >
-                        🚫 Credit hold
-                    </button>
-
                     {/* Documents — toggles vault below */}
                     <button
                         type="button"
@@ -868,6 +1032,147 @@ export default function CustomerOverview() {
                         📁 Documents
                     </button>
                 </div>
+            </div>
+
+            <div style={{
+                margin: '12px 0 0',
+                padding: '12px 14px',
+                borderRadius: 10,
+                border: '1px solid rgba(255,255,255,.07)',
+                background: 'var(--bg2,#0a1726)',
+            }}>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase', color: 'var(--t3,#3E5678)', marginBottom: 6 }}>
+                    Credit hold
+                </div>
+                {creditHoldLoading ? (
+                    <p style={{ fontSize: 11, color: 'var(--t2,#8BA3C7)' }}>Loading…</p>
+                ) : !creditHold?.held ? (
+                    <p style={{ fontSize: 12, color: 'var(--t2,#8BA3C7)' }}>Not on hold</p>
+                ) : creditHold.manual && (creditHold.invoices?.length ?? 0) > 0 ? (
+                    <div style={{ fontSize: 12, color: 'var(--t,#EEF2FF)' }}>
+                        <p style={{ fontWeight: 700, marginBottom: 4 }}>Both — manual and automatic</p>
+                        {creditHold.manual_reason ? (
+                            <p style={{ color: 'var(--t2,#8BA3C7)' }}>Manual: {creditHold.manual_reason}</p>
+                        ) : null}
+                        {creditHold.manual_set_by ? (
+                            <p style={{ color: 'var(--t2,#8BA3C7)' }}>Set by {creditHold.manual_set_by}</p>
+                        ) : null}
+                        {creditHold.manual_set_at ? (
+                            <p style={{ color: 'var(--t2,#8BA3C7)' }}>Since {formatDateOnly(creditHold.manual_set_at)}</p>
+                        ) : null}
+                        {creditHold.message ? (
+                            <p style={{ marginTop: 6, color: 'var(--t2,#8BA3C7)' }}>{creditHold.message}</p>
+                        ) : null}
+                    </div>
+                ) : creditHold.manual ? (
+                    <div style={{ fontSize: 12, color: 'var(--t,#EEF2FF)' }}>
+                        <p style={{ fontWeight: 700, marginBottom: 4 }}>On hold (manual)</p>
+                        {creditHold.manual_reason ? (
+                            <p style={{ color: 'var(--t2,#8BA3C7)' }}>{creditHold.manual_reason}</p>
+                        ) : null}
+                        {creditHold.manual_set_by ? (
+                            <p style={{ color: 'var(--t2,#8BA3C7)' }}>Set by {creditHold.manual_set_by}</p>
+                        ) : null}
+                        {creditHold.manual_set_at ? (
+                            <p style={{ color: 'var(--t2,#8BA3C7)' }}>Since {formatDateOnly(creditHold.manual_set_at)}</p>
+                        ) : null}
+                    </div>
+                ) : (
+                    <div style={{ fontSize: 12, color: 'var(--t,#EEF2FF)' }}>
+                        <p style={{ fontWeight: 700, marginBottom: 4 }}>On hold (automatic)</p>
+                        {creditHold.message ? (
+                            <p style={{ color: 'var(--t2,#8BA3C7)' }}>{creditHold.message}</p>
+                        ) : null}
+                    </div>
+                )}
+                {creditHold?.mode === 'off' ? (
+                    <p style={{ marginTop: 8, fontSize: 11, color: 'var(--t3,#3E5678)' }}>
+                        Credit hold mode is off — holds are recorded but not enforced
+                    </p>
+                ) : null}
+                {holdNotice ? (
+                    <p style={{
+                        marginTop: 8, fontSize: 11, fontWeight: 600,
+                        color: holdNotice.includes("Couldn't") ? '#FCA5A5' : '#FCD34D',
+                    }}>
+                        {holdNotice}
+                    </p>
+                ) : null}
+                {canManageCreditHold ? (
+                    <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                        {creditHold?.manual ? (
+                            <button
+                                type="button"
+                                disabled={holdBusy}
+                                onClick={() => void onReleaseManualHold()}
+                                style={{
+                                    background: 'rgba(239,68,68,.1)', color: '#FCA5A5',
+                                    border: '1px solid rgba(239,68,68,.25)', borderRadius: 8, padding: '6px 12px',
+                                    fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                                }}
+                            >
+                                {holdBusy ? 'Working…' : 'Release'}
+                            </button>
+                        ) : showHoldForm ? (
+                            <div style={{ flex: '1 1 240px', maxWidth: 420 }}>
+                                <textarea
+                                    value={holdReason}
+                                    onChange={(e) => setHoldReason(e.target.value)}
+                                    rows={3}
+                                    placeholder="Reason (3–255 characters)"
+                                    style={{
+                                        width: '100%', borderRadius: 8, padding: '8px 10px', fontSize: 11,
+                                        background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.1)',
+                                        color: 'var(--t,#EEF2FF)',
+                                    }}
+                                />
+                                <p style={{ fontSize: 10, color: 'var(--t3,#3E5678)', marginTop: 4 }}>
+                                    {holdReasonTrimmed.length}/255
+                                </p>
+                                <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                                    <button
+                                        type="button"
+                                        disabled={holdBusy || !holdReasonValid}
+                                        onClick={() => void onPutManualHold()}
+                                        style={{
+                                            background: '#4F8EF7', color: '#fff', border: 'none',
+                                            borderRadius: 8, padding: '6px 12px', fontSize: 11, fontWeight: 600,
+                                            cursor: 'pointer', opacity: holdBusy || !holdReasonValid ? 0.5 : 1,
+                                        }}
+                                    >
+                                        {holdBusy ? 'Saving…' : 'Put on hold'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setShowHoldForm(false);
+                                            setHoldReason('');
+                                        }}
+                                        style={{
+                                            background: 'transparent', color: 'var(--t2,#8BA3C7)',
+                                            border: '1px solid rgba(255,255,255,.07)', borderRadius: 8, padding: '6px 12px',
+                                            fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                                        }}
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={() => setShowHoldForm(true)}
+                                style={{
+                                    background: 'rgba(245,158,11,.12)', color: '#FCD34D',
+                                    border: '1px solid rgba(245,158,11,.3)', borderRadius: 8, padding: '6px 12px',
+                                    fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                                }}
+                            >
+                                Put on hold
+                            </button>
+                        )}
+                    </div>
+                ) : null}
             </div>
 
             {/* ── V3 Stats Row — 6 cells, accounting-correct colour logic ── */}
@@ -966,6 +1271,7 @@ export default function CustomerOverview() {
                         { key: 'sales', label: 'Sales history' },
                         { key: 'payments', label: 'Payments' },
                         { key: 'credits', label: 'Credits' },
+                        { key: 'credit', label: 'Credit' },
                         { key: 'unbilled', label: 'Unbilled' },
                         { key: 'expenses', label: 'Expenses' }
                     ].map(tab => {
@@ -1061,66 +1367,11 @@ export default function CustomerOverview() {
                                 ))}
                             </div>
 
-                            {/* ── V3 4B — Credit health card ── */}
-                            <div style={{
-                                background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.12)',
-                                borderRadius: 12, padding: 14,
-                            }}>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                                    <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>💳 Credit health</span>
-                                    <span style={{ fontSize: 10, color: 'var(--t3,#3E5678)' }}>auto-calculated</span>
-                                </div>
-
-                                <div style={{ textAlign: 'center', padding: '6px 0 10px' }}>
-                                    <div style={{ fontSize: 22, fontWeight: 700, color: _creditHealthColor }}>
-                                        {_creditHealthLabel}
-                                    </div>
-                                    <div style={{ fontSize: 10, color: 'var(--t3,#3E5678)', marginTop: 2 }}>
-                                        Credit utilisation: {_creditUsedPct.toFixed(1)}%
-                                    </div>
-                                    <div style={{
-                                        height: 8, borderRadius: 8, background: 'rgba(255,255,255,.06)',
-                                        margin: '8px 0 4px', overflow: 'hidden',
-                                    }}>
-                                        <div style={{
-                                            height: 8, borderRadius: 8,
-                                            width: `${_creditUsedPct}%`,
-                                            background: _creditUsedPct < 50
-                                                ? '#22C55E'
-                                                : _creditUsedPct < 80
-                                                    ? '#F59E0B'
-                                                    : '#EF4444',
-                                            transition: 'width .6s ease',
-                                        }} />
-                                    </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--t3,#3E5678)' }}>
-                                        <span>Safe (0%)</span>
-                                        <span>Danger (100%)</span>
-                                    </div>
-                                </div>
-
-                                {((): Array<{ label: string; value: string; color: string }> => [
-                                    { label: 'Credit limit',     value: _creditLimitDisplay > 0 ? `$${_creditLimitDisplay.toFixed(2)}` : 'No limit',                                                color: '#4F8EF7' },
-                                    { label: 'Used',             value: `$${_balanceDisplay.toFixed(2)}`,                                                                                          color: 'var(--t,#EEF2FF)' },
-                                    { label: 'Available',        value: _creditLimitDisplay > 0
-                                                                      ? `$${Math.max(0, _creditLimitDisplay - _balanceDisplay).toFixed(2)}`
-                                                                      : 'Unlimited',
-                                                                  color: _creditLimitDisplay > 0 ? '#22C55E' : '#4F8EF7' },
-                                    { label: 'Overdue',          value: _overdueAmount > 0 ? `$${_overdueAmount.toFixed(2)}` : 'None ✓',                                                          color: _overdueAmount > 0 ? '#EF4444' : '#22C55E' },
-                                    { label: 'Avg payment days', value: '8 days ✓',                                                                                                                color: '#22C55E' },
-                                ])().map(row => (
-                                    <div
-                                        key={row.label}
-                                        style={{
-                                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                            padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,.04)', fontSize: 11,
-                                        }}
-                                    >
-                                        <span style={{ color: 'var(--t2,#8BA3C7)' }}>{row.label}</span>
-                                        <span style={{ color: row.color, fontWeight: 500 }}>{row.value}</span>
-                                    </div>
-                                ))}
-                            </div>
+                            <PaymentReliabilityOverviewCard
+                                state={paymentScoreState}
+                                score={paymentScore}
+                                onSeeCreditTab={() => setActiveTab('credit')}
+                            />
 
                             {/* ── V3 4C — Recent activity feed ── */}
                             <div style={{
@@ -2176,6 +2427,15 @@ export default function CustomerOverview() {
                                 </div>
                             )}
                         </div>
+                    )}
+
+                    {activeTab === 'credit' && id && customer && (
+                        <CustomerCreditTab
+                            customerId={id}
+                            customerName={customer.name}
+                            creditLimit={(customer as Customer & { credit_limit?: number }).credit_limit}
+                            canManage={canManageCreditHold}
+                        />
                     )}
 
                     {/* STEP 11B — Unbilled Expenses tab */}

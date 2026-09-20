@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SOLTOL Studio — hybrid theme</title>
+<style>
+  /* ============================================================
+     HYBRID: SOLTOL's light chrome, dark canvas where images live.
+     Same layout as v2 so the only变 variable is the theme.
+     ============================================================ */
+  :root{
+    --page:#F7F8FA; --card:#FFFFFF; --soft:#F1F3F6;
+    --line:#E4E7EC; --line2:#EDEFF3;
+    --ink:#111827; --dim:#6B7280; --faint:#9CA3AF;
+    --navy:#111827;
+    --violet:#7C3AED; --magenta:#DB2777;
+    --amber:#B45309; --amber-bg:#FEF9EC; --amber-line:#FDE9C8;
+    --green:#059669;
+    --canvas:#0C0C12;   /* the one dark surface */
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--page);color:var(--ink);
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    font-size:14px;-webkit-font-smoothing:antialiased;height:100vh;overflow:hidden;
+  }
+  button{font-family:inherit}
+
+  /* --- chrome: SOLTOL navy, unchanged --- */
+  .top{height:50px;background:var(--navy);display:flex;align-items:center;padding:0 16px;gap:14px}
+  .back{color:#9CA3AF;text-decoration:none;font-size:12px;font-weight:600;padding:6px 9px;border-radius:6px}
+  .back:hover{color:#fff;background:rgba(255,255,255,.07)}
+  .mark{width:23px;height:23px;border-radius:6px;background:linear-gradient(135deg,#A855F7,#EC4899);display:grid;place-items:center;font-size:11px;font-weight:900;color:#fff}
+  .bname{font-size:12px;font-weight:900;letter-spacing:.16em;text-transform:uppercase;color:#fff}
+  .bsub{font-size:10px;font-weight:700;color:#6B7280;letter-spacing:.14em;text-transform:uppercase}
+  .kit{margin-left:14px;display:flex;align-items:center;gap:7px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:5px 10px;font-size:11px;color:#D1D5DB}
+  .sw{width:11px;height:11px;border-radius:3px}
+  .meter{margin-left:auto;display:flex;gap:14px;font-size:11px;color:#6B7280;font-variant-numeric:tabular-nums}
+  .meter b{color:#D1D5DB;font-weight:700}
+
+  /* --- SOLTOL gradient band --- */
+  .band{
+    background:linear-gradient(90deg,#581C87,#831843);
+    padding:13px 18px;display:flex;align-items:center;gap:14px;
+  }
+  .band h2{font-size:19px;font-weight:900;letter-spacing:.04em;text-transform:uppercase;color:#fff;line-height:1}
+  .band p{font-size:11.5px;color:rgba(255,255,255,.62);margin-top:3px}
+
+  .grid3{display:grid;grid-template-columns:344px 1fr 352px;height:calc(100vh - 50px - 62px)}
+
+  /* --- LEFT --- */
+  .left{border-right:1px solid var(--line);background:var(--card);display:flex;flex-direction:column;overflow:hidden}
+  .modes{display:flex;padding:12px 14px 0;gap:2px;border-bottom:1px solid var(--line2)}
+  .mode{flex:1;padding:8px 0;border:none;background:none;cursor:pointer;color:var(--faint);font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;border-bottom:2px solid transparent;margin-bottom:-1px}
+  .mode.on{color:var(--ink);border-bottom-color:var(--violet)}
+  .scroll{flex:1;overflow-y:auto;padding:16px 14px}
+  .scroll::-webkit-scrollbar{width:7px}
+  .scroll::-webkit-scrollbar-thumb{background:#D9DEE5;border-radius:4px}
+  .eyebrow{font-size:10px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--faint);margin-bottom:8px}
+
+  .source{display:flex;gap:10px;align-items:center;background:var(--soft);border:1px solid var(--line);border-radius:9px;padding:8px;margin-bottom:18px}
+  .sthumb{width:42px;height:42px;border-radius:6px;background:linear-gradient(150deg,#C62A2A,#8E1414);display:grid;place-items:center;font-size:5.5px;font-weight:900;color:#fff;flex-shrink:0}
+  .sname{font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sdim{font-size:10px;color:var(--faint);margin-top:2px}
+  .swap{background:none;border:none;cursor:pointer;color:var(--violet);font-size:11px;font-weight:700;flex-shrink:0}
+
+  .composer{border:1px solid var(--line);border-radius:11px;background:var(--card)}
+  .composer:focus-within{border-color:#C4B5FD;box-shadow:0 0 0 3px rgba(124,58,237,.07)}
+  .composer textarea{width:100%;background:none;border:none;resize:none;color:var(--ink);font-family:inherit;font-size:13.5px;line-height:1.55;padding:12px 13px 4px;min-height:84px;outline:none}
+  .cfoot{display:flex;align-items:center;padding:6px 9px 9px 13px}
+  .count{font-size:10.5px;color:var(--faint);margin-right:auto;font-variant-numeric:tabular-nums}
+
+  .ratios{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+  .ratio{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:9px 4px 7px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;color:var(--faint)}
+  .ratio:hover{border-color:#CBD2DB;color:var(--dim)}
+  .ratio.on{border-color:var(--violet);background:#F6F1FE;color:var(--violet)}
+  .shape{border:1.5px solid currentColor;border-radius:2px}
+  .s-sq{width:19px;height:19px} .s-po{width:15px;height:19px}
+  .s-la{width:23px;height:13px} .s-st{width:11px;height:20px}
+  .rname{font-size:9px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;line-height:1}
+  .rpx{font-size:8.5px;color:var(--faint);font-variant-numeric:tabular-nums}
+
+  .countrow{display:flex;gap:6px}
+  .cbtn{flex:1;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 0;cursor:pointer;color:var(--faint);font-size:12px;font-weight:800}
+  .cbtn.on{border-color:var(--violet);background:#F6F1FE;color:var(--violet)}
+
+  .go{width:100%;margin-top:16px;border:none;border-radius:9px;cursor:pointer;background:linear-gradient(135deg,#7C3AED,#DB2777);color:#fff;font-size:13px;font-weight:800;padding:12px;display:flex;align-items:center;justify-content:center;gap:9px;box-shadow:0 4px 12px -3px rgba(124,58,237,.35)}
+  .go:hover{filter:brightness(1.08)}
+  .go .c{font-size:10.5px;opacity:.78;font-weight:600}
+
+  .keep{margin-top:14px;padding:10px 11px;background:var(--amber-bg);border:1px solid var(--amber-line);border-left:2px solid var(--amber);border-radius:0 9px 9px 0}
+  .keeph{font-size:9.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--amber);margin-bottom:5px}
+  .keep p{font-size:11.5px;color:#78350F;line-height:1.5}
+  .keep code{background:rgba(180,83,9,.1);padding:1px 4px;border-radius:3px;font-size:10.5px;font-family:ui-monospace,monospace}
+
+  .preset{width:100%;text-align:left;cursor:pointer;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:9px 11px;margin-bottom:6px;color:var(--dim);font-size:11.5px;line-height:1.4}
+  .preset:hover{border-color:#CBD2DB;background:var(--soft)}
+  .preset b{display:block;color:var(--ink);font-size:11.5px;margin-bottom:2px}
+  .limits{margin-top:18px;padding-top:14px;border-top:1px solid var(--line2);font-size:10.5px;color:var(--faint);line-height:1.6}
+
+  /* --- CENTRE : the one dark room --- */
+  .mid{display:flex;flex-direction:column;background:var(--canvas);overflow:hidden}
+  .midbar{height:42px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;padding:0 16px;gap:10px}
+  .tag{font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#6B7280}
+  .tag b{color:#A855F7}
+  .segs{margin-left:auto;display:flex;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);border-radius:7px;padding:2px}
+  .seg{border:none;background:none;cursor:pointer;color:#6B7280;font-size:10.5px;font-weight:700;padding:5px 11px;border-radius:5px}
+  .seg.on{background:rgba(255,255,255,.09);color:#F3F4F6}
+
+  .stage{flex:1;display:grid;place-items:center;padding:24px;position:relative;min-height:0}
+  .stage::before{content:'';position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.014) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.014) 1px,transparent 1px);background-size:48px 48px;pointer-events:none}
+
+  .sheet{display:grid;grid-template-columns:1fr 1fr;gap:12px;width:min(100%,540px)}
+  .cell{position:relative;aspect-ratio:1;border-radius:4px;overflow:hidden;cursor:pointer;border:2px solid transparent;box-shadow:0 12px 34px -10px rgba(0,0,0,.75)}
+  .cell.on{border-color:#A855F7}
+  .cell .n{position:absolute;top:6px;left:7px;font-size:9px;font-weight:900;color:rgba(255,255,255,.85);text-shadow:0 1px 4px rgba(0,0,0,.9);z-index:3}
+  .cell .pick{position:absolute;bottom:7px;right:7px;font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;background:#A855F7;color:#fff;padding:3px 7px;border-radius:4px;opacity:0;z-index:3}
+  .cell.on .pick{opacity:1}
+
+  .sc{position:absolute;inset:0}
+  .sc .hall{position:absolute;inset:0}
+  .sc.a .hall{background:linear-gradient(178deg,#2B2118,#40301F 42%,#231A13),radial-gradient(ellipse 60% 30% at 50% 6%,rgba(255,232,190,.3),transparent 62%)}
+  .sc.b .hall{background:linear-gradient(178deg,#1B2430,#2C3A4A 46%,#141C26),radial-gradient(ellipse 60% 30% at 30% 10%,rgba(200,225,255,.22),transparent 60%)}
+  .sc.c .hall{background:linear-gradient(178deg,#EDEAE4,#D6D0C6 60%,#BDB6AA)}
+  .sc.d .hall{background:linear-gradient(178deg,#241C16,#4A3524 40%,#1A1410),radial-gradient(ellipse 50% 26% at 68% 14%,rgba(255,196,120,.32),transparent 64%)}
+  .surface{position:absolute;bottom:0;left:0;right:0;height:28%}
+  .sc.a .surface{background:linear-gradient(178deg,#D8D2C6,#A79E90)}
+  .sc.b .surface{background:linear-gradient(178deg,#5A6470,#39434E)}
+  .sc.c .surface{background:linear-gradient(178deg,#E4E0D9,#CDC7BC)}
+  .sc.d .surface{background:linear-gradient(178deg,#6B5540,#42341F)}
+  .blur{position:absolute;bottom:28%;left:0;right:0;height:24%;display:flex;justify-content:space-between;padding:0 6%;filter:blur(3px);opacity:.42}
+  .blur i{width:16%;background:linear-gradient(#4A4152,#221E29);border-radius:9px 9px 2px 2px}
+  .prod{position:absolute;bottom:28%;left:50%;transform:translateX(-50%);display:flex;align-items:flex-end;gap:6%}
+  .bag{width:52px;height:58px;background:linear-gradient(158deg,#D6342F,#A81A18);display:grid;place-items:center;box-shadow:0 5px 14px rgba(0,0,0,.5);position:relative}
+  .bag::before{content:'';position:absolute;top:-7px;left:50%;transform:translateX(-50%);width:22px;height:8px;border:1.5px solid #8E1412;border-bottom:none;border-radius:14px 14px 0 0}
+  .bag span,.gb span{color:#fff;font-size:6px;font-weight:900;letter-spacing:.07em}
+  .gb{width:70px;height:52px;background:linear-gradient(158deg,#CC2E2A,#921513);padding:5px;display:flex;gap:4px;align-items:center;box-shadow:0 5px 14px rgba(0,0,0,.5)}
+  .gb .lid{flex:1;display:grid;place-items:center;height:100%}
+  .gb .tray{width:34px;height:100%;background:rgba(0,0,0,.2);display:flex;gap:3px;align-items:center;justify-content:center;padding:3px}
+  .fl{width:8px;height:26px;border-radius:4px;background:linear-gradient(96deg,#E8433C,#B01F1C);position:relative}
+  .fl::after{content:'';position:absolute;top:5px;left:1px;right:1px;height:5px;background:rgba(255,255,255,.85)}
+  .pn{width:2.5px;height:20px;border-radius:2px;background:linear-gradient(#E8433C,#8E1412)}
+
+  .compare{position:relative;width:min(100%,540px);aspect-ratio:1;border-radius:4px;overflow:hidden;box-shadow:0 20px 54px -12px rgba(0,0,0,.8);display:none}
+  .compare .after{clip-path:inset(0 0 0 52%)}
+  .divider{position:absolute;top:0;bottom:0;left:52%;width:2px;background:#A855F7;z-index:5}
+  .knob{position:absolute;top:50%;left:52%;transform:translate(-50%,-50%);width:32px;height:32px;border-radius:50%;background:#A855F7;z-index:6;display:grid;place-items:center;color:#fff;font-size:12px;cursor:ew-resize}
+  .clabel{position:absolute;bottom:9px;font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;background:rgba(0,0,0,.62);color:#fff;padding:4px 8px;border-radius:4px;z-index:5}
+  .clabel.l{left:9px} .clabel.r{right:9px}
+
+  .midfoot{border-top:1px solid rgba(255,255,255,.07);padding:11px 16px;display:flex;align-items:center;gap:16px}
+  .vlab{font-size:9.5px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:#6B7280}
+  .vs{display:flex;gap:6px}
+  .v{width:38px;height:38px;border-radius:6px;border:1.5px solid rgba(255,255,255,.13);cursor:pointer;position:relative;overflow:hidden;padding:0}
+  .v.on{border-color:#A855F7;box-shadow:0 0 0 2px rgba(168,85,247,.2)}
+  .v i{position:absolute;bottom:1px;right:2px;font-size:7.5px;font-weight:900;color:#fff;font-style:normal;text-shadow:0 1px 3px #000}
+  .v1{background:linear-gradient(150deg,#C62A2A,#7E1210)}
+  .v2{background:linear-gradient(150deg,#3E2E20,#C62A2A 62%,#241B14)}
+  .v3{background:linear-gradient(150deg,#4A3826,#D6342F 55%,#A79E90)}
+  .acts{margin-left:auto;display:flex;gap:8px}
+  .dbtn{border-radius:7px;cursor:pointer;font-size:11.5px;font-weight:700;padding:8px 13px;border:1px solid rgba(255,255,255,.13);background:rgba(255,255,255,.05);color:#D1D5DB}
+  .dbtn:hover{background:rgba(255,255,255,.1);color:#fff}
+  .dbtn.pri{background:#34D399;border-color:#34D399;color:#04231A;font-weight:800}
+
+  /* --- RIGHT --- */
+  .right{border-left:1px solid var(--line);background:var(--card);display:flex;flex-direction:column;overflow:hidden}
+  .plats{display:flex;padding:10px 12px 0;gap:2px;border-bottom:1px solid var(--line2)}
+  .plat{flex:1;padding:8px 0;border:none;background:none;cursor:pointer;color:var(--faint);font-size:10.5px;font-weight:800;border-bottom:2px solid transparent;margin-bottom:-1px}
+  .plat.on{color:var(--ink);border-bottom-color:var(--violet)}
+  .rscroll{flex:1;overflow-y:auto;padding:14px 12px;background:var(--page)}
+  .rscroll::-webkit-scrollbar{width:7px}
+  .rscroll::-webkit-scrollbar-thumb{background:#D9DEE5;border-radius:4px}
+
+  .card{background:#fff;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+  .chead{display:flex;gap:9px;padding:11px 12px 8px;align-items:center}
+  .av{width:33px;height:33px;border-radius:50%;background:linear-gradient(135deg,#A855F7,#EC4899);display:grid;place-items:center;color:#fff;font-size:12px;font-weight:900}
+  .cn{font-size:12.5px;font-weight:700;line-height:1.2}
+  .cm{font-size:10.5px;color:var(--dim);margin-top:1px}
+  .cbody{padding:0 12px 10px;font-size:12.5px;line-height:1.5;white-space:pre-wrap}
+  .cimg{aspect-ratio:1;position:relative;overflow:hidden;background:#111}
+  .dots{display:flex;gap:4px;justify-content:center;padding:8px 0 9px}
+  .dot{width:6px;height:6px;border-radius:50%;background:#CBD2D9}
+  .dot.on{background:var(--violet);width:16px;border-radius:3px}
+  .cbar{display:flex;gap:16px;padding:8px 12px 11px;border-top:1px solid var(--line2);font-size:11px;color:var(--dim);font-weight:600}
+
+  .caphead{display:flex;align-items:center;margin-bottom:7px}
+  .capcount{margin-left:auto;font-size:10px;color:var(--faint);font-variant-numeric:tabular-nums}
+  .capedit{width:100%;background:#fff;border:1px solid var(--line);border-radius:9px;color:var(--ink);font-family:inherit;font-size:12.5px;line-height:1.55;padding:11px;resize:none;outline:none;min-height:130px}
+  .capedit:focus{border-color:#C4B5FD;box-shadow:0 0 0 3px rgba(124,58,237,.07)}
+  .caprow{display:flex;gap:7px;margin-top:9px}
+  .capbtn{flex:1;background:#fff;border:1px solid var(--line);border-radius:7px;padding:8px;cursor:pointer;color:var(--dim);font-size:11px;font-weight:700}
+  .capbtn:hover{border-color:#CBD2DB;color:var(--ink)}
+  .ok{margin-top:12px;padding:9px 10px;background:#ECFDF5;border:1px solid #A7F3D0;border-radius:8px;font-size:11px;color:#065F46;line-height:1.45}
+  .publish{width:100%;margin-top:14px;background:var(--green);border:none;border-radius:9px;padding:12px;cursor:pointer;color:#fff;font-size:13px;font-weight:800}
+
+  @media (max-width:1500px){.grid3{grid-template-columns:320px 1fr 330px}}
+  @media (max-width:1240px){.grid3{grid-template-columns:300px 1fr}.right{display:none}}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <a class="back" href="#">← Queue</a>
+  <div class="mark">S</div>
+  <div>
+    <div class="bname">Soltol One</div>
+    <div class="bsub">Bettano LLC</div>
+  </div>
+  <div class="kit">
+    <span class="sw" style="background:#C62A2A"></span>
+    <span class="sw" style="background:#1A1A1A"></span>
+    <span class="sw" style="background:#E8E4DC"></span>
+    Brand kit
+  </div>
+  <div class="meter">
+    <span>Today <b>7 images</b></span>
+    <span>Spend <b>$0.25</b></span>
+  </div>
+</div>
+
+<div class="band">
+  <div>
+    <h2>Studio</h2>
+    <p>Make the picture, write the post, publish it</p>
+  </div>
+</div>
+
+<div class="grid3">
+
+  <div class="left">
+    <div class="modes">
+      <button class="mode">Generate</button>
+      <button class="mode on">Edit a photo</button>
+    </div>
+    <div class="scroll">
+      <div class="eyebrow">Working from</div>
+      <div class="source">
+        <div class="sthumb">BETTANO</div>
+        <div style="min-width:0;flex:1">
+          <div class="sname">bettano-gift-set.jpg</div>
+          <div class="sdim">1400 × 1050 · 1.1 MB</div>
+        </div>
+        <button class="swap">Replace</button>
+      </div>
+
+      <div class="eyebrow">What should change</div>
+      <div class="composer">
+        <textarea id="p">Place this gift set on a display counter at a busy auto parts trade show, blurred visitors behind, bright even lighting</textarea>
+        <div class="cfoot"><span class="count" id="c">146 / 1000</span></div>
+      </div>
+
+      <div class="eyebrow" style="margin-top:18px">Size it for</div>
+      <div class="ratios">
+        <button class="ratio on"><span class="shape s-sq"></span><span class="rname">Square</span><span class="rpx">1080</span></button>
+        <button class="ratio"><span class="shape s-po"></span><span class="rname">Portrait</span><span class="rpx">4:5</span></button>
+        <button class="ratio"><span class="shape s-la"></span><span class="rname">Feed</span><span class="rpx">1.91:1</span></button>
+        <button class="ratio"><span class="shape s-st"></span><span class="rname">Story</span><span class="rpx">9:16</span></button>
+      </div>
+
+      <div class="eyebrow" style="margin-top:18px">How many to try</div>
+      <div class="countrow">
+        <button class="cbtn">1</button><button class="cbtn">2</button><button class="cbtn on">4</button>
+      </div>
+
+      <button class="go">Make 4 versions <span class="c">$0.14</span></button>
+
+      <div class="keep">
+        <div class="keeph">Protecting your branding</div>
+        <p>Every edit ends with <code>keep the product and all branding exactly as it is</code> so your real label survives.</p>
+      </div>
+
+      <div style="margin-top:22px">
+        <div class="eyebrow">Start from</div>
+        <button class="preset"><b>Trade show counter</b>Display counter, blurred visitors, exhibition lighting</button>
+        <button class="preset"><b>Workshop bench</b>Repair bay, mechanic behind, warm work light</button>
+        <button class="preset"><b>Studio white</b>Seamless backdrop, soft shadow, catalogue style</button>
+        <button class="preset"><b>Delivery van</b>On a tailgate, city street, morning light</button>
+      </div>
+
+      <div class="limits">
+        JPG, PNG or WebP · under 10 MB · at least 256×256.<br>
+        1024px or larger on the long edge gives much better results.
+      </div>
+    </div>
+  </div>
+
+  <div class="mid">
+    <div class="midbar">
+      <span class="tag">Contact sheet · <b>4 versions</b> · square 1080</span>
+      <div class="segs">
+        <button class="seg on" id="segSheet">All 4</button>
+        <button class="seg" id="segCompare">Before / after</button>
+      </div>
+    </div>
+
+    <div class="stage">
+      <div class="sheet" id="sheet">
+        <div class="cell on"><span class="n">01</span><span class="pick">Chosen</span>
+          <div class="sc a"><div class="hall"></div><div class="blur"><i style="height:74%"></i><i style="height:88%"></i><i style="height:68%"></i><i style="height:92%"></i></div><div class="surface"></div>
+            <div class="prod"><div class="bag"><span>BETTANO</span></div><div class="gb"><div class="lid"><span>BETTANO</span></div><div class="tray"><div class="pn"></div><div class="pn"></div><div class="fl"></div></div></div></div></div>
+        </div>
+        <div class="cell"><span class="n">02</span><span class="pick">Chosen</span>
+          <div class="sc b"><div class="hall"></div><div class="blur"><i style="height:80%"></i><i style="height:66%"></i><i style="height:90%"></i><i style="height:72%"></i></div><div class="surface"></div>
+            <div class="prod"><div class="bag"><span>BETTANO</span></div><div class="gb"><div class="lid"><span>BETTANO</span></div><div class="tray"><div class="pn"></div><div class="pn"></div><div class="fl"></div></div></div></div></div>
+        </div>
+        <div class="cell"><span class="n">03</span><span class="pick">Chosen</span>
+          <div class="sc c"><div class="hall"></div><div class="surface"></div>
+            <div class="prod"><div class="bag"><span>BETTANO</span></div><div class="gb"><div class="lid"><span>BETTANO</span></div><div class="tray"><div class="pn"></div><div class="pn"></div><div class="fl"></div></div></div></div></div>
+        </div>
+        <div class="cell"><span class="n">04</span><span class="pick">Chosen</span>
+          <div class="sc d"><div class="hall"></div><div class="blur"><i style="height:70%"></i><i style="height:84%"></i><i style="height:76%"></i><i style="height:88%"></i></div><div class="surface"></div>
+            <div class="prod"><div class="bag"><span>BETTANO</span></div><div class="gb"><div class="lid"><span>BETTANO</span></div><div class="tray"><div class="pn"></div><div class="pn"></div><div class="fl"></div></div></div></div></div>
+        </div>
+      </div>
+
+      <div class="compare" id="compare">
+        <div class="sc c"><div class="hall"></div><div class="surface"></div>
+          <div class="prod"><div class="bag"><span>BETTANO</span></div><div class="gb"><div class="lid"><span>BETTANO</span></div><div class="tray"><div class="pn"></div><div class="pn"></div><div class="fl"></div></div></div></div></div>
+        <div class="sc a after"><div class="hall"></div><div class="blur"><i style="height:74%"></i><i style="height:88%"></i><i style="height:68%"></i><i style="height:92%"></i></div><div class="surface"></div>
+          <div class="prod"><div class="bag"><span>BETTANO</span></div><div class="gb"><div class="lid"><span>BETTANO</span></div><div class="tray"><div class="pn"></div><div class="pn"></div><div class="fl"></div></div></div></div></div>
+        <div class="divider"></div><div class="knob">⇄</div>
+        <span class="clabel l">Your photo</span><span class="clabel r">Edited</span>
+      </div>
+    </div>
+
+    <div class="midfoot">
+      <span class="vlab">History</span>
+      <div class="vs">
+        <button class="v v1"><i>1</i></button>
+        <button class="v v2"><i>2</i></button>
+        <button class="v v3 on"><i>3</i></button>
+      </div>
+      <div class="acts">
+        <button class="dbtn">Download</button>
+        <button class="dbtn">Add to carousel</button>
+        <button class="dbtn pri">Use this one</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="right">
+    <div class="plats">
+      <button class="plat on">LinkedIn</button>
+      <button class="plat">Instagram</button>
+      <button class="plat">Facebook</button>
+    </div>
+    <div class="rscroll">
+      <div class="card">
+        <div class="chead">
+          <div class="av">AQ</div>
+          <div>
+            <div class="cn">Abdul Qadeer</div>
+            <div class="cm">Founder, SOLTOL · Now</div>
+          </div>
+        </div>
+        <div class="cbody">Small thing that means a lot to us: every BETTANO customer walks away with something in hand.
+
+Built the gift sets ourselves for this season's trade shows.</div>
+        <div class="cimg">
+          <div class="sc a"><div class="hall"></div><div class="blur"><i style="height:74%"></i><i style="height:88%"></i><i style="height:68%"></i><i style="height:92%"></i></div><div class="surface"></div>
+            <div class="prod"><div class="bag"><span>BETTANO</span></div><div class="gb"><div class="lid"><span>BETTANO</span></div><div class="tray"><div class="pn"></div><div class="pn"></div><div class="fl"></div></div></div></div></div>
+        </div>
+        <div class="dots"><span class="dot on"></span><span class="dot"></span><span class="dot"></span></div>
+        <div class="cbar"><span>Like</span><span>Comment</span><span>Repost</span></div>
+      </div>
+
+      <div style="margin-top:14px">
+        <div class="caphead">
+          <span class="eyebrow" style="margin:0">Caption</span>
+          <span class="capcount" id="cc">142 / 3000</span>
+        </div>
+        <textarea class="capedit" id="cap">Small thing that means a lot to us: every BETTANO customer walks away with something in hand.
+
+Built the gift sets ourselves for this season's trade shows.</textarea>
+        <div class="caprow">
+          <button class="capbtn">Rewrite with AI</button>
+          <button class="capbtn">Add hashtags</button>
+        </div>
+      </div>
+
+      <div class="ok">Caption mentions gift sets and the image shows gift sets. Good match.</div>
+      <button class="publish">Approve and publish</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const grow=(el,out,max,lim)=>{el.style.height='auto';el.style.height=Math.min(el.scrollHeight,max)+'px';out.textContent=el.value.length+' / '+lim};
+  const p=document.getElementById('p'),c=document.getElementById('c');
+  const cap=document.getElementById('cap'),cc=document.getElementById('cc');
+  p.addEventListener('input',()=>grow(p,c,240,1000)); grow(p,c,240,1000);
+  cap.addEventListener('input',()=>grow(cap,cc,400,3000)); grow(cap,cc,400,3000);
+
+  const pick=sel=>document.querySelectorAll(sel).forEach(b=>b.addEventListener('click',()=>{
+    document.querySelectorAll(sel).forEach(x=>x.classList.remove('on'));b.classList.add('on')}));
+  pick('.mode');pick('.ratio');pick('.cbtn');pick('.cell');pick('.v');pick('.plat');
+
+  const sheet=document.getElementById('sheet'),cmp=document.getElementById('compare');
+  document.getElementById('segSheet').addEventListener('click',e=>{sheet.style.display='grid';cmp.style.display='none';
+    document.querySelectorAll('.seg').forEach(s=>s.classList.remove('on'));e.target.classList.add('on')});
+  document.getElementById('segCompare').addEventListener('click',e=>{sheet.style.display='none';cmp.style.display='block';
+    document.querySelectorAll('.seg').forEach(s=>s.classList.remove('on'));e.target.classList.add('on')});
+
+  const knob=document.querySelector('.knob'),div=document.querySelector('.divider'),after=document.querySelector('.after');
+  let drag=false;
+  knob.addEventListener('mousedown',()=>drag=true);
+  window.addEventListener('mouseup',()=>drag=false);
+  window.addEventListener('mousemove',e=>{
+    if(!drag)return;
+    const r=cmp.getBoundingClientRect();
+    const x=Math.max(4,Math.min(96,((e.clientX-r.left)/r.width)*100));
+    div.style.left=x+'%';knob.style.left=x+'%';after.style.clipPath=`inset(0 0 0 ${x}%)`;
+  });
+</script>
+</body>
+</html>

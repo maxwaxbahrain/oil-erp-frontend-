@@ -27,7 +27,7 @@ import {
     TrendingUp,
     User,
     MapPin
-, CalendarDays , Tag , BookOpen , Scale , Clock , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 , Mail , LogOut , Sparkles , Lock , Activity , Inbox } from 'lucide-react';
+, CalendarDays , Tag , BookOpen , Scale , Clock , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 , Mail , LogOut , Sparkles , Lock , Activity , Inbox , MessageSquare } from 'lucide-react';
 import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
 import { isProduction } from '../../config/appEnv';
@@ -131,13 +131,12 @@ export default function Sidebar({
         || (MODULE_FLAGS.pulse && showNav('/pulse'))
         || (MODULE_FLAGS.meeting_notes && showNav('/pulse/notes'));
     const showSalesIntelExtras = canSeeSalesIntel && (
-        (MODULE_FLAGS.credit_intelligence && showNav('/credit'))
-        || (MODULE_FLAGS.crm_pipeline && showNav('/crm'))
+        (MODULE_FLAGS.crm_pipeline && showNav('/crm'))
         || (MODULE_FLAGS.amazon && showNav('/amazon'))
     );
     const showSettingsSection = showNav('/portal')
         || showNav('/settings/password')
-        || (canSeeAdmin && (showNav('/settings') || showNav('/settings/users') || showNav('/migrate')));
+        || (canSeeAdmin && (showNav('/settings') || showNav('/settings/users') || showNav('/settings/credit-sources') || showNav('/migrate')));
 
     return (
         <aside className="w-[260px] bg-redwood-midnight text-white flex flex-col z-40 border-r border-white/5 shadow-2xl h-full print:hidden">
@@ -182,9 +181,6 @@ export default function Sidebar({
                 <NavItem to="/sales/recurring" icon={RefreshCw} label="Recurring Invoices" />
                 {canSeeSalesIntel && (
                 <>
-                {MODULE_FLAGS.credit_intelligence && (
-                <NavItem to="/credit" icon={Shield} label="Credit Intelligence" />
-                )}
                 {MODULE_FLAGS.crm_pipeline && (
                 <NavItem to="/crm" icon={BarChart2} label="CRM Pipeline" />
                 )}
@@ -292,6 +288,7 @@ export default function Sidebar({
                 <NavItem to="/reports/aged-receivable" icon={Clock} label="Aged Receivable" />
                 <NavItem to="/reports/aged-payable" icon={Clock} label="Aged Payable" />
                 <NavItem to="/reports/outstanding-bills" icon={FileText} label="Outstanding Bills" />
+                <NavItem to="/finance/collections" icon={MessageSquare} label="Collections" />
                 <NavItem to="/reports/financial" icon={PieChart} label="Profitability Analysis" />
                 {MODULE_FLAGS.reports_profitability_duplicate && (
                 <NavItem to="/reports/sales" icon={TrendingUp} label="Profitability Reports" />
@@ -349,8 +346,7 @@ export default function Sidebar({
                 <NavItem to="/marketing" icon={Megaphone} label="Marketing Hub" />
                 <NavItem to="/marketing/studio" icon={Zap} label="AI Content Studio" />
                 <NavItem to="/marketing/segments" icon={Users} label="Customer Segments" />
-                <NavItem to="/marketing/campaigns" icon={Send} label="Campaign Manager" />
-                <NavItem to="/marketing/analytics" icon={BarChart2} label="Analytics" />
+                <NavItem to="/marketing/campaigns" icon={Send} label="Queue" />
                 </>
                 )}
                 {showVoiceSection && (
@@ -397,6 +393,9 @@ export default function Sidebar({
                 {canSeeAdmin && (
                 <>
                 <NavItem to="/settings" icon={Settings} label="Settings" />
+                {MODULE_FLAGS.credit_intelligence && (
+                <NavItem to="/settings/credit-sources" icon={Shield} label="Credit data sources" />
+                )}
                 <NavItem to="/settings/users" icon={UserCheck} label="User Management" />
                 <NavItem to="/migrate" icon={Database} label="📥 Data Migration" />
                 </>

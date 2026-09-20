@@ -1,7 +1,24 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Search, Trash2, Loader2, ShoppingCart, Copy, Plus, UserPlus, X, Truck } from 'lucide-react';
-import { getCustomers, getProducts, getCustomerInvoices, getVans, type Customer, type Product, type Invoice, type Van } from '../../services/api';
+import {
+  getCustomers,
+  getProducts,
+  getCustomerInvoices,
+  getVans,
+  getCreditHold,
+  ApiError,
+  displayCreditHold,
+  isCashPaymentMethod,
+  type CreditHoldDetail,
+  type Customer,
+  type Product,
+  type Invoice,
+  type Van,
+} from '../../services/api';
+import CreditHoldBanner from '../../components/CreditHoldBanner';
+import { useAuth } from '../../contexts/AuthContext';
+import { MANAGEMENT_ROLES } from '../../utils/rbac';
 import { getCustomer, getCustomerPayments, type Payment } from '../../services/customerService';
 import { createSalesOrder, getSalesOrders, type SalesOrderItem, type SalesOrderStatus, type SalesOrder } from '../../services/salesService';
 // ITEM 12 — Salesman dropdown + inline quick-add (mirror of ITEM 7A on
@@ -161,6 +178,10 @@ export default function SalesOrderFormPage() {
 
   const [vans, setVans] = useState<Van[]>([]);
   const [selectedVanId, setSelectedVanId] = useState('');
+  const [creditHold, setCreditHold] = useState<CreditHoldDetail | null>(null);
+  const lastSubmitStatusRef = useRef<SalesOrderStatus>('draft');
+  const { hasRole } = useAuth();
+  const canOverrideCreditHold = hasRole(...MANAGEMENT_ROLES);
 
   const activeVans = useMemo(
     () => vans.filter((v) => (v.status || 'active') === 'active'),
@@ -392,7 +413,30 @@ export default function SalesOrderFormPage() {
     ]);
   }
 
-  async function submit(status: SalesOrderStatus) {
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedCustomer?.id) {
+      setCreditHold(null);
+      return;
+    }
+    getCreditHold(selectedCustomer.id)
+      .then((hold) => {
+        if (!cancelled) setCreditHold(hold.held ? hold : null);
+      })
+      .catch(() => {
+        if (!cancelled) setCreditHold(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCustomer?.id]);
+
+  const displayHold = useMemo(
+    () => displayCreditHold(creditHold, isCashPaymentMethod(paymentMethod)),
+    [creditHold, paymentMethod],
+  );
+
+  async function submit(status: SalesOrderStatus, creditHoldOverride = false) {
     if (!selectedCustomer) {
       alert('Select a customer');
       return;
@@ -414,6 +458,7 @@ export default function SalesOrderFormPage() {
 
     setSubmitting(true);
     setSubmittingStatus(status);
+    lastSubmitStatusRef.current = status;
     try {
       const items: SalesOrderItem[] = lines.map(({ key: _k, ...rest }) => rest);
       const dueDays = paymentMethod === 'Cash' ? 0 : paymentDueDays;
@@ -436,9 +481,14 @@ export default function SalesOrderFormPage() {
         payment_method: paymentMethod,
         payment_due_days: dueDays,
         payment_notes: paymentNotes.trim() || undefined,
+        credit_hold_override: creditHoldOverride,
       });
       navigate('/sales/orders');
     } catch (e: unknown) {
+      if (e instanceof ApiError && e.creditHoldDetail) {
+        setCreditHold(e.creditHoldDetail);
+        return;
+      }
       alert(e instanceof Error ? e.message : 'Could not save order');
     } finally {
       setSubmitting(false);
@@ -898,6 +948,13 @@ export default function SalesOrderFormPage() {
       </div>
 
       <div className={sectionCard}>
+        {displayHold ? (
+          <CreditHoldBanner
+            hold={displayHold}
+            canOverride={canOverrideCreditHold}
+            onOverride={() => void submit(lastSubmitStatusRef.current, true)}
+          />
+        ) : null}
         <h2 className="text-xs font-black text-gray-500 ">Line items</h2>
         {lines.length === 0 ? (
           <p
