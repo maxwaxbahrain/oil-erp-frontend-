@@ -44,14 +44,14 @@ function InvoiceLineRow({
 
     return (
         <tr className="hover:bg-gray-50">
-            <td className="px-4 py-3">
+            <td className="!px-4 !py-3">
                 {isServiceLine ? (
                     <input
                         type="text"
                         value={item.product}
                         onChange={(e) => onLineItemChange(item.id, 'product', e.target.value)}
                         placeholder="Service or cargo charge name..."
-                        className="w-full rounded-lg px-3 py-2 text-sm font-bold focus:outline-none placeholder:text-[#8BA3C7]"
+                        className="w-full rounded-lg !px-3 !py-2 text-sm font-bold focus:outline-none placeholder:text-[#8BA3C7]"
                         style={{
                             border: '0.5px solid var(--color-border-tertiary)',
                             background: 'var(--color-background-primary)',
@@ -66,6 +66,7 @@ function InvoiceLineRow({
                         placeholder="Search product..."
                         displayKey="name"
                         theme="dark"
+                        className="!px-3 !py-2"
                     />
                 )}
                 {!isServiceLine && selectedProd && availableStock !== null && (
@@ -81,37 +82,37 @@ function InvoiceLineRow({
                 )}
             </td>
 
-            <td className="px-4 py-3">
+            <td className="!px-4 !py-3">
                 <textarea
                     value={item.description}
                     onChange={(e) => onLineItemChange(item.id, 'description', e.target.value)}
                     placeholder="Item description..."
                     rows={2}
-                    className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-[#4F8EF7] focus:outline-none resize-none"
+                    className="w-full border-2 border-gray-300 rounded-lg !px-3 !py-2 text-sm focus:border-[#4F8EF7] focus:outline-none resize-none"
                 />
             </td>
 
-            <td className="px-4 py-3">
+            <td className="!px-3 !py-3">
                 <input
                     type="number"
                     value={item.quantity || ''}
                     onChange={(e) => onLineItemChange(item.id, 'quantity', parseFloat(e.target.value) || 0)}
                     min="1"
                     placeholder="Enter quantity"
-                    className={`w-full border-2 rounded-lg px-3 py-2 text-sm text-center font-mono font-bold focus:outline-none ${
+                    className={`w-full border-2 rounded-lg !px-3 !py-2 text-sm text-right font-mono font-bold focus:outline-none ${
                         overStock
                             ? 'border-rose-400 bg-rose-50 text-rose-700 focus:border-rose-500'
                             : 'border-gray-300 focus:border-[#4F8EF7]'
                     }`}
                 />
                 {overStock && (
-                    <p className="text-[10px] font-bold text-rose-600 mt-1 text-center">
+                    <p className="text-[10px] font-bold text-rose-600 mt-1 text-right">
                         Only {availableStock} in stock
                     </p>
                 )}
             </td>
 
-            <td className="px-3 py-3">
+            <td className="!px-3 !py-3">
                 <input
                     type="number"
                     value={item.rate || ''}
@@ -119,11 +120,11 @@ function InvoiceLineRow({
                     min="0"
                     step="0.01"
                     placeholder="Enter rate"
-                    className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm text-center font-mono font-bold focus:border-[#4F8EF7] focus:outline-none"
+                    className="w-full border-2 border-gray-300 rounded-lg !px-3 !py-2 text-sm text-right font-mono font-bold focus:border-[#4F8EF7] focus:outline-none"
                 />
             </td>
 
-            <td className="px-2 py-3">
+            <td className="!px-2 !py-3">
                 <input
                     type="number"
                     value={item.lineDiscount || ''}
@@ -132,11 +133,11 @@ function InvoiceLineRow({
                     max="100"
                     step="0.01"
                     placeholder="0"
-                    className="w-full border-2 border-gray-300 rounded-lg px-2 py-2 text-sm text-center font-mono font-bold focus:border-[#4F8EF7] focus:outline-none"
+                    className="w-full border-2 border-gray-300 rounded-lg !px-2 !py-2 text-sm text-right font-mono font-bold focus:border-[#4F8EF7] focus:outline-none"
                 />
             </td>
 
-            <td className="px-2 py-3">
+            <td className="!px-2 !py-3">
                 <input
                     type="number"
                     value={item.lineTaxRate || ''}
@@ -145,15 +146,15 @@ function InvoiceLineRow({
                     max="100"
                     step="0.01"
                     placeholder="0"
-                    className="w-full border-2 border-gray-300 rounded-lg px-2 py-2 text-sm text-center font-mono font-bold focus:border-[#4F8EF7] focus:outline-none"
+                    className="w-full border-2 border-gray-300 rounded-lg !px-2 !py-2 text-sm text-right font-mono font-bold focus:border-[#4F8EF7] focus:outline-none"
                 />
             </td>
 
-            <td className="px-4 py-3 text-right font-mono font-black text-base text-gray-900">
+            <td className="!px-4 !py-3 text-right font-mono font-black text-base text-gray-900">
                 {item.amount.toLocaleString()}
             </td>
 
-            <td className="px-4 py-3 text-center">
+            <td className="!px-3 !py-3 text-center">
                 <button
                     type="button"
                     onClick={() => onRemove(item.id)}

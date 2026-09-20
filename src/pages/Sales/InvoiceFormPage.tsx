@@ -1227,13 +1227,13 @@ export default function InvoiceFormPage() {
 
             {/* Form */}
             <div
-                className="bg-white rounded-xl shadow-md p-8 space-y-8"
+                className="bg-white rounded-xl shadow-md p-8 flex flex-col gap-8"
                 style={{ border: '0.5px solid var(--color-redwood-border, rgba(255,255,255,0.12))' }}
             >
                 {/* New: Salesman and Van Fields */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-6 border-b-2 border-gray-200">
-                    <div>
-                        <label className="text-xs font-semibold text-gray-600 mb-2 block">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 !pb-6 border-b-2 border-gray-200">
+                    <div className="flex flex-col gap-2">
+                        <label className="text-xs font-semibold text-gray-600 block !pl-4">
                             Salesman <span className="text-gray-400 font-normal">(optional)</span>
                         </label>
                         {salesmen.length === 0 ? (
@@ -1248,11 +1248,12 @@ export default function InvoiceFormPage() {
                                 placeholder="Search and select salesman..."
                                 displayKey="name"
                                 theme="dark"
+                                className="!px-4 !py-3 !border-2 border-gray-300"
                             />
                         )}
                     </div>
-                    <div>
-                        <label className="block text-xs font-semibold text-gray-600 mb-2">
+                    <div className="flex flex-col gap-2">
+                        <label className="block text-xs font-semibold text-gray-600 !pl-4">
                             Van / route
                         </label>
                         <SearchableSelect
@@ -1263,15 +1264,16 @@ export default function InvoiceFormPage() {
                             displayKey="name"
                             disabled={vansLoading}
                             theme="dark"
+                            className="!px-4 !py-3 !border-2 border-gray-300"
                         />
                     </div>
                 </div>
 
                 {/* Header Info */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-6 border-b-2 border-gray-200">
-                    <div className="space-y-4">
-                        <div>
-                            <div className="flex items-center justify-between mb-2">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 !pb-6 border-b-2 border-gray-200">
+                    <div className="flex flex-col gap-4">
+                        <div className="flex flex-col gap-2">
+                            <div className="flex items-center justify-between !pl-4">
                                 <label className="text-xs font-semibold text-gray-600">Customer <span className="text-red-500">*</span></label>
                                 <button type="button" onClick={() => setShowNewCustomer(true)}
                                     className="flex items-center gap-1 text-xs font-black text-orange-600 hover:text-orange-800 transition-all">
@@ -1286,6 +1288,7 @@ export default function InvoiceFormPage() {
                                 displayKey="name"
                                 disabled={loading}
                                 theme="dark"
+                                className="!px-4 !py-3 !border-2 border-gray-300"
                             />
                             {/* GAP D — customer avatar pill (visual enrichment below
                                 the SearchableSelect; cannot change what the select
@@ -1422,41 +1425,41 @@ export default function InvoiceFormPage() {
                             )}
                         </div>
 
-                        <div>
-                            <label className="block text-xs font-semibold text-gray-600 mb-2">
+                        <div className="flex flex-col gap-2">
+                            <label className="block text-xs font-semibold text-gray-600 !pl-4">
                                 Invoice date
                             </label>
                             <input
                                 type="date"
                                 value={formData.invoiceDate}
                                 onChange={(e) => setFormData(prev => ({ ...prev, invoiceDate: e.target.value }))}
-                                className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-bold focus:border-[#4F8EF7] focus:outline-none transition-all"
+                                className="w-full border-2 border-gray-300 rounded-lg !px-4 !py-3 text-sm font-bold focus:border-[#4F8EF7] focus:outline-none transition-all"
                             />
                         </div>
                     </div>
 
-                    <div className="space-y-4">
-                        <div>
-                            <label className="block text-xs font-semibold text-gray-600 mb-2">
+                    <div className="flex flex-col gap-4">
+                        <div className="flex flex-col gap-2">
+                            <label className="block text-xs font-semibold text-gray-600 !pl-4">
                                 Invoice number
                             </label>
                             <input
                                 type="text"
                                 value={formData.invoiceNumber}
                                 onChange={(e) => setFormData(prev => ({ ...prev, invoiceNumber: e.target.value }))}
-                                className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-mono font-black focus:border-[#4F8EF7] focus:outline-none transition-all"
+                                className="w-full border-2 border-gray-300 rounded-lg !px-4 !py-3 text-sm font-mono font-black focus:border-[#4F8EF7] focus:outline-none transition-all"
                             />
                         </div>
 
-                        <div>
-                            <label className="block text-xs font-semibold text-gray-600 mb-2">
+                        <div className="flex flex-col gap-2">
+                            <label className="block text-xs font-semibold text-gray-600 !pl-4">
                                 Due date
                             </label>
                             <input
                                 type="date"
                                 value={formData.dueDate}
                                 onChange={(e) => setFormData(prev => ({ ...prev, dueDate: e.target.value }))}
-                                className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-bold focus:border-[#4F8EF7] focus:outline-none transition-all"
+                                className="w-full border-2 border-gray-300 rounded-lg !px-4 !py-3 text-sm font-bold focus:border-[#4F8EF7] focus:outline-none transition-all"
                             />
                         </div>
                     </div>
@@ -1480,15 +1483,15 @@ export default function InvoiceFormPage() {
                         <table className="w-full">
                             <thead className="bg-gray-100">
                                 <tr>
-                                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 w-[18%]">Product</th>
-                                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 w-[28%]">Description</th>
-                                    <th className="px-3 py-3 text-center text-xs font-semibold text-gray-700 w-20">Qty</th>
-                                    <th className="px-3 py-3 text-center text-xs font-semibold text-gray-700 w-28">Rate</th>
+                                    <th className="!px-4 !py-3 text-left text-xs font-semibold text-gray-700 w-[18%]">Product</th>
+                                    <th className="!px-4 !py-3 text-left text-xs font-semibold text-gray-700 w-[28%]">Description</th>
+                                    <th className="!px-3 !py-3 text-right text-xs font-semibold text-gray-700 w-20">Qty</th>
+                                    <th className="!px-3 !py-3 text-right text-xs font-semibold text-gray-700 w-28">Rate</th>
                                     {/* ITEM 7D — Per-line discount & tax. Optional; 0 = use header values. */}
-                                    <th className="px-2 py-3 text-center text-xs font-semibold text-gray-700 w-20" title="Per-line discount % (stacks on top of header discount)">Disc %</th>
-                                    <th className="px-2 py-3 text-center text-xs font-semibold text-gray-700 w-20" title="Per-line tax % (overrides header rate when > 0)">Tax %</th>
-                                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700 w-28">Amount</th>
-                                    <th className="px-3 py-3 text-center text-xs font-semibold text-gray-700 w-16"></th>
+                                    <th className="!px-2 !py-3 text-right text-xs font-semibold text-gray-700 w-20" title="Per-line discount % (stacks on top of header discount)">Disc %</th>
+                                    <th className="!px-2 !py-3 text-right text-xs font-semibold text-gray-700 w-20" title="Per-line tax % (overrides header rate when > 0)">Tax %</th>
+                                    <th className="!px-4 !py-3 text-right text-xs font-semibold text-gray-700 w-28">Amount</th>
+                                    <th className="!px-3 !py-3 text-center text-xs font-semibold text-gray-700 w-16"></th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200">
@@ -1519,18 +1522,18 @@ export default function InvoiceFormPage() {
                 </div>
 
                 {/* Payment Options Section */}
-                <div className="border-t-2 border-gray-200 pt-8 mt-8">
+                <div className="border-t-2 border-gray-200 !pt-8">
                     <h3 className="text-sm font-semibold text-gray-700 mb-6 flex items-center gap-2">
                         <div className="w-2 h-6 bg-[#4F8EF7]"></div>
                         Payment & terms
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 bg-gray-50 p-6 rounded-xl border-2 border-dashed border-gray-300">
-                        <div className="space-y-3">
-                            <label className="block text-xs font-semibold text-gray-500">Payment status</label>
+                        <div className="flex flex-col gap-2">
+                            <label className="block text-xs font-semibold text-gray-500 !pl-4">Payment status</label>
                             <select
                                 value={formData.paymentStatus}
                                 onChange={(e) => setFormData(p => ({ ...p, paymentStatus: e.target.value as any, paymentMethod: '', amountPaid: 0 }))}
-                                className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-bold focus:border-[#4F8EF7] outline-none bg-white transition-all"
+                                className="w-full border-2 border-gray-300 rounded-lg !px-4 !py-3 text-sm font-bold focus:border-[#4F8EF7] outline-none bg-white transition-all"
                             >
                                 <option value="Unpaid">Unpaid (Full Credit)</option>
                                 <option value="Paid">Paid (Full Payment)</option>
@@ -1595,8 +1598,8 @@ export default function InvoiceFormPage() {
                     </div>
 
                     {/* Notes & terms — moved inside Payment & notes section */}
-                    <div className="mt-6">
-                        <label className="block text-xs font-semibold text-gray-500 mb-3">
+                    <div className="!mt-6 flex flex-col gap-2">
+                        <label className="block text-xs font-semibold text-gray-500 !pl-4">
                             Notes &amp; terms
                         </label>
                         <textarea
@@ -1604,7 +1607,7 @@ export default function InvoiceFormPage() {
                             onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
                             rows={6}
                             placeholder="Add terms & conditions, delivery notes, or internal comments..."
-                            className="w-full border-2 border-gray-300 rounded-xl px-4 py-3 text-sm font-medium focus:border-[#4F8EF7] focus:ring-4 focus:ring-[#4F8EF7]/5 outline-none resize-none transition-all shadow-inner bg-gray-50/50"
+                            className="w-full border-2 border-gray-300 rounded-xl !px-4 !py-3 text-sm font-medium focus:border-[#4F8EF7] focus:ring-4 focus:ring-[#4F8EF7]/5 outline-none resize-none transition-all shadow-inner bg-gray-50/50"
                         />
                     </div>
                 </div>
