@@ -1631,7 +1631,7 @@ export default function InvoiceFormPage() {
                             style={{ border: '0.5px solid var(--color-border-tertiary)' }}
                         >
                             <div
-                                className="px-6 py-4"
+                                className="!p-6"
                                 style={{ background: 'var(--color-background-secondary)' }}
                             >
                                 <h4
@@ -1641,7 +1641,7 @@ export default function InvoiceFormPage() {
                                     Summary &amp; totals
                                 </h4>
                             </div>
-                            <div className="p-6 space-y-4">
+                            <div className="!p-6 space-y-4">
                                 <div className="flex justify-between items-center group">
                                     <span className="text-xs font-medium text-gray-500 group-hover:text-gray-900 transition-colors">Subtotal</span>
                                     <span className="text-lg font-mono font-black text-gray-900">{formData.subtotal.toLocaleString()}</span>
