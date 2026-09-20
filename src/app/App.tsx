@@ -564,7 +564,7 @@ function App() {
             <div className="flex items-center gap-2 flex-shrink-0">
               {/* FIX 4 — Live badge with pulsing green dot. */}
               <div
-                className="inline-flex items-center gap-[5px] rounded-full font-semibold flex-shrink-0"
+                className="inline-flex items-center gap-[5px] rounded-full font-semibold flex-shrink-0 ml-2"
                 style={{
                   background: 'rgba(34,197,94,.12)',
                   border: '1px solid rgba(34,197,94,.2)',
