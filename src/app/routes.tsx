@@ -67,6 +67,8 @@ import ExpenseMileageTracker from '../pages/Accounts/ExpenseMileageTracker';
 import ExpenseReports from '../pages/Accounts/ExpenseReports';
 // STEP 10 — Expense Settings (new route).
 import ExpenseSettingsPage from '../pages/Accounts/ExpenseSettingsPage';
+import Collections from '../pages/Finance/Collections';
+import CollectionsDriver from '../pages/Finance/CollectionsDriver';
 import PayrollManagement from '../pages/Accounts/PayrollManagement';
 import PurchasesDashboard from '../pages/Purchases/PurchasesDashboard';
 import PurchaseOrderForm from '../pages/Purchases/PurchaseOrderForm';
@@ -111,7 +113,7 @@ import AnomalyDetection from '../pages/AI/AnomalyDetection';
 import AgentHub from '../pages/Agents/AgentHub';
 import NewsIntelligence from '../pages/News/NewsIntelligence';
 import MarketingHub from '../pages/Marketing/MarketingHub';
-import CreditIntelligence from '../pages/Credit/CreditIntelligence';
+import CreditDataSources from '../pages/Settings/CreditDataSources';
 import CRMPage from '../pages/CRM/CRM'; // CRM exports as 'CRM'
 import TaxSettings from '../pages/TaxSystem/TaxSettings';
 import TaxEngine from '../pages/TaxSystem/TaxEngine';
@@ -140,7 +142,9 @@ import VoiceCoachingRules from '../pages/Voice/CoachingRules';
 import VoiceTenantOnboard from '../pages/Voice/TenantOnboard';
 import DataMigration from '../pages/Migration/DataMigration'; // CRM exports as 'CRM'
 import AIContentStudio from '../pages/Marketing/AIContentStudio';
-import { CustomerSegments, CampaignManager, MarketingAnalytics } from '../pages/Marketing/MarketingPages';
+import { CustomerSegments } from '../pages/Marketing/MarketingPages';
+import MarketingQueue from '../pages/Marketing/MarketingQueue';
+import MarketingStudio from '../pages/Marketing/MarketingStudio';
 import CustomerServiceAgent from '../pages/Agents/CustomerServiceAgent';
 import BusinessAdvisorAgent from '../pages/Agents/BusinessAdvisorAgent';
 import EmailReplyAgent from '../pages/Agents/EmailReplyAgent';
@@ -380,6 +384,8 @@ export const AppRoutes = () => {
             <Route path="/finance/expenses/mileage" element={<ExpenseMileageTracker />} />
             <Route path="/finance/expenses/reports" element={<ExpenseReports />} />
             <Route path="/finance/expenses/settings" element={<ExpenseSettingsPage />} />
+            <Route path="/finance/collections" element={<Collections />} />
+            <Route path="/finance/collections/driver" element={<CollectionsDriver />} />
             <Route path="/products/reports" element={<InventoryReports />} />
             <Route path="/inventory/adjustments" element={<InventoryAdjustment />} />
             <Route path="/reports/sales" element={<ProfitabilityReports />} />
@@ -392,6 +398,7 @@ export const AppRoutes = () => {
             <Route path="/reports/demand-forecast" element={<AccountingSetupRequired />} />
             <Route path="/logistics/tracking" element={<VanTracking />} />
             <Route path="/logistics/route-planning" element={<RoutePlanning />} />
+            <Route path="/settings/credit-sources" element={<CreditDataSources />} />
             </Route>
 
             {/* Premium / AI — internal staff only (production lock retained) */}
@@ -408,12 +415,12 @@ export const AppRoutes = () => {
             <Route path="/voice/coaching-rules" element={<VoiceCoachingRules />} />
             <Route path="/marketing" element={<MarketingHub />} />
             <Route path="/marketing/studio" element={<AIContentStudio />} />
+            <Route path="/marketing/studio/:postId" element={<MarketingStudio />} />
             <Route path="/marketing/segments" element={<CustomerSegments />} />
-            <Route path="/marketing/campaigns" element={<CampaignManager />} />
-            <Route path="/marketing/analytics" element={<MarketingAnalytics />} />
+            <Route path="/marketing/campaigns" element={<MarketingQueue />} />
             </Route>
+            <Route path="/credit" element={<Navigate to="/settings/credit-sources" replace />} />
             <Route element={<ProtectedRoute roles={SALES_INTEL_ROLES} />}>
-            <Route path="/credit" element={<CreditIntelligence />} />
             <Route path="/crm" element={<CRMPage />} />
             <Route path="/amazon" element={<AmazonIntegration />} />
             </Route>

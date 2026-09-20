@@ -14,6 +14,7 @@ function SearchableSelect({
     displayKey = 'name',
     disabled = false,
     theme = 'light',
+    className,
 }: {
     options: any[];
     value: string;
@@ -22,6 +23,8 @@ function SearchableSelect({
     displayKey?: string;
     disabled?: boolean;
     theme?: SearchableSelectTheme;
+    /** Optional extra classes on the trigger button. Defaults unchanged for other screens. */
+    className?: string;
 }) {
     const [isOpen, setIsOpen] = useState(false);
     const [search, setSearch] = useState('');
@@ -184,7 +187,7 @@ function SearchableSelect({
                 type="button"
                 onClick={() => !disabled && setIsOpen(!isOpen)}
                 disabled={disabled}
-                className={buttonClass}
+                className={[buttonClass, className].filter(Boolean).join(' ')}
                 style={buttonStyle}
             >
                 <span className={selectedTextClass} style={selectedTextStyle}>

@@ -421,15 +421,122 @@ async function mockHandler<T>(endpoint: string, options: RequestInit = {}): Prom
   throw new Error(`Mock endpoint not found: ${endpoint}`);
 }
 
-async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+export type CreditHoldMode = 'off' | 'warn' | 'block';
+
+export interface CreditHoldInvoice {
+  invoice_id: number;
+  invoice_number: string;
+  outstanding: number;
+  days_unpaid: number;
+}
+
+export interface CreditHoldDetail {
+  code?: string;
+  mode: CreditHoldMode;
+  held: boolean;
+  message?: string | null;
+  invoices?: CreditHoldInvoice[];
+  oldest_days?: number | null;
+  open_past_threshold?: number;
+  enforced?: boolean;
+  exempt_reason?: string | null;
+  manual?: boolean;
+  manual_reason?: string | null;
+  manual_set_by?: string | null;
+  manual_set_at?: string | null;
+}
+
+export interface ManualCreditHoldRow {
+  id: number;
+  name: string;
+  phone: string | null;
+  reason: string;
+  set_by: string;
+  set_at: string;
+}
+
+export interface ManualCreditHoldResponse extends CreditHoldDetail {
+  warning?: string | null;
+}
+
+export function isValidManualHoldReason(reason: string): boolean {
+  const trimmed = reason.trim();
+  return trimmed.length >= 3 && trimmed.length <= 255;
+}
+
+function formatApiErrorDetail(detail: unknown): string {
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => {
+        if (item && typeof item === 'object' && 'msg' in item) {
+          return String((item as { msg?: string }).msg);
+        }
+        return JSON.stringify(item);
+      })
+      .join('; ');
+  }
+  if (detail && typeof detail === 'object') return JSON.stringify(detail);
+  return 'Request failed';
+}
+
+export class ApiError extends Error {
+  readonly status: number;
+  readonly detail: unknown;
+
+  constructor(status: number, detail: unknown) {
+    super(formatApiErrorDetail(detail));
+    this.name = 'ApiError';
+    this.status = status;
+    this.detail = detail;
+  }
+
+  get creditHoldDetail(): CreditHoldDetail | null {
+    if (this.status !== 409 || !isCreditHoldDetail(this.detail)) return null;
+    return this.detail;
+  }
+}
+
+export function isCreditHoldDetail(detail: unknown): detail is CreditHoldDetail {
+  return (
+    detail != null &&
+    typeof detail === 'object' &&
+    'code' in detail &&
+    (detail as { code?: string }).code === 'credit_hold'
+  );
+}
+
+export function isCashPaymentMethod(method: string | null | undefined): boolean {
+  const m = (method ?? '').trim().toLowerCase();
+  return m === 'cash' || m === 'cod' || m.includes('cash on delivery');
+}
+
+/** Client-side cash exemption display for credit-hold banner on create forms. */
+export function displayCreditHold(
+  hold: CreditHoldDetail | null,
+  isCashPayment: boolean,
+): CreditHoldDetail | null {
+  if (!hold || !hold.held) return null;
+  if (isCashPayment) {
+    return { ...hold, enforced: false, exempt_reason: 'cash' };
+  }
+  return hold;
+}
+
+export type ApiRequestOptions = RequestInit & {
+  skipBillingRedirect?: boolean;
+};
+
+async function apiRequest<T>(endpoint: string, options: ApiRequestOptions = {}): Promise<T> {
+  const { skipBillingRedirect, ...fetchOptions } = options;
   const url = `${API_BASE_URL}${endpoint}`;
   const token = localStorage.getItem(ACCESS_TOKEN_KEY);
   const config: RequestInit = {
-    ...options,
+    ...fetchOptions,
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
+      ...fetchOptions.headers,
     },
   };
 
@@ -447,12 +554,18 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
         return mockHandler<T>(endpoint, options);
       }
       const error = await response.json().catch(() => ({ detail: 'Request failed' }));
+      if (response.status === 402 && skipBillingRedirect) {
+        throw new ApiError(402, error.detail ?? error);
+      }
       if (handlePaymentRequiredStatus(response.status, error.detail)) {
         throw new Error(
           typeof error.detail === 'string' ? error.detail : 'Your free trial has expired. Please upgrade to continue.',
         );
       }
-      throw new Error(error.detail || `HTTP ${response.status}`);
+      throw new ApiError(response.status, error.detail ?? error);
+    }
+    if (response.status === 204) {
+      return undefined as T;
     }
     return await response.json();
   } catch (error: any) {
@@ -468,21 +581,6 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
 // Customer APIs
 export const getCustomers = (): Promise<Customer[]> => apiRequest<Customer[]>('/customers/');
 export const getCustomer = (id: string): Promise<Customer> => apiRequest<Customer>(`/customers/${id}`);
-function formatApiErrorDetail(detail: unknown): string {
-  if (typeof detail === 'string') return detail;
-  if (Array.isArray(detail)) {
-    return detail
-      .map((item) => {
-        if (item && typeof item === 'object' && 'msg' in item) {
-          return String((item as { msg?: string }).msg);
-        }
-        return JSON.stringify(item);
-      })
-      .join('; ');
-  }
-  if (detail && typeof detail === 'object') return JSON.stringify(detail);
-  return 'Request failed';
-}
 
 /** POST /api/customers/ — trailing slash required (bare /customers 307 breaks fetch POST). */
 export async function createCustomer(data: Partial<Customer>): Promise<Customer> {
@@ -1339,3 +1437,749 @@ export const runDueRecurringInvoices = async (): Promise<number> => {
     }
     return count;
 };
+
+export type MarketingPlatform =
+  | 'linkedin' | 'instagram' | 'tiktok' | 'facebook'
+  | 'x' | 'youtube' | 'google' | 'email';
+
+// Only draft, approved and archived are settable through the API; scheduled and posted are Phase 2 and read-only.
+export type MarketingStatus =
+  | 'draft' | 'approved' | 'archived' | 'scheduled' | 'posted';
+
+export interface MarketingPost {
+  id: number;
+  title: string;
+  body: string;
+  platform: MarketingPlatform;
+  status: MarketingStatus;
+  generation_id: string | null;
+  source_context: { products?: string[]; customer_count?: number } | null;
+  model_used: string | null;
+  scheduled_for: string | null;
+  posted_at: string | null;
+  publora_post_group_id: string | null;
+  published_platform_id: string | null;
+  publish_error: string | null;
+  trigger_reason: string | null;
+  media_url: string | null;
+  media_file_name: string | null;
+  original_media_url: string | null;
+  publora_media_id: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export interface MarketingConnection {
+  platform_id: string;
+  platform: string;
+  username: string | null;
+  token_expires_at: string | null;
+}
+
+export const generateMarketingPosts = (params: {
+  platforms: MarketingPlatform[];
+  campaign_type: string;
+  post_topic: string;
+  brand_voice?: string;
+  target_audience?: string;
+}): Promise<MarketingPost[]> =>
+  apiRequest<MarketingPost[]>('/marketing/generate', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+
+export const listMarketingPosts = (params?: {
+  status?: MarketingStatus;
+  platform?: MarketingPlatform;
+  generation_id?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<MarketingPost[]> => {
+  const qs = new URLSearchParams();
+  if (params) {
+    const entries: [string, string | number | undefined][] = [
+      ['status', params.status],
+      ['platform', params.platform],
+      ['generation_id', params.generation_id],
+      ['limit', params.limit],
+      ['offset', params.offset],
+    ];
+    for (const [key, value] of entries) {
+      if (value === undefined || value === '') continue;
+      qs.set(key, String(value));
+    }
+  }
+  const suffix = qs.toString() ? `?${qs.toString()}` : '';
+  return apiRequest<MarketingPost[]>(`/marketing/posts${suffix}`);
+};
+
+export const getMarketingPost = (id: number): Promise<MarketingPost> =>
+  apiRequest<MarketingPost>(`/marketing/posts/${id}`);
+
+export const createMarketingPost = (params: {
+  title: string;
+  body?: string;
+  platform: MarketingPlatform;
+  generation_id?: string;
+}): Promise<MarketingPost> =>
+  apiRequest<MarketingPost>('/marketing/posts', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+
+export const updateMarketingPost = (
+  id: number,
+  params: {
+    title?: string;
+    body?: string;
+    status?: 'draft' | 'approved' | 'archived';
+  },
+): Promise<MarketingPost> =>
+  apiRequest<MarketingPost>(`/marketing/posts/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(params),
+  });
+
+export const deleteMarketingPost = (id: number): Promise<void> =>
+  apiRequest<void>(`/marketing/posts/${id}`, { method: 'DELETE' });
+
+export const listMarketingConnections = (): Promise<MarketingConnection[]> =>
+  apiRequest<MarketingConnection[]>('/marketing/connections');
+
+export const publishMarketingPost = (
+  id: number,
+  platform_id: string,
+): Promise<MarketingPost> =>
+  apiRequest<MarketingPost>(`/marketing/posts/${id}/publish`, {
+    method: 'POST',
+    body: JSON.stringify({ platform_id }),
+  });
+
+export async function uploadMarketingPostMedia(id: number, file: File): Promise<MarketingPost> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(`${API_BASE_URL}/marketing/posts/${id}/media`, {
+    method: 'POST',
+    body: formData,
+    headers,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Request failed' }));
+    if (handlePaymentRequiredStatus(response.status, error.detail)) {
+      throw new Error(
+        typeof error.detail === 'string' ? error.detail : 'Your free trial has expired. Please upgrade to continue.',
+      );
+    }
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function downloadMarketingPostMedia(id: number): Promise<Blob> {
+  const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(`${API_BASE_URL}/marketing/posts/${id}/media/download`, {
+    method: 'GET',
+    headers,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Request failed' }));
+    if (handlePaymentRequiredStatus(response.status, error.detail)) {
+      throw new Error(
+        typeof error.detail === 'string' ? error.detail : 'Your free trial has expired. Please upgrade to continue.',
+      );
+    }
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.blob();
+}
+
+export const deleteMarketingPostMedia = (id: number): Promise<MarketingPost> =>
+  apiRequest<MarketingPost>(`/marketing/posts/${id}/media`, { method: 'DELETE' });
+
+export type MarketingImageShape = 'square' | 'portrait' | 'landscape' | 'story';
+export type MarketingImageQuality = 'standard' | 'quality';
+export type MarketingImageCount = 1 | 2 | 4;
+
+export interface MarketingImageCandidate {
+  id: number;
+  url: string | null;
+  shape: string;
+  quality: string;
+  source: string;
+  created_at: string;
+}
+
+export interface MarketingCandidateBatch {
+  post_id: number;
+  candidates: MarketingImageCandidate[];
+}
+
+export function isMarketingCandidateBatch(
+  result: MarketingPost | MarketingCandidateBatch,
+): result is MarketingCandidateBatch {
+  return 'candidates' in result && Array.isArray(result.candidates);
+}
+
+export const generateMarketingPostImage = (
+  id: number,
+  prompt: string,
+  shape: MarketingImageShape = 'square',
+  quality: MarketingImageQuality = 'standard',
+  count: MarketingImageCount = 1,
+): Promise<MarketingPost | MarketingCandidateBatch> =>
+  apiRequest<MarketingPost | MarketingCandidateBatch>(`/marketing/posts/${id}/generate-image`, {
+    method: 'POST',
+    body: JSON.stringify({ prompt, shape, quality, count }),
+  });
+
+export const editMarketingPostImage = (
+  id: number,
+  prompt: string,
+  shape: MarketingImageShape = 'square',
+  quality: MarketingImageQuality = 'standard',
+  count: MarketingImageCount = 1,
+): Promise<MarketingPost | MarketingCandidateBatch> =>
+  apiRequest<MarketingPost | MarketingCandidateBatch>(`/marketing/posts/${id}/edit-image`, {
+    method: 'POST',
+    body: JSON.stringify({ prompt, shape, quality, count }),
+  });
+
+export const pickMarketingCandidate = (
+  id: number,
+  candidateId: number,
+): Promise<MarketingPost> =>
+  apiRequest<MarketingPost>(`/marketing/posts/${id}/media/pick`, {
+    method: 'POST',
+    body: JSON.stringify({ candidate_id: candidateId }),
+  });
+
+export const listMarketingCandidates = (id: number): Promise<MarketingCandidateBatch> =>
+  apiRequest<MarketingCandidateBatch>(`/marketing/posts/${id}/media/candidates`);
+
+export const discardMarketingCandidates = (id: number): Promise<{ deleted: number }> =>
+  apiRequest<{ deleted: number }>(`/marketing/posts/${id}/media/candidates`, {
+    method: 'DELETE',
+  });
+
+export const revertMarketingPostImage = (id: number): Promise<MarketingPost> =>
+  apiRequest<MarketingPost>(`/marketing/posts/${id}/revert-image`, {
+    method: 'POST',
+  });
+
+export type MarketingVideoStatus = 'queued' | 'rendering' | 'ready' | 'failed';
+export type MarketingVideoCamera = 'push_in' | 'arc' | 'pan' | 'locked';
+export type MarketingVideoScene = 'lights' | 'breeze' | 'particles' | 'minimal';
+export type MarketingVideoMood = 'warm' | 'cool' | 'neutral';
+export type MarketingVideoResolution = '480p' | '580p' | '720p';
+export type MarketingVideoDuration = 5 | 8 | 10;
+export type MarketingVideoCaptionPosition = 'top' | 'bottom';
+export type MarketingVideoVoice = 'Craig (en)' | 'Mark (en)' | 'Sarah (en)' | 'Ashley (en)';
+
+export interface MarketingVideo {
+  id: number;
+  post_id: number;
+  status: MarketingVideoStatus;
+  preset: string;
+  camera: string | null;
+  scene: string | null;
+  mood: string | null;
+  resolution: string;
+  duration_seconds: number;
+  aspect_ratio: string;
+  seed: number | null;
+  custom_prompt: string | null;
+  caption: string | null;
+  caption_position: string | null;
+  voice_script: string | null;
+  voice_name: string | null;
+  lipsync: boolean;
+  error_message: string | null;
+  url: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export const generateMarketingPostVideo = (
+  id: number,
+  body: {
+    camera?: MarketingVideoCamera;
+    scene?: MarketingVideoScene;
+    mood?: MarketingVideoMood;
+    custom_prompt?: string | null;
+    resolution?: MarketingVideoResolution;
+    duration_seconds?: MarketingVideoDuration;
+    seed?: number | null;
+    caption?: string | null;
+    caption_position?: MarketingVideoCaptionPosition;
+    voice_script?: string | null;
+    voice_name?: MarketingVideoVoice;
+    lipsync?: boolean;
+  } = {},
+): Promise<MarketingVideo> =>
+  apiRequest<MarketingVideo>(`/marketing/posts/${id}/generate-video`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const listMarketingPostVideos = (id: number): Promise<MarketingVideo[]> =>
+  apiRequest<MarketingVideo[]>(`/marketing/posts/${id}/videos`);
+
+export const deleteMarketingPostVideo = (postId: number, videoId: number): Promise<void> =>
+  apiRequest<void>(`/marketing/posts/${postId}/videos/${videoId}`, {
+    method: 'DELETE',
+  });
+
+export type MarketingAdStatus =
+  | 'draft'
+  | 'approved'
+  | 'rendering'
+  | 'assembling'
+  | 'ready'
+  | 'failed';
+
+export type MarketingAdSceneStatus = 'pending' | 'rendering' | 'ready' | 'failed';
+
+export type MarketingAdResolution = '720p' | '1080p';
+
+export type MarketingAdPresenterMode = 'none' | 'character';
+
+export type MarketingAdVoice = 'Craig (en)' | 'Mark (en)' | 'Sarah (en)' | 'Ashley (en)';
+
+export interface MarketingAdScene {
+  id: number;
+  position: number;
+  description: string;
+  voice_line: string | null;
+  lipsync: boolean;
+  status: MarketingAdSceneStatus;
+  error_message: string | null;
+  clip_url: string | null;
+}
+
+export interface MarketingAd {
+  id: number;
+  post_id: number;
+  idea: string;
+  scene_count: number;
+  aspect_ratio: string;
+  resolution: string;
+  voice_name: string | null;
+  presenter_mode?: MarketingAdPresenterMode;
+  status: MarketingAdStatus;
+  estimated_cost_usd: number;
+  error_message: string | null;
+  url: string | null;
+  created_at: string;
+  approved_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  scenes: MarketingAdScene[];
+}
+
+export interface BrandKit {
+  spoken_name: string | null;
+  voice_name: string | null;
+  presenter_url: string | null;
+  product_url: string | null;
+  presenter_consent_at: string | null;
+  presenter_kind?: 'photo';
+}
+
+export const listMarketingPostAds = (postId: number): Promise<MarketingAd[]> =>
+  apiRequest<MarketingAd[]>(`/marketing/posts/${postId}/ads`);
+
+export const getMarketingPostAd = (postId: number, adId: number): Promise<MarketingAd> =>
+  apiRequest<MarketingAd>(`/marketing/posts/${postId}/ads/${adId}`);
+
+export const createMarketingPostAd = (
+  postId: number,
+  body: {
+    idea: string;
+    scene_count: 3 | 6;
+    resolution?: MarketingAdResolution;
+    presenter_mode?: MarketingAdPresenterMode;
+    product_hint?: string | null;
+    voice_name?: MarketingAdVoice | null;
+    aspect_ratio?: string;
+  },
+): Promise<MarketingAd> =>
+  apiRequest<MarketingAd>(`/marketing/posts/${postId}/ads`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const patchMarketingAdScene = (
+  postId: number,
+  adId: number,
+  sceneId: number,
+  body: {
+    description?: string;
+    voice_line?: string;
+    lipsync?: boolean;
+  },
+): Promise<MarketingAd> =>
+  apiRequest<MarketingAd>(`/marketing/posts/${postId}/ads/${adId}/scenes/${sceneId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+
+export const approveMarketingAd = (postId: number, adId: number): Promise<MarketingAd> =>
+  apiRequest<MarketingAd>(`/marketing/posts/${postId}/ads/${adId}/approve`, {
+    method: 'POST',
+  });
+
+export const deleteMarketingAd = (postId: number, adId: number): Promise<void> =>
+  apiRequest<void>(`/marketing/posts/${postId}/ads/${adId}`, {
+    method: 'DELETE',
+  });
+
+export const getBrandKit = (): Promise<BrandKit> =>
+  apiRequest<BrandKit>('/marketing/brand-kit');
+
+export const updateBrandKit = (body: {
+  spoken_name?: string | null;
+  voice_name?: MarketingAdVoice | null;
+}): Promise<BrandKit> =>
+  apiRequest<BrandKit>('/marketing/brand-kit', {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+
+export async function uploadBrandKitProduct(file: File): Promise<BrandKit> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(`${API_BASE_URL}/marketing/brand-kit/product`, {
+    method: 'POST',
+    body: formData,
+    headers,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Request failed' }));
+    if (handlePaymentRequiredStatus(response.status, error.detail)) {
+      throw new Error(
+        typeof error.detail === 'string'
+          ? error.detail
+          : 'Your free trial has expired. Please upgrade to continue.',
+      );
+    }
+    throw new Error(
+      typeof error.detail === 'string' ? error.detail : `HTTP ${response.status}`,
+    );
+  }
+
+  return response.json();
+}
+
+// ─── Collections (Phase 3.2) ───────────────────────────────────────────────
+
+export interface CollectionsGroupSummary {
+  customers: number;
+  invoices: number;
+  total: number;
+}
+
+export interface CollectionsGroups {
+  1: CollectionsGroupSummary;
+  2: CollectionsGroupSummary;
+  3: CollectionsGroupSummary;
+}
+
+export interface CollectionsRow {
+  invoice_id: number;
+  invoice_number: string;
+  customer_id: number;
+  customer_name: string;
+  customer_phone: string | null;
+  customer_email: string | null;
+  outstanding: number;
+  days_unpaid: number;
+  last_order: string;
+  group: 1 | 2 | 3;
+  action: string;
+  statement_message: string;
+  driver_line: string | null;
+  phone_missing: boolean;
+}
+
+export interface CollectionsReport {
+  as_of: string;
+  settings_used: CollectionsSettings;
+  groups: CollectionsGroups;
+  total: number;
+  rows: CollectionsRow[];
+}
+
+export interface CollectionsSettings {
+  sender_name: string;
+  zelle: string;
+  card_phone: string;
+  cheque_payee: string;
+  group1_days: number;
+  group2_days: number;
+  min_balance: number;
+  late_days: number;
+  credit_hold_mode: CreditHoldMode;
+  credit_hold_days: number;
+}
+
+export type CollectionsSettingsUpdate = Partial<CollectionsSettings>;
+
+export interface CollectionsLogEntry {
+  id: number;
+  tenant_id: number;
+  invoice_id: number;
+  customer_id: number;
+  user_id: number;
+  note: string;
+  promised_date: string | null;
+  promised_method: string | null;
+  status: string | null;
+  created_at: string | null;
+}
+
+export interface CollectionsLogCreate {
+  invoice_id: number;
+  note: string;
+  promised_date?: string | null;
+  promised_method?: string | null;
+  status?: string | null;
+}
+
+export const getCollectionsReport = (asOf?: string): Promise<CollectionsReport> => {
+  const qs = asOf ? `?as_of=${encodeURIComponent(asOf)}` : '';
+  return apiRequest<CollectionsReport>(`/credit/collections${qs}`);
+};
+
+export function getCollectionsCsvUrl(asOf?: string): string {
+  const qs = asOf ? `?as_of=${encodeURIComponent(asOf)}` : '';
+  return `${API_BASE_URL}/credit/collections.csv${qs}`;
+}
+
+export async function downloadCollectionsCsv(asOf?: string): Promise<void> {
+  const response = await authFetch(getCollectionsCsvUrl(asOf));
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Download failed' }));
+    throw new Error(
+      typeof error.detail === 'string' ? error.detail : `HTTP ${response.status}`,
+    );
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = 'collections.csv';
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+export const getCollectionsSettings = (): Promise<CollectionsSettings> =>
+  apiRequest<CollectionsSettings>('/credit/collections/settings');
+
+export const updateCollectionsSettings = (
+  body: CollectionsSettingsUpdate,
+): Promise<CollectionsSettings> =>
+  apiRequest<CollectionsSettings>('/credit/collections/settings', {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+
+export const createCollectionsLog = (
+  body: CollectionsLogCreate,
+): Promise<CollectionsLogEntry> =>
+  apiRequest<CollectionsLogEntry>('/credit/collections/log', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const listCollectionsLog = (invoiceId: number): Promise<CollectionsLogEntry[]> =>
+  apiRequest<CollectionsLogEntry[]>(
+    `/credit/collections/log?invoice_id=${encodeURIComponent(String(invoiceId))}`,
+  );
+
+export const getCreditHold = (customerId: string | number): Promise<CreditHoldDetail> =>
+  apiRequest<CreditHoldDetail>(`/credit/hold/${encodeURIComponent(String(customerId))}`);
+
+export const putManualCreditHold = (
+  customerId: string | number,
+  reason: string,
+): Promise<ManualCreditHoldResponse> =>
+  apiRequest<ManualCreditHoldResponse>(`/credit/hold/${encodeURIComponent(String(customerId))}`, {
+    method: 'PUT',
+    body: JSON.stringify({ reason: reason.trim() }),
+  });
+
+export const deleteManualCreditHold = (
+  customerId: string | number,
+): Promise<CreditHoldDetail> =>
+  apiRequest<CreditHoldDetail>(`/credit/hold/${encodeURIComponent(String(customerId))}`, {
+    method: 'DELETE',
+  });
+
+export const getManualCreditHolds = (): Promise<ManualCreditHoldRow[]> =>
+  apiRequest<ManualCreditHoldRow[]>('/credit/holds');
+
+export type PaymentScoreBand = 'GREEN' | 'YELLOW' | 'RED' | 'UNRATED';
+
+export interface PaymentScoreReason {
+  code: string;
+  text: string;
+  points: number;
+}
+
+export interface PaymentScore {
+  id: number;
+  customer_id: number;
+  score: number | null;
+  band: PaymentScoreBand;
+  reasons: PaymentScoreReason[];
+  metrics?: Record<string, unknown> & {
+    score_version?: string;
+    suggested_limit?: number;
+  };
+  suggested_limit: number;
+  as_of: string | null;
+  computed_at: string | null;
+}
+
+export interface CreditProviderSettings {
+  connected: boolean;
+  environment: string | null;
+  username_masked: string | null;
+  last_auth_ok_at: string | null;
+  last_error: string | null;
+}
+
+export interface CreditsafeMatch {
+  connect_id: string | null;
+  name: string | null;
+  address?: Record<string, unknown>;
+  status?: string | null;
+  reg_no?: string | null;
+}
+
+export interface CreditsafeSearchResponse {
+  matches: CreditsafeMatch[];
+  searches_used: number;
+}
+
+export interface CreditCheckRow {
+  id: number;
+  tenant_id: number;
+  customer_id: number | null;
+  company_name: string;
+  connect_id: string;
+  country: string;
+  environment: string;
+  credit_score: number | null;
+  risk_rating: string | null;
+  provider_credit_limit: number | null;
+  currency: string | null;
+  checked_by_user_id: number | null;
+  created_at: string | null;
+}
+
+export interface CreditsafeReportResponse {
+  check_id: number;
+  verified_credit_report: boolean;
+  data_source: string;
+  environment: string;
+  credit_score: number | null;
+  risk_rating: string | null;
+  provider_credit_limit: number | null;
+  currency: string | null;
+  company_name: string;
+  report: unknown;
+}
+
+export interface CreditCheckDetail extends CreditCheckRow {
+  report_json?: unknown;
+}
+
+export const getPaymentScore = (customerId: string | number): Promise<PaymentScore> =>
+  apiRequest<PaymentScore>(`/credit/score/${encodeURIComponent(String(customerId))}`);
+
+export const recomputePaymentScore = (customerId: string | number): Promise<PaymentScore> =>
+  apiRequest<PaymentScore>(`/credit/score/${encodeURIComponent(String(customerId))}/recompute`, {
+    method: 'POST',
+  });
+
+export const getPaymentScoreHistory = (
+  customerId: string | number,
+): Promise<PaymentScore[]> =>
+  apiRequest<PaymentScore[]>(
+    `/credit/score/${encodeURIComponent(String(customerId))}/history`,
+  );
+
+export const getCreditProviderSettings = (): Promise<CreditProviderSettings> =>
+  apiRequest<CreditProviderSettings>('/ai/credit/settings', { skipBillingRedirect: true });
+
+export const saveCreditProviderSettings = (payload: {
+  username: string;
+  password: string;
+  environment: 'sandbox' | 'production';
+}): Promise<CreditProviderSettings> =>
+  apiRequest<CreditProviderSettings>('/ai/credit/settings', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+
+export const deleteCreditProviderSettings = (): Promise<{ ok: boolean }> =>
+  apiRequest<{ ok: boolean }>('/ai/credit/settings', {
+    method: 'DELETE',
+  });
+
+export const getCreditChecks = (customerId?: string | number): Promise<CreditCheckRow[]> =>
+  apiRequest<CreditCheckRow[]>('/ai/credit/history', { skipBillingRedirect: true }).then((rows) => {
+    if (customerId == null) return rows;
+    const cid = Number(customerId);
+    return rows.filter((row) => row.customer_id === cid);
+  });
+
+export const searchCreditsafe = (
+  companyName: string,
+  options?: { country?: string; state?: string; city?: string },
+): Promise<CreditsafeSearchResponse> =>
+  apiRequest<CreditsafeSearchResponse>('/ai/credit/search', {
+    method: 'POST',
+    body: JSON.stringify({
+      company_name: companyName,
+      country: options?.country ?? 'US',
+      state: options?.state ?? '',
+      city: options?.city ?? '',
+    }),
+  });
+
+export const pullCreditsafeReport = (payload: {
+  connectId: string;
+  companyName: string;
+  customerId?: string | number;
+}): Promise<CreditsafeReportResponse> =>
+  apiRequest<CreditsafeReportResponse>('/ai/credit/report', {
+    method: 'POST',
+    body: JSON.stringify({
+      connect_id: payload.connectId,
+      company_name: payload.companyName,
+      customer_id: payload.customerId != null ? Number(payload.customerId) : undefined,
+    }),
+  });
+
+export const getCreditCheckDetail = (checkId: number): Promise<CreditCheckDetail> =>
+  apiRequest<CreditCheckDetail>(`/ai/credit/history/${encodeURIComponent(String(checkId))}`);

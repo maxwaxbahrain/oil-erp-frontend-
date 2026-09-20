@@ -1,7 +1,25 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { ArrowLeft, Plus, Save, FileText, UserPlus, X, Download } from 'lucide-react';
-import { getCustomers, getInvoices, getProducts, createCustomer, getVans, API_BASE_URL, type Customer, type Product, type Van } from '../../services/api';
+import {
+    getCustomers,
+    getInvoices,
+    getProducts,
+    createCustomer,
+    getVans,
+    getCreditHold,
+    API_BASE_URL,
+    ApiError,
+    displayCreditHold,
+    isCashPaymentMethod,
+    type CreditHoldDetail,
+    type Customer,
+    type Product,
+    type Van,
+} from '../../services/api';
+import CreditHoldBanner from '../../components/CreditHoldBanner';
+import { useAuth } from '../../contexts/AuthContext';
+import { MANAGEMENT_ROLES } from '../../utils/rbac';
 import { getCustomerPrice } from '../../services/api';
 import { getSalesmen, type SalesmanPickerOption } from '../../services/employeeService';
 import { authFetch } from '../../api/axios';
@@ -130,6 +148,7 @@ type InvoiceSaveExtras = {
     remaining_balance: number;
     status: string;
     deposit_account_id?: string;
+    credit_hold_override?: boolean;
 };
 
 async function persistInvoiceWithSalesmanFk(
@@ -184,6 +203,9 @@ async function persistInvoiceWithSalesmanFk(
     if (formData.salesmanEmployeeId) {
         payload.salesmanEmployeeId = Number(formData.salesmanEmployeeId);
     }
+    if (extras.credit_hold_override) {
+        payload.creditHoldOverride = true;
+    }
 
     const url = isEditMode && editId && editId !== 'new'
         ? `${API_BASE_URL}/invoices/${encodeURIComponent(String(editId))}`
@@ -196,14 +218,14 @@ async function persistInvoiceWithSalesmanFk(
         body: JSON.stringify(payload),
     });
     if (!r.ok) {
-        let detail = `Request failed (${r.status})`;
+        let detail: unknown = `Request failed (${r.status})`;
         try {
             const body = await r.json();
-            if (typeof body?.detail === 'string') detail = body.detail;
+            detail = body?.detail ?? body;
         } catch {
             /* ignore */
         }
-        throw new Error(detail);
+        throw new ApiError(r.status, detail);
     }
     const raw = (await r.json()) as Record<string, unknown>;
     return {
@@ -289,6 +311,8 @@ function fuzzyMatchByName<T extends { name: string }>(query: string, list: T[]):
 export default function InvoiceFormPage() {
     const navigate = useNavigate();
     const location = useLocation();
+    const { hasRole } = useAuth();
+    const canOverrideCreditHold = hasRole(...MANAGEMENT_ROLES);
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
     const [loading, setLoading] = useState(false);
@@ -309,6 +333,8 @@ export default function InvoiceFormPage() {
     // ITEM 7F — Bank/Cash accounts loaded from COA (1110 "Cash & Bank" subtree).
     // Powers the inline Record Payment "Deposit To Account" dropdown.
     const [bankAccounts, setBankAccounts] = useState<Account[]>([]);
+    const [creditHold, setCreditHold] = useState<CreditHoldDetail | null>(null);
+    const lastSaveKindRef = useRef<'draft' | 'save'>('save');
 
     const { id: invoiceIdParam } = useParams<{ id: string }>();
     const locationState = location.state as {
@@ -792,6 +818,29 @@ export default function InvoiceFormPage() {
         }));
     };
 
+    useEffect(() => {
+        let cancelled = false;
+        if (!formData.customerId) {
+            setCreditHold(null);
+            return;
+        }
+        getCreditHold(formData.customerId)
+            .then((hold) => {
+                if (!cancelled) setCreditHold(hold.held ? hold : null);
+            })
+            .catch(() => {
+                if (!cancelled) setCreditHold(null);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [formData.customerId]);
+
+    const displayHold = useMemo(
+        () => displayCreditHold(creditHold, isCashPaymentMethod(formData.paymentMethod)),
+        [creditHold, formData.paymentMethod],
+    );
+
     // ITEM 7G — Download a real PDF of the invoice. Works from in-memory
     // form state so the user can preview before saving (no save side-effects).
     // Mirrors the payslip/receipt PDF utilities.
@@ -835,7 +884,18 @@ export default function InvoiceFormPage() {
 
     // FIX 3 — Save the invoice with status 'Draft' (no full validation).
     // Minimal sanity check: at least a customer OR a line item.
-    const handleSaveDraft = async () => {
+    const persistInvoice = async (extras: InvoiceSaveExtras) => {
+        const editId = existingInvoice?.id || invoiceIdParam;
+        return persistInvoiceWithSalesmanFk(
+            Boolean(isEditMode && editId && editId !== 'new'),
+            editId,
+            formData,
+            extras,
+            vanOptions,
+        );
+    };
+
+    const handleSaveDraft = async (creditHoldOverride = false) => {
         const hasCustomer = !!formData.customerId || !!formData.customerName?.trim();
         const hasLineItem = formData.lineItems?.some(i => i.product && i.quantity > 0);
         if (!hasCustomer && !hasLineItem) {
@@ -843,34 +903,33 @@ export default function InvoiceFormPage() {
             return;
         }
         try {
+            lastSaveKindRef.current = 'draft';
             setSaving(true);
-            const editId = existingInvoice?.id || invoiceIdParam;
-            const saved = await persistInvoiceWithSalesmanFk(
-                Boolean(isEditMode && editId && editId !== 'new'),
-                editId,
-                formData,
-                {
-                    payment_status: 'Unpaid',
-                    payment_method: formData.paymentMethod,
-                    amount_paid: 0,
-                    remaining_balance: formData.grandTotal,
-                    status: 'Draft',
-                    deposit_account_id: formData.depositAccountId || undefined,
-                },
-                vanOptions,
-            );
+            const saved = await persistInvoice({
+                payment_status: 'Unpaid',
+                payment_method: formData.paymentMethod,
+                amount_paid: 0,
+                remaining_balance: formData.grandTotal,
+                status: 'Draft',
+                deposit_account_id: formData.depositAccountId || undefined,
+                credit_hold_override: creditHoldOverride,
+            });
             const invNum = saved.invoiceNumber || formData.invoiceNumber;
             setSavedNotice(`${invNum} (draft)`);
             setTimeout(() => navigate('/sales/invoices'), 1500);
-        } catch (error: any) {
+        } catch (error: unknown) {
+            if (error instanceof ApiError && error.creditHoldDetail) {
+                setCreditHold(error.creditHoldDetail);
+                return;
+            }
             console.error('Failed to save draft:', error);
-            alert(`Could not save draft: ${error?.message || 'try again.'}`);
+            alert(`Could not save draft: ${error instanceof Error ? error.message : 'try again.'}`);
         } finally {
             setSaving(false);
         }
     };
 
-    const handleSave = async () => {
+    const handleSave = async (creditHoldOverride = false) => {
         if (!formData.customerId && !formData.customerName) {
             alert('Please select a customer');
             return;
@@ -887,23 +946,18 @@ export default function InvoiceFormPage() {
         }
 
         try {
+            lastSaveKindRef.current = 'save';
             setSaving(true);
 
-            const editId = existingInvoice?.id || invoiceIdParam;
-            const savedInvoice = await persistInvoiceWithSalesmanFk(
-                Boolean(isEditMode && editId && editId !== 'new'),
-                editId,
-                formData,
-                {
-                    payment_status: formData.paymentStatus,
-                    payment_method: formData.paymentMethod,
-                    amount_paid: formData.paymentStatus === 'Paid' ? formData.grandTotal : formData.amountPaid,
-                    remaining_balance: formData.remainingBalance,
-                    status: formData.paymentStatus === 'Paid' ? 'Paid' : formData.paymentStatus === 'Advance Paid' ? 'Partial' : 'Unpaid',
-                    deposit_account_id: formData.depositAccountId || undefined,
-                },
-                vanOptions,
-            );
+            const savedInvoice = await persistInvoice({
+                payment_status: formData.paymentStatus,
+                payment_method: formData.paymentMethod,
+                amount_paid: formData.paymentStatus === 'Paid' ? formData.grandTotal : formData.amountPaid,
+                remaining_balance: formData.remainingBalance,
+                status: formData.paymentStatus === 'Paid' ? 'Paid' : formData.paymentStatus === 'Advance Paid' ? 'Partial' : 'Unpaid',
+                deposit_account_id: formData.depositAccountId || undefined,
+                credit_hold_override: creditHoldOverride,
+            });
 
             console.log('✅ Invoice saved:', savedInvoice);
 
@@ -926,9 +980,13 @@ export default function InvoiceFormPage() {
             setTimeout(() => {
                 navigate(`/customers/${formData.customerId}?tab=ledger`);
             }, 1500);
-        } catch (error: any) {
+        } catch (error: unknown) {
+            if (error instanceof ApiError && error.creditHoldDetail) {
+                setCreditHold(error.creditHoldDetail);
+                return;
+            }
             console.error('Failed to save invoice:', error);
-            alert(`❌ Failed to save invoice\n\n${error.message || 'Please try again.'}`);
+            alert(`❌ Failed to save invoice\n\n${error instanceof Error ? error.message : 'Please try again.'}`);
         } finally {
             setSaving(false);
         }
@@ -1092,7 +1150,7 @@ export default function InvoiceFormPage() {
                             Download PDF
                         </button>
                         <button
-                            onClick={handleSaveDraft}
+                            onClick={() => void handleSaveDraft()}
                             disabled={saving || !!savedNotice}
                             title="Save without submitting — fewer required fields"
                             style={{
@@ -1110,7 +1168,7 @@ export default function InvoiceFormPage() {
                             {saving ? 'Saving…' : 'Save as Draft'}
                         </button>
                         <button
-                            onClick={handleSave}
+                            onClick={() => void handleSave()}
                             disabled={saving || !!savedNotice}
                             style={{
                                 padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700,
@@ -1169,13 +1227,13 @@ export default function InvoiceFormPage() {
 
             {/* Form */}
             <div
-                className="bg-white rounded-xl shadow-md p-8 space-y-8"
+                className="bg-white rounded-xl shadow-md p-8 flex flex-col gap-8"
                 style={{ border: '0.5px solid var(--color-redwood-border, rgba(255,255,255,0.12))' }}
             >
                 {/* New: Salesman and Van Fields */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-6 border-b-2 border-gray-200">
-                    <div>
-                        <label className="text-xs font-semibold text-gray-600 mb-2 block">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 !pb-6 border-b-2 border-gray-200">
+                    <div className="flex flex-col gap-2">
+                        <label className="text-xs font-semibold text-gray-600 block !pl-4">
                             Salesman <span className="text-gray-400 font-normal">(optional)</span>
                         </label>
                         {salesmen.length === 0 ? (
@@ -1190,11 +1248,12 @@ export default function InvoiceFormPage() {
                                 placeholder="Search and select salesman..."
                                 displayKey="name"
                                 theme="dark"
+                                className="!px-4 !py-3 !border-2 border-gray-300"
                             />
                         )}
                     </div>
-                    <div>
-                        <label className="block text-xs font-semibold text-gray-600 mb-2">
+                    <div className="flex flex-col gap-2">
+                        <label className="block text-xs font-semibold text-gray-600 !pl-4">
                             Van / route
                         </label>
                         <SearchableSelect
@@ -1205,15 +1264,16 @@ export default function InvoiceFormPage() {
                             displayKey="name"
                             disabled={vansLoading}
                             theme="dark"
+                            className="!px-4 !py-3 !border-2 border-gray-300"
                         />
                     </div>
                 </div>
 
                 {/* Header Info */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-6 border-b-2 border-gray-200">
-                    <div className="space-y-4">
-                        <div>
-                            <div className="flex items-center justify-between mb-2">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 !pb-6 border-b-2 border-gray-200">
+                    <div className="flex flex-col gap-4">
+                        <div className="flex flex-col gap-2">
+                            <div className="flex items-center justify-between !pl-4">
                                 <label className="text-xs font-semibold text-gray-600">Customer <span className="text-red-500">*</span></label>
                                 <button type="button" onClick={() => setShowNewCustomer(true)}
                                     className="flex items-center gap-1 text-xs font-black text-orange-600 hover:text-orange-800 transition-all">
@@ -1228,6 +1288,7 @@ export default function InvoiceFormPage() {
                                 displayKey="name"
                                 disabled={loading}
                                 theme="dark"
+                                className="!px-4 !py-3 !border-2 border-gray-300"
                             />
                             {/* GAP D — customer avatar pill (visual enrichment below
                                 the SearchableSelect; cannot change what the select
@@ -1364,41 +1425,41 @@ export default function InvoiceFormPage() {
                             )}
                         </div>
 
-                        <div>
-                            <label className="block text-xs font-semibold text-gray-600 mb-2">
+                        <div className="flex flex-col gap-2">
+                            <label className="block text-xs font-semibold text-gray-600 !pl-4">
                                 Invoice date
                             </label>
                             <input
                                 type="date"
                                 value={formData.invoiceDate}
                                 onChange={(e) => setFormData(prev => ({ ...prev, invoiceDate: e.target.value }))}
-                                className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-bold focus:border-[#4F8EF7] focus:outline-none transition-all"
+                                className="w-full border-2 border-gray-300 rounded-lg !px-4 !py-3 text-sm font-bold focus:border-[#4F8EF7] focus:outline-none transition-all"
                             />
                         </div>
                     </div>
 
-                    <div className="space-y-4">
-                        <div>
-                            <label className="block text-xs font-semibold text-gray-600 mb-2">
+                    <div className="flex flex-col gap-4">
+                        <div className="flex flex-col gap-2">
+                            <label className="block text-xs font-semibold text-gray-600 !pl-4">
                                 Invoice number
                             </label>
                             <input
                                 type="text"
                                 value={formData.invoiceNumber}
                                 onChange={(e) => setFormData(prev => ({ ...prev, invoiceNumber: e.target.value }))}
-                                className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-mono font-black focus:border-[#4F8EF7] focus:outline-none transition-all"
+                                className="w-full border-2 border-gray-300 rounded-lg !px-4 !py-3 text-sm font-mono font-black focus:border-[#4F8EF7] focus:outline-none transition-all"
                             />
                         </div>
 
-                        <div>
-                            <label className="block text-xs font-semibold text-gray-600 mb-2">
+                        <div className="flex flex-col gap-2">
+                            <label className="block text-xs font-semibold text-gray-600 !pl-4">
                                 Due date
                             </label>
                             <input
                                 type="date"
                                 value={formData.dueDate}
                                 onChange={(e) => setFormData(prev => ({ ...prev, dueDate: e.target.value }))}
-                                className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-bold focus:border-[#4F8EF7] focus:outline-none transition-all"
+                                className="w-full border-2 border-gray-300 rounded-lg !px-4 !py-3 text-sm font-bold focus:border-[#4F8EF7] focus:outline-none transition-all"
                             />
                         </div>
                     </div>
@@ -1406,21 +1467,31 @@ export default function InvoiceFormPage() {
 
                 {/* Line Items */}
                 <div>
+                    {displayHold ? (
+                        <div className="mb-4">
+                            <CreditHoldBanner
+                                hold={displayHold}
+                                canOverride={canOverrideCreditHold}
+                                onOverride={() => void (lastSaveKindRef.current === 'draft'
+                                    ? handleSaveDraft(true) : handleSave(true))}
+                            />
+                        </div>
+                    ) : null}
                     <h3 className="text-sm font-semibold text-gray-700 mb-4">Line items</h3>
 
                     <div className="overflow-x-auto border-2 border-gray-200 rounded-lg">
                         <table className="w-full">
                             <thead className="bg-gray-100">
                                 <tr>
-                                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 w-[18%]">Product</th>
-                                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 w-[28%]">Description</th>
-                                    <th className="px-3 py-3 text-center text-xs font-semibold text-gray-700 w-20">Qty</th>
-                                    <th className="px-3 py-3 text-center text-xs font-semibold text-gray-700 w-28">Rate</th>
+                                    <th className="!px-4 !py-3 text-left text-xs font-semibold text-gray-700 w-[18%]">Product</th>
+                                    <th className="!px-4 !py-3 text-left text-xs font-semibold text-gray-700 w-[28%]">Description</th>
+                                    <th className="!px-3 !py-3 text-right text-xs font-semibold text-gray-700 w-20">Qty</th>
+                                    <th className="!px-3 !py-3 text-right text-xs font-semibold text-gray-700 w-28">Rate</th>
                                     {/* ITEM 7D — Per-line discount & tax. Optional; 0 = use header values. */}
-                                    <th className="px-2 py-3 text-center text-xs font-semibold text-gray-700 w-20" title="Per-line discount % (stacks on top of header discount)">Disc %</th>
-                                    <th className="px-2 py-3 text-center text-xs font-semibold text-gray-700 w-20" title="Per-line tax % (overrides header rate when > 0)">Tax %</th>
-                                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700 w-28">Amount</th>
-                                    <th className="px-3 py-3 text-center text-xs font-semibold text-gray-700 w-16"></th>
+                                    <th className="!px-2 !py-3 text-right text-xs font-semibold text-gray-700 w-20" title="Per-line discount % (stacks on top of header discount)">Disc %</th>
+                                    <th className="!px-2 !py-3 text-right text-xs font-semibold text-gray-700 w-20" title="Per-line tax % (overrides header rate when > 0)">Tax %</th>
+                                    <th className="!px-4 !py-3 text-right text-xs font-semibold text-gray-700 w-28">Amount</th>
+                                    <th className="!px-3 !py-3 text-center text-xs font-semibold text-gray-700 w-16"></th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200">
@@ -1451,18 +1522,18 @@ export default function InvoiceFormPage() {
                 </div>
 
                 {/* Payment Options Section */}
-                <div className="border-t-2 border-gray-200 pt-8 mt-8">
+                <div className="border-t-2 border-gray-200 !pt-8">
                     <h3 className="text-sm font-semibold text-gray-700 mb-6 flex items-center gap-2">
                         <div className="w-2 h-6 bg-[#4F8EF7]"></div>
                         Payment & terms
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 bg-gray-50 p-6 rounded-xl border-2 border-dashed border-gray-300">
-                        <div className="space-y-3">
-                            <label className="block text-xs font-semibold text-gray-500">Payment status</label>
+                        <div className="flex flex-col gap-2">
+                            <label className="block text-xs font-semibold text-gray-500 !pl-4">Payment status</label>
                             <select
                                 value={formData.paymentStatus}
                                 onChange={(e) => setFormData(p => ({ ...p, paymentStatus: e.target.value as any, paymentMethod: '', amountPaid: 0 }))}
-                                className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-bold focus:border-[#4F8EF7] outline-none bg-white transition-all"
+                                className="w-full border-2 border-gray-300 rounded-lg !px-4 !py-3 text-sm font-bold focus:border-[#4F8EF7] outline-none bg-white transition-all"
                             >
                                 <option value="Unpaid">Unpaid (Full Credit)</option>
                                 <option value="Paid">Paid (Full Payment)</option>
@@ -1527,8 +1598,8 @@ export default function InvoiceFormPage() {
                     </div>
 
                     {/* Notes & terms — moved inside Payment & notes section */}
-                    <div className="mt-6">
-                        <label className="block text-xs font-semibold text-gray-500 mb-3">
+                    <div className="!mt-6 flex flex-col gap-2">
+                        <label className="block text-xs font-semibold text-gray-500 !pl-4">
                             Notes &amp; terms
                         </label>
                         <textarea
@@ -1536,7 +1607,7 @@ export default function InvoiceFormPage() {
                             onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
                             rows={6}
                             placeholder="Add terms & conditions, delivery notes, or internal comments..."
-                            className="w-full border-2 border-gray-300 rounded-xl px-4 py-3 text-sm font-medium focus:border-[#4F8EF7] focus:ring-4 focus:ring-[#4F8EF7]/5 outline-none resize-none transition-all shadow-inner bg-gray-50/50"
+                            className="w-full border-2 border-gray-300 rounded-xl !px-4 !py-3 text-sm font-medium focus:border-[#4F8EF7] focus:ring-4 focus:ring-[#4F8EF7]/5 outline-none resize-none transition-all shadow-inner bg-gray-50/50"
                         />
                     </div>
                 </div>
@@ -1560,7 +1631,7 @@ export default function InvoiceFormPage() {
                             style={{ border: '0.5px solid var(--color-border-tertiary)' }}
                         >
                             <div
-                                className="px-6 py-4"
+                                className="!p-6"
                                 style={{ background: 'var(--color-background-secondary)' }}
                             >
                                 <h4
@@ -1570,7 +1641,7 @@ export default function InvoiceFormPage() {
                                     Summary &amp; totals
                                 </h4>
                             </div>
-                            <div className="p-6 space-y-4">
+                            <div className="!p-6 space-y-4">
                                 <div className="flex justify-between items-center group">
                                     <span className="text-xs font-medium text-gray-500 group-hover:text-gray-900 transition-colors">Subtotal</span>
                                     <span className="text-lg font-mono font-black text-gray-900">{formData.subtotal.toLocaleString()}</span>
@@ -1773,7 +1844,7 @@ export default function InvoiceFormPage() {
                                         Same handlers as the top-row buttons (preserved verbatim). */}
                                     <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 6 }}>
                                         <button
-                                            onClick={handleSave}
+                                            onClick={() => void handleSave()}
                                             disabled={saving}
                                             style={{
                                                 width: '100%', background: '#4F8EF7', color: '#fff',
@@ -1787,7 +1858,7 @@ export default function InvoiceFormPage() {
                                             {saving ? 'Saving...' : '✓ Confirm & save'}
                                         </button>
                                         <button
-                                            onClick={handleSaveDraft}
+                                            onClick={() => void handleSaveDraft()}
                                             disabled={saving}
                                             style={{
                                                 width: '100%', background: 'transparent',

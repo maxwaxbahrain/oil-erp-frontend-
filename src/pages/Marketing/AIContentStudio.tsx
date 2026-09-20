@@ -1,21 +1,23 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Zap, Copy, Check, RefreshCw, Download } from 'lucide-react';
-import { getProducts, getImportedProducts } from '../../services/productService';
-import { getCustomers } from '../../services/api';
-import { authFetch } from '../../api/axios';
+import AutoGrowTextarea from '../../components/AutoGrowTextarea';
+import {
+    generateMarketingPosts,
+    type MarketingPlatform,
+    type MarketingPost,
+} from '../../services/api';
 
-const API = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
-
-const CHANNELS = [
-    { id: 'facebook',  label: 'Facebook',  icon: '📘', maxChars: 500,  tone: 'engaging and conversational', format: 'post with emojis, 3-4 paragraphs, call to action' },
-    { id: 'instagram', label: 'Instagram', icon: '📸', maxChars: 300,  tone: 'visual and aspirational', format: 'short punchy caption with hashtags, lifestyle angle' },
-    { id: 'tiktok',    label: 'TikTok',    icon: '🎵', maxChars: 200,  tone: 'energetic and trending', format: 'hook in first line, video script idea, trending hashtags' },
-    { id: 'linkedin',  label: 'LinkedIn',  icon: '💼', maxChars: 700,  tone: 'professional and authoritative', format: 'B2B angle, industry insight, professional tone, no hashtag spam' },
-    { id: 'youtube',   label: 'YouTube',   icon: '▶️', maxChars: 500,  tone: 'informative and trustworthy', format: 'video title + description with keywords, chapters, CTA' },
-    { id: 'whatsapp',  label: 'WhatsApp',  icon: '💬', maxChars: 250,  tone: 'personal and direct', format: 'short friendly message, no spam feel, clear offer, WhatsApp emoji' },
-    { id: 'sms',       label: 'SMS',       icon: '📱', maxChars: 160,  tone: 'ultra concise', format: 'under 160 chars, clear offer, link at end, no emojis' },
-    { id: 'email',     label: 'Email',     icon: '📧', maxChars: 1000, tone: 'professional but warm', format: 'subject line + body, personalization placeholder [NAME], CTA button text' },
+// these MUST match PLATFORM_CHAR_LIMITS in app/services/marketing_ai.py — the server truncates to those values, so any other number here produces a warning that contradicts what was saved.
+const CHANNELS: { id: MarketingPlatform; label: string; icon: string; maxChars: number; tone: string; format: string }[] = [
+    { id: 'linkedin',  label: 'LinkedIn',  icon: '💼', maxChars: 3000, tone: 'professional and authoritative', format: 'B2B angle, industry insight, professional tone, no hashtag spam' },
+    { id: 'instagram', label: 'Instagram', icon: '📸', maxChars: 2200, tone: 'visual and aspirational', format: 'short punchy caption with hashtags, lifestyle angle' },
+    { id: 'tiktok',    label: 'TikTok',    icon: '🎵', maxChars: 2200, tone: 'energetic and trending', format: 'hook in first line, video script idea, trending hashtags' },
+    { id: 'facebook',  label: 'Facebook',  icon: '📘', maxChars: 2000, tone: 'engaging and conversational', format: 'post with emojis, 3-4 paragraphs, call to action' },
+    { id: 'x',         label: 'X',         icon: '𝕏',  maxChars: 280,  tone: 'concise and timely', format: 'short post under 280 chars, hook first, link or CTA, light hashtags' },
+    { id: 'youtube',   label: 'YouTube',   icon: '▶️', maxChars: 5000, tone: 'informative and trustworthy', format: 'video title + description with keywords, chapters, CTA' },
+    { id: 'google',    label: 'Google',    icon: '🔍', maxChars: 1500, tone: 'clear and search-friendly', format: 'Business Profile post or search ad copy, keywords, local CTA' },
+    { id: 'email',     label: 'Email',     icon: '📧', maxChars: 5000, tone: 'professional but warm', format: 'subject line + body, personalization placeholder [NAME], CTA button text' },
 ];
 
 const CAMPAIGN_TYPES = [
@@ -35,43 +37,48 @@ interface GeneratedContent {
     copied: boolean;
 }
 
+function mapGenerateError(err: unknown): string {
+    const text = err instanceof Error ? err.message : String(err);
+    const blob = text.toLowerCase();
+    if (blob.includes('rate_limit') || blob.includes('429')) {
+        return "You've hit the AI limit for now. Try again in a couple of hours.";
+    }
+    if (blob.includes('not configured')) {
+        return 'AI is not configured on this server.';
+    }
+    return 'Generation failed. Try again.';
+}
+
+function postsToGenerated(posts: MarketingPost[]): GeneratedContent[] {
+    return posts.map((post) => ({
+        channelId: post.platform,
+        content: post.body,
+        copied: false,
+    }));
+}
+
 export default function AIContentStudio() {
     const navigate = useNavigate();
     const location = useLocation();
-    const [products, setProducts] = useState<string[]>([]);
-    const [customerCount, setCustomerCount] = useState(0);
     const [campaignType, setCampaignType] = useState('product_promo');
-    const [selectedProduct, setSelectedProduct] = useState('');
-    const [customPrompt, setCustomPrompt] = useState('');
     const [targetAudience, setTargetAudience] = useState('B2B fleet managers and auto workshops in NYC');
-    const [selectedChannels, setSelectedChannels] = useState<Set<string>>(new Set(['facebook', 'instagram', 'whatsapp', 'email']));
+    const [postTopic, setPostTopic] = useState('');
+    const [selectedChannels, setSelectedChannels] = useState<Set<string>>(new Set(['linkedin', 'instagram', 'facebook', 'email']));
     const [generating, setGenerating] = useState(false);
     const [generated, setGenerated] = useState<GeneratedContent[]>([]);
+    const [savedCount, setSavedCount] = useState(0);
+    const [error, setError] = useState<string | null>(null);
     const [activeContent, setActiveContent] = useState<string | null>(null);
     const [brandVoice, setBrandVoice] = useState('professional, trustworthy, expertise in premium lubricants');
 
     useEffect(() => {
-        // Pre-select channel from URL param e.g. /marketing/studio?channel=whatsapp
+        // Pre-select only when ?channel= matches a grid id; otherwise keep the default set.
         const params = new URLSearchParams(location.search);
         const preChannel = params.get('channel');
-        if (preChannel && CHANNELS.find(c => c.id === preChannel)) {
+        if (preChannel && CHANNELS.some(c => c.id === preChannel)) {
             setSelectedChannels(new Set([preChannel]));
         }
     }, [location.search]);
-
-    useEffect(() => {
-        Promise.all([
-            getImportedProducts(),
-            getProducts().catch(() => []),
-            getCustomers().catch(() => []),
-        ]).then(([imported, all, custs]) => {
-            const prods = [...imported, ...all].map(p => p.name).filter(Boolean);
-            const unique = [...new Set(prods)].slice(0, 20);
-            setProducts(unique);
-            if (unique.length > 0) setSelectedProduct(unique[0]);
-            setCustomerCount(custs.length);
-        });
-    }, []);
 
     const toggleChannel = (id: string) => {
         setSelectedChannels(prev => {
@@ -82,104 +89,33 @@ export default function AIContentStudio() {
     };
 
     const generateContent = async () => {
-        if (selectedChannels.size === 0) { alert('Select at least one channel.'); return; }
+        const platforms = Array.from(selectedChannels) as MarketingPlatform[];
+        if (platforms.length === 0) {
+            setError('Select at least one channel.');
+            return;
+        }
         setGenerating(true);
         setGenerated([]);
+        setSavedCount(0);
+        setError(null);
+        setActiveContent(null);
 
-        const channels = CHANNELS.filter(c => selectedChannels.has(c.id));
         const campaignLabel = CAMPAIGN_TYPES.find(t => t.id === campaignType)?.label || campaignType;
-        const productContext = selectedProduct || 'Soltol engine oils and lubricants';
 
         try {
-            const res = await authFetch(`${API}/ai/chat`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    system: `You are an expert marketing copywriter for Soltol, a premium oil & lubricants distributor in New York City.
-
-COMPANY PROFILE:
-- Business: Oil & lubricants distribution (B2B + B2C)
-- Products: ${products.slice(0, 10).join(', ') || productContext}
-- Customers: ${customerCount} active customers (auto workshops, fleet managers, mechanics)
-- Location: New York City, USA
-- Brand voice: ${brandVoice}
-
-CAMPAIGN BRIEF:
-- Type: ${campaignLabel}
-- Focus product/topic: ${productContext}
-- Target audience: ${targetAudience}
-- Additional context: ${customPrompt || 'None'}
-
-Generate marketing content for EACH specified channel. Return ONLY valid JSON:
-{
-  "contents": [
-    {
-      "channel": "channel_id",
-      "subject": "email subject line (only for email)",
-      "content": "the full marketing content for this channel",
-      "hashtags": ["tag1", "tag2"] // only for social media
-    }
-  ]
-}
-
-IMPORTANT:
-- Each channel gets unique, platform-optimized content
-- NOT generic copy-paste — each must feel native to that platform
-- For SMS: strictly under 160 characters
-- For email: include Subject: line at top, then body
-- For TikTok: start with a hook, include video concept idea
-- For LinkedIn: B2B angle, no spam hashtags
-- Sound like a real brand, not AI-generated`,
-                    max_tokens: 4000,
-                    messages: [{
-                        role: 'user',
-                        content: `Generate ${campaignLabel} marketing content for these channels: ${channels.map(c => c.id).join(', ')}`
-                    }]
-                })
+            const posts = await generateMarketingPosts({
+                platforms,
+                campaign_type: campaignLabel,
+                post_topic: postTopic.trim(),
+                brand_voice: brandVoice,
+                target_audience: targetAudience,
             });
-
-            // TC-79 — surface backend errors instead of silently falling
-            // through to placeholder content.  503 = missing
-            // ANTHROPIC_API_KEY; 5xx = upstream Anthropic / network.
-            if (!res.ok) {
-                let detail = '';
-                try { detail = (await res.json())?.detail || ''; } catch { /* not JSON */ }
-                throw new Error(detail || `HTTP ${res.status}`);
-            }
-            const data = await res.json();
-            const reply = data.reply || '';
-
-            // Parse JSON safely
-            try {
-                const jsonStart = reply.indexOf('{');
-                const jsonEnd = reply.lastIndexOf('}') + 1;
-                if (jsonStart < 0 || jsonEnd <= jsonStart) throw new Error('No JSON in response');
-                const parsed = JSON.parse(reply.slice(jsonStart, jsonEnd));
-                const contents: GeneratedContent[] = (parsed.contents || []).map((item: any) => ({
-                    channelId: item.channel,
-                    content: item.subject ? `Subject: ${item.subject}\n\n${item.content}` : (item.content || ''),
-                    copied: false,
-                }));
-                // Fill missing channels with placeholder
-                channels.forEach(ch => {
-                    if (!contents.find(c => c.channelId === ch.id)) {
-                        contents.push({ channelId: ch.id, content: `[${ch.label} content not generated. Try again or reduce channel count.]`, copied: false });
-                    }
-                });
-                setGenerated(contents);
-                if (contents.length > 0) setActiveContent(contents[0].channelId);
-            } catch (parseErr) {
-                // AI returned plain text or malformed JSON - show as-is for first channel
-                const fallback: GeneratedContent[] = channels.map((ch, i) => ({
-                    channelId: ch.id,
-                    content: i === 0 ? reply : '[Regenerate to get content for this channel]',
-                    copied: false,
-                }));
-                setGenerated(fallback);
-                setActiveContent(channels[0].id);
-            }
-        } catch (e: any) {
-            alert(`Generation failed: ${e.message}`);
+            const contents = postsToGenerated(posts);
+            setGenerated(contents);
+            setSavedCount(posts.length);
+            if (contents.length > 0) setActiveContent(contents[0].channelId);
+        } catch (err) {
+            setError(mapGenerateError(err));
         } finally {
             setGenerating(false);
         }
@@ -196,7 +132,7 @@ IMPORTANT:
     const downloadAll = () => {
         const text = generated.map(g => {
             const ch = CHANNELS.find(c => c.id === g.channelId);
-            return `=== ${ch?.label?.toUpperCase()} ${ch?.icon} ===\n\n${g.content}\n\n`;
+            return `=== ${ch?.label?.toUpperCase() ?? g.channelId.toUpperCase()} ${ch?.icon ?? ''} ===\n\n${g.content}\n\n`;
         }).join('');
         const blob = new Blob([text], { type: 'text/plain' });
         const a = document.createElement('a');
@@ -247,34 +183,33 @@ IMPORTANT:
                         </div>
                     </div>
 
-                    {/* Product & Audience */}
+                    {/* Audience & voice */}
                     <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm space-y-4">
                         <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Campaign Details</p>
                         <div>
-                            <label className="block text-xs font-black text-gray-500 uppercase mb-1.5">Feature Product</label>
-                            <select value={selectedProduct} onChange={e => setSelectedProduct(e.target.value)}
-                                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-400">
-                                <option value="">General / All Products</option>
-                                {products.map(p => <option key={p} value={p}>{p}</option>)}
-                            </select>
+                            <label className="block text-xs font-black text-gray-500 uppercase mb-1.5">What is this post about?</label>
+                            <AutoGrowTextarea
+                                value={postTopic}
+                                onChange={(e) => setPostTopic(e.target.value.slice(0, 300))}
+                                maxLength={300}
+                                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-400 resize-none"
+                                placeholder="One thing only, e.g. same-day delivery when a shop runs out mid-day"
+                            />
+                            <p className="text-[11px] text-gray-400 mt-1.5 leading-snug">
+                                One topic per campaign. This is what stops every post sounding the same.
+                            </p>
                         </div>
                         <div>
                             <label className="block text-xs font-black text-gray-500 uppercase mb-1.5">Target Audience</label>
-                            <input value={targetAudience} onChange={e => setTargetAudience(e.target.value)}
-                                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-400"
+                            <AutoGrowTextarea value={targetAudience} onChange={e => setTargetAudience(e.target.value)}
+                                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-400 resize-none"
                                 placeholder="e.g. Fleet managers NYC" />
                         </div>
                         <div>
                             <label className="block text-xs font-black text-gray-500 uppercase mb-1.5">Brand Voice</label>
-                            <input value={brandVoice} onChange={e => setBrandVoice(e.target.value)}
-                                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-400"
+                            <AutoGrowTextarea value={brandVoice} onChange={e => setBrandVoice(e.target.value)}
+                                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-400 resize-none"
                                 placeholder="e.g. professional, trusted expert" />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-black text-gray-500 uppercase mb-1.5">Additional Instructions</label>
-                            <textarea value={customPrompt} onChange={e => setCustomPrompt(e.target.value)}
-                                rows={2} placeholder="e.g. Mention 10% off for orders over 50 drums..."
-                                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-400 resize-none" />
                         </div>
                     </div>
 
@@ -293,7 +228,13 @@ IMPORTANT:
                         </div>
                     </div>
 
-                    <button onClick={generateContent} disabled={generating || selectedChannels.size === 0}
+                    {error && (
+                        <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
+                            <p className="text-sm font-bold text-red-800">{error}</p>
+                        </div>
+                    )}
+
+                    <button onClick={generateContent} disabled={generating || selectedChannels.size === 0 || postTopic.trim().length < 5}
                         className="w-full flex items-center justify-center gap-3 py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-2xl font-black text-sm hover:opacity-90 disabled:opacity-50 transition-all shadow-lg shadow-purple-500/20">
                         {generating ? <><RefreshCw size={18} className="animate-spin" /> Generating {selectedChannels.size} pieces...</>
                             : <><Zap size={18} /> Generate {selectedChannels.size} Channel{selectedChannels.size !== 1 ? 's' : ''}</>}
@@ -326,6 +267,18 @@ IMPORTANT:
 
                     {!generating && generated.length > 0 && (
                         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                            {savedCount > 0 && (
+                                <div className="flex items-center justify-between flex-wrap gap-3 px-5 py-3 bg-emerald-50 border-b border-emerald-100">
+                                    <p className="text-sm font-black text-emerald-800">Saved {savedCount} drafts to your queue</p>
+                                    <button
+                                        type="button"
+                                        onClick={() => navigate('/marketing/campaigns')}
+                                        className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-black transition-all"
+                                    >
+                                        Open Queue →
+                                    </button>
+                                </div>
+                            )}
                             {/* Channel tabs */}
                             <div className="flex overflow-x-auto border-b border-gray-100 px-2 pt-2 gap-1 flex-shrink-0">
                                 {generated.map(g => {
@@ -333,20 +286,22 @@ IMPORTANT:
                                     return (
                                         <button key={g.channelId} onClick={() => setActiveContent(g.channelId)}
                                             className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-xl text-xs font-black whitespace-nowrap transition-all ${activeContent === g.channelId ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
-                                            <span>{ch?.icon}</span> {ch?.label}
+                                            <span>{ch?.icon ?? '📝'}</span> {ch?.label ?? g.channelId}
                                         </button>
                                     );
                                 })}
                             </div>
 
-                            {activeGenerated && activeCh && (
+                            {activeGenerated && (
                                 <div className="p-5">
                                     <div className="flex items-center justify-between mb-3">
                                         <div className="flex items-center gap-2">
-                                            <span className="text-xl">{activeCh.icon}</span>
+                                            <span className="text-xl">{activeCh?.icon ?? '📝'}</span>
                                             <div>
-                                                <p className="text-sm font-black text-gray-900">{activeCh.label}</p>
-                                                <p className="text-[10px] text-gray-400">Max {activeCh.maxChars} chars · {activeCh.tone}</p>
+                                                <p className="text-sm font-black text-gray-900">{activeCh?.label ?? activeGenerated.channelId}</p>
+                                                <p className="text-[10px] text-gray-400">
+                                                    {activeCh ? `Max ${activeCh.maxChars} chars · ${activeCh.tone}` : activeGenerated.channelId}
+                                                </p>
                                             </div>
                                         </div>
                                         <div className="flex gap-2">
@@ -361,19 +316,20 @@ IMPORTANT:
                                         {activeGenerated.content}
                                     </div>
 
+                                    {activeCh && (
                                     <div className="flex items-center justify-between mt-3 text-[10px] text-gray-400">
                                         <span>{activeGenerated.content.length} characters {activeCh.maxChars ? `(max ${activeCh.maxChars})` : ''}</span>
                                         <span className={activeGenerated.content.length > activeCh.maxChars * 1.1 ? 'text-red-500 font-bold' : 'text-emerald-600'}>
                                             {activeGenerated.content.length <= activeCh.maxChars ? '✓ Within limit' : '⚠ Over limit — trim before posting'}
                                         </span>
                                     </div>
+                                    )}
 
                                     {/* Platform-specific action hints */}
+                                    {activeCh && (
                                     <div className="mt-3 bg-amber-50 border border-amber-100 rounded-xl px-4 py-2.5">
                                         <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest mb-1">Next Step</p>
                                         <p className="text-xs text-amber-800">
-                                            {activeCh.id === 'whatsapp' && '→ Go to WhatsApp Business · Create broadcast list · Paste message · Send to contacts'}
-                                            {activeCh.id === 'sms' && '→ Use Twilio / TextMagic · Import customer phone numbers from ERP · Send bulk SMS'}
                                             {activeCh.id === 'email' && '→ Use Mailchimp / Brevo · Import customer emails from ERP · Create campaign · Schedule'}
                                             {activeCh.id === 'facebook' && '→ Go to Facebook Page · Create Post · Paste content · Add product photo · Schedule'}
                                             {activeCh.id === 'instagram' && '→ Open Instagram Business · New Post · Paste caption · Add oil product photo · Post'}
@@ -382,6 +338,7 @@ IMPORTANT:
                                             {activeCh.id === 'youtube' && '→ Upload product demo video to YouTube · Use this as title + description · Add to playlist'}
                                         </p>
                                     </div>
+                                    )}
                                 </div>
                             )}
                         </div>
