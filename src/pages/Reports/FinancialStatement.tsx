@@ -29,6 +29,7 @@ import { getExpenses, type Expense } from '../../services/expenseService';
 import { getGRNs, type GRN } from '../../services/grnService';
 import { getAccounts, type Account } from '../Accounts/ChartOfAccounts';
 import { generateStandardPDF } from '../../utils/documentGenerator';
+import { livePayments } from '../../utils/paymentVoid';
 import AccountingSetupRequired from '../../components/common/AccountingSetupRequired';
 import {
     calculateProfitLoss,
@@ -194,7 +195,7 @@ function computeTotals(
     const equityRaw = byType('Equity');
     const equity = equityRaw + netProfit;
 
-    const cashIn = payments
+    const cashIn = livePayments(payments)
         .filter((p) => inRange(p.payment_date, dateFrom, dateTo))
         .reduce((s, p) => s + (Number(p.amount) || 0), 0);
 

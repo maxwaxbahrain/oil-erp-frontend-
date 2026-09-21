@@ -19,4 +19,11 @@ describe('sales metrics', () => {
   it('returns null when there is no invoice total instead of a fake target/rate', () => {
     expect(calculateCollectionRate([], [{ amount: 25 }] as any)).toBeNull();
   });
+
+  it('excludes voided payments from collection rate', () => {
+    const invoices = [{ grandTotal: 100 }] as any;
+    const payments = [{ amount: 50, voided: true }, { amount: 30 }] as any;
+
+    expect(calculateCollectionRate(invoices, payments)).toBe(30);
+  });
 });

@@ -14,6 +14,7 @@ import { generatePaymentReceiptPDF, type PaymentReceiptPDFInput } from '../../ut
 import { WORLD_CURRENCIES } from '../../constants/currencies';
 import { getSystemSettings } from '../../services/settingsService';
 import { formatDateOnly } from '../../utils/formatters';
+import { localIsoDate } from '../../utils/localDate';
 // ITEM 5H — Bank/Cash account dropdown from backend COA (cash_on_hand + bank).
 import { getGLAccounts, type GLAccount } from '../../services/glService';
 
@@ -55,7 +56,7 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
   const amountInBase = Number((amount * (exchangeRate || 1)).toFixed(2));
   const [reference, setReference] = useState('');
   const [notes, setNotes] = useState('');
-  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
+  const [paymentDate, setPaymentDate] = useState(() => localIsoDate());
 
   // Invoice linking
   // FIX #2B — opening balance is now an allocable LINE that coexists with

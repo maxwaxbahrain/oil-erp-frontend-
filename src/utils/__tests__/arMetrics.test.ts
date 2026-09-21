@@ -108,4 +108,29 @@ describe('AR metrics honesty', () => {
     expect(byId.t4).toBe(500);
     expect(byId.t6).toBe(600);
   });
+
+  it('ignores voided payments when allocating receivables', () => {
+    const asOf = new Date('2026-08-01T12:00:00');
+    const invoices = [
+      {
+        id: '1',
+        customerId: 'c1',
+        invoiceDate: '2026-08-01',
+        dueDate: '2026-08-01',
+        grandTotal: 100,
+      },
+    ];
+    const payments = [
+      { customer_id: 'c1', amount: 40, voided: true },
+      { customer_id: 'c1', amount: 40 },
+    ];
+
+    expect(calculateReceivables(invoices, payments, asOf).total).toBe(60);
+
+    const withoutVoidFlag = [
+      { customer_id: 'c1', amount: 40 },
+      { customer_id: 'c1', amount: 40 },
+    ];
+    expect(calculateReceivables(invoices, withoutVoidFlag, asOf).total).toBe(20);
+  });
 });

@@ -17,6 +17,7 @@ import { getCurrentUser } from '../../store/authStore';
 import { completeDeliveryNote, createDeliveryNote, toDriverDeliveryStatus } from '../../services/deliveryService';
 import { compressImage } from '../../utils/imageCompression';
 import { buildCompleteDeliveryPayload, buildDeliveryNotePayload } from './driverPodMapping';
+import { localIsoDate } from '../../utils/localDate';
 
 const C = {
   bg: '#060f1c',
@@ -665,7 +666,7 @@ export default function DriverApp() {
           amount: Number(amountReceived),
           payment_method: paymentMethod,
           reference: invoice.invoiceNumber,
-          payment_date: new Date().toISOString().slice(0, 10),
+          payment_date: localIsoDate(),
           notes: notes || 'POD delivery payment',
         });
       }

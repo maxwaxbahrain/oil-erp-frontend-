@@ -5,6 +5,7 @@ import { getCustomers, getInvoices, getPayments, type Customer, type Invoice } f
 import { getProducts } from '../../services/productService';
 import { getPurchaseOrders } from '../../services/purchasesService';
 import { formatCurrency } from '../../services/settingsService';
+import { livePayments } from '../../utils/paymentVoid';
 import { authFetch } from '../../api/axios';
 
 interface Message {
@@ -38,7 +39,7 @@ async function buildERPContext(): Promise<string> {
 
         const custs: Customer[] = customers.status === 'fulfilled' ? customers.value : [];
         const invs: Invoice[] = invoices.status === 'fulfilled' ? invoices.value : [];
-        const pays = payments.status === 'fulfilled' ? payments.value : [];
+        const pays = livePayments(payments.status === 'fulfilled' ? payments.value : []);
         const prods = products.status === 'fulfilled' ? products.value : [];
         const pos = purchaseOrders.status === 'fulfilled' ? purchaseOrders.value : [];
 

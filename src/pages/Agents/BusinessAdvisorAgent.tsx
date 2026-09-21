@@ -8,6 +8,7 @@ import { getProducts } from '../../services/productService';
 import { getPurchaseOrders } from '../../services/purchasesService';
 import { formatCurrency } from '../../services/settingsService';
 import { authFetch } from '../../api/axios';
+import { livePayments } from '../../utils/paymentVoid';
 
 interface Message {
     id: string;
@@ -37,7 +38,7 @@ async function buildBusinessContext(): Promise<string> {
         ]);
         const custs = customers.status === 'fulfilled' ? customers.value : [];
         const invs = invoices.status === 'fulfilled' ? invoices.value : [];
-        const pays = payments.status === 'fulfilled' ? payments.value : [];
+        const pays = livePayments(payments.status === 'fulfilled' ? payments.value : []);
         const prods = products.status === 'fulfilled' ? products.value : [];
         const purchOrders = pos.status === 'fulfilled' ? pos.value : [];
 
