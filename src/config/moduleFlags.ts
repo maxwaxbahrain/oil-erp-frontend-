@@ -17,7 +17,8 @@ export const MODULE_FLAGS = {
 
   // Mock / invoice-math screens — not GL-aligned. Gated at route + sidebar (all envs).
   finance_accounting_dashboard: false,
-  finance_banking: false,
+  // GL-backed banking page — staging pilot only.
+  finance_banking: PILOT_VISIBLE,
   // Duplicate nav to /reports/sales; primary entry is /reports/financial (Profitability Analysis).
   reports_profitability_duplicate: false,
 
