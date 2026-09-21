@@ -5,6 +5,7 @@ import { useTracking } from '../../hooks/useTracking';
 import { getPayments, getCustomers, API_BASE_URL, type Payment, type Customer } from '../../services/api';
 import { authFetch } from '../../api/axios';
 import { formatCurrency } from '../../services/settingsService';
+import { isVoidedPayment } from '../../utils/paymentVoid';
 
 const PAYMENT_METHODS = ['Cash', 'Bank Transfer', 'Cheque', 'Credit Card', 'Online', 'Other'];
 
@@ -201,6 +202,7 @@ export default function PaymentEdit() {
                             <tbody className="divide-y divide-gray-50">
                                 {filtered.map(p => {
                                     const isEditing = editId === p.id;
+                                    const isVoided = isVoidedPayment(p);
                                     return (
                                         <Fragment key={p.id}>
                                         <tr className={`transition-all ${isEditing ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
@@ -260,6 +262,10 @@ export default function PaymentEdit() {
                                                             <X size={14} />
                                                         </button>
                                                     </div>
+                                                ) : isVoided ? (
+                                                    <span className="text-xs font-black uppercase tracking-widest text-gray-400">
+                                                        Voided{p.voided_on ? ` · ${p.voided_on}` : ''}
+                                                    </span>
                                                 ) : (
                                                     <button onClick={() => startEdit(p)}
                                                         className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-blue-50 text-gray-600 hover:text-blue-600 text-xs font-black rounded-lg transition-all">

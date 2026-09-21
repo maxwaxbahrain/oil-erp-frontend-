@@ -49,6 +49,10 @@ export interface PartyLedgerRow {
   purchase_order_id?: number | null;
   van_number?: string;
   salesman_name?: string;
+  voided?: boolean;
+  reversal_transaction_id?: number | null;
+  voided_on?: string | null;
+  reverses_transaction_id?: number | null;
 }
 export interface PartyLedger {
   opening_balance: number;
@@ -103,6 +107,10 @@ export interface Payment {
   invoice_id?: string; // Link payment to specific invoice
   is_advance?: boolean; // Mark as advance payment
   transaction_type?: 'payment' | 'expense';
+  voided?: boolean;
+  reversal_transaction_id?: number | null;
+  voided_on?: string | null;
+  reverses_transaction_id?: number | null;
 }
 
 export interface SalesOrder {

@@ -56,6 +56,13 @@ import { saveExpense, type Expense } from '../../services/expenseService';
 import { getCompanySettings , getSystemSettings } from '../../services/settingsService';
 import { formatDateOnly } from '../../utils/formatters';
 import {
+    isLegacyReversalRow,
+    isVoidedPayment,
+    lastLivePayment,
+    ledgerTypeLabel,
+    netReceived,
+} from '../../utils/paymentVoid';
+import {
     downloadInvoicePDF,
     downloadInvoiceWord,
     shareInvoicePDF,
@@ -81,7 +88,7 @@ interface CustomerStats {
 interface LedgerEntry {
     id: string;
     date: string;
-    type: 'Invoice' | 'Payment' | 'Credit Note' | 'Debit Note' | 'Van Sale';
+    type: 'Invoice' | 'Payment' | 'Credit Note' | 'Debit Note' | 'Van Sale' | 'Reversal' | 'Adjustment';
     referenceNumber: string;
     description: string;
     debit: number;
@@ -90,6 +97,7 @@ interface LedgerEntry {
     relatedId?: string;
     van_number?: string;
     salesman_name?: string;
+    voided?: boolean;
 }
 
 function overviewBandChipStyle(band: PaymentScoreBand): CSSProperties {
@@ -263,14 +271,16 @@ const generateCustomerLedgerExcel = (customer: Customer, ledger: LedgerEntry[]) 
  *  from the API; the UI never recomputes it. */
 function mapPartyRowToDisplay(row: PartyLedgerRow): LedgerEntry {
     const rawType = (row.type || '').toLowerCase();
-    const displayType: LedgerEntry['type'] =
+    const adjustmentLabel = ledgerTypeLabel(rawType, row);
+    const displayType: LedgerEntry['type'] = adjustmentLabel ?? (
         rawType === 'van_sale' ? 'Van Sale' :
         rawType === 'credit' || rawType === 'credit_note' || rawType === 'return_credit' ||
             rawType === 'credit_adjustment' || rawType === 'opening_balance'
             ? 'Credit Note' :
         rawType === 'debit' ? 'Debit Note' :
         rawType === 'payment' ? 'Payment' :
-        'Invoice';
+        'Invoice'
+    );
 
     return {
         id: String(row.id),
@@ -282,6 +292,7 @@ function mapPartyRowToDisplay(row: PartyLedgerRow): LedgerEntry {
         credit: Number(row.credit) || 0,
         balance: Number(row.running_balance) || 0,
         relatedId: row.invoice_id != null ? String(row.invoice_id) : String(row.id),
+        voided: row.voided === true,
     };
 }
 
@@ -623,8 +634,7 @@ export default function CustomerOverview() {
                 const t = new Date(s).getTime();
                 return Number.isNaN(t) ? 0 : t;
             };
-            const sortedPayments = [...custPayments].sort((a, b) => safeTime(b.payment_date) - safeTime(a.payment_date));
-            const lastPayment = sortedPayments[0];
+            const lastPayment = lastLivePayment(custPayments);
 
             // 'Last Invoice' = most recent DEBIT entry in the ledger, EXCLUDING the
             // opening-balance row. Opening balance is a carry-forward, not a sale,
@@ -881,7 +891,7 @@ export default function CustomerOverview() {
       const db = new Date(b.payment_date ?? b.date ?? b.createdAt ?? 0).getTime();
       return db - da; // newest first
     });
-    const _lastPayment: any = _sortedPayments[0] ?? null;
+    const _lastPayment = lastLivePayment(payments ?? []);
 
     const _paymentsYTD = _sortedPayments.filter((p: any) => {
       const dateVal = p.payment_date ?? p.date ?? p.createdAt;
@@ -1208,7 +1218,7 @@ export default function CustomerOverview() {
                         value: _lastPayment ? `$${Number(_lastPayment.amount).toFixed(2)}` : '—',
                         color: '#4F8EF7',
                         sub: _lastPayment
-                            ? formatDateOnly(_lastPayment.payment_date ?? _lastPayment.date ?? _lastPayment.createdAt ?? '', 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                            ? formatDateOnly(_lastPayment.payment_date ?? _lastPayment.created_at ?? '', 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                             : '—',
                     },
                     {
@@ -1890,18 +1900,30 @@ export default function CustomerOverview() {
                                                         {formatDateOnly(entry.date)}
                                                     </td>
                                                     <td style={ledgerTdStyle}>
-                                                        <span style={{
-                                                            padding: '2px 7px', borderRadius: 8, fontSize: 9, fontWeight: 700,
-                                                            background: entry.type === 'Invoice' ? 'rgba(79,142,247,.12)'
-                                                                : entry.type === 'Payment' ? 'rgba(34,197,94,.12)'
-                                                                    : entry.type === 'Van Sale' ? 'rgba(245,158,11,.12)'
-                                                                        : 'rgba(255,255,255,.06)',
-                                                            color: entry.type === 'Invoice' ? '#4F8EF7'
-                                                                : entry.type === 'Payment' ? '#16A34A'
-                                                                    : entry.type === 'Van Sale' ? '#F59E0B'
-                                                                        : 'var(--t2,#8BA3C7)',
-                                                        }}>
-                                                            {entry.type}
+                                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                                            <span style={{
+                                                                padding: '2px 7px', borderRadius: 8, fontSize: 9, fontWeight: 700,
+                                                                background: entry.type === 'Invoice' ? 'rgba(79,142,247,.12)'
+                                                                    : entry.type === 'Payment' ? 'rgba(34,197,94,.12)'
+                                                                        : entry.type === 'Van Sale' ? 'rgba(245,158,11,.12)'
+                                                                            : entry.type === 'Reversal' ? 'rgba(239,68,68,.12)'
+                                                                                : 'rgba(255,255,255,.06)',
+                                                                color: entry.type === 'Invoice' ? '#4F8EF7'
+                                                                    : entry.type === 'Payment' ? '#16A34A'
+                                                                        : entry.type === 'Van Sale' ? '#F59E0B'
+                                                                            : entry.type === 'Reversal' ? '#EF4444'
+                                                                                : 'var(--t2,#8BA3C7)',
+                                                            }}>
+                                                                {entry.type}
+                                                            </span>
+                                                            {entry.voided && entry.type === 'Payment' && (
+                                                                <span style={{
+                                                                    padding: '2px 6px', borderRadius: 8, fontSize: 8, fontWeight: 700,
+                                                                    color: 'var(--t3,#3E5678)', textTransform: 'uppercase', letterSpacing: '.5px',
+                                                                }}>
+                                                                    Voided
+                                                                </span>
+                                                            )}
                                                         </span>
                                                     </td>
                                                     <td style={{ ...ledgerTdStyle, fontFamily: 'monospace', fontWeight: 700 }}>
@@ -1980,7 +2002,7 @@ export default function CustomerOverview() {
                                                                 </div>
                                                             );
                                                         })()}
-                                                        {entry.type === 'Payment' && (
+                                                        {entry.type === 'Payment' && !entry.voided && (
                                                             <button
                                                                 title="View Receipt"
                                                                 className="p-1.5 text-green-600 hover:bg-green-50 rounded transition-colors"
@@ -2245,7 +2267,8 @@ export default function CustomerOverview() {
                                             </td></tr>
                                         ) : (
                                             payments.map(pay => {
-                                                const isReversal = (pay.amount ?? 0) < 0 || pay.reference?.startsWith('VOID/');
+                                                const isReversal = isLegacyReversalRow(pay);
+                                                const isVoided = isVoidedPayment(pay);
                                                 return (
                                                     <tr
                                                         key={pay.id}
@@ -2256,7 +2279,15 @@ export default function CustomerOverview() {
                                                         <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{formatDateOnly(pay.payment_date)}</td>
                                                         <td style={{ ...ledgerTdStyle, fontFamily: 'monospace', fontWeight: 700 }}>{pay.reference || `PAY-${String(pay.id).slice(-4)}`}</td>
                                                         <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{pay.payment_method}</td>
-                                                        <td style={{ ...ledgerTdStyle, textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: isReversal ? '#EF4444' : '#22C55E' }}>
+                                                        <td style={{
+                                                            ...ledgerTdStyle,
+                                                            textAlign: 'right',
+                                                            fontFamily: 'monospace',
+                                                            fontWeight: 700,
+                                                            color: isReversal ? '#EF4444' : isVoided ? 'var(--t3,#3E5678)' : '#22C55E',
+                                                            textDecoration: isVoided ? 'line-through' : undefined,
+                                                            opacity: isVoided ? 0.65 : 1,
+                                                        }}>
                                                             {isReversal ? '-' : ''}{Math.abs(pay.amount).toLocaleString()}
                                                         </td>
                                                         <td style={{ ...ledgerTdStyle, textAlign: 'center' }}>
@@ -2268,7 +2299,7 @@ export default function CustomerOverview() {
                                                             </button>
                                                         </td>
                                                         <td style={{ ...ledgerTdStyle, textAlign: 'center' }}>
-                                                            {isReversal ? (
+                                                            {isReversal || isVoided ? (
                                                                 <span style={{ color: 'var(--t3,#3E5678)' }}>—</span>
                                                             ) : (
                                                                 <button
@@ -2285,6 +2316,10 @@ export default function CustomerOverview() {
                                                         <td style={{ ...ledgerTdStyle, textAlign: 'center' }}>
                                                             {isReversal ? (
                                                                 <span style={{ fontSize: 9, fontWeight: 700, color: '#EF4444', textTransform: 'uppercase', letterSpacing: '.6px' }}>Reversal</span>
+                                                            ) : isVoided ? (
+                                                                <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--t3,#3E5678)', textTransform: 'uppercase', letterSpacing: '.6px' }}>
+                                                                    Voided{pay.voided_on ? ` · ${formatDateOnly(pay.voided_on)}` : ''}
+                                                                </span>
                                                             ) : (
                                                                 <button
                                                                     onClick={() => void handleVoidPayment(pay)}
@@ -2302,7 +2337,7 @@ export default function CustomerOverview() {
                                         )}
                                     </tbody>
                                     {payments.length > 0 && (() => {
-                                        const totalReceived = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+                                        const totalReceived = netReceived(payments);
                                         return (
                                             <tfoot>
                                                 <tr style={{ fontWeight: 700 }}>
