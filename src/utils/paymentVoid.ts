@@ -23,6 +23,11 @@ export function isVoidedPayment(p: { voided?: boolean }): boolean {
   return p.voided === true;
 }
 
+/** Rows that still count toward sums and allocation (excludes voided === true only). */
+export function livePayments<T extends { voided?: boolean }>(payments: T[]): T[] {
+  return payments.filter((p) => p.voided !== true);
+}
+
 function paymentSortTime(p: PaymentVoidRow): number {
   const s = p.payment_date ?? p.date ?? p.createdAt;
   if (!s) return 0;
@@ -32,10 +37,10 @@ function paymentSortTime(p: PaymentVoidRow): number {
 
 /** Sum amounts, skipping voided payments; legacy negative rows still count. */
 export function netReceived(payments: PaymentVoidRow[]): number {
-  return payments.reduce((sum, p) => {
-    if (isVoidedPayment(p)) return sum;
-    return sum + (Number(p.amount) || 0);
-  }, 0);
+  return livePayments(payments).reduce(
+    (sum, p) => sum + (Number(p.amount) || 0),
+    0,
+  );
 }
 
 /** Newest payment that is neither voided nor a legacy reversal row. */

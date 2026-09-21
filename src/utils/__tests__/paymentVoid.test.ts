@@ -5,6 +5,7 @@ import {
   isVoidedPayment,
   lastLivePayment,
   ledgerTypeLabel,
+  livePayments,
   netReceived,
 } from '../paymentVoid';
 
@@ -21,6 +22,18 @@ describe('isVoidedPayment', () => {
     expect(isVoidedPayment({ voided: true })).toBe(true);
     expect(isVoidedPayment({ voided: false })).toBe(false);
     expect(isVoidedPayment({})).toBe(false);
+  });
+});
+
+describe('livePayments', () => {
+  it('drops voided rows and keeps old-style reversal rows', () => {
+    const rows = livePayments([
+      { amount: 1, voided: true },
+      { amount: -25, reference: 'VOID/9' },
+      { amount: 100 },
+    ]);
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.amount)).toEqual([-25, 100]);
   });
 });
 

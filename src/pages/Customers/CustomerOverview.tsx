@@ -60,6 +60,7 @@ import {
     isVoidedPayment,
     lastLivePayment,
     ledgerTypeLabel,
+    livePayments,
     netReceived,
 } from '../../utils/paymentVoid';
 import {
@@ -225,7 +226,7 @@ const generateCustomerLedgerPDF = (customer: Customer, ledger: LedgerEntry[]) =>
                     ${ledger.map(entry => `
                         <tr>
                             <td>${formatDateOnly(entry.date)}</td>
-                            <td>${entry.type}</td>
+                            <td>${entry.voided && entry.type === 'Payment' ? 'Payment (Voided)' : entry.type}</td>
                             <td>${entry.referenceNumber}</td>
                             <td>${entry.debit > 0 ? '' + entry.debit.toLocaleString() : '-'}</td>
                             <td>${entry.credit > 0 ? '' + entry.credit.toLocaleString() : '-'}</td>
@@ -254,7 +255,7 @@ const generateCustomerLedgerExcel = (customer: Customer, ledger: LedgerEntry[]) 
 
     ledger.forEach(entry => {
         csvContent += `${formatDateOnly(entry.date)},`;
-        csvContent += `${entry.type},${entry.referenceNumber},`;
+        csvContent += `${entry.voided && entry.type === 'Payment' ? 'Payment (Voided)' : entry.type},${entry.referenceNumber},`;
         csvContent += `${entry.debit},${entry.credit},${entry.balance}\n`;
     });
 
@@ -886,7 +887,9 @@ export default function CustomerOverview() {
         ? '#F59E0B'
         : '#4F8EF7';
 
-    const _sortedPayments = [...(payments ?? [])].sort((a: any, b: any) => {
+    const liveCustomerPayments = livePayments(payments ?? []);
+
+    const _sortedPayments = [...liveCustomerPayments].sort((a: any, b: any) => {
       const da = new Date(a.payment_date ?? a.date ?? a.createdAt ?? 0).getTime();
       const db = new Date(b.payment_date ?? b.date ?? b.createdAt ?? 0).getTime();
       return db - da; // newest first
@@ -1223,10 +1226,9 @@ export default function CustomerOverview() {
                     },
                     {
                         label: 'Avg Payment Days',
-                        value: '8 days',
-                        color: '#22C55E',
-                        sub: 'Within terms ✓',
-                        subColor: '#22C55E',
+                        value: '—',
+                        color: '#4F8EF7',
+                        sub: 'See Credit tab',
                     },
                 ];
 

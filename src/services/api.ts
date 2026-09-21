@@ -1,6 +1,7 @@
 import { ACCESS_TOKEN_KEY, authFetch } from '../api/axios';
 import { handlePaymentRequiredStatus } from '../api/paymentRequired';
 import { getOilErpApiBase } from '../config/apiBase';
+import { livePayments } from '../utils/paymentVoid';
 
 export const API_BASE_URL = getOilErpApiBase();
 const USE_MOCK = false;
@@ -1246,7 +1247,7 @@ export async function getCustomerAdvanceBalance(customerId: string): Promise<num
   try {
     const payments = await getPaymentsForCustomer(customerId);
     const advancePayments = payments.filter(p => p.is_advance && !p.invoice_id);
-    return advancePayments.reduce((sum, p) => sum + p.amount, 0);
+    return livePayments(advancePayments).reduce((sum, p) => sum + p.amount, 0);
   } catch (error) {
     console.error('Failed to get advance balance:', error);
     return 0;

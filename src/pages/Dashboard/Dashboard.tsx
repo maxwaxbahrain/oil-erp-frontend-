@@ -19,6 +19,7 @@ import { getPurchaseOrders } from '../../services/purchasesService';
 import { getArSummary, getCustomerStats, type ArSummary, type CustomerStats } from '../../services/customerService';
 import { useEscape } from '../../hooks/useEscape';
 import { calculateReceivables } from '../../utils/arMetrics';
+import { livePayments } from '../../utils/paymentVoid';
 import {
     getGLProfitLoss, getGLBalanceSheet, isGLEmpty,
     todayISO, monthStartISO, yearStartISO,
@@ -248,11 +249,13 @@ export default function Dashboard() {
         return sum + (Number(inv.grandTotal) || 0);
     }, 0);
 
+    const livePaymentsData = useMemo(() => livePayments(paymentsData), [paymentsData]);
+
     // Kept client-side: buckets, unpaid-invoice list, and top-outstanding
     // customers all need per-invoice detail the ar-summary endpoint doesn't return.
     const receivables = useMemo(
-        () => calculateReceivables(invoices, paymentsData, _now),
-        [invoices, paymentsData],
+        () => calculateReceivables(invoices, livePaymentsData, _now),
+        [invoices, livePaymentsData],
     );
     // DASH-3 — the "Outstanding AR" headline uses the authoritative,
     // ledger-consistent endpoint total when available; falls back to the
@@ -297,7 +300,7 @@ export default function Dashboard() {
         .sort((a, b) => Number(a.current_stock || 0) - Number(b.current_stock || 0))
         .slice(0, 6);
 
-    const cashCollectedToday = paymentsData.reduce((sum: number, p: any) => {
+    const cashCollectedToday = livePaymentsData.reduce((sum: number, p: any) => {
         const d = String(p.payment_date || p.date || '').slice(0, 10);
         return d === _todayStr ? sum + (Number(p.amount) || 0) : sum;
     }, 0);
@@ -315,7 +318,7 @@ export default function Dashboard() {
     const totalOrderCount = invoices.length;
     const avgInvoiceYTD = ytdInvoices.length > 0 ? totalSalesYTD / ytdInvoices.length : 0;
 
-    const collectedYTD = paymentsData.reduce((sum: number, p: any) => {
+    const collectedYTD = livePaymentsData.reduce((sum: number, p: any) => {
         const d = p.payment_date ?? p.date ?? p.createdAt;
         if (!d) return sum;
         try {

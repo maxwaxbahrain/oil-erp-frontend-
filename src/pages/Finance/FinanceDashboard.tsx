@@ -2,6 +2,7 @@ import { useState, useEffect, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getInvoices, getPayments, type Invoice, type Payment } from '../../services/api';
 import { calculateReceivables } from '../../utils/arMetrics';
+import { livePayments } from '../../utils/paymentVoid';
 
 // ─── Shared style tokens ────────────────────────────────────────
 const panel: CSSProperties = {
@@ -120,7 +121,7 @@ export default function FinanceDashboard() {
   // calls below would throw and black-screen the dashboard. Coercing
   // to [] here keeps the page rendering with empty data instead.
   const safeInvoices = Array.isArray(invoices) ? invoices : [];
-  const safePayments = Array.isArray(payments) ? payments : [];
+  const safePayments = livePayments(Array.isArray(payments) ? payments : []);
 
   // Responsive column count — same ResizeObserver pattern as
   // WarehouseDashboard. Re-evaluates on resize.

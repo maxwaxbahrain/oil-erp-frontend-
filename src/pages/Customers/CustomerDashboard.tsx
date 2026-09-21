@@ -3,6 +3,7 @@ import { Users, Plus, FileText, Receipt, AlertCircle, Filter, ArrowLeft, Downloa
 import { type Customer, getCustomers, getArSummary } from '../../services/customerService';
 import { getInvoices, getPayments } from '../../services/api';
 import { calculateReceivables } from '../../utils/arMetrics';
+import { livePayments } from '../../utils/paymentVoid';
 import CustomerListPage from './CustomerList';  // ← FIXED: Changed from CustomerList to CustomerListPage
 import CustomerForm from './CustomerForm';
 import CustomerLedger from './CustomerLedger';
@@ -24,14 +25,15 @@ export default function CustomerDashboard() {
   useEffect(() => {
     Promise.all([getInvoices(), getPayments(), getCustomers(), getArSummary().catch(() => null)])
       .then(([invoices, payments, customers, ar]) => {
+        const livePays = livePayments(payments);
         // DASH-3b — authoritative endpoint total; fall back to client-side calc.
-        const receivables = ar ? ar.total_outstanding : calculateReceivables(invoices, payments).total;
+        const receivables = ar ? ar.total_outstanding : calculateReceivables(invoices, livePays).total;
         const overLimit = customers.filter((c: any) => {
           const balance = Number(c?.balance) || 0;
           const limit = Number(c?.credit_limit ?? c?.creditLimit) || 0;
           return limit > 0 && balance > limit;
         }).length;
-        const collected = payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+        const collected = livePays.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
         setMetrics({ receivables, overLimit, collected, customers: customers.length });
       })
       .catch(() => setMetrics({ receivables: null, overLimit: null, collected: null, customers: null }));
