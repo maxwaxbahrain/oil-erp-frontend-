@@ -135,3 +135,77 @@ export function contraAccountOptions(
     return true;
   });
 }
+
+export type LedgerRowOrder = 'newest' | 'oldest';
+
+/** Display-only reorder — never changes running_balance on any row. */
+export function orderLedgerRows(rows: LedgerRow[], order: LedgerRowOrder): LedgerRow[] {
+  if (order === 'oldest') return rows;
+  return [...rows].reverse();
+}
+
+export interface ChequeConfirmInput {
+  chequeNo: string;
+  amount: number;
+  type: 'Received' | 'Issued';
+  glPosted?: boolean;
+}
+
+export function chequeConfirmText(
+  action: 'clear' | 'bounce' | 'cancel',
+  cheque: ChequeConfirmInput,
+  formatAmount: (amount: number) => string,
+): string {
+  const no = cheque.chequeNo;
+  const amt = formatAmount(cheque.amount);
+  if (action === 'clear' && cheque.type === 'Received') {
+    return `Clear cheque ${no} for ${amt}? A customer payment of ${amt} will be recorded in the books, applied to this customer's oldest unpaid invoices.`;
+  }
+  if (action === 'clear' && cheque.type === 'Issued') {
+    return `Mark cheque ${no} as cleared? Issued cheques are not posted to the books yet; this only changes the status.`;
+  }
+  if (action === 'bounce' && cheque.glPosted) {
+    return `Bounce cheque ${no}? The payment of ${amt} will be reversed in the books, the invoices it paid become unpaid again, and this cannot be undone.`;
+  }
+  if (action === 'bounce') {
+    return `Mark cheque ${no} as bounced? Nothing was posted for it, so only the status changes. This cannot be undone.`;
+  }
+  return `Cancel cheque ${no}? This cannot be undone.`;
+}
+
+export function bankTxHomeState(
+  tx: { accountId?: number | null },
+  selectedAccountId: number | null,
+): 'here' | 'elsewhere' {
+  if (selectedAccountId == null || tx.accountId == null) return 'elsewhere';
+  return tx.accountId === selectedAccountId ? 'here' : 'elsewhere';
+}
+
+export interface ContraOptionWithCurrent extends ContraAccountOption {
+  isCurrent?: boolean;
+}
+
+export function contraOptionsWithCurrent(
+  options: ContraAccountOption[],
+  storedContraAccountId: number | null | undefined,
+  glAccounts: ContraAccountOption[],
+  storedContraAccountName?: string | null,
+): ContraOptionWithCurrent[] {
+  if (storedContraAccountId == null) return options;
+  if (options.some((account) => account.id === storedContraAccountId)) return options;
+  const fromGl = glAccounts.find((account) => account.id === storedContraAccountId);
+  if (fromGl) {
+    return [...options, { ...fromGl, isCurrent: true }];
+  }
+  return [
+    ...options,
+    {
+      id: storedContraAccountId,
+      code: '',
+      name: storedContraAccountName || String(storedContraAccountId),
+      system_key: null,
+      is_active: true,
+      isCurrent: true,
+    },
+  ];
+}

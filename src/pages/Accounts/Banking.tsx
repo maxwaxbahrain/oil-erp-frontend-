@@ -22,16 +22,21 @@ import { formatDateOnly } from '../../utils/formatters';
 import { localIsoDate } from '../../utils/localDate';
 import { getOilErpApiBase } from '../../config/apiBase';
 import {
+    bankTxHomeState,
     bankTxIdFromSourceId,
     chequeActions,
+    chequeConfirmText,
     contraAccountOptions,
+    contraOptionsWithCurrent,
     filterLedgerRows,
     ledgerRowAction,
     ledgerTypeLabel,
     moneyDirectionLabel,
+    orderLedgerRows,
     paymentIdFromRow,
     periodTotals,
     type LedgerRow,
+    type LedgerRowOrder,
 } from '../../utils/bankingLedger';
 
 const panelStyle: CSSProperties = {
@@ -288,6 +293,7 @@ export default function Banking() {
     const [pageMessage, setPageMessage] = useState<PageMessage | null>(null);
     const [search, setSearch] = useState('');
     const [directionFilter, setDirectionFilter] = useState<'all' | 'in' | 'out'>('all');
+    const [ledgerOrder, setLedgerOrder] = useState<LedgerRowOrder>('newest');
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
     const [activeTab, setActiveTab] = useState<'ledger' | 'pdc'>('ledger');
@@ -298,9 +304,9 @@ export default function Banking() {
         type: 'Credit' as 'Credit' | 'Debit',
         amount: '',
         reference: '',
-        category: 'General',
         contraAccountId: '' as string,
     });
+    const [editingCategory, setEditingCategory] = useState<string | null>(null);
     const [editingContraName, setEditingContraName] = useState<string | null>(null);
     const [manualTxs, setManualTxs] = useState<BankTxRow[]>([]);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -397,19 +403,27 @@ export default function Banking() {
             setLoading(false);
             setRefreshing(false);
         }
-        const pdc = await getPDC();
+        const [pdc, txs] = await Promise.all([
+            getPDC(),
+            getBankTxsApi(),
+        ]);
         setPdcList(pdc);
+        setManualTxs(txs);
     }, [clearMsg, loadClosingBalances]);
 
     const refetchAfterAction = useCallback(async () => {
-        const [p, pdc, txs] = await Promise.all([
+        const [p, pdc, txs, ar] = await Promise.all([
             getPayments().catch(() => payments),
             getPDC(),
-            getBankTxsApi(selectedAccountId),
+            getBankTxsApi(),
+            getArSummary().catch(() => null),
         ]);
         setPayments(p);
         setPdcList(pdc);
         setManualTxs(txs);
+        if (ar != null) {
+            setArTotal(ar.total_outstanding);
+        }
         await loadClosingBalances(cashAccounts);
         if (selectedAccountId != null) {
             await loadSelectedLedger(selectedAccountId);
@@ -424,11 +438,9 @@ export default function Banking() {
         if (selectedAccountId == null) {
             setAccountLedger(null);
             setLedgerLoadFailed(false);
-            setManualTxs([]);
             return;
         }
         void loadSelectedLedger(selectedAccountId);
-        getBankTxsApi(selectedAccountId).then(setManualTxs);
     }, [selectedAccountId, loadSelectedLedger]);
 
     const netCash = useMemo(() => {
@@ -449,17 +461,22 @@ export default function Banking() {
     );
 
     const ledgerRows = useMemo(() => accountLedger?.rows ?? [], [accountLedger]);
-    const displayedRows = useMemo(
+    const filteredRows = useMemo(
         () => filterLedgerRows(ledgerRows, { search, direction: directionFilter }),
         [ledgerRows, search, directionFilter],
+    );
+    const displayedRows = useMemo(
+        () => orderLedgerRows(filteredRows, ledgerOrder),
+        [filteredRows, ledgerOrder],
     );
 
     const { moneyIn, moneyOut } = useMemo(() => periodTotals(ledgerRows), [ledgerRows]);
 
-    const contraOptions = useMemo(
-        () => contraAccountOptions(glAccounts, selectedAccountId),
-        [glAccounts, selectedAccountId],
-    );
+    const contraOptions = useMemo(() => {
+        const base = contraAccountOptions(glAccounts, selectedAccountId);
+        const storedId = txForm.contraAccountId ? Number(txForm.contraAccountId) : null;
+        return contraOptionsWithCurrent(base, storedId, glAccounts, editingContraName);
+    }, [glAccounts, selectedAccountId, txForm.contraAccountId, editingContraName]);
 
     const handleVoidPayment = async (paymentId: string) => {
         clearMsg();
@@ -520,7 +537,7 @@ export default function Banking() {
             reference: editingId
                 ? (txForm.reference || '')
                 : (txForm.reference || `REF-${Date.now().toString().slice(-6)}`),
-            category: txForm.category,
+            category: editingId ? (editingCategory || 'General') : 'General',
             account_id: selectedAccountId,
             contra_account_id: txForm.contraAccountId ? Number(txForm.contraAccountId) : null,
         };
@@ -541,9 +558,9 @@ export default function Banking() {
             type: 'Credit',
             amount: '',
             reference: '',
-            category: 'General',
             contraAccountId: '',
         });
+        setEditingCategory(null);
         setEditingContraName(null);
         setShowAddTx(false);
         setEditingId(null);
@@ -567,6 +584,7 @@ export default function Banking() {
             return;
         }
         setEditingId(String(tx.id));
+        setEditingCategory(tx.category || 'General');
         setEditingContraName(tx.contraAccountName ?? null);
         setTxForm({
             date: tx.date || localIsoDate(),
@@ -574,7 +592,6 @@ export default function Banking() {
             type: tx.type === 'Debit' ? 'Debit' : 'Credit',
             amount: String(tx.amount || ''),
             reference: tx.reference || '',
-            category: tx.category || 'General',
             contraAccountId: tx.contraAccountId != null ? String(tx.contraAccountId) : '',
         });
         setShowAddTx(true);
@@ -625,6 +642,17 @@ export default function Banking() {
         showMsg('success', 'Cheque recorded.');
     };
 
+    const confirmAndUpdatePDCStatus = (pdc: PDCheque, status: PDCheque['status']) => {
+        const action = status === 'Cleared' ? 'clear' as const : status === 'Bounced' ? 'bounce' as const : 'cancel' as const;
+        const text = chequeConfirmText(
+            action,
+            { chequeNo: pdc.chequeNo, amount: pdc.amount, type: pdc.type, glPosted: pdc.glPosted },
+            formatUsd,
+        );
+        if (!confirm(text)) return;
+        void updatePDCStatus(pdc.id, status);
+    };
+
     const updatePDCStatus = async (id: string, status: PDCheque['status']) => {
         clearMsg();
         const result = await patchPDCApi(id, { status });
@@ -667,7 +695,7 @@ export default function Banking() {
         autoTable(doc, {
             startY: 34,
             head: [['Date', 'Type', 'Reference', 'Description', 'Debit', 'Credit', 'Balance']],
-            body: displayedRows.map(row => [
+            body: ledgerRows.map(row => [
                 row.date ? formatDateOnly(row.date) : '—',
                 ledgerTypeLabel(row.type),
                 row.reference || '',
@@ -784,7 +812,7 @@ export default function Banking() {
                         <button type="button" onClick={() => void reloadAll(true)} disabled={refreshing} style={ghostBtn}>
                             <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} /> Refresh
                         </button>
-                        <button type="button" onClick={exportStatementPDF} disabled={!accountLedger || displayedRows.length === 0} style={ghostBtn}>
+                        <button type="button" onClick={exportStatementPDF} disabled={!accountLedger || ledgerRows.length === 0} style={ghostBtn}>
                             <Download size={14} /> Export
                         </button>
                         <button
@@ -792,8 +820,9 @@ export default function Banking() {
                             onClick={() => {
                                 clearMsg();
                                 setEditingId(null);
+                                setEditingCategory(null);
                                 setEditingContraName(null);
-                                setTxForm({ date: localIsoDate(), description: '', type: 'Credit', amount: '', reference: '', category: 'General', contraAccountId: '' });
+                                setTxForm({ date: localIsoDate(), description: '', type: 'Credit', amount: '', reference: '', contraAccountId: '' });
                                 setShowAddTx(true);
                             }}
                             disabled={selectedAccountId == null}
@@ -908,13 +937,16 @@ export default function Banking() {
                                             <div><label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Amount ($)</label><input type="number" placeholder="0.00" value={txForm.amount} onChange={e => setTxForm(p => ({ ...p, amount: e.target.value }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }} /></div>
                                             <div><label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Description</label><input value={txForm.description} onChange={e => setTxForm(p => ({ ...p, description: e.target.value }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }} /></div>
                                             <div><label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Reference</label><input value={txForm.reference} onChange={e => setTxForm(p => ({ ...p, reference: e.target.value }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }} /></div>
-                                            <div><label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Category</label><select value={txForm.category} onChange={e => setTxForm(p => ({ ...p, category: e.target.value }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }}>{['General', 'Sales', 'Purchase', 'Salary', 'Utility', 'Rent', 'Other'].map(cat => <option key={cat} value={cat}>{cat}</option>)}</select></div>
                                             <div style={{ gridColumn: 'span 2' }}>
                                                 <label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Other account</label>
                                                 <select value={txForm.contraAccountId} onChange={e => setTxForm(p => ({ ...p, contraAccountId: e.target.value }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }}>
                                                     <option value="">— Suspense (default) —</option>
                                                     {contraOptions.map(a => (
-                                                        <option key={a.id} value={String(a.id)}>{a.code} · {a.name}</option>
+                                                        <option key={a.id} value={String(a.id)}>
+                                                            {a.isCurrent
+                                                                ? (a.code ? `${a.code} · ${a.name} (current)` : `${a.name} (current)`)
+                                                                : `${a.code} · ${a.name}`}
+                                                        </option>
                                                     ))}
                                                 </select>
                                                 <div style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)', marginTop: 4 }}>Leave empty to post to Suspense. Pick the other Bank/Cash account to record a transfer.</div>
@@ -926,7 +958,7 @@ export default function Banking() {
                                         </div>
                                         <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                                             <button type="button" onClick={saveManualTx} disabled={!txForm.description || !txForm.amount} style={primaryBtn}>{editingId ? 'Update' : 'Save'}</button>
-                                            <button type="button" onClick={() => { setEditingId(null); setEditingContraName(null); setShowAddTx(false); }} style={ghostBtn}>Cancel</button>
+                                            <button type="button" onClick={() => { setEditingId(null); setEditingCategory(null); setEditingContraName(null); setShowAddTx(false); }} style={ghostBtn}>Cancel</button>
                                         </div>
                                     </div>
                                 )}
@@ -952,6 +984,9 @@ export default function Banking() {
                                         {(['all', 'in', 'out'] as const).map(f => (
                                             <button key={f} type="button" onClick={() => setDirectionFilter(f)} style={{ padding: '5px 12px', fontSize: 10, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: directionFilter === f ? '1px solid rgba(79,142,247,.28)' : '1px solid var(--color-redwood-border)', background: directionFilter === f ? 'var(--color-badge-blue-bg)' : 'transparent', color: directionFilter === f ? 'var(--color-brand-blue-tint)' : 'var(--color-redwood-text-muted)' }}>{f === 'all' ? 'All' : f === 'in' ? 'In' : 'Out'}</button>
                                         ))}
+                                        {(['newest', 'oldest'] as const).map(o => (
+                                            <button key={o} type="button" onClick={() => setLedgerOrder(o)} style={{ padding: '5px 12px', fontSize: 10, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: ledgerOrder === o ? '1px solid rgba(79,142,247,.28)' : '1px solid var(--color-redwood-border)', background: ledgerOrder === o ? 'var(--color-badge-blue-bg)' : 'transparent', color: ledgerOrder === o ? 'var(--color-brand-blue-tint)' : 'var(--color-redwood-text-muted)' }}>{o === 'newest' ? 'Newest first' : 'Oldest first'}</button>
+                                        ))}
                                         {accountLedger && (
                                             <span style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)', marginLeft: 'auto' }}>
                                                 In (period): {formatUsd(moneyIn)} · Out (period): {formatUsd(moneyOut)}
@@ -969,18 +1004,35 @@ export default function Banking() {
                                         </div>
                                     ) : (
                                         <div style={{ overflowX: 'auto' }}>
-                                            <div style={{ padding: '10px 14px', fontSize: 11, borderBottom: '1px solid var(--color-redwood-border)', display: 'flex', flexWrap: 'wrap', gap: 16 }}>
-                                                <span>Opening: <strong>{formatUsd(accountLedger.opening_balance)}</strong></span>
-                                                <span>Closing: <strong style={{ color: 'var(--color-brand-blue-tint)' }}>{formatUsd(accountLedger.closing_balance)}</strong></span>
-                                            </div>
+                                            {ledgerOrder === 'oldest' && (
+                                                <div style={{ padding: '10px 14px', fontSize: 11, borderBottom: '1px solid var(--color-redwood-border)', display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+                                                    <span>Opening: <strong>{formatUsd(accountLedger.opening_balance)}</strong></span>
+                                                    <span>Closing: <strong style={{ color: 'var(--color-brand-blue-tint)' }}>{formatUsd(accountLedger.closing_balance)}</strong></span>
+                                                </div>
+                                            )}
                                             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                                 <thead><tr style={{ background: 'var(--color-redwood-row-bg)', borderBottom: '1px solid var(--color-redwood-border)' }}>{['Date', 'Type', 'Reference', 'Description', 'Debit', 'Credit', 'Balance', ''].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
                                                 <tbody>
+                                                    {ledgerOrder === 'newest' && (
+                                                        <tr style={{ background: 'var(--color-redwood-row-bg)', borderBottom: '1px solid var(--color-redwood-border)' }}>
+                                                            <td colSpan={6} style={{ ...tdStyle, fontWeight: 700, fontSize: 10, textTransform: 'uppercase', color: 'var(--color-redwood-text-muted)' }}>Closing balance</td>
+                                                            <td style={{ ...tdStyle, fontWeight: 700, fontFamily: 'ui-monospace,monospace', color: 'var(--color-brand-blue-tint)' }}>{formatUsd(accountLedger.closing_balance)}</td>
+                                                            <td />
+                                                        </tr>
+                                                    )}
                                                     {displayedRows.length === 0 ? (
                                                         <tr><td colSpan={8} style={{ ...tdStyle, textAlign: 'center', color: 'var(--color-redwood-text-muted)' }}>No movements in this period</td></tr>
                                                     ) : displayedRows.map(row => {
                                                         const muted = row.is_reversed || row.is_reversal;
                                                         const action = ledgerRowAction(row, paymentsById);
+                                                        const bankTxId = bankTxIdFromSourceId(row.source_id);
+                                                        const bankTx = bankTxId != null
+                                                            ? manualTxs.find(t => String(t.id) === String(bankTxId))
+                                                            : undefined;
+                                                        const bankTxHome = bankTx ? bankTxHomeState(bankTx, selectedAccountId) : null;
+                                                        const homeAccount = bankTx?.accountId != null
+                                                            ? cashAccounts.find(a => a.id === bankTx.accountId)
+                                                            : undefined;
                                                         return (
                                                             <tr key={row.id} style={{ borderBottom: '1px solid var(--color-redwood-border)', opacity: muted ? 0.55 : 1 }}>
                                                                 <td style={{ ...tdStyle, fontFamily: 'ui-monospace,monospace', fontSize: 11, color: 'var(--color-redwood-text-muted)' }}>{row.date ? formatDateOnly(row.date) : '—'}</td>
@@ -995,11 +1047,16 @@ export default function Banking() {
                                                                 <td style={{ ...tdStyle, fontFamily: 'ui-monospace,monospace' }}>{row.credit ? formatUsd(row.credit) : '—'}</td>
                                                                 <td style={{ ...tdStyle, fontFamily: 'ui-monospace,monospace', fontWeight: 700 }}>{formatUsd(row.running_balance)}</td>
                                                                 <td style={{ ...tdStyle, textAlign: 'right' }}>
-                                                                    {action === 'edit-delete' && (
+                                                                    {action === 'edit-delete' && bankTxHome === 'here' && (
                                                                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4 }}>
                                                                             <button type="button" onClick={() => editManualTx(row)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--color-brand-blue-tint)', padding: 4 }} title="Edit"><Edit2 size={13} /></button>
                                                                             <button type="button" onClick={() => void deleteManualTx(row)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--color-brand-red-tint)', padding: 4 }} title="Delete"><Trash2 size={13} /></button>
                                                                         </div>
+                                                                    )}
+                                                                    {action === 'edit-delete' && bankTxHome === 'elsewhere' && homeAccount && (
+                                                                        <span style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>
+                                                                            Entered on {homeAccount.code} · {homeAccount.name}
+                                                                        </span>
                                                                     )}
                                                                     {action === 'void' && (() => {
                                                                         const pid = paymentIdFromRow(row);
@@ -1015,14 +1072,23 @@ export default function Banking() {
                                                             </tr>
                                                         );
                                                     })}
+                                                    {ledgerOrder === 'newest' && (
+                                                        <tr style={{ background: 'var(--color-redwood-row-bg)', borderTop: '2px solid var(--color-redwood-border)' }}>
+                                                            <td colSpan={6} style={{ ...tdStyle, fontWeight: 700, fontSize: 10, textTransform: 'uppercase', color: 'var(--color-redwood-text-muted)' }}>Opening balance</td>
+                                                            <td style={{ ...tdStyle, fontWeight: 700, fontFamily: 'ui-monospace,monospace' }}>{formatUsd(accountLedger.opening_balance)}</td>
+                                                            <td />
+                                                        </tr>
+                                                    )}
                                                 </tbody>
-                                                <tfoot>
-                                                    <tr style={{ background: 'var(--color-redwood-row-bg)', borderTop: '2px solid var(--color-redwood-border)' }}>
-                                                        <td colSpan={6} style={{ ...tdStyle, fontWeight: 700, fontSize: 10, textTransform: 'uppercase', color: 'var(--color-redwood-text-muted)' }}>Closing balance</td>
-                                                        <td style={{ ...tdStyle, fontWeight: 700, fontFamily: 'ui-monospace,monospace', color: 'var(--color-brand-blue-tint)' }}>{formatUsd(accountLedger.closing_balance)}</td>
-                                                        <td />
-                                                    </tr>
-                                                </tfoot>
+                                                {ledgerOrder === 'oldest' && (
+                                                    <tfoot>
+                                                        <tr style={{ background: 'var(--color-redwood-row-bg)', borderTop: '2px solid var(--color-redwood-border)' }}>
+                                                            <td colSpan={6} style={{ ...tdStyle, fontWeight: 700, fontSize: 10, textTransform: 'uppercase', color: 'var(--color-redwood-text-muted)' }}>Closing balance</td>
+                                                            <td style={{ ...tdStyle, fontWeight: 700, fontFamily: 'ui-monospace,monospace', color: 'var(--color-brand-blue-tint)' }}>{formatUsd(accountLedger.closing_balance)}</td>
+                                                            <td />
+                                                        </tr>
+                                                    </tfoot>
+                                                )}
                                             </table>
                                         </div>
                                     )}
@@ -1082,13 +1148,13 @@ export default function Banking() {
                                                                     </div>
                                                                 )}
                                                             </td>
-                                                            <td style={tdStyle}>{pdc.date}{isOverdue && <span style={{ marginLeft: 4, fontSize: 8, color: 'var(--color-brand-red-tint)' }}> OVERDUE</span>}</td>
+                                                            <td style={tdStyle}>{pdc.date ? formatDateOnly(pdc.date) : '—'}{isOverdue && <span style={{ marginLeft: 4, fontSize: 8, color: 'var(--color-brand-red-tint)' }}> OVERDUE</span>}</td>
                                                             <td style={{ ...tdStyle, fontWeight: 700, color: pdc.type === 'Received' ? 'var(--color-brand-green-tint)' : 'var(--color-brand-red-tint)' }}>{pdc.type === 'Received' ? '+' : '-'}{formatUsd(pdc.amount)}</td>
                                                             <td style={tdStyle}>{pdc.type}</td>
                                                             <td style={tdStyle}>{pdc.status}</td>
                                                             <td style={{ ...tdStyle, fontSize: 10 }}>
-                                                                {pdc.clearedDate && <div>Cleared: {pdc.clearedDate}</div>}
-                                                                {pdc.bouncedDate && <div>Bounced: {pdc.bouncedDate}</div>}
+                                                                {pdc.clearedDate && <div>Cleared: {formatDateOnly(pdc.clearedDate)}</div>}
+                                                                {pdc.bouncedDate && <div>Bounced: {formatDateOnly(pdc.bouncedDate)}</div>}
                                                                 {!pdc.clearedDate && !pdc.bouncedDate && '—'}
                                                             </td>
                                                             <td style={tdStyle}>
@@ -1099,9 +1165,9 @@ export default function Banking() {
                                                             <td style={tdStyle}>
                                                                 {actions.length > 0 && (
                                                                     <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                                                        {actions.includes('clear') && <button type="button" onClick={() => void updatePDCStatus(pdc.id, 'Cleared')} style={{ fontSize: 9, padding: '3px 8px', borderRadius: 6, border: 'none', background: 'var(--color-badge-green-bg)', color: 'var(--color-brand-green-tint)', cursor: 'pointer' }}>Clear</button>}
-                                                                        {actions.includes('bounce') && <button type="button" onClick={() => void updatePDCStatus(pdc.id, 'Bounced')} style={{ fontSize: 9, padding: '3px 8px', borderRadius: 6, border: 'none', background: 'var(--color-badge-red-bg)', color: 'var(--color-brand-red-tint)', cursor: 'pointer' }}>Bounce</button>}
-                                                                        {actions.includes('cancel') && <button type="button" onClick={() => void updatePDCStatus(pdc.id, 'Cancelled')} style={ghostBtn}>Cancel</button>}
+                                                                        {actions.includes('clear') && <button type="button" onClick={() => confirmAndUpdatePDCStatus(pdc, 'Cleared')} style={{ fontSize: 9, padding: '3px 8px', borderRadius: 6, border: 'none', background: 'var(--color-badge-green-bg)', color: 'var(--color-brand-green-tint)', cursor: 'pointer' }}>Clear</button>}
+                                                                        {actions.includes('bounce') && <button type="button" onClick={() => confirmAndUpdatePDCStatus(pdc, 'Bounced')} style={{ fontSize: 9, padding: '3px 8px', borderRadius: 6, border: 'none', background: 'var(--color-badge-red-bg)', color: 'var(--color-brand-red-tint)', cursor: 'pointer' }}>Bounce</button>}
+                                                                        {actions.includes('cancel') && <button type="button" onClick={() => confirmAndUpdatePDCStatus(pdc, 'Cancelled')} style={ghostBtn}>Cancel</button>}
                                                                     </div>
                                                                 )}
                                                             </td>
