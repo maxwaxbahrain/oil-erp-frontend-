@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Edit2, Save, X, RefreshCw, Check, AlertTriangle } from 'lucide-react';
 import { useTracking } from '../../hooks/useTracking';
@@ -24,6 +24,7 @@ export default function PaymentEdit() {
     const [editForm, setEditForm] = useState<Partial<Payment>>({});
     const [saving, setSaving] = useState(false);
     const [success, setSuccess] = useState('');
+    const [saveError, setSaveError] = useState('');
     const [search, setSearch] = useState('');
     // TC-66 — Surface fetch failures + cap hung requests at 15s so the
     // spinner can't run forever. Without this, a single hung
@@ -84,43 +85,47 @@ export default function PaymentEdit() {
     const startEdit = (p: Payment) => {
         setEditId(p.id);
         setEditForm({ ...p });
+        setSaveError('');
     };
 
     const cancelEdit = () => {
         setEditId(null);
         setEditForm({});
+        setSaveError('');
     };
 
     const saveEdit = async () => {
-        if (!editId || !editForm.amount || editForm.amount <= 0) {
-            alert('Amount must be greater than 0');
-            return;
-        }
+        if (!editId) return;
         setSaving(true);
+        setSaveError('');
+        const payload: Record<string, unknown> = {
+            reference: editForm.reference ?? '',
+        };
+        if (editForm.notes !== undefined) payload.notes = editForm.notes;
         try {
             const res = await authFetch(`${API_BASE_URL}/ledger/payment/${editId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(editForm)
+                body: JSON.stringify(payload),
             });
             if (!res.ok) {
-                // Backend may not support PUT - update locally
-                setPayments(prev => prev.map(p => p.id === editId ? { ...p, ...editForm } as Payment : p));
-            } else {
-                const updated = await res.json();
-                setPayments(prev => prev.map(p => p.id === editId ? { ...p, ...updated } as Payment : p));
+                const err = await res.json().catch(() => ({ detail: 'Request failed' }));
+                const detail = typeof err.detail === 'string'
+                    ? err.detail
+                    : Array.isArray(err.detail)
+                        ? err.detail.map((item: { msg?: string }) => item?.msg ?? JSON.stringify(item)).join('; ')
+                        : 'Request failed';
+                setSaveError(detail);
+                return;
             }
+            const updated = await res.json();
+            setPayments(prev => prev.map(p => p.id === editId ? { ...p, ...updated } as Payment : p));
             setSuccess('Payment updated successfully');
             setTimeout(() => setSuccess(''), 3000);
             setEditId(null);
             setEditForm({});
-        } catch {
-            // Update locally as fallback
-            setPayments(prev => prev.map(p => p.id === editId ? { ...p, ...editForm } as Payment : p));
-            setSuccess('Payment updated');
-            setTimeout(() => setSuccess(''), 3000);
-            setEditId(null);
-            setEditForm({});
+        } catch (e: unknown) {
+            setSaveError(e instanceof Error ? e.message : 'Request failed');
         } finally {
             setSaving(false);
         }
@@ -147,6 +152,12 @@ export default function PaymentEdit() {
             {success && (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-2xl px-5 py-3 flex items-center gap-2 text-sm font-bold text-emerald-700">
                     <Check size={16} /> {success}
+                </div>
+            )}
+
+            {saveError && (
+                <div className="bg-rose-50 border border-rose-200 rounded-2xl px-5 py-3 flex items-center gap-2 text-sm font-bold text-rose-700">
+                    <AlertTriangle size={16} /> {saveError}
                 </div>
             )}
 
@@ -191,32 +202,39 @@ export default function PaymentEdit() {
                                 {filtered.map(p => {
                                     const isEditing = editId === p.id;
                                     return (
-                                        <tr key={p.id} className={`transition-all ${isEditing ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
+                                        <Fragment key={p.id}>
+                                        <tr className={`transition-all ${isEditing ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
                                             <td className="px-5 py-4">
                                                 <p className="text-sm font-bold text-gray-900">{custMap[String(p.customer_id)] || `Customer ${p.customer_id}`}</p>
                                             </td>
                                             <td className="px-5 py-4">
                                                 {isEditing ? (
-                                                    <input type="date" value={editForm.payment_date || ''} onChange={e => setEditForm(prev => ({ ...prev, payment_date: e.target.value }))}
-                                                        className="border border-blue-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500" />
+                                                    <div>
+                                                        <input type="date" value={editForm.payment_date || ''} disabled readOnly
+                                                            className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-gray-50 text-gray-500 cursor-not-allowed" />
+                                                    </div>
                                                 ) : (
                                                     <span className="text-sm font-mono text-gray-600">{p.payment_date}</span>
                                                 )}
                                             </td>
                                             <td className="px-5 py-4">
                                                 {isEditing ? (
-                                                    <input type="number" value={editForm.amount || ''} onChange={e => setEditForm(prev => ({ ...prev, amount: parseFloat(e.target.value) || 0 }))}
-                                                        className="w-28 border border-blue-300 rounded-lg px-2 py-1.5 text-sm font-mono font-black focus:outline-none focus:border-blue-500" />
+                                                    <div>
+                                                        <input type="number" value={editForm.amount || ''} disabled readOnly
+                                                            className="w-28 border border-gray-200 rounded-lg px-2 py-1.5 text-sm font-mono font-black bg-gray-50 text-gray-500 cursor-not-allowed" />
+                                                    </div>
                                                 ) : (
                                                     <span className="text-sm font-black font-mono text-gray-900">{formatCurrency(p.amount)}</span>
                                                 )}
                                             </td>
                                             <td className="px-5 py-4">
                                                 {isEditing ? (
-                                                    <select value={editForm.payment_method || ''} onChange={e => setEditForm(prev => ({ ...prev, payment_method: e.target.value }))}
-                                                        className="border border-blue-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500">
-                                                        {PAYMENT_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
-                                                    </select>
+                                                    <div>
+                                                        <select value={editForm.payment_method || ''} disabled
+                                                            className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-gray-50 text-gray-500 cursor-not-allowed">
+                                                            {PAYMENT_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+                                                        </select>
+                                                    </div>
                                                 ) : (
                                                     <span className="text-sm text-gray-600">{p.payment_method}</span>
                                                 )}
@@ -250,6 +268,14 @@ export default function PaymentEdit() {
                                                 )}
                                             </td>
                                         </tr>
+                                        {isEditing && (
+                                            <tr className="bg-blue-50">
+                                                <td colSpan={6} className="px-5 pb-3 text-xs text-gray-500">
+                                                    To change the amount, date or method, void this payment and record it again.
+                                                </td>
+                                            </tr>
+                                        )}
+                                        </Fragment>
                                     );
                                 })}
                             </tbody>
