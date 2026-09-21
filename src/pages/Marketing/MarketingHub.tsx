@@ -209,26 +209,26 @@ export default function MarketingHub() {
         <div className="space-y-8 max-w-[1200px] mx-auto pb-12 animate-in fade-in duration-300">
 
             {/* Hero */}
-            <div className="bg-gray-900 rounded-2xl p-8 relative overflow-hidden">
+            <div className="bg-gray-900 rounded-2xl !p-8 relative overflow-hidden">
                 <div className="absolute inset-0 opacity-20 bg-gradient-to-r from-purple-600 via-pink-500 to-orange-500" />
-                <div className="relative">
-                    <div className="flex items-center gap-3 mb-3">
+                <div className="relative flex flex-col gap-5">
+                    <div className="flex items-center gap-3">
                         <span className="text-4xl">📣</span>
                         <div>
                             <h1 className="text-2xl font-black text-white uppercase tracking-tight">AI Marketing Suite</h1>
                             <p className="text-gray-400 text-sm">8 channels · AI-generated content</p>
                         </div>
                     </div>
-                    <p className="text-gray-300 text-sm leading-relaxed max-w-2xl mb-5">
+                    <p className="text-gray-300 text-sm leading-relaxed max-w-xl">
                         Your AI agent uses your product catalog and customer count, then creates targeted content for every platform. Generate all 8 channels in one click.
                     </p>
                     <div className="flex flex-wrap gap-3">
                         <button onClick={() => navigate('/marketing/studio')}
-                            className="flex items-center gap-2 px-6 py-3 bg-white text-gray-900 rounded-xl font-black text-sm hover:bg-gray-100 transition-all shadow-lg">
-                            <Zap size={16} className="text-purple-600" /> Launch AI Content Studio
+                            className="flex items-center gap-2 !px-6 !py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-black text-sm transition-all shadow-lg">
+                            <Zap size={16} /> Launch AI Content Studio
                         </button>
                         <button onClick={() => navigate('/marketing/campaigns')}
-                            className="flex items-center gap-2 px-5 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-black text-sm transition-all">
+                            className="flex items-center gap-2 !px-6 !py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-black text-sm transition-all shadow-lg">
                             <Send size={16} /> Create Campaign
                         </button>
                     </div>
