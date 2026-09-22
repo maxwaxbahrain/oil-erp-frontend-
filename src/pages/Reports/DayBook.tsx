@@ -10,12 +10,13 @@ import { getPurchaseOrders } from '../../services/purchasesService';
 interface DayEntry {
     id: string;
     time: string;
-    type: 'Invoice' | 'Payment' | 'Purchase Order' | 'Credit Note';
+    type: 'Invoice' | 'Payment' | 'Payment (Voided)' | 'Purchase Order' | 'Credit Note';
     description: string;
     reference: string;
     debit: number;
     credit: number;
     party: string;
+    voided?: boolean;
 }
 
 export default function DayBook() {
@@ -61,12 +62,13 @@ export default function DayBook() {
                     .map(p => ({
                         id: `pay-${p.id}`,
                         time: '—',
-                        type: 'Payment' as const,
+                        type: (p.voided ? 'Payment (Voided)' : 'Payment') as DayEntry['type'],
                         description: `Payment received`,
                         reference: `PAY-${String(p.id).slice(0, 6).toUpperCase()}`,
                         debit: p.amount || 0,
                         credit: 0,
-                        party: 'Customer'
+                        party: 'Customer',
+                        voided: p.voided === true,
                     })),
                 ...pos
                     .filter(po => inRange((po.date || '').slice(0, 10)))
@@ -82,7 +84,9 @@ export default function DayBook() {
                     }))
             ].sort((a, b) => a.time.localeCompare(b.time));
 
-            const filtered = typeFilter === 'all' ? all : all.filter(e => e.type === typeFilter);
+            const filtered = typeFilter === 'all'
+                ? all
+                : all.filter(e => e.type === typeFilter || (typeFilter === 'Payment' && e.type === 'Payment (Voided)'));
             setEntries(filtered);
             setLoading(false);
         });
@@ -227,7 +231,7 @@ export default function DayBook() {
                 {[
                     { label: 'Transactions', value: String(entries.length), color: 'text-gray-900', bg: 'bg-gray-50', border: 'border-gray-200', isCurrency: false },
                     { label: 'Total Sales', value: formatCurrency(totalCredit), color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200', isCurrency: true },
-                    { label: 'Total Payments In', value: formatCurrency(entries.filter(e => e.type === 'Payment').reduce((s, e) => s + e.debit, 0)), color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200', isCurrency: true },
+                    { label: 'Total Payments In', value: formatCurrency(entries.filter(e => e.type === 'Payment' && !e.voided).reduce((s, e) => s + e.debit, 0)), color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200', isCurrency: true },
                     { label: 'Purchases', value: formatCurrency(entries.filter(e => e.type === 'Purchase Order').reduce((s, e) => s + e.debit, 0)), color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200', isCurrency: true },
                 ].map((k, i) => (
                     <div key={i} className={`${k.bg} border ${k.border} rounded-2xl p-4`}>

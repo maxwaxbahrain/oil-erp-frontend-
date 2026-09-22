@@ -106,6 +106,10 @@ export interface Payment {
     reference?: string;
     notes?: string;
     created_at?: string;
+    voided?: boolean;
+    reversal_transaction_id?: number | null;
+    voided_on?: string | null;
+    reverses_transaction_id?: number | null;
 }
 
 export interface CustomerStats {
