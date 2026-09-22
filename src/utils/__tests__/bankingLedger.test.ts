@@ -3,8 +3,11 @@ import { describe, expect, it } from 'vitest';
 import {
   bankTxHomeState,
   bankTxIdFromSourceId,
+  buildStatementExport,
   chequeActions,
   chequeConfirmText,
+  chequeEffectSentence,
+  foreignTransferEditMessage,
   contraAccountOptions,
   contraOptionsWithCurrent,
   filterLedgerRows,
@@ -310,5 +313,72 @@ describe('contraOptionsWithCurrent', () => {
   it('adds nothing when there is no stored account', () => {
     const base = contraAccountOptions(accounts, 1);
     expect(contraOptionsWithCurrent(base, null, accounts, null)).toEqual(base);
+  });
+});
+
+describe('buildStatementExport', () => {
+  const rows: LedgerRow[] = [
+    {
+      id: 'a',
+      date: '2026-01-01',
+      type: 'bank_transaction',
+      reference: 'DEP',
+      description: 'Deposit',
+      debit: 110,
+      credit: 0,
+      running_balance: 110,
+    },
+    {
+      id: 'b',
+      date: '2026-01-02',
+      type: 'expense',
+      reference: 'FEE',
+      description: 'Bank fee',
+      debit: 0,
+      credit: 10,
+      running_balance: 100,
+    },
+  ];
+
+  it('computes period totals from the rows it is given, not the unfiltered ledger', () => {
+    const exported = buildStatementExport(rows, { search: 'fee', direction: 'all' });
+    expect(exported.filterActive).toBe(true);
+    expect(exported.label).toBe('Filtered · 1 of 2 rows');
+    expect(exported.rows.map((row) => row.id)).toEqual(['b']);
+    expect(exported.moneyIn).toBe(0);
+    expect(exported.moneyOut).toBe(10);
+    expect(periodTotals(exported.rows)).toEqual({ moneyIn: 0, moneyOut: 10 });
+    expect(periodTotals(rows)).toEqual({ moneyIn: 110, moneyOut: 10 });
+  });
+
+  it('keeps the full ledger when no search or direction filter is active', () => {
+    const exported = buildStatementExport(rows, { search: '', direction: 'all' });
+    expect(exported.filterActive).toBe(false);
+    expect(exported.label).toBeNull();
+    expect(exported.moneyIn).toBe(110);
+    expect(exported.moneyOut).toBe(10);
+  });
+});
+
+describe('foreignTransferEditMessage', () => {
+  it('appears when the row account is not the selected account', () => {
+    expect(foreignTransferEditMessage(1, 2, 'Bank')).toBe(
+      'This transfer was recorded from the Bank account — edit it there',
+    );
+  });
+
+  it('is absent when the row belongs to the selected account', () => {
+    expect(foreignTransferEditMessage(2, 2, 'Bank')).toBeNull();
+  });
+});
+
+describe('chequeEffectSentence', () => {
+  const fmt = (amount: number) => `$${amount.toFixed(2)}`;
+
+  it('states the clear and bounce effects', () => {
+    expect(chequeEffectSentence('clear', { chequeNo: '1044', amount: 110, type: 'Received' }, fmt))
+      .toBe('Clear will record a $110.00 payment dated today');
+    expect(chequeEffectSentence('bounce', { chequeNo: '1044', amount: 110, type: 'Received', glPosted: true }, fmt))
+      .toBe('Bounce will void that payment');
   });
 });
