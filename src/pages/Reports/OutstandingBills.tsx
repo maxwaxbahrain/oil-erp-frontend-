@@ -6,6 +6,7 @@ import autoTable from 'jspdf-autotable';
 import { getInvoices, getCustomerPayments, type Invoice } from '../../services/api';
 import { getCustomers } from '../../services/customerService';
 import { formatCurrency } from '../../services/settingsService';
+import { livePayments } from '../../utils/paymentVoid';
 
 // Page-size for the bottom pager.
 const PAGE_SIZE = 25;
@@ -94,12 +95,14 @@ export default function OutstandingBills() {
             });
             setContactsByCustomerId(contacts);
 
+            const livePays = livePayments(pays || []);
+
             // "Paid this month" = sum of payment amounts dated this calendar month.
             const now = new Date();
             const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
             let paidAmt = 0;
             let paidCount = 0;
-            (pays || []).forEach((p: any) => {
+            livePays.forEach((p: any) => {
                 const t = new Date(p?.payment_date || 0).getTime();
                 if (!Number.isNaN(t) && t >= monthStart) {
                     paidAmt += Number(p?.amount) || 0;

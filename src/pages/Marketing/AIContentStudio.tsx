@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Zap, Copy, Check, RefreshCw, Download } from 'lucide-react';
 import AutoGrowTextarea from '../../components/AutoGrowTextarea';
@@ -7,17 +7,35 @@ import {
     type MarketingPlatform,
     type MarketingPost,
 } from '../../services/api';
+import {
+    EmailMark,
+    FacebookMark,
+    GoogleMark,
+    InstagramMark,
+    LinkedInMark,
+    TikTokMark,
+    YouTubeMark,
+} from './channelMarks';
 
 // these MUST match PLATFORM_CHAR_LIMITS in app/services/marketing_ai.py — the server truncates to those values, so any other number here produces a warning that contradicts what was saved.
-const CHANNELS: { id: MarketingPlatform; label: string; icon: string; maxChars: number; tone: string; format: string }[] = [
-    { id: 'linkedin',  label: 'LinkedIn',  icon: '💼', maxChars: 3000, tone: 'professional and authoritative', format: 'B2B angle, industry insight, professional tone, no hashtag spam' },
-    { id: 'instagram', label: 'Instagram', icon: '📸', maxChars: 2200, tone: 'visual and aspirational', format: 'short punchy caption with hashtags, lifestyle angle' },
-    { id: 'tiktok',    label: 'TikTok',    icon: '🎵', maxChars: 2200, tone: 'energetic and trending', format: 'hook in first line, video script idea, trending hashtags' },
-    { id: 'facebook',  label: 'Facebook',  icon: '📘', maxChars: 2000, tone: 'engaging and conversational', format: 'post with emojis, 3-4 paragraphs, call to action' },
-    { id: 'x',         label: 'X',         icon: '𝕏',  maxChars: 280,  tone: 'concise and timely', format: 'short post under 280 chars, hook first, link or CTA, light hashtags' },
-    { id: 'youtube',   label: 'YouTube',   icon: '▶️', maxChars: 5000, tone: 'informative and trustworthy', format: 'video title + description with keywords, chapters, CTA' },
-    { id: 'google',    label: 'Google',    icon: '🔍', maxChars: 1500, tone: 'clear and search-friendly', format: 'Business Profile post or search ad copy, keywords, local CTA' },
-    { id: 'email',     label: 'Email',     icon: '📧', maxChars: 5000, tone: 'professional but warm', format: 'subject line + body, personalization placeholder [NAME], CTA button text' },
+const CHANNELS: {
+    id: MarketingPlatform;
+    label: string;
+    emoji: string;
+    mark: ReactNode;
+    tile: string;
+    maxChars: number;
+    tone: string;
+    format: string;
+}[] = [
+    { id: 'linkedin',  label: 'LinkedIn',  emoji: '💼', mark: <LinkedInMark />,  tile: 'bg-blue-700', maxChars: 3000, tone: 'professional and authoritative', format: 'B2B angle, industry insight, professional tone, no hashtag spam' },
+    { id: 'instagram', label: 'Instagram', emoji: '📸', mark: <InstagramMark />, tile: 'bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400', maxChars: 2200, tone: 'visual and aspirational', format: 'short punchy caption with hashtags, lifestyle angle' },
+    { id: 'tiktok',    label: 'TikTok',    emoji: '🎵', mark: <TikTokMark />,    tile: 'bg-gray-900', maxChars: 2200, tone: 'energetic and trending', format: 'hook in first line, video script idea, trending hashtags' },
+    { id: 'facebook',  label: 'Facebook',  emoji: '📘', mark: <FacebookMark />,  tile: 'bg-[#1877F2]', maxChars: 2000, tone: 'engaging and conversational', format: 'post with emojis, 3-4 paragraphs, call to action' },
+    { id: 'x',         label: 'X',         emoji: '𝕏',  mark: <span className="text-white text-lg font-black leading-none">𝕏</span>, tile: 'bg-gray-900', maxChars: 280,  tone: 'concise and timely', format: 'short post under 280 chars, hook first, link or CTA, light hashtags' },
+    { id: 'youtube',   label: 'YouTube',   emoji: '▶️', mark: <YouTubeMark />,   tile: 'bg-red-600', maxChars: 5000, tone: 'informative and trustworthy', format: 'video title + description with keywords, chapters, CTA' },
+    { id: 'google',    label: 'Google',    emoji: '🔍', mark: <GoogleMark />,    tile: 'bg-white', maxChars: 1500, tone: 'clear and search-friendly', format: 'Business Profile post or search ad copy, keywords, local CTA' },
+    { id: 'email',     label: 'Email',     emoji: '📧', mark: <EmailMark />,     tile: 'bg-purple-600', maxChars: 5000, tone: 'professional but warm', format: 'subject line + body, personalization placeholder [NAME], CTA button text' },
 ];
 
 const CAMPAIGN_TYPES = [
@@ -132,7 +150,7 @@ export default function AIContentStudio() {
     const downloadAll = () => {
         const text = generated.map(g => {
             const ch = CHANNELS.find(c => c.id === g.channelId);
-            return `=== ${ch?.label?.toUpperCase() ?? g.channelId.toUpperCase()} ${ch?.icon ?? ''} ===\n\n${g.content}\n\n`;
+            return `=== ${ch?.label?.toUpperCase() ?? g.channelId.toUpperCase()} ${ch?.emoji ?? ''} ===\n\n${g.content}\n\n`;
         }).join('');
         const blob = new Blob([text], { type: 'text/plain' });
         const a = document.createElement('a');
@@ -145,158 +163,165 @@ export default function AIContentStudio() {
     const activeCh = CHANNELS.find(c => c.id === activeContent);
 
     return (
-        <div className="space-y-5 max-w-[1300px] mx-auto pb-10 animate-in fade-in duration-300">
+        <div className="flex flex-col gap-5 max-w-[1300px] mx-auto !px-3 sm:!px-6 lg:!px-10 !pb-10 animate-in fade-in duration-300">
 
             {/* Header */}
-            <div className="bg-gradient-to-r from-purple-900 to-pink-900 rounded-2xl p-6 text-white">
-                <button onClick={() => navigate('/marketing')} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-white mb-3 transition-all">
+            <div className="bg-gradient-to-r from-purple-900 to-pink-900 rounded-2xl !p-6 text-white flex flex-col gap-3">
+                <button onClick={() => navigate('/marketing')} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-white transition-all">
                     <ArrowLeft size={14} /> Marketing Hub
                 </button>
                 <div className="flex items-center justify-between flex-wrap gap-4">
                     <div>
                         <h1 className="text-xl font-black uppercase tracking-tight">AI Content Studio</h1>
-                        <p className="text-gray-400 text-xs mt-0.5">Generate platform-native content for all 8 channels simultaneously</p>
+                        <p className="text-gray-400 text-xs !mt-0.5">Generate platform-native content for all 8 channels simultaneously</p>
                     </div>
                     {generated.length > 0 && (
-                        <button onClick={downloadAll} className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 rounded-xl text-sm font-black transition-all">
+                        <button onClick={downloadAll} className="flex items-center gap-2 !px-4 !py-2 bg-white/10 hover:bg-white/20 rounded-xl text-sm font-black transition-all">
                             <Download size={14} /> Download All
                         </button>
                     )}
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-5 gap-5">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
                 {/* Left: Settings */}
-                <div className="xl:col-span-2 space-y-4">
+                <div className="flex flex-col gap-5">
 
                     {/* Campaign type */}
-                    <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
-                        <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-3">Campaign Type</p>
+                    <div className="bg-white rounded-2xl border border-gray-100 !p-5 shadow-sm flex flex-col gap-3">
+                        <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Campaign Type</p>
                         <div className="grid grid-cols-2 gap-2">
                             {CAMPAIGN_TYPES.map(t => (
                                 <button key={t.id} onClick={() => setCampaignType(t.id)}
-                                    className={`text-left p-3 rounded-xl border-2 transition-all ${campaignType === t.id ? 'border-purple-400 bg-purple-50' : 'border-gray-100 hover:border-gray-200'}`}>
-                                    <p className="text-xs font-black text-gray-800">{t.label}</p>
-                                    <p className="text-[9px] text-gray-400 mt-0.5">{t.desc}</p>
+                                    className={`text-left !p-3 rounded-xl border-2 transition-all ${campaignType === t.id ? 'border-purple-400 bg-purple-600/20' : 'border-gray-100 hover:border-gray-200'}`}>
+                                    <p className={`text-xs font-black ${campaignType === t.id ? 'text-white' : 'text-gray-500'}`}>{t.label}</p>
+                                    <p className={`text-[9px] !mt-0.5 ${campaignType === t.id ? 'text-purple-200' : 'text-gray-400'}`}>{t.desc}</p>
                                 </button>
                             ))}
                         </div>
                     </div>
 
                     {/* Audience & voice */}
-                    <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm space-y-4">
+                    <div className="bg-white rounded-2xl border border-gray-100 !p-5 shadow-sm flex flex-col gap-4">
                         <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Campaign Details</p>
-                        <div>
-                            <label className="block text-xs font-black text-gray-500 uppercase mb-1.5">What is this post about?</label>
+                        <div className="flex flex-col gap-1.5">
+                            <label className="block text-xs font-black text-gray-500 uppercase">What is this post about?</label>
                             <AutoGrowTextarea
                                 value={postTopic}
                                 onChange={(e) => setPostTopic(e.target.value.slice(0, 300))}
                                 maxLength={300}
-                                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-400 resize-none"
+                                className="w-full border border-gray-200 rounded-xl !px-3 !py-2.5 text-sm focus:outline-none focus:border-purple-400 resize-none"
                                 placeholder="One thing only, e.g. same-day delivery when a shop runs out mid-day"
                             />
-                            <p className="text-[11px] text-gray-400 mt-1.5 leading-snug">
+                            <p className="text-[11px] text-gray-400 leading-snug">
                                 One topic per campaign. This is what stops every post sounding the same.
                             </p>
                         </div>
-                        <div>
-                            <label className="block text-xs font-black text-gray-500 uppercase mb-1.5">Target Audience</label>
+                        <div className="flex flex-col gap-1.5">
+                            <label className="block text-xs font-black text-gray-500 uppercase">Target Audience</label>
                             <AutoGrowTextarea value={targetAudience} onChange={e => setTargetAudience(e.target.value)}
-                                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-400 resize-none"
+                                className="w-full border border-gray-200 rounded-xl !px-3 !py-2.5 text-sm focus:outline-none focus:border-purple-400 resize-none"
                                 placeholder="e.g. Fleet managers NYC" />
                         </div>
-                        <div>
-                            <label className="block text-xs font-black text-gray-500 uppercase mb-1.5">Brand Voice</label>
+                        <div className="flex flex-col gap-1.5">
+                            <label className="block text-xs font-black text-gray-500 uppercase">Brand Voice</label>
                             <AutoGrowTextarea value={brandVoice} onChange={e => setBrandVoice(e.target.value)}
-                                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-400 resize-none"
+                                className="w-full border border-gray-200 rounded-xl !px-3 !py-2.5 text-sm focus:outline-none focus:border-purple-400 resize-none"
                                 placeholder="e.g. professional, trusted expert" />
                         </div>
                     </div>
 
                     {/* Channel selector */}
-                    <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
-                        <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-3">Select Channels</p>
+                    <div className="bg-white rounded-2xl border border-gray-100 !p-5 shadow-sm flex flex-col gap-3">
+                        <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Select Channels</p>
                         <div className="grid grid-cols-2 gap-2">
                             {CHANNELS.map(ch => (
                                 <button key={ch.id} onClick={() => toggleChannel(ch.id)}
-                                    className={`flex items-center gap-2 p-3 rounded-xl border-2 transition-all ${selectedChannels.has(ch.id) ? 'border-purple-400 bg-purple-50' : 'border-gray-100 hover:border-gray-200'}`}>
-                                    <span className="text-xl">{ch.icon}</span>
-                                    <span className="text-xs font-black text-gray-700">{ch.label}</span>
-                                    {selectedChannels.has(ch.id) && <Check size={12} className="text-purple-600 ml-auto" />}
+                                    className={`flex items-center gap-2 !p-3 rounded-xl border-2 transition-all ${selectedChannels.has(ch.id) ? 'border-purple-400 bg-purple-600/20' : 'border-gray-100 hover:border-gray-200'}`}>
+                                    <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${ch.tile}`}>
+                                        {ch.mark}
+                                    </span>
+                                    <span className={`text-xs font-black ${selectedChannels.has(ch.id) ? 'text-white' : 'text-gray-500'}`}>{ch.label}</span>
+                                    {selectedChannels.has(ch.id) && <Check size={12} className="text-purple-300 ml-auto" />}
                                 </button>
                             ))}
                         </div>
                     </div>
 
                     {error && (
-                        <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
+                        <div className="bg-red-50 border border-red-200 rounded-2xl !p-4">
                             <p className="text-sm font-bold text-red-800">{error}</p>
                         </div>
                     )}
 
                     <button onClick={generateContent} disabled={generating || selectedChannels.size === 0 || postTopic.trim().length < 5}
-                        className="w-full flex items-center justify-center gap-3 py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-2xl font-black text-sm hover:opacity-90 disabled:opacity-50 transition-all shadow-lg shadow-purple-500/20">
+                        className="w-full sticky bottom-3 z-10 flex items-center justify-center gap-3 !py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-2xl font-black text-sm hover:opacity-90 disabled:opacity-50 transition-all shadow-lg shadow-purple-500/20">
                         {generating ? <><RefreshCw size={18} className="animate-spin" /> Generating {selectedChannels.size} pieces...</>
                             : <><Zap size={18} /> Generate {selectedChannels.size} Channel{selectedChannels.size !== 1 ? 's' : ''}</>}
                     </button>
                 </div>
 
                 {/* Right: Generated Content */}
-                <div className="xl:col-span-3">
+                <div className="min-h-[480px] h-full">
                     {generating && (
-                        <div className="bg-white rounded-2xl border border-gray-100 p-16 text-center shadow-sm">
-                            <div className="flex justify-center gap-2 mb-4">
+                        <div className="bg-white rounded-2xl border border-gray-100 !p-16 text-center shadow-sm h-full min-h-[480px] flex flex-col items-center justify-center">
+                            <div className="flex justify-center gap-2 !mb-4">
                                 {Array.from(selectedChannels).map(id => (
                                     <span key={id} className="text-2xl animate-bounce" style={{animationDelay: `${Math.random() * 0.5}s`}}>
-                                        {CHANNELS.find(c => c.id === id)?.icon}
+                                        {CHANNELS.find(c => c.id === id)?.emoji}
                                     </span>
                                 ))}
                             </div>
                             <p className="text-gray-700 font-black text-lg">Creating your content...</p>
-                            <p className="text-gray-400 text-sm mt-1">AI is writing platform-native content for {selectedChannels.size} channels</p>
+                            <p className="text-gray-400 text-sm !mt-1">AI is writing platform-native content for {selectedChannels.size} channels</p>
                         </div>
                     )}
 
                     {!generating && generated.length === 0 && (
-                        <div className="bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 p-16 text-center">
-                            <div className="text-5xl mb-4">✨</div>
+                        <div className="bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 !p-16 text-center h-full min-h-[480px] flex flex-col items-center justify-center">
+                            <div className="text-5xl !mb-4">✨</div>
                             <p className="text-gray-500 font-black text-lg">Your content will appear here</p>
-                            <p className="text-gray-400 text-sm mt-2">Configure your campaign and click Generate</p>
+                            <p className="text-gray-400 text-sm !mt-2">Configure your campaign and click Generate</p>
                         </div>
                     )}
 
                     {!generating && generated.length > 0 && (
                         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                             {savedCount > 0 && (
-                                <div className="flex items-center justify-between flex-wrap gap-3 px-5 py-3 bg-emerald-50 border-b border-emerald-100">
+                                <div className="flex items-center justify-between flex-wrap gap-3 !px-5 !py-3 bg-emerald-50 border-b border-emerald-100">
                                     <p className="text-sm font-black text-emerald-800">Saved {savedCount} drafts to your queue</p>
                                     <button
                                         type="button"
                                         onClick={() => navigate('/marketing/campaigns')}
-                                        className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-black transition-all"
+                                        className="!px-3 !py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-black transition-all"
                                     >
                                         Open Queue →
                                     </button>
                                 </div>
                             )}
                             {/* Channel tabs */}
-                            <div className="flex overflow-x-auto border-b border-gray-100 px-2 pt-2 gap-1 flex-shrink-0">
+                            <div className="flex overflow-x-auto border-b border-gray-100 !px-2 !pt-2 gap-1 flex-shrink-0">
                                 {generated.map(g => {
                                     const ch = CHANNELS.find(c => c.id === g.channelId);
                                     return (
                                         <button key={g.channelId} onClick={() => setActiveContent(g.channelId)}
-                                            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-xl text-xs font-black whitespace-nowrap transition-all ${activeContent === g.channelId ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
-                                            <span>{ch?.icon ?? '📝'}</span> {ch?.label ?? g.channelId}
+                                            className={`flex items-center gap-1.5 !px-4 !py-2.5 rounded-t-xl text-xs font-black whitespace-nowrap transition-all ${activeContent === g.channelId ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
+                                            <span className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 ${ch?.tile ?? 'bg-gray-700'}`}>
+                                                {ch?.mark ?? '📝'}
+                                            </span>
+                                            {ch?.label ?? g.channelId}
                                         </button>
                                     );
                                 })}
                             </div>
 
                             {activeGenerated && (
-                                <div className="p-5">
-                                    <div className="flex items-center justify-between mb-3">
+                                <div className="!p-5">
+                                    <div className="flex items-center justify-between !mb-3">
                                         <div className="flex items-center gap-2">
-                                            <span className="text-xl">{activeCh?.icon ?? '📝'}</span>
+                                            <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${activeCh?.tile ?? 'bg-gray-700'}`}>
+                                                {activeCh?.mark ?? '📝'}
+                                            </span>
                                             <div>
                                                 <p className="text-sm font-black text-gray-900">{activeCh?.label ?? activeGenerated.channelId}</p>
                                                 <p className="text-[10px] text-gray-400">
@@ -306,13 +331,13 @@ export default function AIContentStudio() {
                                         </div>
                                         <div className="flex gap-2">
                                             <button onClick={() => copyContent(activeGenerated.channelId)}
-                                                className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-xl text-xs font-black transition-all">
+                                                className="flex items-center gap-1.5 !px-3 !py-1.5 bg-gray-100 hover:bg-gray-200 rounded-xl text-xs font-black transition-all">
                                                 {activeGenerated.copied ? <><Check size={12} className="text-emerald-600" /> Copied!</> : <><Copy size={12} /> Copy</>}
                                             </button>
                                         </div>
                                     </div>
 
-                                    <div className={`bg-gray-50 rounded-xl p-4 text-sm leading-relaxed whitespace-pre-wrap font-medium text-gray-800 min-h-[200px] max-h-[400px] overflow-y-auto border border-gray-200`}>
+                                    <div className={`bg-gray-50 rounded-xl !p-4 text-sm leading-relaxed whitespace-pre-wrap font-medium text-gray-800 min-h-[200px] max-h-[400px] overflow-y-auto border border-gray-200`}>
                                         {activeGenerated.content}
                                     </div>
 

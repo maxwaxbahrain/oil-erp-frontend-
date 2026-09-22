@@ -12,7 +12,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { X, Send } from 'lucide-react';
 import { useDeepgramRecognition as useVoiceRecognition } from './useDeepgramRecognition';
 import { processVoiceCommand } from './VoiceCommandProcessor';
@@ -29,6 +29,8 @@ export function VoiceAssistant({
     onSubscriptionRequired?: () => void;
 } = {}) {
     const navigate = useNavigate();
+    const { pathname } = useLocation();
+    const hideFloatingMic = pathname.startsWith('/finance/banking');
     const [state, setState] = useState<AssistantState>('idle');
     const [lastTranscript, setLastTranscript] = useState<string>('');
     const [responseMessage, setResponseMessage] = useState<string>('');
@@ -231,6 +233,8 @@ export function VoiceAssistant({
     const isActive = state !== 'idle';
     const inputDisabled = state === 'processing' || state === 'speaking';
     const fabListening = state === 'listening';
+
+    if (hideFloatingMic) return null;
 
     return (
         <div className="lg:hidden print:hidden" data-component="voice-assistant-mobile">

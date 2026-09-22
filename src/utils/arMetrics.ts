@@ -15,6 +15,7 @@ type PaymentLike = {
   customer_id?: string;
   amount: number;
   payment_date?: string;
+  voided?: boolean;
 };
 
 export interface ReceivableInvoice {
@@ -61,6 +62,7 @@ export function calculateReceivables(
   const customerPaymentTotal = new Map<string, number>();
 
   for (const payment of payments) {
+    if (payment.voided === true) continue;
     const amount = Number(payment.amount) || 0;
     if (amount <= 0) continue;
     const invoiceId = payment.invoice_id ? String(payment.invoice_id) : '';

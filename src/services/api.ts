@@ -1,6 +1,7 @@
 import { ACCESS_TOKEN_KEY, authFetch } from '../api/axios';
 import { handlePaymentRequiredStatus } from '../api/paymentRequired';
 import { getOilErpApiBase } from '../config/apiBase';
+import { livePayments } from '../utils/paymentVoid';
 
 export const API_BASE_URL = getOilErpApiBase();
 const USE_MOCK = false;
@@ -49,6 +50,10 @@ export interface PartyLedgerRow {
   purchase_order_id?: number | null;
   van_number?: string;
   salesman_name?: string;
+  voided?: boolean;
+  reversal_transaction_id?: number | null;
+  voided_on?: string | null;
+  reverses_transaction_id?: number | null;
 }
 export interface PartyLedger {
   opening_balance: number;
@@ -103,6 +108,10 @@ export interface Payment {
   invoice_id?: string; // Link payment to specific invoice
   is_advance?: boolean; // Mark as advance payment
   transaction_type?: 'payment' | 'expense';
+  voided?: boolean;
+  reversal_transaction_id?: number | null;
+  voided_on?: string | null;
+  reverses_transaction_id?: number | null;
 }
 
 export interface SalesOrder {
@@ -719,15 +728,16 @@ export const createPayment = (data: any): Promise<any> => {
   });
 };
 
-// FIX W6-1 — Void a payment by posting a reversing (negative-amount)
-// contra-payment via the same /ledger/payment endpoint. The original
-// record stays in place for audit; both rows remain visible in Banking,
-// joined by reference: VOID/<originalId>. Customer + invoice balance
-// recompute on the backend ledger side.
-//
-// Standard accounting practice — never delete a posted payment, always
-// post a contra-entry. Refuses to void rows that are themselves
-// reversals (prevents double-void).
+function parsePaymentTransactionId(raw: string): number {
+  const trimmed = String(raw).trim();
+  const prefixed = trimmed.match(/^PAY-(\d+)$/i);
+  if (prefixed) return parseInt(prefixed[1], 10);
+  const numeric = parseInt(trimmed, 10);
+  if (!Number.isNaN(numeric) && String(numeric) === trimmed) return numeric;
+  return NaN;
+}
+
+/** Void a posted customer payment via POST /ledger/payment/{id}/void. */
 export async function voidPayment(p: {
   id: string;
   customer_id: string;
@@ -741,15 +751,15 @@ export async function voidPayment(p: {
   if (p.amount < 0) {
     throw new Error('This is already a reversal entry — cannot void a void.');
   }
-  return createPayment({
-    customer_id: p.customer_id,
-    amount: -Math.abs(p.amount),
-    payment_method: 'Void',
-    reference: `VOID/${p.id}`,
-    payment_date: new Date().toISOString().slice(0, 10),
-    invoice_id: p.invoice_id || undefined,
-    notes: `Reversal of payment ${p.id}` + (p.reason ? ` — ${p.reason}` : ''),
-    is_advance: !p.invoice_id,
+  const numericId = parsePaymentTransactionId(p.id);
+  if (Number.isNaN(numericId)) {
+    throw new Error(`Cannot void payment: invalid payment id "${p.id}"`);
+  }
+  const body: Record<string, unknown> = {};
+  if (p.reason) body.reason = p.reason;
+  return apiRequest<any>(`/ledger/payment/${numericId}/void`, {
+    method: 'POST',
+    body: JSON.stringify(body),
   });
 }
 
@@ -1237,7 +1247,7 @@ export async function getCustomerAdvanceBalance(customerId: string): Promise<num
   try {
     const payments = await getPaymentsForCustomer(customerId);
     const advancePayments = payments.filter(p => p.is_advance && !p.invoice_id);
-    return advancePayments.reduce((sum, p) => sum + p.amount, 0);
+    return livePayments(advancePayments).reduce((sum, p) => sum + p.amount, 0);
   } catch (error) {
     console.error('Failed to get advance balance:', error);
     return 0;

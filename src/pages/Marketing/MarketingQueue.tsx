@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Copy, ImagePlus, RefreshCw, Send, Sparkles, Wand2 } from 'lucide-react';
 import AutoGrowTextarea from '../../components/AutoGrowTextarea';
@@ -13,9 +13,19 @@ import {
     updateMarketingPost,
     uploadMarketingPostMedia,
     type MarketingConnection,
+    type MarketingPlatform,
     type MarketingPost,
 } from '../../services/api';
 import { formatDateTime } from '../../utils/formatters';
+import {
+    EmailMark,
+    FacebookMark,
+    GoogleMark,
+    InstagramMark,
+    LinkedInMark,
+    TikTokMark,
+    YouTubeMark,
+} from './channelMarks';
 
 type StatusTab = 'all' | 'draft' | 'approved' | 'archived' | 'posted';
 
@@ -40,6 +50,18 @@ const ACTION_ERROR = "Couldn't update the post. Try again.";
 const DELETE_ERROR = "Couldn't delete the post. Try again.";
 const COPY_ERROR = "Couldn't copy to the clipboard.";
 const NO_CONNECTIONS_ERROR = 'No social accounts connected yet.';
+const IMAGE_HINT = 'Images: JPG, PNG or WebP · under 10 MB · at least 256x256, and 1024px or larger gives much better AI results';
+
+const PLATFORM_MARK: Record<MarketingPlatform, { label: string; tile: string; mark: ReactNode }> = {
+    facebook: { label: 'Facebook', tile: 'bg-[#1877F2]', mark: <FacebookMark /> },
+    instagram: { label: 'Instagram', tile: 'bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400', mark: <InstagramMark /> },
+    tiktok: { label: 'TikTok', tile: 'bg-gray-900', mark: <TikTokMark /> },
+    linkedin: { label: 'LinkedIn', tile: 'bg-blue-700', mark: <LinkedInMark /> },
+    youtube: { label: 'YouTube', tile: 'bg-red-600', mark: <YouTubeMark /> },
+    x: { label: 'X', tile: 'bg-gray-900', mark: <span className="text-white text-lg font-black leading-none">𝕏</span> },
+    google: { label: 'Google', tile: 'bg-white', mark: <GoogleMark /> },
+    email: { label: 'Email', tile: 'bg-purple-600', mark: <EmailMark /> },
+};
 
 export function mapPublishError(err: unknown): string {
     const text = err instanceof Error ? err.message : String(err);
@@ -134,9 +156,50 @@ export function mapEditImageError(err: unknown): string {
     return "Couldn't edit the image. Try again.";
 }
 
-function truncateBody(body: string, limit = 200): { text: string; truncated: boolean } {
-    if (body.length <= limit) return { text: body, truncated: false };
-    return { text: body.slice(0, limit).trimEnd() + '…', truncated: true };
+function PostBody({
+    body,
+    isOpen,
+    onToggle,
+}: {
+    body: string;
+    isOpen: boolean;
+    onToggle: () => void;
+}) {
+    const ref = useRef<HTMLParagraphElement>(null);
+    const [overflows, setOverflows] = useState(false);
+
+    useLayoutEffect(() => {
+        const el = ref.current;
+        if (!el) return;
+        const check = () => {
+            if (isOpen) return;
+            setOverflows(el.scrollHeight > el.clientHeight + 1);
+        };
+        check();
+        const ro = new ResizeObserver(check);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, [body, isOpen]);
+
+    return (
+        <>
+            <p
+                ref={ref}
+                className={`text-sm text-gray-600 leading-relaxed whitespace-pre-wrap ${isOpen ? '' : 'line-clamp-4'}`}
+            >
+                {body}
+            </p>
+            {(overflows || isOpen) && (
+                <button
+                    type="button"
+                    onClick={onToggle}
+                    className="!mt-1 text-xs font-black text-purple-700 hover:text-purple-900"
+                >
+                    {isOpen ? 'Show less' : 'Show more'}
+                </button>
+            )}
+        </>
+    );
 }
 
 export default function MarketingQueue() {
@@ -395,38 +458,42 @@ export default function MarketingQueue() {
 
     const actionButtons = (post: MarketingPost) => {
         const disabled = busyId === post.id;
-        const btn = 'text-xs font-black px-3 py-1.5 rounded-lg border transition-all disabled:opacity-50';
+        const btn = 'inline-flex items-center justify-center gap-1 text-xs font-black !px-4 !py-2 rounded-xl border transition-all disabled:opacity-50';
+        const btnPrimaryApprove = `${btn} border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700`;
+        const btnPrimaryPublish = `${btn} border-purple-600 bg-purple-600 text-white hover:bg-purple-700`;
+        const btnSecondary = `${btn} border-gray-300 bg-transparent text-gray-700 hover:bg-gray-50`;
+        const btnDestructive = `${btn} border-red-500 bg-transparent text-red-600 hover:bg-red-50`;
         const items: { label: string; onClick: () => void; className: string }[] = [];
 
         if (post.status === 'draft') {
             items.push({
                 label: 'Approve',
                 onClick: () => applyStatus(post.id, 'approved'),
-                className: `${btn} border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100`,
+                className: btnPrimaryApprove,
             });
         }
         if (post.status === 'approved') {
             items.push({
                 label: 'Publish',
                 onClick: () => onPublishClick(post),
-                className: `${btn} border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100`,
+                className: btnPrimaryPublish,
             });
             items.push({
                 label: 'Back to draft',
                 onClick: () => applyStatus(post.id, 'draft'),
-                className: `${btn} border-gray-200 bg-white text-gray-700 hover:bg-gray-50`,
+                className: btnSecondary,
             });
             items.push({
                 label: 'Archive',
                 onClick: () => applyStatus(post.id, 'archived'),
-                className: `${btn} border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100`,
+                className: btnSecondary,
             });
         }
         if (post.status === 'archived') {
             items.push({
                 label: 'Back to draft',
                 onClick: () => applyStatus(post.id, 'draft'),
-                className: `${btn} border-gray-200 bg-white text-gray-700 hover:bg-gray-50`,
+                className: btnSecondary,
             });
         }
 
@@ -434,23 +501,23 @@ export default function MarketingQueue() {
             items.push({
                 label: 'Open in Studio',
                 onClick: () => navigate(`/marketing/studio/${post.id}`),
-                className: `${btn} border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100`,
+                className: btnSecondary,
             });
             items.push({
                 label: 'Add image',
                 onClick: () => onAddImageClick(post.id),
-                className: `${btn} border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100`,
+                className: btnSecondary,
             });
             items.push({
                 label: 'Generate image',
                 onClick: () => onGenerateImageClick(post.id),
-                className: `${btn} border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100`,
+                className: btnSecondary,
             });
             if (post.media_url) {
                 items.push({
                     label: 'Edit image',
                     onClick: () => onEditImageClick(post.id),
-                    className: `${btn} border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700 hover:bg-fuchsia-100`,
+                    className: btnSecondary,
                 });
             }
         }
@@ -458,38 +525,63 @@ export default function MarketingQueue() {
         items.push({
             label: copiedId === post.id ? 'Copied' : 'Copy',
             onClick: () => { void onCopy(post); },
-            className: `${btn} border-gray-200 bg-white text-gray-700 hover:bg-gray-50`,
+            className: btnSecondary,
         });
         items.push({
             label: 'Delete',
             onClick: () => onDelete(post),
-            className: `${btn} border-red-200 bg-red-50 text-red-700 hover:bg-red-100`,
+            className: btnDestructive,
         });
+
+        const deleteItem = items.find((item) => item.label === 'Delete');
+        const mainItems = items.filter((item) => item.label !== 'Delete');
+
+        const renderAction = (item: { label: string; onClick: () => void; className: string }) => {
+            const key = item.label === 'Copied' ? 'Copy' : item.label;
+            const isAddImage = item.label === 'Add image';
+            return (
+                <span key={key} className={isAddImage ? 'relative inline-flex group/imghint' : 'inline-flex'}>
+                    <button
+                        type="button"
+                        disabled={disabled}
+                        onClick={item.onClick}
+                        className={item.className}
+                        title={isAddImage ? IMAGE_HINT : undefined}
+                        aria-describedby={isAddImage ? `queue-image-hint-${post.id}` : undefined}
+                    >
+                        {item.label === 'Copy' || item.label === 'Copied' ? (
+                            <span className="inline-flex items-center gap-1"><Copy size={12} /> {item.label}</span>
+                        ) : isAddImage ? (
+                            <span className="inline-flex items-center gap-1"><ImagePlus size={12} /> {item.label}</span>
+                        ) : item.label === 'Generate image' ? (
+                            <span className="inline-flex items-center gap-1"><Sparkles size={12} /> {item.label}</span>
+                        ) : item.label === 'Edit image' ? (
+                            <span className="inline-flex items-center gap-1"><Wand2 size={12} /> {item.label}</span>
+                        ) : item.label}
+                    </button>
+                    {isAddImage && (
+                        <span
+                            id={`queue-image-hint-${post.id}`}
+                            role="tooltip"
+                            className="pointer-events-none absolute left-0 top-full z-10 !mt-1 hidden w-72 max-w-[min(18rem,calc(100vw-2.5rem))] rounded-lg border border-gray-200 bg-white !p-2 text-[11px] text-gray-500 leading-snug shadow-sm group-hover/imghint:block group-focus-within/imghint:block"
+                        >
+                            {IMAGE_HINT}
+                        </span>
+                    )}
+                </span>
+            );
+        };
 
         return (
             <div className="flex flex-col gap-2">
-                <div className="flex flex-wrap gap-2">
-                    {items.map((item) => (
-                        <button key={item.label === 'Copied' ? 'Copy' : item.label} type="button" disabled={disabled} onClick={item.onClick} className={item.className}>
-                            {item.label === 'Copy' || item.label === 'Copied' ? (
-                                <span className="inline-flex items-center gap-1"><Copy size={12} /> {item.label}</span>
-                            ) : item.label === 'Add image' ? (
-                                <span className="inline-flex items-center gap-1"><ImagePlus size={12} /> {item.label}</span>
-                            ) : item.label === 'Generate image' ? (
-                                <span className="inline-flex items-center gap-1"><Sparkles size={12} /> {item.label}</span>
-                            ) : item.label === 'Edit image' ? (
-                                <span className="inline-flex items-center gap-1"><Wand2 size={12} /> {item.label}</span>
-                            ) : item.label}
-                        </button>
-                    ))}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                        {mainItems.map(renderAction)}
+                    </div>
+                    {deleteItem && renderAction(deleteItem)}
                 </div>
-                {post.status !== 'posted' && (
-                    <p className="text-[11px] text-gray-500 leading-snug">
-                        Images: JPG, PNG or WebP · under 10 MB · at least 256x256, and 1024px or larger gives much better AI results
-                    </p>
-                )}
                 {pickerPostId === post.id && connections && connections.length > 1 && (
-                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <div className="flex flex-wrap items-center gap-2 !pt-1">
                         <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Publish to</span>
                         {connections.map((conn) => (
                             <button
@@ -514,7 +606,7 @@ export default function MarketingQueue() {
                     </div>
                 )}
                 {promptBoxPostId === post.id && (
-                    <div className="pt-2 p-3 rounded-xl border border-violet-200 bg-violet-50/40 space-y-2">
+                    <div className="flex flex-col gap-2 !p-3 rounded-xl border border-violet-200 bg-violet-50/40">
                         {generatingImage && busyId === post.id ? (
                             <p className="text-xs font-bold text-violet-700 inline-flex items-center gap-2">
                                 <RefreshCw size={12} className="animate-spin shrink-0" />
@@ -527,7 +619,7 @@ export default function MarketingQueue() {
                                     onChange={(e) => setPromptDraft(e.target.value)}
                                     placeholder="Describe the image, e.g. busy auto workshop, mechanic changing oil"
                                     maxLength={1000}
-                                    className="w-full text-sm px-3 py-2 rounded-lg border border-violet-200 bg-white focus:outline-none focus:ring-2 focus:ring-violet-300 resize-none"
+                                    className="w-full text-sm !px-3 !py-2 rounded-lg border border-violet-200 bg-white focus:outline-none focus:ring-2 focus:ring-violet-300 resize-none"
                                 />
                                 <p className="text-[11px] text-gray-500 leading-snug">
                                     Generated images are best for scenes and backgrounds. Upload a real photo
@@ -556,7 +648,7 @@ export default function MarketingQueue() {
                     </div>
                 )}
                 {editPromptBoxPostId === post.id && (
-                    <div className="pt-2 p-3 rounded-xl border border-fuchsia-200 bg-fuchsia-50/40 space-y-2">
+                    <div className="flex flex-col gap-2 !p-3 rounded-xl border border-fuchsia-200 bg-fuchsia-50/40">
                         {editingImage && busyId === post.id ? (
                             <p className="text-xs font-bold text-fuchsia-700 inline-flex items-center gap-2">
                                 <RefreshCw size={12} className="animate-spin shrink-0" />
@@ -569,7 +661,7 @@ export default function MarketingQueue() {
                                     onChange={(e) => setEditPromptDraft(e.target.value)}
                                     placeholder="Describe the scene, e.g. product on a busy workshop bench at golden hour"
                                     maxLength={1000}
-                                    className="w-full text-sm px-3 py-2 rounded-lg border border-fuchsia-200 bg-white focus:outline-none focus:ring-2 focus:ring-fuchsia-300 resize-none"
+                                    className="w-full text-sm !px-3 !py-2 rounded-lg border border-fuchsia-200 bg-white focus:outline-none focus:ring-2 focus:ring-fuchsia-300 resize-none"
                                 />
                                 <p className="text-[11px] text-gray-500 leading-snug">
                                     Uses your uploaded photo as the product — the real label stays visible.
@@ -602,7 +694,7 @@ export default function MarketingQueue() {
     };
 
     return (
-        <div className="space-y-5 max-w-[1100px] mx-auto pb-10">
+        <div className="flex flex-col gap-5 max-w-[1100px] mx-auto !px-3 sm:!px-6 lg:!px-10 !pb-10">
             <input
                 ref={fileInputRef}
                 type="file"
@@ -610,30 +702,30 @@ export default function MarketingQueue() {
                 className="hidden"
                 onChange={onFileInputChange}
             />
-            <div className="bg-gradient-to-r from-purple-900 to-pink-900 rounded-2xl p-6 text-white">
-                <button onClick={() => navigate('/marketing')} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-white mb-3"><ArrowLeft size={14} /> Marketing Hub</button>
+            <div className="bg-gradient-to-r from-purple-900 to-pink-900 rounded-2xl !p-6 text-white">
+                <button onClick={() => navigate('/marketing')} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-white !mb-3"><ArrowLeft size={14} /> Marketing Hub</button>
                 <div className="flex items-center justify-between flex-wrap gap-4">
                     <div>
                         <h1 className="text-xl font-black uppercase">Queue</h1>
-                        <p className="text-gray-400 text-xs mt-0.5">Review, approve, and archive generated posts</p>
+                        <p className="text-gray-400 text-xs !mt-0.5">Review, approve, and archive generated posts</p>
                     </div>
                     <button onClick={() => navigate('/marketing/studio')}
-                        className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-pink-500 to-purple-600 rounded-xl text-sm font-black transition-all shadow-lg">
+                        className="flex items-center gap-2 !px-5 !py-2.5 bg-gradient-to-r from-pink-500 to-purple-600 rounded-xl text-sm font-black transition-all shadow-lg">
                         Open Content Studio →
                     </button>
                 </div>
             </div>
 
             {tab === 'all' && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 gap-2 sm:gap-3">
                 {[
                     { label: 'Total', value: loading ? '...' : total, color: 'text-gray-900' },
                     { label: 'Drafts', value: loading ? '...' : drafts, color: 'text-gray-600' },
                     { label: 'Approved', value: loading ? '...' : approved, color: 'text-emerald-600' },
                 ].map((s) => (
-                    <div key={s.label} className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
-                        <p className={`text-2xl font-black ${s.color}`}>{s.value}</p>
-                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-0.5">{s.label}</p>
+                    <div key={s.label} className="bg-white rounded-2xl border border-gray-200 !p-4 shadow-sm min-w-0 w-full">
+                        <p className={`text-lg sm:text-2xl font-black tabular-nums ${s.color}`}>{s.value}</p>
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest !mt-1 truncate">{s.label}</p>
                     </div>
                 ))}
             </div>
@@ -645,7 +737,7 @@ export default function MarketingQueue() {
                         key={t.id}
                         type="button"
                         onClick={() => setTab(t.id)}
-                        className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
+                        className={`!px-4 !py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
                             tab === t.id
                                 ? 'bg-gray-900 text-white'
                                 : 'bg-white border border-gray-200 text-gray-500 hover:bg-gray-50'
@@ -657,12 +749,12 @@ export default function MarketingQueue() {
             </div>
 
             {error && (
-                <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex items-start justify-between gap-4">
+                <div className="bg-red-50 border border-red-200 rounded-2xl !p-4 flex items-start justify-between gap-4">
                     <p className="text-sm font-bold text-red-800">{error}</p>
                     <button
                         type="button"
                         onClick={() => void fetchPosts(tab)}
-                        className="flex items-center gap-1 shrink-0 px-3 py-1.5 bg-white border border-red-300 rounded-lg text-xs font-black text-red-700 hover:bg-red-100"
+                        className="flex items-center gap-1 shrink-0 !px-3 !py-1.5 bg-white border border-red-300 rounded-lg text-xs font-black text-red-700 hover:bg-red-100"
                     >
                         <RefreshCw size={12} /> Retry
                     </button>
@@ -670,39 +762,49 @@ export default function MarketingQueue() {
             )}
 
             {loading && (
-                <div className="bg-white rounded-2xl border border-gray-100 p-16 text-center shadow-sm">
-                    <RefreshCw size={28} className="mx-auto text-gray-300 mb-3 animate-spin" />
+                <div className="bg-white rounded-2xl border border-gray-200 !p-16 text-center shadow-sm">
+                    <RefreshCw size={28} className="mx-auto text-gray-300 !mb-3 animate-spin" />
                     <p className="text-gray-500 font-black">Loading posts…</p>
                 </div>
             )}
 
             {!loading && !error && posts.length === 0 && (
-                <div className="bg-white rounded-2xl border border-gray-100 p-16 text-center shadow-sm">
-                    <Send size={48} className="mx-auto text-gray-200 mb-4" />
+                <div className="bg-white rounded-2xl border border-gray-200 !p-16 text-center shadow-sm">
+                    <Send size={48} className="mx-auto text-gray-200 !mb-4" />
                     <p className="text-gray-500 font-black text-lg">No posts yet</p>
-                    <p className="text-gray-400 text-sm mt-1">Generate drafts in the AI Content Studio, then approve them here.</p>
-                    <button onClick={() => navigate('/marketing/studio')} className="mt-4 px-6 py-3 bg-gray-900 text-white rounded-xl text-sm font-black">
+                    <p className="text-gray-400 text-sm !mt-1">Generate drafts in the AI Content Studio, then approve them here.</p>
+                    <button onClick={() => navigate('/marketing/studio')} className="!mt-4 !px-6 !py-3 bg-gray-900 text-white rounded-xl text-sm font-black">
                         Open Content Studio →
                     </button>
                 </div>
             )}
 
             {!loading && posts.length > 0 && (
-                <div className="space-y-3">
+                <div className="flex flex-col gap-4">
                     {posts.map((post) => {
-                        const { text, truncated } = truncateBody(post.body);
                         const isOpen = !!expanded[post.id];
+                        const platform = PLATFORM_MARK[post.platform];
                         return (
-                            <div key={post.id} className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+                            <div key={post.id} className="bg-white rounded-2xl border border-gray-200 !p-5 shadow-sm">
                                 <div className="flex items-start justify-between gap-3 flex-wrap">
-                                    <div>
+                                    <div className="min-w-0">
                                         <p className="text-base font-black text-gray-900">{post.title}</p>
                                         {post.trigger_reason && (
-                                            <p className="text-xs italic text-gray-500 mt-0.5">{post.trigger_reason}</p>
+                                            <p className="text-xs italic text-gray-500 !mt-0.5">{post.trigger_reason}</p>
                                         )}
-                                        <div className="flex flex-wrap items-center gap-2 mt-1">
-                                            <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">{post.platform}</span>
-                                            <span className={`text-[10px] font-black px-2 py-1 rounded-full ${STATUS_STYLE[post.status] || 'bg-gray-100 text-gray-600'}`}>
+                                        <div className="flex flex-wrap items-center gap-2 !mt-2">
+                                            {platform ? (
+                                                <span
+                                                    className={`w-8 h-8 ${platform.tile} rounded-lg flex items-center justify-center shrink-0`}
+                                                    aria-label={platform.label}
+                                                    title={platform.label}
+                                                >
+                                                    {platform.mark}
+                                                </span>
+                                            ) : (
+                                                <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">{post.platform}</span>
+                                            )}
+                                            <span className={`text-[10px] font-black !px-2 !py-1 rounded-full ${STATUS_STYLE[post.status] || 'bg-gray-100 text-gray-600'}`}>
                                                 {post.status}
                                             </span>
                                             <span className="text-xs font-mono text-gray-400">{formatDateTime(post.created_at)}</span>
@@ -713,28 +815,23 @@ export default function MarketingQueue() {
                                             )}
                                         </div>
                                         {post.publish_error && (
-                                            <p className="text-xs text-amber-700 mt-1">{post.publish_error}</p>
+                                            <p className="text-xs text-amber-700 !mt-1">{post.publish_error}</p>
                                         )}
                                     </div>
                                 </div>
-                                <p className="text-sm text-gray-600 mt-3 leading-relaxed whitespace-pre-wrap">
-                                    {isOpen ? post.body : text}
-                                </p>
-                                {truncated && (
-                                    <button
-                                        type="button"
-                                        onClick={() => setExpanded((prev) => ({ ...prev, [post.id]: !isOpen }))}
-                                        className="mt-1 text-xs font-black text-purple-700 hover:text-purple-900"
-                                    >
-                                        {isOpen ? 'Show less' : 'Show more'}
-                                    </button>
-                                )}
+                                <div className="!mt-3">
+                                    <PostBody
+                                        body={post.body}
+                                        isOpen={isOpen}
+                                        onToggle={() => setExpanded((prev) => ({ ...prev, [post.id]: !isOpen }))}
+                                    />
+                                </div>
                                 {post.media_url && (
-                                    <div className="mt-3 flex items-start gap-3 flex-wrap">
+                                    <div className="!mt-3 flex items-start gap-3 flex-wrap">
                                         <img
                                             src={post.media_url}
                                             alt={post.media_file_name || 'Post image'}
-                                            className="max-h-[120px] rounded-xl border border-gray-100 object-contain bg-gray-50"
+                                            className="max-h-[120px] rounded-xl border border-gray-200 object-contain bg-gray-50"
                                         />
                                         <div className="flex flex-col gap-2 min-w-0">
                                             {post.media_file_name && (
@@ -747,7 +844,7 @@ export default function MarketingQueue() {
                                                     type="button"
                                                     disabled={busyId === post.id}
                                                     onClick={() => onRemoveImage(post.id)}
-                                                    className="text-xs font-black px-3 py-1.5 rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition-all disabled:opacity-50 w-fit"
+                                                    className="inline-flex items-center text-xs font-black !px-4 !py-2 rounded-xl border border-red-500 bg-transparent text-red-600 hover:bg-red-50 transition-all disabled:opacity-50 w-fit"
                                                 >
                                                     Remove image
                                                 </button>
@@ -755,7 +852,7 @@ export default function MarketingQueue() {
                                         </div>
                                     </div>
                                 )}
-                                <div className="mt-4">{actionButtons(post)}</div>
+                                <div className="!mt-4">{actionButtons(post)}</div>
                             </div>
                         );
                     })}
