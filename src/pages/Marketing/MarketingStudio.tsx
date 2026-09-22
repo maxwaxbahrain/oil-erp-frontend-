@@ -5,6 +5,7 @@ import {
     useState,
     type ChangeEvent,
     type MouseEvent as ReactMouseEvent,
+    type ReactNode,
 } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
@@ -29,6 +30,7 @@ import {
     type MarketingImageCount,
     type MarketingImageQuality,
     type MarketingImageShape,
+    type MarketingPlatform,
     type MarketingPost,
 } from '../../services/api';
 import {
@@ -37,6 +39,15 @@ import {
     mapMediaError,
     mapPublishError,
 } from './MarketingQueue';
+import {
+    EmailMark,
+    FacebookMark,
+    GoogleMark,
+    InstagramMark,
+    LinkedInMark,
+    TikTokMark,
+    YouTubeMark,
+} from './channelMarks';
 import VideoTab from './VideoTab';
 
 type StudioMode = 'generate' | 'edit';
@@ -76,6 +87,19 @@ const SHAPES: {
     { id: 'landscape', label: 'Feed', sub: '1.91:1', boxClass: 'w-[23px] h-[13px]' },
     { id: 'story', label: 'Story', sub: '9:16', boxClass: 'w-[11px] h-[20px]' },
 ];
+
+const PLATFORM_MARK: Record<MarketingPlatform, { label: string; tile: string; mark: ReactNode }> = {
+    facebook: { label: 'Facebook', tile: 'bg-[#1877F2]', mark: <FacebookMark /> },
+    instagram: { label: 'Instagram', tile: 'bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400', mark: <InstagramMark /> },
+    tiktok: { label: 'TikTok', tile: 'bg-gray-900', mark: <TikTokMark /> },
+    linkedin: { label: 'LinkedIn', tile: 'bg-blue-700', mark: <LinkedInMark /> },
+    youtube: { label: 'YouTube', tile: 'bg-red-600', mark: <YouTubeMark /> },
+    x: { label: 'X', tile: 'bg-gray-900', mark: <span className="text-white text-lg font-black leading-none">𝕏</span> },
+    google: { label: 'Google', tile: 'bg-white', mark: <GoogleMark /> },
+    email: { label: 'Email', tile: 'bg-purple-600', mark: <EmailMark /> },
+};
+
+const SAVE_PILL = 'inline-flex items-center shrink-0 !px-2 !py-0.5 rounded-full text-[10px] font-bold';
 
 const PRESETS: { title: string; body: string }[] = [
     {
@@ -529,9 +553,15 @@ export default function MarketingStudio() {
     const hasBatch = (candidateBatch?.candidates.length ?? 0) > 0;
     const actionLabel = actionButtonLabel(mode, quality, count);
     const batchCount = candidateBatch?.candidates.length ?? 0;
+    const platform = PLATFORM_MARK[post.platform];
+
+    const fieldClass =
+        'w-full bg-white border border-[#E4E7EC] rounded-lg text-sm font-bold !p-3 outline-none text-gray-800 focus:border-violet-300 focus:ring-[3px] focus:ring-violet-100';
+    const bodyFieldClass =
+        'w-full bg-white border border-[#E4E7EC] rounded-lg text-[12.5px] leading-relaxed !p-3 resize-none outline-none min-h-[160px] text-gray-800 focus:border-violet-300 focus:ring-[3px] focus:ring-violet-100';
 
     return (
-        <div className="h-screen overflow-hidden bg-[#F7F8FA] text-[#111827] text-sm flex flex-col">
+        <div className="flex flex-col w-full min-w-0 min-h-0 text-sm text-gray-800">
             <input
                 ref={fileInputRef}
                 type="file"
@@ -541,41 +571,43 @@ export default function MarketingStudio() {
             />
 
             {/* top chrome */}
-            <div className="h-[50px] bg-[#111827] flex items-center px-4 gap-3.5 shrink-0">
+            <div className="relative z-20 flex flex-wrap items-center gap-3 !px-3 sm:!px-4 !py-3 shrink-0 bg-[#111827]">
                 <Link
                     to="/marketing/campaigns"
-                    className="text-xs font-semibold text-gray-400 hover:text-white hover:bg-white/10 px-2 py-1.5 rounded-md"
+                    className="shrink-0 text-xs font-semibold text-gray-400 hover:text-white hover:bg-white/10 !px-2 !py-1.5 rounded-md"
                 >
                     ← Queue
                 </Link>
-                <div className="w-[23px] h-[23px] rounded-md bg-gradient-to-br from-purple-500 to-pink-500 grid place-items-center text-[11px] font-black text-white">
-                    S
+                <div className="flex items-center gap-2 shrink-0">
+                    <div className="w-[23px] h-[23px] rounded-md bg-gradient-to-br from-purple-500 to-pink-500 grid place-items-center text-[11px] font-black text-white">
+                        S
+                    </div>
+                    <div>
+                        <div className="text-xs font-black uppercase tracking-widest text-white">Soltol One</div>
+                        <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Studio</div>
+                    </div>
                 </div>
-                <div>
-                    <div className="text-xs font-black uppercase tracking-widest text-white">Soltol One</div>
-                    <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Studio</div>
-                </div>
-                <div className="ml-auto text-[11px] text-gray-500 font-mono truncate max-w-[240px]">
+                <div className="min-w-0 flex-1 text-[11px] text-gray-500 font-mono truncate sm:text-right">
                     {post.title}
                 </div>
             </div>
 
             {/* gradient band */}
-            <div className="bg-gradient-to-r from-purple-900 to-pink-900 px-[18px] py-3 flex items-center shrink-0">
+            <div className="relative z-10 bg-gradient-to-r from-purple-900 to-pink-900 !px-3 sm:!px-[18px] !py-4 flex items-center shrink-0">
                 <div>
                     <h2 className="text-[19px] font-black uppercase tracking-wide text-white leading-none">Studio</h2>
-                    <p className="text-[11.5px] text-white/60 mt-0.5">Make the picture, write the post, publish it</p>
+                    <p className="text-[11.5px] text-white/60 !mt-1">Make the picture, write the post, publish it</p>
                 </div>
             </div>
 
             {error && (
-                <div className="bg-red-50 border-b border-red-200 px-4 py-2 text-sm font-bold text-red-800 shrink-0">
+                <div className="bg-red-50 border-b border-red-200 !px-4 !py-2 text-sm font-bold text-red-800 shrink-0">
                     {error}
                 </div>
             )}
 
-            {/* Studio tabs */}
-            <div className="border-b border-[#E4E7EC] bg-white px-[18px] flex gap-1 shrink-0">
+            {/* Studio tabs — Queue-style pills, clear of the banner */}
+            <div className="flex flex-wrap gap-2 !px-3 sm:!px-6 !pt-4 !pb-3 shrink-0">
                 {(
                     [
                         { id: 'post' as const, label: 'Post' },
@@ -588,10 +620,10 @@ export default function MarketingStudio() {
                         key={item.id}
                         type="button"
                         onClick={() => setTab(item.id)}
-                        className={`px-4 py-2.5 text-[10px] font-extrabold uppercase tracking-widest border-b-2 -mb-px bg-transparent cursor-pointer ${
+                        className={`!px-4 !py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
                             tab === item.id
-                                ? 'text-[#111827] border-violet-600'
-                                : 'text-[#9CA3AF] border-transparent hover:text-[#6B7280]'
+                                ? 'bg-gray-900 text-white'
+                                : 'bg-white border border-gray-200 text-gray-500 hover:bg-gray-50'
                         }`}
                     >
                         {item.label}
@@ -600,25 +632,25 @@ export default function MarketingStudio() {
             </div>
 
             {tab === 'post' && (
-                <div className="flex-1 min-h-0 overflow-y-auto bg-white p-6">
-                    <div className="max-w-xl mx-auto space-y-5">
+                <div className="flex-1 min-h-0 overflow-y-auto !px-3 sm:!px-6 lg:!px-10 !pb-10">
+                    <div className="w-full max-w-3xl !mx-auto flex flex-col gap-5">
                         <div>
-                            <div className="flex items-center mb-1.5">
-                                <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#9CA3AF]">
+                            <div className="flex items-center justify-between gap-3 !mb-2">
+                                <span className="text-[10px] font-extrabold uppercase tracking-widest text-gray-400">
                                     Title
                                 </span>
                                 {titleSave === 'unsaved' && (
-                                    <span className="ml-auto text-[10px] font-bold text-amber-700">Unsaved</span>
+                                    <span className={`${SAVE_PILL} bg-amber-500/15 text-amber-400`}>Unsaved</span>
                                 )}
                                 {titleSave === 'saving' && (
-                                    <span className="ml-auto text-[10px] font-bold text-gray-500">Saving…</span>
+                                    <span className={`${SAVE_PILL} bg-white/10 text-gray-400`}>Saving…</span>
                                 )}
                                 {titleSave === 'saved' && title === post.title && (
-                                    <span className="ml-auto text-[10px] font-bold text-emerald-700">Saved</span>
+                                    <span className={`${SAVE_PILL} bg-emerald-500/15 text-emerald-400`}>Saved</span>
                                 )}
                             </div>
                             {posted ? (
-                                <div className="w-full bg-[#F7F8FA] border border-[#E4E7EC] rounded-lg text-sm font-bold p-3 text-[#374151]">
+                                <div className={fieldClass}>
                                     {title}
                                 </div>
                             ) : (
@@ -630,31 +662,33 @@ export default function MarketingStudio() {
                                         setTitleSave(e.target.value === post.title ? 'saved' : 'unsaved');
                                     }}
                                     onBlur={onTitleBlur}
-                                    className="w-full bg-white border border-[#E4E7EC] rounded-lg text-sm font-bold p-3 outline-none focus:border-violet-300 focus:ring-[3px] focus:ring-violet-100"
+                                    className={fieldClass}
                                 />
                             )}
                         </div>
 
                         <div>
-                            <div className="flex items-center mb-1.5">
-                                <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#9CA3AF]">
+                            <div className="flex items-center justify-between gap-3 !mb-2">
+                                <span className="text-[10px] font-extrabold uppercase tracking-widest text-gray-400">
                                     Body
                                 </span>
-                                <span className="ml-auto text-[10px] text-[#9CA3AF] font-mono">
-                                    {caption.length} / {CAPTION_MAX}
-                                </span>
-                                {captionSave === 'unsaved' && (
-                                    <span className="ml-2 text-[10px] font-bold text-amber-700">Unsaved</span>
-                                )}
-                                {captionSave === 'saving' && (
-                                    <span className="ml-2 text-[10px] font-bold text-gray-500">Saving…</span>
-                                )}
-                                {captionSave === 'saved' && caption === post.body && (
-                                    <span className="ml-2 text-[10px] font-bold text-emerald-700">Saved</span>
-                                )}
+                                <div className="flex items-center gap-2 shrink-0">
+                                    <span className="text-[10px] text-gray-400 font-mono">
+                                        {caption.length} / {CAPTION_MAX}
+                                    </span>
+                                    {captionSave === 'unsaved' && (
+                                        <span className={`${SAVE_PILL} bg-amber-500/15 text-amber-400`}>Unsaved</span>
+                                    )}
+                                    {captionSave === 'saving' && (
+                                        <span className={`${SAVE_PILL} bg-white/10 text-gray-400`}>Saving…</span>
+                                    )}
+                                    {captionSave === 'saved' && caption === post.body && (
+                                        <span className={`${SAVE_PILL} bg-emerald-500/15 text-emerald-400`}>Saved</span>
+                                    )}
+                                </div>
                             </div>
                             {posted ? (
-                                <div className="w-full bg-[#F7F8FA] border border-[#E4E7EC] rounded-lg text-[12.5px] leading-relaxed p-3 whitespace-pre-wrap text-[#6B7280] min-h-[160px]">
+                                <div className={`${bodyFieldClass} whitespace-pre-wrap`}>
                                     {caption}
                                 </div>
                             ) : (
@@ -668,19 +702,68 @@ export default function MarketingStudio() {
                                     onBlur={onCaptionBlur}
                                     maxLength={CAPTION_MAX}
                                     maxHeight={400}
-                                    className="w-full bg-white border border-[#E4E7EC] rounded-lg text-[12.5px] leading-relaxed p-3 resize-none outline-none min-h-[160px] focus:border-violet-300 focus:ring-[3px] focus:ring-violet-100"
+                                    className={bodyFieldClass}
                                 />
                             )}
                         </div>
 
                         <div>
-                            <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#9CA3AF] block mb-1.5">
+                            <span className="text-[10px] font-extrabold uppercase tracking-widest text-gray-400 block !mb-2">
                                 Platform
                             </span>
-                            <div className="inline-flex text-[11px] font-extrabold uppercase tracking-widest px-3 py-1.5 rounded-lg bg-[#F1F3F6] border border-[#E4E7EC] text-[#374151]">
-                                {post.platform}
-                            </div>
+                            {platform ? (
+                                <div className="inline-flex items-center gap-2 !px-3 !py-1.5 rounded-lg border border-gray-200">
+                                    <span
+                                        className={`w-8 h-8 ${platform.tile} rounded-lg flex items-center justify-center shrink-0`}
+                                        aria-label={platform.label}
+                                        title={platform.label}
+                                    >
+                                        {platform.mark}
+                                    </span>
+                                    <span className="text-[11px] font-extrabold uppercase tracking-widest text-gray-400">
+                                        {platform.label}
+                                    </span>
+                                </div>
+                            ) : (
+                                <div className="inline-flex text-[11px] font-extrabold uppercase tracking-widest !px-3 !py-1.5 rounded-lg border border-gray-200 text-gray-400">
+                                    {post.platform}
+                                </div>
+                            )}
                         </div>
+
+                        {posted ? (
+                            <p className="text-[11px] font-bold text-purple-400">This post was published.</p>
+                        ) : (
+                            <div className="flex flex-col gap-3">
+                                {showPublishPicker && connections && connections.length > 1 && (
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <span className="text-[10px] font-extrabold uppercase tracking-widest text-gray-400 w-full">
+                                            Publish to
+                                        </span>
+                                        {connections.map((conn) => (
+                                            <button
+                                                key={conn.platform_id}
+                                                type="button"
+                                                disabled={busy}
+                                                onClick={() => runPublish(conn.platform_id)}
+                                                className="text-xs font-bold !px-4 !py-2 rounded-xl border border-purple-200 bg-purple-50 text-purple-800 hover:bg-purple-100 disabled:opacity-50"
+                                            >
+                                                {conn.platform}
+                                                {conn.username ? ` · ${conn.username}` : ''}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                                <button
+                                    type="button"
+                                    disabled={busy || working || post.status === 'archived'}
+                                    onClick={onApproveAndPublish}
+                                    className="w-full bg-emerald-600 border-none rounded-xl !py-3 cursor-pointer text-white text-[13px] font-extrabold disabled:opacity-50"
+                                >
+                                    {post.status === 'approved' ? 'Publish' : 'Approve and publish'}
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
@@ -688,8 +771,8 @@ export default function MarketingStudio() {
             {tab === 'video' && <VideoTab post={post} />}
 
             {tab === 'publish' && (
-                <div className="flex-1 min-h-0 overflow-y-auto bg-[#F7F8FA] p-4">
-                    <div className="max-w-md mx-auto">
+                <div className="flex-1 min-h-0 overflow-y-auto !px-3 sm:!px-6 lg:!px-10 !pb-10">
+                    <div className="w-full max-w-md !mx-auto">
                         <div className="bg-white border border-[#E4E7EC] rounded-lg overflow-hidden">
                             <div className="flex gap-2 p-3 pb-2 items-center">
                                 <div className="w-[33px] h-[33px] rounded-full bg-gradient-to-br from-purple-500 to-pink-500 grid place-items-center text-white text-xs font-black shrink-0">
@@ -734,7 +817,7 @@ export default function MarketingStudio() {
                                                 type="button"
                                                 disabled={busy}
                                                 onClick={() => runPublish(conn.platform_id)}
-                                                className="text-xs font-bold px-3 py-1.5 rounded-lg border border-purple-200 bg-purple-50 text-purple-800 hover:bg-purple-100 disabled:opacity-50"
+                                                className="text-xs font-bold !px-4 !py-2 rounded-xl border border-purple-200 bg-purple-50 text-purple-800 hover:bg-purple-100 disabled:opacity-50"
                                             >
                                                 {conn.platform}
                                                 {conn.username ? ` · ${conn.username}` : ''}
@@ -746,7 +829,7 @@ export default function MarketingStudio() {
                                     type="button"
                                     disabled={busy || working || post.status === 'archived'}
                                     onClick={onApproveAndPublish}
-                                    className="w-full mt-3.5 bg-emerald-600 border-none rounded-lg py-3 cursor-pointer text-white text-[13px] font-extrabold disabled:opacity-50"
+                                    className="w-full !mt-3.5 bg-emerald-600 border-none rounded-xl !py-3 cursor-pointer text-white text-[13px] font-extrabold disabled:opacity-50"
                                 >
                                     {post.status === 'approved' ? 'Publish' : 'Approve and publish'}
                                 </button>
