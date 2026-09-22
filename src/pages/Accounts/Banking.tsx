@@ -24,8 +24,10 @@ import { getOilErpApiBase } from '../../config/apiBase';
 import {
     bankTxHomeState,
     bankTxIdFromSourceId,
+    buildStatementExport,
     chequeActions,
-    chequeConfirmText,
+    chequeEffectSentence,
+    foreignTransferEditMessage,
     contraAccountOptions,
     contraOptionsWithCurrent,
     filterLedgerRows,
@@ -228,6 +230,107 @@ async function fetchAccountLedger(accountId: number, startDate?: string, endDate
     }
 }
 
+export function ForeignTransferNotice({
+    accountName,
+    onOpenAccount,
+}: {
+    accountName: string;
+    onOpenAccount: () => void;
+}) {
+    return (
+        <span>
+            This transfer was recorded from the {accountName} account —{' '}
+            <button type="button" onClick={onOpenAccount}>edit it there</button>
+        </span>
+    );
+}
+
+export function InlineConfirmPanel({
+    title,
+    lines,
+    effect,
+    onConfirm,
+    onCancel,
+}: {
+    title: string;
+    lines: string[];
+    effect: string;
+    onConfirm: () => void;
+    onCancel: () => void;
+}) {
+    return (
+        <div role="dialog" aria-label={title} style={{ ...panelStyle, borderColor: 'rgba(79,142,247,.45)' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-redwood-text-main)', marginBottom: 6 }}>
+                {title}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--color-redwood-text-main)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {lines.map((line, index) => (
+                    <div key={`${index}-${line}`}>{line}</div>
+                ))}
+                <div>{effect}</div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                <button type="button" onClick={onConfirm} style={primaryBtnSafe}>Confirm</button>
+                <button type="button" onClick={onCancel} style={ghostBtnSafe}>Cancel</button>
+            </div>
+        </div>
+    );
+}
+
+export function ChequeConfirmPanel({
+    chequeNo,
+    amountLabel,
+    customer,
+    effect,
+    onConfirm,
+    onCancel,
+}: {
+    chequeNo: string;
+    amountLabel: string;
+    customer: string;
+    effect: string;
+    onConfirm: () => void;
+    onCancel: () => void;
+}) {
+    return (
+        <InlineConfirmPanel
+            title="Confirm cheque"
+            lines={[`Cheque no. ${chequeNo}`, `Amount ${amountLabel}`, `Customer ${customer}`]}
+            effect={effect}
+            onConfirm={onConfirm}
+            onCancel={onCancel}
+        />
+    );
+}
+
+const ghostBtnSafe: CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '6px 11px',
+    borderRadius: '6px',
+    fontSize: '10.5px',
+    fontWeight: 500,
+    cursor: 'pointer',
+    border: '1px solid var(--color-redwood-border)',
+    background: 'rgba(255,255,255,.04)',
+    color: 'var(--color-redwood-text-muted)',
+};
+
+const primaryBtnSafe: CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '6px 11px',
+    borderRadius: '6px',
+    fontSize: '10.5px',
+    fontWeight: 500,
+    cursor: 'pointer',
+    border: 'none',
+    background: '#4F8EF7',
+    color: '#fff',
+};
+
 function CustomerPicker({
     customers,
     value,
@@ -304,9 +407,9 @@ export default function Banking() {
         type: 'Credit' as 'Credit' | 'Debit',
         amount: '',
         reference: '',
+        memo: '',
         contraAccountId: '' as string,
     });
-    const [editingCategory, setEditingCategory] = useState<string | null>(null);
     const [editingContraName, setEditingContraName] = useState<string | null>(null);
     const [manualTxs, setManualTxs] = useState<BankTxRow[]>([]);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -323,6 +426,8 @@ export default function Banking() {
         description: '',
     });
     const [voidingId, setVoidingId] = useState<string | null>(null);
+    const [pendingCheque, setPendingCheque] = useState<{ pdc: PDCheque; status: PDCheque['status'] } | null>(null);
+    const [pendingDelete, setPendingDelete] = useState<BankTxRow | null>(null);
     const [cashAccounts, setCashAccounts] = useState<BankAccountRow[]>([]);
     const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
     const [closingByAccount, setClosingByAccount] = useState<Record<number, number | null>>({});
@@ -537,7 +642,7 @@ export default function Banking() {
             reference: editingId
                 ? (txForm.reference || '')
                 : (txForm.reference || `REF-${Date.now().toString().slice(-6)}`),
-            category: editingId ? (editingCategory || 'General') : 'General',
+            category: txForm.memo.trim() || 'General',
             account_id: selectedAccountId,
             contra_account_id: txForm.contraAccountId ? Number(txForm.contraAccountId) : null,
         };
@@ -558,9 +663,9 @@ export default function Banking() {
             type: 'Credit',
             amount: '',
             reference: '',
+            memo: '',
             contraAccountId: '',
         });
-        setEditingCategory(null);
         setEditingContraName(null);
         setShowAddTx(false);
         setEditingId(null);
@@ -583,8 +688,18 @@ export default function Banking() {
             showMsg('error', 'Bank transaction not found in the manual list.');
             return;
         }
+        const home = cashAccounts.find(a => a.id === tx.accountId);
+        const foreign = foreignTransferEditMessage(
+            tx.accountId,
+            selectedAccountId,
+            home?.name || 'Bank',
+        );
+        if (foreign) {
+            showMsg('error', foreign);
+            return;
+        }
+        const storedMemo = (tx.category || '').trim();
         setEditingId(String(tx.id));
-        setEditingCategory(tx.category || 'General');
         setEditingContraName(tx.contraAccountName ?? null);
         setTxForm({
             date: tx.date || localIsoDate(),
@@ -592,18 +707,22 @@ export default function Banking() {
             type: tx.type === 'Debit' ? 'Debit' : 'Credit',
             amount: String(tx.amount || ''),
             reference: tx.reference || '',
+            memo: storedMemo && storedMemo !== 'General' ? storedMemo : '',
             contraAccountId: tx.contraAccountId != null ? String(tx.contraAccountId) : '',
         });
         setShowAddTx(true);
     };
 
-    const deleteManualTx = async (row: LedgerRow) => {
+    const deleteManualTx = (row: LedgerRow) => {
         clearMsg();
         const txId = bankTxIdFromSourceId(row.source_id);
         if (txId == null) return;
         const tx = manualTxs.find(t => String(t.id) === String(txId));
         if (!tx) return;
-        if (!confirm(`Delete this transaction?\n\n${tx.description} · ${moneyDirectionLabel(tx.type)} ${formatUsd(tx.amount)}`)) return;
+        setPendingDelete(tx);
+    };
+
+    const performDelete = async (tx: BankTxRow) => {
         const result = await deleteBankTxApi(String(tx.id));
         if (!result.ok) {
             showMsg('error', result.detail || 'Failed to delete transaction');
@@ -643,14 +762,8 @@ export default function Banking() {
     };
 
     const confirmAndUpdatePDCStatus = (pdc: PDCheque, status: PDCheque['status']) => {
-        const action = status === 'Cleared' ? 'clear' as const : status === 'Bounced' ? 'bounce' as const : 'cancel' as const;
-        const text = chequeConfirmText(
-            action,
-            { chequeNo: pdc.chequeNo, amount: pdc.amount, type: pdc.type, glPosted: pdc.glPosted },
-            formatUsd,
-        );
-        if (!confirm(text)) return;
-        void updatePDCStatus(pdc.id, status);
+        clearMsg();
+        setPendingCheque({ pdc, status });
     };
 
     const updatePDCStatus = async (id: string, status: PDCheque['status']) => {
@@ -677,6 +790,9 @@ export default function Banking() {
 
     const exportStatementPDF = () => {
         if (!accountLedger || !selectedAccountId) return;
+        const statement = buildStatementExport(ledgerRows, { search, direction: directionFilter });
+        const exportRows = orderLedgerRows(statement.rows, ledgerOrder);
+        const exportTotals = periodTotals(exportRows);
         const acct = cashAccounts.find(a => a.id === selectedAccountId);
         const doc = new jsPDF({ orientation: 'landscape' });
         doc.setFontSize(16);
@@ -686,16 +802,19 @@ export default function Banking() {
         const periodStr = (dateFrom || dateTo)
             ? `${dateFrom || 'earliest'} to ${dateTo || today}`
             : `Up to ${today}`;
-        doc.text(`${getCompanyProfile().name || 'Company'} · ${acct?.name || 'Account'} · ${periodStr}`, 14, 22);
+        const scope = statement.label ? `${statement.label} · ` : '';
+        doc.text(`${scope}${getCompanyProfile().name || 'Company'} · ${acct?.name || 'Account'} · ${periodStr}`, 14, 22);
         doc.text(
-            `Opening: ${formatUsd(accountLedger.opening_balance)} · In: ${formatUsd(moneyIn)} · Out: ${formatUsd(moneyOut)} · Closing: ${formatUsd(accountLedger.closing_balance)}`,
+            statement.filterActive
+                ? `In: ${formatUsd(exportTotals.moneyIn)} · Out: ${formatUsd(exportTotals.moneyOut)}`
+                : `Opening: ${formatUsd(accountLedger.opening_balance)} · In: ${formatUsd(exportTotals.moneyIn)} · Out: ${formatUsd(exportTotals.moneyOut)} · Closing: ${formatUsd(accountLedger.closing_balance)}`,
             14,
             28,
         );
         autoTable(doc, {
             startY: 34,
             head: [['Date', 'Type', 'Reference', 'Description', 'Debit', 'Credit', 'Balance']],
-            body: ledgerRows.map(row => [
+            body: exportRows.map(row => [
                 row.date ? formatDateOnly(row.date) : '—',
                 ledgerTypeLabel(row.type),
                 row.reference || '',
@@ -705,9 +824,11 @@ export default function Banking() {
                 formatUsd(row.running_balance),
             ]),
             foot: [[
-                '', '', '', 'Closing balance',
-                '', '',
-                formatUsd(accountLedger.closing_balance),
+                '', '', '',
+                statement.filterActive ? 'Exported rows' : 'Closing balance',
+                formatUsd(exportTotals.moneyIn),
+                formatUsd(exportTotals.moneyOut),
+                statement.filterActive ? '' : formatUsd(accountLedger.closing_balance),
             ]],
             styles: { fontSize: 8 },
             headStyles: { fillColor: [33, 33, 33] },
@@ -820,9 +941,8 @@ export default function Banking() {
                             onClick={() => {
                                 clearMsg();
                                 setEditingId(null);
-                                setEditingCategory(null);
                                 setEditingContraName(null);
-                                setTxForm({ date: localIsoDate(), description: '', type: 'Credit', amount: '', reference: '', contraAccountId: '' });
+                                setTxForm({ date: localIsoDate(), description: '', type: 'Credit', amount: '', reference: '', memo: '', contraAccountId: '' });
                                 setShowAddTx(true);
                             }}
                             disabled={selectedAccountId == null}
@@ -928,6 +1048,24 @@ export default function Banking() {
 
                         {activeTab === 'ledger' && (
                             <>
+                                {pendingDelete && (
+                                    <InlineConfirmPanel
+                                        title="Confirm delete"
+                                        lines={[
+                                            pendingDelete.description,
+                                            moneyDirectionLabel(pendingDelete.type),
+                                            formatUsd(pendingDelete.amount),
+                                            pendingDelete.date ? formatDateOnly(pendingDelete.date) : '—',
+                                        ]}
+                                        effect="Delete will reverse the posted entry in the books. The row stays visible as Reversed."
+                                        onConfirm={() => {
+                                            const tx = pendingDelete;
+                                            setPendingDelete(null);
+                                            void performDelete(tx);
+                                        }}
+                                        onCancel={() => setPendingDelete(null)}
+                                    />
+                                )}
                                 {showAddTx && (
                                     <div style={{ ...panelStyle, borderColor: 'rgba(251,146,60,.4)' }}>
                                         <p style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-redwood-text-muted)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '.4px' }}>{editingId ? 'Edit transaction' : 'Add manual transaction'}</p>
@@ -937,6 +1075,7 @@ export default function Banking() {
                                             <div><label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Amount ($)</label><input type="number" placeholder="0.00" value={txForm.amount} onChange={e => setTxForm(p => ({ ...p, amount: e.target.value }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }} /></div>
                                             <div><label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Description</label><input value={txForm.description} onChange={e => setTxForm(p => ({ ...p, description: e.target.value }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }} /></div>
                                             <div><label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Reference</label><input value={txForm.reference} onChange={e => setTxForm(p => ({ ...p, reference: e.target.value }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }} /></div>
+                                            <div><label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Memo (optional)</label><input value={txForm.memo} onChange={e => setTxForm(p => ({ ...p, memo: e.target.value }))} placeholder="e.g. Bank fee, Owner deposit" style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }} /></div>
                                             <div style={{ gridColumn: 'span 2' }}>
                                                 <label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Other account</label>
                                                 <select value={txForm.contraAccountId} onChange={e => setTxForm(p => ({ ...p, contraAccountId: e.target.value }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }}>
@@ -958,7 +1097,7 @@ export default function Banking() {
                                         </div>
                                         <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                                             <button type="button" onClick={saveManualTx} disabled={!txForm.description || !txForm.amount} style={primaryBtn}>{editingId ? 'Update' : 'Save'}</button>
-                                            <button type="button" onClick={() => { setEditingId(null); setEditingCategory(null); setEditingContraName(null); setShowAddTx(false); }} style={ghostBtn}>Cancel</button>
+                                            <button type="button" onClick={() => { setEditingId(null); setEditingContraName(null); setShowAddTx(false); }} style={ghostBtn}>Cancel</button>
                                         </div>
                                     </div>
                                 )}
@@ -1050,13 +1189,14 @@ export default function Banking() {
                                                                     {action === 'edit-delete' && bankTxHome === 'here' && (
                                                                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4 }}>
                                                                             <button type="button" onClick={() => editManualTx(row)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--color-brand-blue-tint)', padding: 4 }} title="Edit"><Edit2 size={13} /></button>
-                                                                            <button type="button" onClick={() => void deleteManualTx(row)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--color-brand-red-tint)', padding: 4 }} title="Delete"><Trash2 size={13} /></button>
+                                                                            <button type="button" onClick={() => deleteManualTx(row)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--color-brand-red-tint)', padding: 4 }} title="Delete"><Trash2 size={13} /></button>
                                                                         </div>
                                                                     )}
-                                                                    {action === 'edit-delete' && bankTxHome === 'elsewhere' && homeAccount && (
-                                                                        <span style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>
-                                                                            Entered on {homeAccount.code} · {homeAccount.name}
-                                                                        </span>
+                                                                    {action === 'edit-delete' && bankTxHome === 'elsewhere' && homeAccount && foreignTransferEditMessage(bankTx?.accountId, selectedAccountId, homeAccount.name) && (
+                                                                        <ForeignTransferNotice
+                                                                            accountName={homeAccount.name}
+                                                                            onOpenAccount={() => setSelectedAccountId(homeAccount.id)}
+                                                                        />
                                                                     )}
                                                                     {action === 'void' && (() => {
                                                                         const pid = paymentIdFromRow(row);
@@ -1102,6 +1242,31 @@ export default function Banking() {
                                     <div style={{ ...panelStyle, background: 'var(--color-badge-amber-bg)', borderColor: 'rgba(245,158,11,.35)', fontSize: 12, color: 'var(--color-brand-amber-tint)' }}>
                                         {dueTodayPDC.length} cheque(s) due today or overdue
                                     </div>
+                                )}
+                                {pendingCheque && (
+                                    <ChequeConfirmPanel
+                                        chequeNo={pendingCheque.pdc.chequeNo}
+                                        amountLabel={formatUsd(pendingCheque.pdc.amount)}
+                                        customer={pendingCheque.pdc.payee
+                                            || customers.find(c => Number(c.id) === Number(pendingCheque.pdc.customerId))?.name
+                                            || '—'}
+                                        effect={chequeEffectSentence(
+                                            pendingCheque.status === 'Cleared' ? 'clear' : pendingCheque.status === 'Bounced' ? 'bounce' : 'cancel',
+                                            {
+                                                chequeNo: pendingCheque.pdc.chequeNo,
+                                                amount: pendingCheque.pdc.amount,
+                                                type: pendingCheque.pdc.type,
+                                                glPosted: pendingCheque.pdc.glPosted,
+                                            },
+                                            formatUsd,
+                                        )}
+                                        onConfirm={() => {
+                                            const next = pendingCheque;
+                                            setPendingCheque(null);
+                                            void updatePDCStatus(next.pdc.id, next.status);
+                                        }}
+                                        onCancel={() => setPendingCheque(null)}
+                                    />
                                 )}
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <span style={{ fontSize: 11, color: 'var(--color-redwood-text-muted)' }}>{pdcList.length} recorded</span>
