@@ -78,6 +78,7 @@ import GoodsReceivedList from '../pages/Inventory/GoodsReceivedList';
 import StockTransfer from '../pages/Inventory/StockTransfer';
 import InventoryReports from '../pages/Inventory/InventoryReports';
 import SettingsPage from '../pages/Settings/SettingsPage';
+import IntegrationsPage from '../pages/Settings/IntegrationsPage';
 import UserManagement from '../pages/Settings/UserManagement';
 import ChangePassword from '../pages/Settings/ChangePassword';
 import SupplierList from '../pages/Purchases/SupplierList';
@@ -458,6 +459,7 @@ export const AppRoutes = () => {
                 <Route path="/billing/success" element={<BillingCheckoutSuccess />} />
                 <Route path="/billing/cancel" element={<BillingCheckoutCancel />} />
                 <Route path="/settings/users" element={<UserManagement />} />
+                <Route path="/settings/integrations" element={<IntegrationsPage />} />
             </Route>
 
             {/* Platform super-admin only (username === 'admin') */}
