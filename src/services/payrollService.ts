@@ -790,6 +790,42 @@ export function verifyCompliance(employees: Employee[]): {
 
 // ── Phase 3c: tenant-scoped payroll API (real backend) ─────────
 
+export type AllowanceType =
+    | 'housing'
+    | 'transport'
+    | 'medical'
+    | 'meal'
+    | 'fuel'
+    | 'special'
+    | 'other';
+
+export interface AllowanceLine {
+    type: AllowanceType;
+    label: string;
+    amount: number;
+}
+
+export const ALLOWANCE_TYPES: AllowanceType[] = [
+    'housing',
+    'transport',
+    'medical',
+    'meal',
+    'fuel',
+    'special',
+    'other',
+];
+
+export const DEFAULT_ALLOWANCE_LABELS: Record<Exclude<AllowanceType, 'other'>, string> = {
+    housing: 'Housing Allowance',
+    transport: 'Transport Allowance',
+    medical: 'Medical Allowance',
+    meal: 'Meal Allowance',
+    fuel: 'Fuel Allowance',
+    special: 'Special Allowance',
+};
+
+const ALLOWANCE_TYPE_SET = new Set<string>(ALLOWANCE_TYPES);
+
 export interface PayrollProfile {
     id: number;
     tenantId?: number | null;
@@ -800,6 +836,7 @@ export interface PayrollProfile {
     overtimeRate?: number | null;
     createdAt?: string | null;
     updatedAt?: string | null;
+    allowances: AllowanceLine[];
 }
 
 export interface ApiPayslipDeduction {
@@ -841,6 +878,23 @@ async function readPayrollApiError(r: Response): Promise<string> {
     return `Request failed (${r.status})`;
 }
 
+function fromAllowanceLine(raw: Record<string, unknown>): AllowanceLine | null {
+    const type = String(raw.type ?? raw.allowance_type ?? '').trim().toLowerCase();
+    if (!ALLOWANCE_TYPE_SET.has(type)) return null;
+    return {
+        type: type as AllowanceType,
+        label: String(raw.label ?? ''),
+        amount: Number(raw.amount ?? 0),
+    };
+}
+
+function fromAllowanceLines(raw: unknown): AllowanceLine[] {
+    if (!Array.isArray(raw)) return [];
+    return raw
+        .map((row) => fromAllowanceLine(row as Record<string, unknown>))
+        .filter((row): row is AllowanceLine => row != null);
+}
+
 function fromPayrollProfile(raw: Record<string, unknown>): PayrollProfile {
     return {
         id: Number(raw.id),
@@ -864,6 +918,7 @@ function fromPayrollProfile(raw: Record<string, unknown>): PayrollProfile {
               : null,
         createdAt: raw.createdAt != null ? String(raw.createdAt) : raw.created_at != null ? String(raw.created_at) : null,
         updatedAt: raw.updatedAt != null ? String(raw.updatedAt) : raw.updated_at != null ? String(raw.updated_at) : null,
+        allowances: fromAllowanceLines(raw.allowances),
     };
 }
 
@@ -1009,6 +1064,36 @@ export async function updatePayrollProfile(
     });
     if (!r.ok) throw new Error(await readPayrollApiError(r));
     return fromPayrollProfile((await r.json()) as Record<string, unknown>);
+}
+
+export async function getProfileAllowances(profileId: number | string): Promise<AllowanceLine[]> {
+    const r = await authFetch(
+        `${API_BASE_URL}/payroll/profiles/${encodeURIComponent(String(profileId))}/allowances`,
+    );
+    if (!r.ok) throw new Error(await readPayrollApiError(r));
+    return fromAllowanceLines(await r.json());
+}
+
+export async function putProfileAllowances(
+    profileId: number | string,
+    lines: AllowanceLine[],
+): Promise<AllowanceLine[]> {
+    const r = await authFetch(
+        `${API_BASE_URL}/payroll/profiles/${encodeURIComponent(String(profileId))}/allowances`,
+        {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                allowances: lines.map((line) => ({
+                    type: line.type,
+                    label: line.label,
+                    amount: line.amount,
+                })),
+            }),
+        },
+    );
+    if (!r.ok) throw new Error(await readPayrollApiError(r));
+    return fromAllowanceLines(await r.json());
 }
 
 function fromPayrollRun(raw: Record<string, unknown>): ApiPayrollRun {

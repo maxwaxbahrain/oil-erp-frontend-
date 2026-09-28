@@ -19,6 +19,7 @@ import {
   type ApiPayslip,
   type PayrollProfile,
 } from '../../services/payrollService';
+import ProfileAllowancesEditor from './ProfileAllowancesEditor';
 import { generatePayslipPDF } from '../../utils/payslipPDF';
 
 const C = {
@@ -438,6 +439,21 @@ export default function PayrollAdmin({ employees, onToast, onError }: PayrollAdm
                           />
                         </label>
                       </>
+                    )}
+                    {editingProfile.profileId == null ? (
+                      <div style={{ fontSize: 11, color: C.t2, marginBottom: 8 }}>
+                        Save the pay profile first to add allowances
+                      </div>
+                    ) : (
+                      <ProfileAllowancesEditor
+                        key={`${editingProfile.profileId}:${(profile?.allowances ?? []).map((line) => `${line.type}|${line.label}|${line.amount}`).join(';')}`}
+                        profileId={editingProfile.profileId}
+                        initialLines={profile?.allowances ?? []}
+                        onSaved={async () => {
+                          onToast('Allowances saved');
+                          await loadProfiles();
+                        }}
+                      />
                     )}
                     <button
                       type="button"
