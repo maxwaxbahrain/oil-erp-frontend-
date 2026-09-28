@@ -254,6 +254,59 @@ export function getGLTrialBalance(asOf?: string): Promise<GLTrialBalance> {
   return apiRequest<GLTrialBalance>(`/gl/trial-balance${qs ? `?${qs}` : ''}`);
 }
 
+export interface GLLedgerContra {
+  account_id: number;
+  code: string;
+  name: string;
+  debit: number;
+  credit: number;
+}
+
+export interface GLLedgerRow {
+  entry_id: number;
+  entry_number: string;
+  entry_date: string | null;
+  memo: string | null;
+  source_type: string | null;
+  source_id: string | null;
+  status: string;
+  debit: number;
+  credit: number;
+  running_balance: number;
+  contra: GLLedgerContra[];
+}
+
+export interface GLAccountLedgerAccount {
+  id: number;
+  code: string;
+  name: string;
+  type: string;
+  normal_balance: string;
+  system_key: string | null;
+}
+
+export interface GLAccountLedger {
+  account: GLAccountLedgerAccount;
+  start_date: string | null;
+  end_date: string | null;
+  opening_balance: number;
+  rows: GLLedgerRow[];
+  total_debit: number;
+  total_credit: number;
+  net_movement: number;
+  closing_balance: number;
+  all_time_balance: number;
+}
+
+export function getGLAccountLedger(
+  accountId: number,
+  startDate: string,
+  endDate: string,
+): Promise<GLAccountLedger> {
+  const params = new URLSearchParams({ start_date: startDate, end_date: endDate });
+  return apiRequest<GLAccountLedger>(`/gl/accounts/${accountId}/ledger?${params.toString()}`);
+}
+
 export function getGLJournalEntries(): Promise<GLJournalEntry[]> {
   return apiRequest<GLJournalEntry[]>('/gl/journal-entries');
 }
