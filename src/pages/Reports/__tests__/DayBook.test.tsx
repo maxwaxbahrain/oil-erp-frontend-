@@ -24,8 +24,10 @@ const mockBook: DayBookResponse = {
             party_type: 'customer',
             party_name: 'Acme',
             party_id: 9,
-            total_debit: 100,
-            total_credit: 100,
+            total_debit: 127.5,
+            total_credit: 127.5,
+            amount: 100,
+            amount_basis: 'party',
             lines: [
                 {
                     account_id: 11,
@@ -49,6 +51,28 @@ const mockBook: DayBookResponse = {
                     customer_id: null,
                     supplier_id: null,
                 },
+                {
+                    account_id: 50,
+                    account_code: '5000',
+                    account_name: 'Cost of Goods Sold',
+                    account_type: 'expense',
+                    debit: 27.5,
+                    credit: 0,
+                    memo: 'COGS',
+                    customer_id: null,
+                    supplier_id: null,
+                },
+                {
+                    account_id: 12,
+                    account_code: '1200',
+                    account_name: 'Inventory',
+                    account_type: 'asset',
+                    debit: 0,
+                    credit: 27.5,
+                    memo: 'Inventory',
+                    customer_id: null,
+                    supplier_id: null,
+                },
             ],
         },
         {
@@ -66,6 +90,8 @@ const mockBook: DayBookResponse = {
             party_id: 9,
             total_debit: 40,
             total_credit: 40,
+            amount: 40,
+            amount_basis: 'party',
             lines: [
                 {
                     account_id: 10,
@@ -106,6 +132,8 @@ const mockBook: DayBookResponse = {
             party_id: null,
             total_debit: 25,
             total_credit: 25,
+            amount: 25,
+            amount_basis: 'debit_total',
             lines: [
                 {
                     account_id: 60,
@@ -146,6 +174,8 @@ const mockBook: DayBookResponse = {
             party_id: null,
             total_debit: 25,
             total_credit: 25,
+            amount: 25,
+            amount_basis: 'debit_total',
             lines: [
                 {
                     account_id: 10,
@@ -174,16 +204,17 @@ const mockBook: DayBookResponse = {
     ],
     summary: {
         entry_count: 4,
-        total_debit: 190,
-        total_credit: 190,
+        total_debit: 217.5,
+        total_credit: 217.5,
+        total_amount: 190,
         balanced: true,
         by_type: [
-            { source_type: 'invoice', voucher_type: 'Sales', group: 'sales', count: 1, total_debit: 100, total_credit: 100 },
-            { source_type: 'payment', voucher_type: 'Receipt', group: 'receipts', count: 1, total_debit: 40, total_credit: 40 },
-            { source_type: 'expense', voucher_type: 'Expense', group: 'expenses', count: 1, total_debit: 25, total_credit: 25 },
-            { source_type: 'reversal', voucher_type: 'Reversal', group: 'journal', count: 1, total_debit: 25, total_credit: 25 },
+            { source_type: 'invoice', voucher_type: 'Sales', group: 'sales', count: 1, total_debit: 127.5, total_credit: 127.5, total_amount: 100 },
+            { source_type: 'payment', voucher_type: 'Receipt', group: 'receipts', count: 1, total_debit: 40, total_credit: 40, total_amount: 40 },
+            { source_type: 'expense', voucher_type: 'Expense', group: 'expenses', count: 1, total_debit: 25, total_credit: 25, total_amount: 25 },
+            { source_type: 'reversal', voucher_type: 'Reversal', group: 'journal', count: 1, total_debit: 25, total_credit: 25, total_amount: 25 },
         ],
-        by_day: [{ date: '2026-06-15', count: 4, total_debit: 190, total_credit: 190 }],
+        by_day: [{ date: '2026-06-15', count: 4, total_debit: 217.5, total_credit: 217.5, total_amount: 190 }],
     },
 };
 
@@ -240,18 +271,20 @@ describe('Day Book page', () => {
         expect(text()).toContain('Sales');
         expect(text()).toContain('Receipts');
         expect(text()).toContain('100.00');
+        expect(text()).not.toContain('127.50');
         expect(text()).toContain('40.00');
         expect(text()).toContain('Balanced');
         expect(text()).toContain('190.00');
-        const amounts = text().match(/190\.00/g) ?? [];
-        expect(amounts.length).toBeGreaterThanOrEqual(2);
+        expect(text()).toContain('217.50');
+        const invoiceRow = container.querySelector('[data-voucher-row="1"]');
+        expect(invoiceRow?.textContent).toContain('100.00');
+        expect(invoiceRow?.textContent).not.toContain('127.50');
     });
 
-    it('expands the invoice row to its two account lines', async () => {
+    it('expands the invoice row to its four account lines including COGS', async () => {
         await renderPage();
 
-        expect(text()).not.toContain('Accounts Receivable');
-        expect(text()).not.toContain('Sales Revenue');
+        expect(text()).not.toContain('Cost of Goods Sold');
 
         const invoice = container.querySelector('[data-voucher-row="1"]') as HTMLElement;
         expect(invoice).toBeTruthy();
@@ -261,10 +294,10 @@ describe('Day Book page', () => {
 
         expect(text()).toContain('Accounts Receivable');
         expect(text()).toContain('Sales Revenue');
+        expect(text()).toContain('Cost of Goods Sold');
         const lines = container.querySelectorAll('[data-line-row="1"]');
-        expect(lines).toHaveLength(2);
-        expect(lines[0].textContent).toContain('100.00');
-        expect(lines[1].textContent).toContain('100.00');
+        expect(lines).toHaveLength(4);
+        expect(text()).toContain('27.50');
     });
 
     it('marks a reversed voucher and its reversal', async () => {

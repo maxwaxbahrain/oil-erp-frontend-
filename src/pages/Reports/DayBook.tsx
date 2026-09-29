@@ -102,7 +102,7 @@ function groupTotals(summary: DayBookSummary, groups: string[]): { count: number
     const rows = summary.by_type.filter((row) => groups.includes(row.group));
     return {
         count: rows.reduce((sum, row) => sum + row.count, 0),
-        total: rows.reduce((sum, row) => sum + row.total_debit, 0),
+        total: rows.reduce((sum, row) => sum + row.total_amount, 0),
     };
 }
 
@@ -247,7 +247,7 @@ export default function DayBook() {
         doc.setFontSize(10);
         doc.text(`Range: ${startDate} → ${endDate}`, 14, 22);
         doc.text(
-            `${summary.entry_count} vouchers · Debit total: ${formatCurrency(summary.total_debit)} · Credit total: ${formatCurrency(summary.total_credit)}`,
+            `${summary.entry_count} vouchers · Period amount: ${formatCurrency(summary.total_amount)} · Ledger Dr ${formatCurrency(summary.total_debit)} / Cr ${formatCurrency(summary.total_credit)}`,
             14,
             28,
         );
@@ -259,9 +259,9 @@ export default function DayBook() {
                 entry.entry_number,
                 entry.party_name || '—',
                 entry.memo || '',
+                formatCurrency(entry.amount),
                 '',
-                formatCurrency(entry.total_debit),
-                formatCurrency(entry.total_credit),
+                '',
             ]);
             for (const line of entry.lines) {
                 body.push([
@@ -278,9 +278,21 @@ export default function DayBook() {
         }
         autoTable(doc, {
             startY: 34,
-            head: [['Time', 'Voucher', 'No.', 'Party', 'Narration', '', 'Debit', 'Credit']],
+            head: [['Time', 'Voucher', 'No.', 'Party', 'Narration', 'Amount', 'Debit', 'Credit']],
             body,
-            foot: [['PERIOD TOTAL', '', '', '', '', '', formatCurrency(summary.total_debit), formatCurrency(summary.total_credit)]],
+            foot: [
+                ['PERIOD TOTAL', '', '', '', '', formatCurrency(summary.total_amount), '', ''],
+                [
+                    `Ledger: Dr ${formatCurrency(summary.total_debit)} · Cr ${formatCurrency(summary.total_credit)} · ${summary.balanced ? 'Balanced' : 'Out of balance'}`,
+                    '',
+                    '',
+                    '',
+                    '',
+                    '',
+                    '',
+                    '',
+                ],
+            ],
             styles: { fontSize: 9 },
             headStyles: { fillColor: [33, 33, 33] },
             footStyles: { fillColor: [33, 33, 33], textColor: 255, fontStyle: 'bold' },
@@ -441,7 +453,7 @@ export default function DayBook() {
                             );
                         })}
                         <div className="bg-white border border-gray-100 rounded-2xl p-4">
-                            <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Debit = Credit</p>
+                            <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Ledger Check</p>
                             <p className="text-sm font-black font-mono text-gray-900">{formatCurrency(summary.total_debit)}</p>
                             <p className="text-sm font-black font-mono text-gray-900">{formatCurrency(summary.total_credit)}</p>
                             <span className={`inline-block mt-2 px-2 py-1 rounded-lg text-[10px] font-black uppercase ${summary.balanced ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
@@ -478,8 +490,13 @@ export default function DayBook() {
                                 <table className="w-full text-left">
                                     <thead className="bg-gray-50 border-b border-gray-100">
                                         <tr>
-                                            {['Time', 'Voucher', 'No.', 'Party', 'Narration', 'Debit', 'Credit', ''].map((heading) => (
-                                                <th key={heading || 'expand'} className="px-5 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">{heading}</th>
+                                            {['Time', 'Voucher', 'No.', 'Party', 'Narration', 'Amount', 'Debit', 'Credit', ''].map((heading) => (
+                                                <th
+                                                    key={heading || 'expand'}
+                                                    className={`px-5 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest ${heading === 'Amount' || heading === 'Debit' || heading === 'Credit' ? 'text-right' : ''}`}
+                                                >
+                                                    {heading}
+                                                </th>
                                             ))}
                                         </tr>
                                     </thead>
@@ -492,9 +509,9 @@ export default function DayBook() {
                                                 <Fragment key={day || 'single'}>
                                                     {multiDay && (
                                                         <tr className="bg-purple-50">
-                                                            <td colSpan={8} className="px-5 py-3 text-xs font-black text-purple-800 uppercase">
+                                                            <td colSpan={9} className="px-5 py-3 text-xs font-black text-purple-800 uppercase">
                                                                 {day}
-                                                                {daySummary ? ` · ${daySummary.count} · ${formatCurrency(daySummary.total_debit)} / ${formatCurrency(daySummary.total_credit)}` : ''}
+                                                                {daySummary ? ` · ${daySummary.count} · ${formatCurrency(daySummary.total_amount)}` : ''}
                                                             </td>
                                                         </tr>
                                                     )}
@@ -518,8 +535,9 @@ export default function DayBook() {
                                                                     <td className={`px-5 py-4 text-xs font-mono font-bold text-orange-600 ${reversed ? 'line-through' : ''}`}>{entry.entry_number}</td>
                                                                     <td className="px-5 py-4 text-sm text-gray-600">{entry.party_name || '—'}</td>
                                                                     <td className="px-5 py-4 text-sm font-bold text-gray-900">{entry.memo || '—'}</td>
-                                                                    <td className="px-5 py-4 text-sm font-black font-mono text-red-700 text-right">{formatCurrency(entry.total_debit)}</td>
-                                                                    <td className="px-5 py-4 text-sm font-black font-mono text-emerald-700 text-right">{formatCurrency(entry.total_credit)}</td>
+                                                                    <td className="px-5 py-4 text-sm font-black font-mono text-gray-900 text-right">{formatCurrency(entry.amount)}</td>
+                                                                    <td className="px-5 py-4 text-sm font-mono text-gray-300 text-right">—</td>
+                                                                    <td className="px-5 py-4 text-sm font-mono text-gray-300 text-right">—</td>
                                                                     <td className="px-5 py-4 text-gray-400">
                                                                         <ChevronDown size={14} className={open ? 'rotate-180' : ''} />
                                                                     </td>
@@ -545,9 +563,16 @@ export default function DayBook() {
                                     <tfoot>
                                         <tr className="bg-gray-900 text-white">
                                             <td colSpan={5} className="px-5 py-4 text-xs font-black uppercase">Period Total</td>
-                                            <td className="px-5 py-4 text-sm font-black font-mono text-right">{formatCurrency(summary.total_debit)}</td>
-                                            <td className="px-5 py-4 text-sm font-black font-mono text-right">{formatCurrency(summary.total_credit)}</td>
-                                            <td />
+                                            <td className="px-5 py-4 text-sm font-black font-mono text-right">{formatCurrency(summary.total_amount)}</td>
+                                            <td colSpan={3} />
+                                        </tr>
+                                        <tr className="bg-gray-800 text-white">
+                                            <td colSpan={9} className="px-5 py-3 text-xs font-bold">
+                                                Ledger: Dr {formatCurrency(summary.total_debit)} · Cr {formatCurrency(summary.total_credit)} ·{' '}
+                                                <span className={`inline-block px-2 py-0.5 rounded-lg text-[10px] font-black uppercase ${summary.balanced ? 'bg-emerald-500/20 text-emerald-200' : 'bg-red-500/20 text-red-200'}`}>
+                                                    {summary.balanced ? 'Balanced' : 'Out of balance'}
+                                                </span>
+                                            </td>
                                         </tr>
                                     </tfoot>
                                 </table>
