@@ -20,9 +20,9 @@ export interface Employee {
     salaryAmount: number;
     currency: string;
 
-    // Tax Information
-    filingStatus: 'Single' | 'Married' | 'Head of Household';
-    allowances: number;
+    // Tax Information (optional — Portal/API payslip PDFs omit W-4 fields)
+    filingStatus?: 'Single' | 'Married' | 'Head of Household';
+    allowances?: number;
     additionalWithholding: number;
 
     // Benefits
@@ -541,7 +541,11 @@ export async function calculatePayrollItem(
             const grossPay = regularPay + overtimePay;
 
             // AI Tax Calculation
-            const taxes = calculateTaxes(grossPay, employee.filingStatus, employee.allowances);
+            const taxes = calculateTaxes(
+                grossPay,
+                employee.filingStatus ?? 'Single',
+                employee.allowances ?? 0,
+            );
 
             // Calculate deductions
             const healthInsurance = employee.healthInsurance ? 200 : 0;
@@ -767,7 +771,7 @@ export function verifyCompliance(employees: Employee[]): {
         },
         {
             name: 'Tax Forms',
-            passed: employees.every(e => e.filingStatus && e.allowances >= 0),
+            passed: employees.every(e => e.filingStatus && (e.allowances ?? 0) >= 0),
             message: 'All W-4 forms on file'
         },
         {
@@ -790,6 +794,42 @@ export function verifyCompliance(employees: Employee[]): {
 
 // ── Phase 3c: tenant-scoped payroll API (real backend) ─────────
 
+export type AllowanceType =
+    | 'housing'
+    | 'transport'
+    | 'medical'
+    | 'meal'
+    | 'fuel'
+    | 'special'
+    | 'other';
+
+export interface AllowanceLine {
+    type: AllowanceType;
+    label: string;
+    amount: number;
+}
+
+export const ALLOWANCE_TYPES: AllowanceType[] = [
+    'housing',
+    'transport',
+    'medical',
+    'meal',
+    'fuel',
+    'special',
+    'other',
+];
+
+export const DEFAULT_ALLOWANCE_LABELS: Record<Exclude<AllowanceType, 'other'>, string> = {
+    housing: 'Housing Allowance',
+    transport: 'Transport Allowance',
+    medical: 'Medical Allowance',
+    meal: 'Meal Allowance',
+    fuel: 'Fuel Allowance',
+    special: 'Special Allowance',
+};
+
+const ALLOWANCE_TYPE_SET = new Set<string>(ALLOWANCE_TYPES);
+
 export interface PayrollProfile {
     id: number;
     tenantId?: number | null;
@@ -800,6 +840,7 @@ export interface PayrollProfile {
     overtimeRate?: number | null;
     createdAt?: string | null;
     updatedAt?: string | null;
+    allowances: AllowanceLine[];
 }
 
 export interface ApiPayslipDeduction {
@@ -821,6 +862,7 @@ export interface ApiPayslip {
     basePay: number;
     overtimePay: number;
     commissionPay: number;
+    allowancesTotal: number;
     grossPay: number;
     deductionsTotal: number;
     netPay: number;
@@ -828,6 +870,7 @@ export interface ApiPayslip {
     createdAt?: string | null;
     updatedAt?: string | null;
     deductions: ApiPayslipDeduction[];
+    allowances: AllowanceLine[];
 }
 
 async function readPayrollApiError(r: Response): Promise<string> {
@@ -839,6 +882,23 @@ async function readPayrollApiError(r: Response): Promise<string> {
         /* ignore */
     }
     return `Request failed (${r.status})`;
+}
+
+function fromAllowanceLine(raw: Record<string, unknown>): AllowanceLine | null {
+    const type = String(raw.type ?? raw.allowance_type ?? '').trim().toLowerCase();
+    if (!ALLOWANCE_TYPE_SET.has(type)) return null;
+    return {
+        type: type as AllowanceType,
+        label: String(raw.label ?? ''),
+        amount: Number(raw.amount ?? 0),
+    };
+}
+
+function fromAllowanceLines(raw: unknown): AllowanceLine[] {
+    if (!Array.isArray(raw)) return [];
+    return raw
+        .map((row) => fromAllowanceLine(row as Record<string, unknown>))
+        .filter((row): row is AllowanceLine => row != null);
 }
 
 function fromPayrollProfile(raw: Record<string, unknown>): PayrollProfile {
@@ -864,6 +924,7 @@ function fromPayrollProfile(raw: Record<string, unknown>): PayrollProfile {
               : null,
         createdAt: raw.createdAt != null ? String(raw.createdAt) : raw.created_at != null ? String(raw.created_at) : null,
         updatedAt: raw.updatedAt != null ? String(raw.updatedAt) : raw.updated_at != null ? String(raw.updated_at) : null,
+        allowances: fromAllowanceLines(raw.allowances),
     };
 }
 
@@ -893,6 +954,7 @@ function fromPayslip(raw: Record<string, unknown>): ApiPayslip {
         basePay: Number(raw.basePay ?? raw.base_pay ?? 0),
         overtimePay: Number(raw.overtimePay ?? raw.overtime_pay ?? 0),
         commissionPay: Number(raw.commissionPay ?? raw.commission_pay ?? 0),
+        allowancesTotal: Number(raw.allowancesTotal ?? raw.allowances_total ?? 0),
         grossPay: Number(raw.grossPay ?? raw.gross_pay ?? 0),
         deductionsTotal: Number(raw.deductionsTotal ?? raw.deductions_total ?? 0),
         netPay: Number(raw.netPay ?? raw.net_pay ?? 0),
@@ -900,6 +962,7 @@ function fromPayslip(raw: Record<string, unknown>): ApiPayslip {
         createdAt: raw.createdAt != null ? String(raw.createdAt) : raw.created_at != null ? String(raw.created_at) : null,
         updatedAt: raw.updatedAt != null ? String(raw.updatedAt) : raw.updated_at != null ? String(raw.updated_at) : null,
         deductions,
+        allowances: fromAllowanceLines(raw.allowances),
     };
 }
 
@@ -1011,6 +1074,36 @@ export async function updatePayrollProfile(
     return fromPayrollProfile((await r.json()) as Record<string, unknown>);
 }
 
+export async function getProfileAllowances(profileId: number | string): Promise<AllowanceLine[]> {
+    const r = await authFetch(
+        `${API_BASE_URL}/payroll/profiles/${encodeURIComponent(String(profileId))}/allowances`,
+    );
+    if (!r.ok) throw new Error(await readPayrollApiError(r));
+    return fromAllowanceLines(await r.json());
+}
+
+export async function putProfileAllowances(
+    profileId: number | string,
+    lines: AllowanceLine[],
+): Promise<AllowanceLine[]> {
+    const r = await authFetch(
+        `${API_BASE_URL}/payroll/profiles/${encodeURIComponent(String(profileId))}/allowances`,
+        {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                allowances: lines.map((line) => ({
+                    type: line.type,
+                    label: line.label,
+                    amount: line.amount,
+                })),
+            }),
+        },
+    );
+    if (!r.ok) throw new Error(await readPayrollApiError(r));
+    return fromAllowanceLines(await r.json());
+}
+
 function fromPayrollRun(raw: Record<string, unknown>): ApiPayrollRun {
     const periodStart = raw.periodStart ?? raw.period_start;
     const periodEnd = raw.periodEnd ?? raw.period_end;
@@ -1093,6 +1186,9 @@ export function mapPayslipToPayrollResult(payslip: ApiPayslip): CompletePayrollR
     if (payslip.commissionPay > 0) {
         earnings.push({ name: 'Commission', amount: payslip.commissionPay, type: 'Earning' as const });
     }
+    for (const line of payslip.allowances ?? []) {
+        earnings.push({ name: line.label, amount: line.amount, type: 'Earning' as const });
+    }
 
     const deductions = (payslip.deductions || []).map((d) => ({
         name: d.label,
@@ -1157,8 +1253,6 @@ export function mapPortalEmployeeToPayrollPdfEmployee(
         salaryType,
         salaryAmount,
         currency: 'USD',
-        filingStatus: 'Single',
-        allowances: 0,
         additionalWithholding: 0,
         healthInsurance: false,
         retirement401k: false,
