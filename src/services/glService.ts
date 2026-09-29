@@ -334,6 +334,8 @@ export interface DayBookEntry {
   party_id: number | null;
   total_debit: number;
   total_credit: number;
+  amount: number;
+  amount_basis: 'party' | 'debit_total';
   lines: DayBookLine[];
 }
 
@@ -341,6 +343,7 @@ export interface DayBookSummary {
   entry_count: number;
   total_debit: number;
   total_credit: number;
+  total_amount: number;
   balanced: boolean;
   by_type: Array<{
     source_type: string | null;
@@ -349,12 +352,14 @@ export interface DayBookSummary {
     count: number;
     total_debit: number;
     total_credit: number;
+    total_amount: number;
   }>;
   by_day: Array<{
     date: string;
     count: number;
     total_debit: number;
     total_credit: number;
+    total_amount: number;
   }>;
 }
 
