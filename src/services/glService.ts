@@ -307,6 +307,113 @@ export function getGLAccountLedger(
   return apiRequest<GLAccountLedger>(`/gl/accounts/${accountId}/ledger?${params.toString()}`);
 }
 
+export interface DayBookLine {
+  account_id: number;
+  account_code: string | null;
+  account_name: string | null;
+  account_type: string | null;
+  debit: number;
+  credit: number;
+  memo: string | null;
+  customer_id: number | null;
+  supplier_id: number | null;
+}
+
+export interface DayBookEntry {
+  id: number;
+  entry_number: string;
+  entry_date: string | null;
+  created_at: string | null;
+  source_type: string | null;
+  voucher_type: string;
+  group: string;
+  memo: string | null;
+  status: 'posted' | 'reversed';
+  party_type: 'customer' | 'supplier' | null;
+  party_name: string | null;
+  party_id: number | null;
+  total_debit: number;
+  total_credit: number;
+  lines: DayBookLine[];
+}
+
+export interface DayBookSummary {
+  entry_count: number;
+  total_debit: number;
+  total_credit: number;
+  balanced: boolean;
+  by_type: Array<{
+    source_type: string | null;
+    voucher_type: string;
+    group: string;
+    count: number;
+    total_debit: number;
+    total_credit: number;
+  }>;
+  by_day: Array<{
+    date: string;
+    count: number;
+    total_debit: number;
+    total_credit: number;
+  }>;
+}
+
+export interface DayBookResponse {
+  start_date: string;
+  end_date: string;
+  entries: DayBookEntry[];
+  summary: DayBookSummary;
+}
+
+export interface DayBookQuery {
+  startDate: string;
+  endDate: string;
+  sourceType?: string;
+  accountId?: number;
+}
+
+function dayBookSearch(query: DayBookQuery): string {
+  const params = new URLSearchParams({
+    start_date: query.startDate,
+    end_date: query.endDate,
+  });
+  if (query.sourceType) params.set('source_type', query.sourceType);
+  if (query.accountId != null) params.set('account_id', String(query.accountId));
+  return params.toString();
+}
+
+export function getDayBook(query: DayBookQuery): Promise<DayBookResponse> {
+  return apiRequest<DayBookResponse>(`/gl/day-book?${dayBookSearch(query)}`);
+}
+
+export async function downloadDayBookCsv(query: DayBookQuery): Promise<void> {
+  const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(`${API_BASE_URL}/gl/day-book.csv?${dayBookSearch(query)}`, { headers });
+  if (!response.ok) {
+    let detail = `HTTP ${response.status}`;
+    try {
+      const error = await response.json();
+      if (error?.detail) {
+        detail = typeof error.detail === 'string' ? error.detail : JSON.stringify(error.detail);
+      }
+    } catch {
+      /* ignore malformed error payloads */
+    }
+    throw new Error(detail);
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `day-book-${query.startDate}_${query.endDate}.csv`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
 export function getGLJournalEntries(): Promise<GLJournalEntry[]> {
   return apiRequest<GLJournalEntry[]>('/gl/journal-entries');
 }
