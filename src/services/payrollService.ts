@@ -20,9 +20,9 @@ export interface Employee {
     salaryAmount: number;
     currency: string;
 
-    // Tax Information
-    filingStatus: 'Single' | 'Married' | 'Head of Household';
-    allowances: number;
+    // Tax Information (optional — Portal/API payslip PDFs omit W-4 fields)
+    filingStatus?: 'Single' | 'Married' | 'Head of Household';
+    allowances?: number;
     additionalWithholding: number;
 
     // Benefits
@@ -541,7 +541,11 @@ export async function calculatePayrollItem(
             const grossPay = regularPay + overtimePay;
 
             // AI Tax Calculation
-            const taxes = calculateTaxes(grossPay, employee.filingStatus, employee.allowances);
+            const taxes = calculateTaxes(
+                grossPay,
+                employee.filingStatus ?? 'Single',
+                employee.allowances ?? 0,
+            );
 
             // Calculate deductions
             const healthInsurance = employee.healthInsurance ? 200 : 0;
@@ -767,7 +771,7 @@ export function verifyCompliance(employees: Employee[]): {
         },
         {
             name: 'Tax Forms',
-            passed: employees.every(e => e.filingStatus && e.allowances >= 0),
+            passed: employees.every(e => e.filingStatus && (e.allowances ?? 0) >= 0),
             message: 'All W-4 forms on file'
         },
         {
@@ -858,6 +862,7 @@ export interface ApiPayslip {
     basePay: number;
     overtimePay: number;
     commissionPay: number;
+    allowancesTotal: number;
     grossPay: number;
     deductionsTotal: number;
     netPay: number;
@@ -865,6 +870,7 @@ export interface ApiPayslip {
     createdAt?: string | null;
     updatedAt?: string | null;
     deductions: ApiPayslipDeduction[];
+    allowances: AllowanceLine[];
 }
 
 async function readPayrollApiError(r: Response): Promise<string> {
@@ -948,6 +954,7 @@ function fromPayslip(raw: Record<string, unknown>): ApiPayslip {
         basePay: Number(raw.basePay ?? raw.base_pay ?? 0),
         overtimePay: Number(raw.overtimePay ?? raw.overtime_pay ?? 0),
         commissionPay: Number(raw.commissionPay ?? raw.commission_pay ?? 0),
+        allowancesTotal: Number(raw.allowancesTotal ?? raw.allowances_total ?? 0),
         grossPay: Number(raw.grossPay ?? raw.gross_pay ?? 0),
         deductionsTotal: Number(raw.deductionsTotal ?? raw.deductions_total ?? 0),
         netPay: Number(raw.netPay ?? raw.net_pay ?? 0),
@@ -955,6 +962,7 @@ function fromPayslip(raw: Record<string, unknown>): ApiPayslip {
         createdAt: raw.createdAt != null ? String(raw.createdAt) : raw.created_at != null ? String(raw.created_at) : null,
         updatedAt: raw.updatedAt != null ? String(raw.updatedAt) : raw.updated_at != null ? String(raw.updated_at) : null,
         deductions,
+        allowances: fromAllowanceLines(raw.allowances),
     };
 }
 
@@ -1178,6 +1186,9 @@ export function mapPayslipToPayrollResult(payslip: ApiPayslip): CompletePayrollR
     if (payslip.commissionPay > 0) {
         earnings.push({ name: 'Commission', amount: payslip.commissionPay, type: 'Earning' as const });
     }
+    for (const line of payslip.allowances ?? []) {
+        earnings.push({ name: line.label, amount: line.amount, type: 'Earning' as const });
+    }
 
     const deductions = (payslip.deductions || []).map((d) => ({
         name: d.label,
@@ -1242,8 +1253,6 @@ export function mapPortalEmployeeToPayrollPdfEmployee(
         salaryType,
         salaryAmount,
         currency: 'USD',
-        filingStatus: 'Single',
-        allowances: 0,
         additionalWithholding: 0,
         healthInsurance: false,
         retirement401k: false,
