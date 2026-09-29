@@ -1379,7 +1379,15 @@ export interface RecurringInvoice {
     frequency: 'weekly' | 'monthly' | 'quarterly';
     nextRunDate: string;
     lastRunDate?: string;
-    lineItems: Array<{ product: string; description: string; quantity: number; rate: number; amount: number }>;
+    lineItems: Array<{
+        product: string;
+        description: string;
+        quantity: number;
+        rate: number;
+        amount: number;
+        /** Backend invoice line `product_id` (integer). */
+        product_id?: number;
+    }>;
     subtotal: number;
     taxRate: number;
     discount: number;

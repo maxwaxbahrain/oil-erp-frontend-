@@ -70,7 +70,48 @@ const AI_PROMPTS = [
     'Forecast next month recurring revenue',
 ];
 
-const EMPTY_ITEM = () => ({ product: '', description: '', quantity: 1, rate: 0, amount: 0 });
+type RecurringLineDraft = {
+    /** Empty until a product is chosen. Saved as integer `product_id`. */
+    productId: number | '';
+    product: string;
+    description: string;
+    quantity: number;
+    rate: number;
+    amount: number;
+};
+
+const EMPTY_ITEM = (): RecurringLineDraft => ({
+    productId: '',
+    product: '',
+    description: '',
+    quantity: 1,
+    rate: 0,
+    amount: 0,
+});
+
+function lineAmount(item: { quantity: number; rate: number }): number {
+    return (Number(item.quantity) || 0) * (Number(item.rate) || 0);
+}
+
+function draftFromSavedLine(
+    item: RecurringInvoice['lineItems'][number],
+    catalog: Product[],
+): RecurringLineDraft {
+    const savedId = item.product_id;
+    const match = savedId != null
+        ? catalog.find(p => String(p.id) === String(savedId))
+        : catalog.find(p => p.name === item.product);
+    const resolved = match ? Number(match.id) : (savedId != null ? Number(savedId) : NaN);
+    const productId = Number.isInteger(resolved) && resolved > 0 ? resolved : '';
+    return {
+        productId,
+        product: match?.name || item.product,
+        description: item.description,
+        quantity: item.quantity,
+        rate: item.rate,
+        amount: lineAmount(item),
+    };
+}
 
 function formatDate(raw: string | undefined): string {
     if (!raw) return '—';
@@ -145,7 +186,8 @@ export default function RecurringInvoices() {
 
     useEffect(() => {
         Promise.all([getCustomers(), getProducts()]).then(([c, p]) => {
-            setCustomers(c);
+            // GET /customers/ returns numeric ids. The <select> value is always a string.
+            setCustomers(c.map(row => ({ ...row, id: String(row.id) })));
             setProducts(p);
             setRecurring(getRecurringInvoices());
         });
@@ -215,7 +257,7 @@ export default function RecurringInvoices() {
         return rows;
     }, [recurring, dueItems, pausedItems, activeTab, search, freqFilter, filterChip, today]);
 
-    const grandTotal = form.items.reduce((s, i) => s + i.amount, 0);
+    const grandTotal = form.items.reduce((s, i) => s + lineAmount(i), 0);
 
     const resetForm = () => {
         setForm({
@@ -227,36 +269,61 @@ export default function RecurringInvoices() {
     };
 
     const updateItem = (idx: number, field: string, value: string | number) => {
-        const items = [...form.items];
-        items[idx] = { ...items[idx], [field]: value };
-        if (field === 'product') {
-            const p = products.find(pr => pr.name === value);
-            if (p) { items[idx].rate = p.unit_price; items[idx].description = p.name; }
+        const items = form.items.map(row => ({ ...row }));
+        const row = items[idx];
+        if (field === 'productId') {
+            const p = products.find(pr => String(pr.id) === String(value));
+            if (p && String(value) !== '') {
+                row.productId = Number(p.id);
+                row.product = p.name;
+                row.description = p.name;
+                row.rate = Number(p.unit_price) || 0;
+            } else {
+                row.productId = '';
+                row.product = '';
+            }
+        } else if (field === 'quantity') {
+            row.quantity = typeof value === 'number' ? value : parseInt(value, 10) || 1;
+        } else if (field === 'rate') {
+            row.rate = typeof value === 'number' ? value : parseFloat(value) || 0;
         }
-        if (field === 'quantity' || field === 'rate') {
-            items[idx].amount = items[idx].quantity * items[idx].rate;
-        }
+        row.amount = lineAmount(row);
         setForm({ ...form, items });
     };
 
     const saveForm = () => {
-        const customer = customers.find(c => c.id === form.customerId);
-        if (!customer || form.items.every(i => !i.product)) {
+        const customer = customers.find(c => String(c.id) === String(form.customerId));
+        const lineItems = form.items
+            .filter(i => Number.isInteger(Number(i.productId)) && Number(i.productId) > 0)
+            .map(i => {
+                const quantity = Number(i.quantity) || 0;
+                const rate = Number(i.rate) || 0;
+                return {
+                    product: i.product,
+                    description: i.description,
+                    quantity,
+                    rate,
+                    amount: quantity * rate,
+                    product_id: Number(i.productId),
+                };
+            });
+        if (!customer || lineItems.length === 0) {
             alert('Select a customer and at least one product.');
             return;
         }
+        const subtotal = lineItems.reduce((s, i) => s + i.amount, 0);
         const existing = editingId ? recurring.find(r => r.id === editingId) : undefined;
         const rec: RecurringInvoice = {
             id: existing?.id || `REC-${Date.now()}`,
-            customerId: customer.id,
+            customerId: String(customer.id),
             customerName: customer.name,
             frequency: form.frequency,
             nextRunDate: form.nextRunDate,
-            lineItems: form.items.filter(i => i.product),
-            subtotal: grandTotal,
+            lineItems,
+            subtotal,
             taxRate: existing?.taxRate ?? 0,
             discount: existing?.discount ?? 0,
-            grandTotal,
+            grandTotal: subtotal,
             notes: form.notes,
             active: existing?.active ?? true,
             lastRunDate: existing?.lastRunDate,
@@ -278,7 +345,7 @@ export default function RecurringInvoices() {
             nextRunDate: rec.nextRunDate,
             notes: rec.notes,
             items: rec.lineItems.length > 0
-                ? rec.lineItems.map(i => ({ ...i }))
+                ? rec.lineItems.map(i => draftFromSavedLine(i, products))
                 : [EMPTY_ITEM()],
         });
         setShowForm(true);
@@ -832,7 +899,7 @@ export default function RecurringInvoices() {
                                 <select value={form.customerId} onChange={e => setForm({ ...form, customerId: e.target.value })}
                                     style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 11, fontFamily: 'inherit' }}>
                                     <option value="">Select customer...</option>
-                                    {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                    {customers.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
                                 </select>
                             </div>
                             <div>
@@ -857,10 +924,10 @@ export default function RecurringInvoices() {
                                 {form.items.map((item, idx) => (
                                     <div key={idx} className="grid grid-cols-12" style={{ gap: 8, alignItems: 'center' }}>
                                         <div className="col-span-4">
-                                            <select value={item.product} onChange={e => updateItem(idx, 'product', e.target.value)}
+                                            <select value={item.productId === '' ? '' : String(item.productId)} onChange={e => updateItem(idx, 'productId', e.target.value)}
                                                 style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 11, fontFamily: 'inherit' }}>
                                                 <option value="">Select product...</option>
-                                                {products.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                                                {products.map(p => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
                                             </select>
                                         </div>
                                         <div className="col-span-2">
@@ -872,7 +939,7 @@ export default function RecurringInvoices() {
                                                 style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 11, fontFamily: 'ui-monospace,monospace' }} />
                                         </div>
                                         <div className="col-span-2" style={{ textAlign: 'right', fontSize: 11, fontWeight: 600, fontFamily: 'ui-monospace,monospace' }}>
-                                            {formatCurrency(item.amount)}
+                                            {formatCurrency(lineAmount(item))}
                                         </div>
                                         <div className="col-span-1" style={{ display: 'flex', justifyContent: 'flex-end' }}>
                                             {form.items.length > 1 && (
