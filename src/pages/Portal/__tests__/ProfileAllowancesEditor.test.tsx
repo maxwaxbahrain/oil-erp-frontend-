@@ -179,4 +179,96 @@ describe('PayrollAdmin allowances gate', () => {
     expect(container.textContent).toContain('Save the pay profile first to add allowances');
     expect(container.querySelector('select[aria-label="Allowance type"]')).toBeNull();
   });
+
+  function setInputValue(el: HTMLInputElement, value: string) {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    setter?.call(el, value);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function clickButton(label: string) {
+    const button = Array.from(container.querySelectorAll('button')).find((node) => node.textContent?.trim() === label);
+    if (!button) throw new Error(`button not found: ${label}`);
+    button.click();
+  }
+
+  it('keeps the form open and shows the allowances editor after creating a profile', async () => {
+    const onToast = vi.fn();
+    vi.spyOn(payroll, 'createPayrollProfile').mockResolvedValue({
+      id: 42,
+      employeeId: 1,
+      payType: 'salaried',
+      monthlySalary: 5000,
+      allowances: [],
+    });
+    vi.spyOn(payroll, 'putProfileAllowances').mockResolvedValue([]);
+    await act(async () => {
+      root.render(
+        <PayrollAdmin
+          employees={[{ id: '1', name: 'Ada', employeeNumber: 'E-1', role: 'sales' }]}
+          onToast={onToast}
+          onError={() => undefined}
+        />,
+      );
+    });
+    await act(async () => {});
+    await act(async () => {
+      clickButton('Set profile');
+    });
+    const salary = container.querySelector('input[type="number"]') as HTMLInputElement;
+    await act(async () => {
+      setInputValue(salary, '5000');
+    });
+    await act(async () => {
+      clickButton('Save profile');
+    });
+    await act(async () => {});
+    expect(onToast).toHaveBeenCalledWith('Profile saved — you can now add allowances');
+    expect(container.textContent).toContain('ALLOWANCES');
+    expect(container.textContent).toContain('Save allowances');
+    expect(container.textContent).not.toContain('Save the pay profile first to add allowances');
+    expect(Array.from(container.querySelectorAll('button')).some((node) => node.textContent?.trim() === 'Cancel')).toBe(true);
+    await act(async () => {
+      clickButton('Save allowances');
+    });
+    expect(payroll.putProfileAllowances).toHaveBeenCalledWith(42, []);
+  });
+
+  it('closes the form after saving an existing profile', async () => {
+    const onToast = vi.fn();
+    const existing = {
+      id: 9,
+      employeeId: 1,
+      payType: 'salaried',
+      monthlySalary: 4000,
+      allowances: [],
+    };
+    vi.mocked(payroll.getPayrollProfiles).mockResolvedValue([existing]);
+    vi.spyOn(payroll, 'updatePayrollProfile').mockResolvedValue(existing);
+    await act(async () => {
+      root.render(
+        <PayrollAdmin
+          employees={[{ id: '1', name: 'Ada', employeeNumber: 'E-1', role: 'sales' }]}
+          onToast={onToast}
+          onError={() => undefined}
+        />,
+      );
+    });
+    await act(async () => {});
+    await act(async () => {
+      clickButton('Edit');
+    });
+    expect(container.textContent).toContain('ALLOWANCES');
+    await act(async () => {
+      clickButton('Save profile');
+    });
+    await act(async () => {});
+    expect(onToast).toHaveBeenCalledWith('Pay profile updated');
+    expect(payroll.updatePayrollProfile).toHaveBeenCalled();
+    expect(container.textContent).not.toContain('ALLOWANCES');
+    expect(container.querySelector('select[aria-label="Allowance type"]')).toBeNull();
+    expect(Array.from(container.querySelectorAll('button')).some((node) => node.textContent?.trim() === 'Edit')).toBe(true);
+    expect(Array.from(container.querySelectorAll('button')).some((node) => node.textContent?.trim() === 'Cancel')).toBe(false);
+  });
 });
