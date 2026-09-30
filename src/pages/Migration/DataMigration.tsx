@@ -362,7 +362,8 @@ export default function DataMigration() {
         }
 
         log('Calculating real outstanding balances...', 'info');
-        const custRows = q(`SELECT aname, address, phone, email_id, op_bal, credit_limit FROM account_detail WHERE (a_type LIKE '%Debtors%' OR a_type LIKE '%Customer%') AND status=1`);
+        // status is NULL on legacy rows that were never explicitly activated; treat NULL as active (Maxwax: 126 of 1,447 debtors).
+        const custRows = q(`SELECT aname, address, phone, email_id, op_bal, credit_limit FROM account_detail WHERE (a_type LIKE '%Debtors%' OR a_type LIKE '%Customer%') AND (status = 1 OR status IS NULL)`);
 
         const balMap: Record<string, number> = {};
         for (const r of custRows) {
@@ -383,7 +384,41 @@ export default function DataMigration() {
             return { name: name.slice(0, 150), address: String(r.address || '').trim().slice(0, 300) || null, phone: String(r.phone || '').trim().slice(0, 50) || null, email: null, opening_balance: parseMigrationNum(r.op_bal), balance: bal, credit_limit: parseMigrationNum(r.credit_limit), category: 'retail', notes: `Legacy import | Owes: $${bal.toFixed(2)}` };
         }).filter((c: any) => c.name);
 
-        log(`👥 ${customers.length} customers — real outstanding balances calculated`, 'success');
+        const debtorCustomerCount = customers.length;
+        const unsetStatusCount = parseMigrationNum(
+            q(`SELECT COUNT(*) AS c FROM account_detail WHERE (a_type LIKE '%Debtors%' OR a_type LIKE '%Customer%') AND status IS NULL AND TRIM(COALESCE(aname, '')) != ''`)[0]?.c,
+        );
+
+        const customerNameSet = new Set(customers.map((c: { name: string }) => c.name));
+        const salesDebitRows = q(`SELECT DISTINCT debit AS name FROM vouchers WHERE v_type='Sales' AND amount > 0`);
+        let nonDebtorSalesCount = 0;
+        for (const row of salesDebitRows) {
+            const name = String(row.name || '').trim();
+            if (!name || customerNameSet.has(name)) continue;
+            const sliced = name.slice(0, 150);
+            if (customerNameSet.has(sliced)) continue;
+            const safe = name.replace(/'/g, "''");
+            const acct = q(`SELECT aname, address, phone, a_type FROM account_detail WHERE aname = '${safe}'`)[0];
+            const aType = String(acct?.a_type || '').trim() || 'unknown';
+            customers.push({
+                name: sliced,
+                address: acct ? (String(acct.address || '').trim().slice(0, 300) || null) : null,
+                phone: acct ? (String(acct.phone || '').trim().slice(0, 50) || null) : null,
+                email: null,
+                opening_balance: 0,
+                balance: 0,
+                credit_limit: 0,
+                category: 'retail',
+                notes: `Legacy import | sales booked to non-debtor account (${aType})`,
+            });
+            customerNameSet.add(sliced);
+            nonDebtorSalesCount++;
+        }
+
+        log(
+            `👥 ${debtorCustomerCount} customers (${unsetStatusCount} with unset status included) + ${nonDebtorSalesCount} non-debtor sales accounts — real outstanding balances calculated`,
+            'success',
+        );
 
         const suppRows = q(`SELECT aname, address, phone, email_id, op_bal, credit_limit, remarks FROM account_detail WHERE (a_type LIKE '%Creditors%' OR a_type LIKE '%Supplier%') AND status=1`);
 
