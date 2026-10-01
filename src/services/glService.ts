@@ -432,3 +432,33 @@ export function postOpeningBalances(
     body: JSON.stringify({ entries, as_of_date: asOfDate }),
   });
 }
+
+export interface BankingAccount {
+  id: number;
+  code: string;
+  name: string;
+  type: string;
+  system_key: string | null;
+  role: 'cash' | 'bank' | string;
+  is_active: boolean;
+  is_default: boolean;
+  balance: number;
+}
+
+export function getBankingAccounts(): Promise<BankingAccount[]> {
+  return apiRequest<BankingAccount[]>('/banking/accounts');
+}
+
+export function createBankingAccount(name: string): Promise<BankingAccount> {
+  return apiRequest<BankingAccount>('/banking/accounts', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function renameBankingAccount(id: number, name: string): Promise<BankingAccount> {
+  return apiRequest<BankingAccount>(`/banking/accounts/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name }),
+  });
+}
