@@ -202,6 +202,8 @@ export interface Invoice {
   payment_method?: string;
   amount_paid?: number;
   remaining_balance?: number;
+  deposit_account_id?: number | null;
+  deposit_account_name?: string | null;
   createdAt: string;
   sales_order_id?: string | number;
   salesOrderId?: string | number;
@@ -924,6 +926,14 @@ export async function createInvoice(
     amount_paid: amountPaid,
     remaining_balance: remainingBalance,
     status: invoice.status,
+    ...('deposit_account_id' in invoice
+      ? {
+          deposit_account_id:
+            invoice.deposit_account_id == null || !Number.isFinite(Number(invoice.deposit_account_id))
+              ? null
+              : Number(invoice.deposit_account_id),
+        }
+      : {}),
   };
 
   const raw = await apiRequest<any>('/invoices/', {
@@ -969,6 +979,14 @@ export async function updateInvoice(id: string, invoice: Partial<Invoice>): Prom
     grandTotal: Number(invoice.grandTotal) || 0,
     notes: invoice.notes || '',
     status: invoice.status,
+    ...('deposit_account_id' in invoice
+      ? {
+          deposit_account_id:
+            invoice.deposit_account_id == null || !Number.isFinite(Number(invoice.deposit_account_id))
+              ? null
+              : Number(invoice.deposit_account_id),
+        }
+      : {}),
   };
   const raw = await apiRequest<any>(`/invoices/${id}`, {
     method: 'PUT',
@@ -1082,6 +1100,14 @@ function mapApiInvoiceToInvoice(inv: Record<string, unknown>): Invoice {
       : 'Unpaid',
     amount_paid: paid,
     remaining_balance,
+    deposit_account_id:
+      inv.deposit_account_id != null && inv.deposit_account_id !== '' && Number.isFinite(Number(inv.deposit_account_id))
+        ? Number(inv.deposit_account_id)
+        : null,
+    deposit_account_name:
+      inv.deposit_account_name != null && String(inv.deposit_account_name).trim() !== ''
+        ? String(inv.deposit_account_name)
+        : null,
     createdAt: inv.created_at != null ? String(inv.created_at) : new Date().toISOString(),
     sales_order_id: inv.sales_order_id != null ? (inv.sales_order_id as string | number) : undefined,
     salesOrderId: inv.sales_order_id != null ? String(inv.sales_order_id) : undefined,

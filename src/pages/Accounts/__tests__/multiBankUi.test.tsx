@@ -7,8 +7,10 @@ import { PaidFromBankPicker } from '../ExpenseManagement';
 import { expensePaymentAccountIdForSave, pdcCreateBody, pdcListUrl } from '../../../utils/bankingAccounts';
 import type { BankingAccount } from '../../../services/glService';
 
-const { getBankingAccounts, authFetch, getPayments, getArSummary, getCustomers, getGLAccounts } = vi.hoisted(() => ({
+const { getBankingAccounts, getCollectionsBankSettings, patchCollectionsBankSettings, authFetch, getPayments, getArSummary, getCustomers, getGLAccounts } = vi.hoisted(() => ({
   getBankingAccounts: vi.fn(),
+  getCollectionsBankSettings: vi.fn(async () => ({ collections_bank_account_id: null, bank: null })),
+  patchCollectionsBankSettings: vi.fn(),
   authFetch: vi.fn(),
   getPayments: vi.fn(async () => []),
   getArSummary: vi.fn(async () => null),
@@ -18,6 +20,8 @@ const { getBankingAccounts, authFetch, getPayments, getArSummary, getCustomers, 
 
 vi.mock('../../../services/glService', () => ({
   getBankingAccounts,
+  getCollectionsBankSettings,
+  patchCollectionsBankSettings,
   getGLAccounts,
   createBankingAccount: vi.fn(),
   renameBankingAccount: vi.fn(),

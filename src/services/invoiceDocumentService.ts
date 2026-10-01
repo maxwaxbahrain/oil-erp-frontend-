@@ -373,6 +373,12 @@ export async function generateInvoicePDF(invoice: Invoice, company: CompanySetti
     ty += 4;
     const split = doc.splitTextToSize(invoice.notes, 180);
     doc.text(split, 14, ty);
+    const lineCount = Array.isArray(split) ? split.length : 1;
+    ty += lineCount * 4;
+  }
+  const depositName = (invoice.deposit_account_name ?? '').trim();
+  if (depositName) {
+    doc.text(`Deposit to: ${depositName}`, 14, ty);
   }
 
   return doc.output('blob');
@@ -509,6 +515,15 @@ export async function generateInvoiceWord(invoice: Invoice, company: CompanySett
         children: [new TextRun({ text: 'Notes / payment terms:', bold: true })],
       }),
       new Paragraph({ children: [new TextRun({ text: invoice.notes })] })
+    );
+  }
+
+  const wordDepositName = (invoice.deposit_account_name ?? '').trim();
+  if (wordDepositName) {
+    totals.push(
+      new Paragraph({
+        children: [new TextRun({ text: `Deposit to: ${wordDepositName}` })],
+      })
     );
   }
 

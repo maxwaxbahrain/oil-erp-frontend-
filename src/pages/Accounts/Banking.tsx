@@ -16,7 +16,7 @@ import autoTable from 'jspdf-autotable';
 import { getPayments, voidPayment, type Payment } from '../../services/api';
 import { getCompanyProfile } from '../../services/settingsService';
 import { getArSummary, getCustomers, type Customer } from '../../services/customerService';
-import { createBankingAccount, getBankingAccounts, getGLAccounts, renameBankingAccount, type GLAccount } from '../../services/glService';
+import { createBankingAccount, getBankingAccounts, getCollectionsBankSettings, getGLAccounts, patchCollectionsBankSettings, renameBankingAccount, type GLAccount } from '../../services/glService';
 import { authFetch } from '../../api/axios';
 import { useAuth } from '../../contexts/AuthContext';
 import { FINANCE_ROLES } from '../../utils/rbac';
@@ -398,6 +398,91 @@ function CustomerPicker({
 function cardBalance(acct: BankAccountRow, closing: number | null | undefined): number | null {
     if (typeof acct.balance === 'number' && Number.isFinite(acct.balance)) return acct.balance;
     return closing == null ? null : closing;
+}
+
+function collectionsBankLabel(bank: BankAccountRow): string {
+    if (bank.is_default || bank.code === '1010') return 'Bank (default)';
+    return `${bank.code} — ${bank.name}`;
+}
+
+function DriverCollectionsPanel({ banks }: { banks: BankAccountRow[] }) {
+    const [selectedId, setSelectedId] = useState('');
+    const [loaded, setLoaded] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [notice, setNotice] = useState<string | null>(null);
+    const [errorText, setErrorText] = useState<string | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        getCollectionsBankSettings()
+            .then((data) => {
+                if (cancelled) return;
+                setSelectedId(data.collections_bank_account_id != null ? String(data.collections_bank_account_id) : '');
+                setLoaded(true);
+            })
+            .catch((err) => {
+                if (cancelled) return;
+                console.warn('Could not load collections bank settings', err);
+                setErrorText(err instanceof Error ? err.message : 'Could not load collections bank');
+                setLoaded(true);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    const save = async () => {
+        setSaving(true);
+        setNotice(null);
+        setErrorText(null);
+        const id = selectedId === '' ? null : Number(selectedId);
+        try {
+            const saved = await patchCollectionsBankSettings(id);
+            setSelectedId(saved.collections_bank_account_id != null ? String(saved.collections_bank_account_id) : '');
+            setNotice('Saved.');
+        } catch (err) {
+            setErrorText(err instanceof Error ? err.message : 'Could not save collections bank');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div style={panelStyle} data-testid="driver-collections-panel">
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: 8 }}>
+                Driver &amp; mobile collections
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--color-redwood-text-muted)', marginBottom: 8 }}>
+                Non-cash collections recorded from the driver/sales app are deposited to:
+            </p>
+            <select
+                aria-label="Collections bank"
+                data-testid="collections-bank-select"
+                value={selectedId}
+                onChange={(e) => setSelectedId(e.target.value)}
+                disabled={!loaded || saving}
+                style={{ width: '100%', maxWidth: 360, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }}
+            >
+                <option value="">Use default bank</option>
+                {banks.map((bank) => (
+                    <option key={bank.id} value={String(bank.id)}>
+                        {collectionsBankLabel(bank)}
+                    </option>
+                ))}
+            </select>
+            <div style={{ marginTop: 10 }}>
+                <button type="button" onClick={() => void save()} disabled={!loaded || saving} style={primaryBtnSafe}>
+                    {saving ? 'Saving…' : 'Save'}
+                </button>
+            </div>
+            {notice && (
+                <div data-testid="collections-bank-notice" style={{ marginTop: 8, fontSize: 12, color: 'var(--color-brand-green)' }}>{notice}</div>
+            )}
+            {errorText && (
+                <div data-testid="collections-bank-error" style={{ marginTop: 8, fontSize: 12, color: 'var(--color-brand-red-tint)' }}>{errorText}</div>
+            )}
+        </div>
+    );
 }
 
 export default function Banking() {
@@ -1071,6 +1156,10 @@ export default function Banking() {
                             Pending cheques: {pendingPDC.length} totalling {formatUsd(pendingPdcTotal)} (not in the books until cleared)
                         </div>
                     </div>
+                )}
+
+                {canManageBanks && (
+                    <DriverCollectionsPanel banks={cashAccounts.filter((acct) => acct.role === 'bank')} />
                 )}
 
                 {showAddBank && canManageBanks && (
