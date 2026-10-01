@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type CSSProperties } from 'react';
+import { useState, useEffect, useMemo, useRef, type CSSProperties } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
     ArrowLeft,
@@ -37,21 +37,7 @@ import {
 } from '../../services/purchasesService';
 import { authFetch } from '../../api/axios';
 import { getSupplierLedger, type PartyLedgerRow } from '../../services/api';
-import { getGLAccounts, type GLAccount } from '../../services/glService';
-
-/** Backend supplier payment lookup matches accounts.id; cash_on_hand / bank only. */
-const PAY_FROM_SYSTEM_KEYS = new Set(['cash_on_hand', 'bank']);
-
-function filterPayFromAccounts(rows: GLAccount[]): GLAccount[] {
-    return rows.filter((a) => a.system_key != null && PAY_FROM_SYSTEM_KEYS.has(a.system_key));
-}
-
-function defaultPayFromAccountId(accounts: GLAccount[]): string {
-    const bank = accounts.find((a) => a.system_key === 'bank');
-    const cash = accounts.find((a) => a.system_key === 'cash_on_hand');
-    const pick = bank ?? cash ?? accounts[0];
-    return pick ? String(pick.id) : '';
-}
+import { useBankingAccounts } from '../../hooks/useBankingAccounts';
 
 // SupplierDetail v3 (direct API): bypasses the service layer for read paths
 // so cached old bundles can't show stale localStorage data. Writes still
@@ -237,10 +223,9 @@ export default function SupplierDetail() {
     // ITEM 6E — Multi-PO checklist state (mirror of customer 5E).
     const [selectedPOIds, setSelectedPOIds] = useState<string[]>([]);
     // Pay-from-account dropdown — real GL accounts from GET /api/accounts/.
-    const [bankAccounts, setBankAccounts] = useState<GLAccount[]>([]);
+    const { cash, banks, defaultBank, loading: accountsLoading, error: accountsLoadError } = useBankingAccounts();
+    const bankAccounts = useMemo(() => [...banks, ...cash], [banks, cash]);
     const [payFromAccountId, setPayFromAccountId] = useState<string>('');
-    const [accountsLoading, setAccountsLoading] = useState(true);
-    const [accountsLoadError, setAccountsLoadError] = useState<string | null>(null);
 
     const [selectedCurrency, setSelectedCurrency] = useState(WORLD_CURRENCIES[0]); // Default to USD
 
@@ -253,36 +238,18 @@ export default function SupplierDetail() {
         }
     }, [location.search]);
 
-    // Load cash/bank GL accounts from GET /api/accounts/ (same pattern as PaymentReceipt 5H).
     useEffect(() => {
-        let cancelled = false;
-        setAccountsLoading(true);
-        setAccountsLoadError(null);
-        getGLAccounts()
-            .then((rows) => {
-                if (cancelled) return;
-                const payTargets = filterPayFromAccounts(rows);
-                setBankAccounts(payTargets);
-                setPayFromAccountId(defaultPayFromAccountId(payTargets));
-                if (payTargets.length === 0) {
-                    setAccountsLoadError('No cash or bank accounts are configured in the chart of accounts.');
-                }
-            })
-            .catch((e: unknown) => {
-                if (cancelled) return;
-                setBankAccounts([]);
-                setPayFromAccountId('');
-                const msg = e instanceof Error ? e.message : 'Could not load chart of accounts.';
-                setAccountsLoadError(msg);
-                console.warn('Could not load pay-from accounts from API:', e);
-            })
-            .finally(() => {
-                if (!cancelled) setAccountsLoading(false);
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, []);
+        if (accountsLoading) return;
+        if (accountsLoadError) {
+            setPayFromAccountId('');
+            return;
+        }
+        setPayFromAccountId((prev) => {
+            if (bankAccounts.some((account) => String(account.id) === prev)) return prev;
+            const pick = defaultBank ?? cash[0] ?? bankAccounts[0];
+            return pick ? String(pick.id) : '';
+        });
+    }, [accountsLoading, accountsLoadError, bankAccounts, defaultBank, cash]);
 
     // FIX W2-3 — Auto-open the edit modal when the user clicked the
     // per-row Edit button on SupplierList. We clear the history state

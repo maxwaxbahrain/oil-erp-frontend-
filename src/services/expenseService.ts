@@ -86,6 +86,8 @@ export interface Expense {
     // Root C — GL expense account
     account_id?: number | null;
     accountId?: number | null;
+
+    paymentAccountId?: number | null;
 }
 
 export interface AIExtractedData {
@@ -170,6 +172,7 @@ function _expenseFromApi(raw: any): Expense {
         payroll_reimbursed_in: raw.payroll_reimbursed_in ?? null,
         account_id: raw.account_id ?? null,
         accountId: raw.account_id ?? null,
+        paymentAccountId: raw.payment_account_id ?? raw.paymentAccountId ?? null,
     };
 }
 
@@ -213,6 +216,9 @@ function _expenseToApi(e: Partial<Expense>): Record<string, unknown> {
     const acctId = e.account_id ?? e.accountId;
     if (acctId != null) {
         out.account_id = Number(acctId);
+    }
+    if (e.paymentAccountId != null) {
+        out.paymentAccountId = Number(e.paymentAccountId);
     }
     return out;
 }

@@ -15,21 +15,49 @@ import { WORLD_CURRENCIES } from '../../constants/currencies';
 import { getSystemSettings } from '../../services/settingsService';
 import { formatDateOnly } from '../../utils/formatters';
 import { localIsoDate } from '../../utils/localDate';
-// ITEM 5H — Bank/Cash account dropdown from backend COA (cash_on_hand + bank).
-import { getGLAccounts, type GLAccount } from '../../services/glService';
+import { useBankingAccounts } from '../../hooks/useBankingAccounts';
+import type { BankingAccount } from '../../services/glService';
+import { depositPickerForMethod, methodIsCashReceipt } from '../../utils/bankingAccounts';
 
-/** Backend payment lookup matches accounts.id; only cash_on_hand / bank system_keys pass validation. */
-const DEPOSIT_SYSTEM_KEYS = new Set(['cash_on_hand', 'bank']);
-
-function filterDepositAccounts(rows: GLAccount[]): GLAccount[] {
-  return rows.filter((a) => a.system_key != null && DEPOSIT_SYSTEM_KEYS.has(a.system_key));
-}
-
-function defaultDepositAccountId(accounts: GLAccount[]): string {
-  const bank = accounts.find((a) => a.system_key === 'bank');
-  const cash = accounts.find((a) => a.system_key === 'cash_on_hand');
-  const pick = bank ?? cash ?? accounts[0];
-  return pick ? String(pick.id) : '';
+export function DepositAccountField({
+  method,
+  cash,
+  banks,
+  value,
+  onChange,
+  errored,
+}: {
+  method: string;
+  cash: BankingAccount[];
+  banks: BankingAccount[];
+  value: string;
+  onChange: (id: string) => void;
+  errored: boolean;
+}) {
+  if (errored) return null;
+  const picker = depositPickerForMethod(method, cash, banks);
+  if (picker.options.length === 0) return null;
+  return (
+    <>
+      <select
+        aria-label="Deposit To Account"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        required
+        disabled={picker.disabled}
+        className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-sm font-bold focus:border-[#4F8EF7] focus:ring-4 focus:ring-[#4F8EF7]/10 outline-none transition-all bg-white disabled:bg-gray-100"
+      >
+        {picker.options.map((account) => (
+          <option key={account.id} value={String(account.id)}>
+            {account.code} — {account.name}
+          </option>
+        ))}
+      </select>
+      {picker.helper && (
+        <p className="text-xs font-bold text-gray-600">{picker.helper}</p>
+      )}
+    </>
+  );
 }
 
 interface PaymentReceiptProps {
@@ -72,11 +100,11 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
   const [unpaidInvoices, setUnpaidInvoices] = useState<Invoice[]>([]);
   const [advanceBalance, setAdvanceBalance] = useState<number>(0);
 
-  // ITEM 5H — Cash/bank GL accounts from GET /api/accounts/ (real DB ids).
-  const [bankAccounts, setBankAccounts] = useState<GLAccount[]>([]);
+  const { cash, banks, defaultBank, loading: accountsLoading, error: accountsLoadError } = useBankingAccounts();
   const [depositAccountId, setDepositAccountId] = useState<string>('');
-  const [accountsLoading, setAccountsLoading] = useState(true);
-  const [accountsLoadError, setAccountsLoadError] = useState<string | null>(null);
+  const depositOptions = accountsLoadError
+    ? []
+    : depositPickerForMethod(paymentMethod, cash, banks).options;
 
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -91,34 +119,20 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
   }, [customer.id]);
 
   useEffect(() => {
-    let cancelled = false;
-    setAccountsLoading(true);
-    setAccountsLoadError(null);
-    getGLAccounts()
-      .then((rows) => {
-        if (cancelled) return;
-        const depositTargets = filterDepositAccounts(rows);
-        setBankAccounts(depositTargets);
-        setDepositAccountId(defaultDepositAccountId(depositTargets));
-        if (depositTargets.length === 0) {
-          setAccountsLoadError('No cash or bank accounts are configured in the chart of accounts.');
-        }
-      })
-      .catch((e: unknown) => {
-        if (cancelled) return;
-        setBankAccounts([]);
-        setDepositAccountId('');
-        const msg = e instanceof Error ? e.message : 'Could not load chart of accounts.';
-        setAccountsLoadError(msg);
-        console.warn('Could not load deposit accounts from API:', e);
-      })
-      .finally(() => {
-        if (!cancelled) setAccountsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [customer.id]);
+    if (accountsLoading) return;
+    if (accountsLoadError) {
+      setDepositAccountId('');
+      return;
+    }
+    if (methodIsCashReceipt(paymentMethod)) {
+      setDepositAccountId(cash[0] ? String(cash[0].id) : '');
+      return;
+    }
+    setDepositAccountId((prev) => {
+      if (banks.some((account) => String(account.id) === prev)) return prev;
+      return defaultBank ? String(defaultBank.id) : '';
+    });
+  }, [accountsLoading, accountsLoadError, paymentMethod, cash, banks, defaultBank]);
 
   // FIX #2B — the outstanding set is EXACTLY what the API returns via
   // getUnpaidInvoices, which is derived from PaymentAllocation rows by the 2A
@@ -197,7 +211,7 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
   }, [openInvoices.length]);
 
   const depositReady =
-    !accountsLoading && !accountsLoadError && bankAccounts.length > 0 && depositAccountId !== '';
+    !accountsLoading && !accountsLoadError && depositOptions.length > 0 && depositAccountId !== '';
   const submitDisabled = loading || !depositReady;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -731,22 +745,20 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
               <div className="px-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-lg text-xs text-gray-600">
                 Loading cash and bank accounts…
               </div>
-            ) : accountsLoadError || bankAccounts.length === 0 ? (
+            ) : accountsLoadError || depositOptions.length === 0 ? (
               <div className="px-4 py-3 bg-amber-50 border-2 border-amber-200 rounded-lg text-xs text-amber-800">
                 {accountsLoadError ||
                   'No cash or bank accounts found. Add accounts with system keys cash_on_hand or bank in Finance → Chart of Accounts.'}
               </div>
             ) : (
-                <select
-                    value={depositAccountId}
-                    onChange={(e) => setDepositAccountId(e.target.value)}
-                    required
-                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-sm font-bold focus:border-[#4F8EF7] focus:ring-4 focus:ring-[#4F8EF7]/10 outline-none transition-all bg-white"
-                >
-                    {bankAccounts.map(a => (
-                        <option key={a.id} value={String(a.id)}>{a.code} — {a.name}</option>
-                    ))}
-                </select>
+              <DepositAccountField
+                method={paymentMethod}
+                cash={cash}
+                banks={banks}
+                value={depositAccountId}
+                onChange={setDepositAccountId}
+                errored={false}
+              />
             )}
           </div>
 
