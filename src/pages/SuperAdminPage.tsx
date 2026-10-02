@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useCallback, useMemo, useState, type CSSProperties } from 'react';
+import { useVisiblePolling } from '../hooks/useVisiblePolling';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Shield, RefreshCw, Users, Clock, AlertTriangle, DollarSign, Sparkles, Brain, Mail } from 'lucide-react';
 import api from '../api/axios';
@@ -169,11 +170,9 @@ export default function SuperAdminPage() {
     }
   }, []);
 
-  useEffect(() => {
-    loadData();
-    const interval = window.setInterval(loadData, 30000);
-    return () => window.clearInterval(interval);
-  }, [loadData]);
+  useVisiblePolling(() => {
+    void loadData();
+  }, 60_000);
 
   const handleActivate = async (tenantId: number) => {
     setActionLoading(tenantId);

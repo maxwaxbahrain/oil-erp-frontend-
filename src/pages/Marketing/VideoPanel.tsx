@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useVisiblePolling } from '../../hooks/useVisiblePolling';
 import { RefreshCw } from 'lucide-react';
 import AutoGrowTextarea from '../../components/AutoGrowTextarea';
 import {
@@ -203,45 +204,30 @@ export default function VideoPanel({
     const [voiceName, setVoiceName] = useState<MarketingVideoVoice>('Sarah (en)');
     const [lipsync, setLipsync] = useState(false);
 
-    const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const prevLengthRef = useRef(0);
+
+    useVisiblePolling(
+        () => {
+            void listMarketingPostVideos(postId)
+                .then((updated) => {
+                    setVideos(updated);
+                })
+                .catch(() => {
+                    /* keep polling on transient errors */
+                });
+        },
+        POLL_INTERVAL_MS,
+        {
+            enabled: hasPendingVideos(videos.filter((row) => row.post_id === postId)),
+            immediate: false,
+        },
+    );
 
     const seedSource = useMemo(() => newestReadyWithSeed(videos), [videos]);
     const canMatchPreviousSeed = seedSource != null;
     const displayedVideos = useMemo(
         () => [...videos.slice(0, MAX_ROWS)].reverse(),
         [videos],
-    );
-
-    const stopPolling = useCallback(() => {
-        if (pollTimerRef.current) {
-            clearInterval(pollTimerRef.current);
-            pollTimerRef.current = null;
-        }
-    }, []);
-
-    const syncPolling = useCallback(
-        (rows: MarketingVideo[]) => {
-            if (hasPendingVideos(rows)) {
-                if (!pollTimerRef.current) {
-                    pollTimerRef.current = setInterval(() => {
-                        void listMarketingPostVideos(postId)
-                            .then((updated) => {
-                                setVideos(updated);
-                                if (!hasPendingVideos(updated)) {
-                                    stopPolling();
-                                }
-                            })
-                            .catch(() => {
-                                /* keep polling on transient errors */
-                            });
-                    }, POLL_INTERVAL_MS);
-                }
-            } else {
-                stopPolling();
-            }
-        },
-        [postId, stopPolling],
     );
 
     useEffect(() => {
@@ -252,7 +238,6 @@ export default function VideoPanel({
             .then((rows) => {
                 if (cancelled) return;
                 setVideos(rows);
-                syncPolling(rows);
             })
             .catch(() => {
                 if (!cancelled) setError(LOAD_ERROR);
@@ -263,9 +248,8 @@ export default function VideoPanel({
 
         return () => {
             cancelled = true;
-            stopPolling();
         };
-    }, [postId, stopPolling, syncPolling]);
+    }, [postId]);
 
     useEffect(() => {
         if (!canMatchPreviousSeed) {
@@ -306,11 +290,7 @@ export default function VideoPanel({
         setError(null);
         try {
             const created = await generateMarketingPostVideo(postId, body);
-            setVideos((prev) => {
-                const next = [created, ...prev.filter((row) => row.id !== created.id)];
-                syncPolling(next);
-                return next;
-            });
+            setVideos((prev) => [created, ...prev.filter((row) => row.id !== created.id)]);
         } catch (err) {
             setError(mapGenerateError(err));
         } finally {
@@ -361,11 +341,7 @@ export default function VideoPanel({
         setError(null);
         try {
             await deleteMarketingPostVideo(postId, videoId);
-            setVideos((prev) => {
-                const next = prev.filter((row) => row.id !== videoId);
-                syncPolling(next);
-                return next;
-            });
+            setVideos((prev) => prev.filter((row) => row.id !== videoId));
         } catch (err) {
             setError(mapDeleteError(err));
         } finally {
