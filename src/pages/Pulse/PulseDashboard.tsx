@@ -31,7 +31,7 @@ import NewTaskModal from './NewTaskModal';
 import NewChannelModal from './NewChannelModal';
 import ChannelMembersPanel from './ChannelMembersPanel';
 
-const MESSAGE_POLL_MS = 4000;
+export const MESSAGE_POLL_MS = 10_000;
 const TASKS_REFRESH_MS = 30_000;
 const SCROLL_NEAR_BOTTOM_PX = 80;
 const TASKS_ENABLED = true;

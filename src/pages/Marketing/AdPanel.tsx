@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useVisiblePolling } from '../../hooks/useVisiblePolling';
 import { Check, RefreshCw } from 'lucide-react';
 import AutoGrowTextarea from '../../components/AutoGrowTextarea';
 import {
@@ -244,8 +245,6 @@ export default function AdPanel({
 
     const [savedFields, setSavedFields] = useState<Record<string, SavedField | undefined>>({});
 
-    const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
     const hasProductPhoto = !!brandKit?.product_url;
     const draftAd = useMemo(
         () => ads.find((row) => row.status === 'draft'),
@@ -256,43 +255,28 @@ export default function AdPanel({
         return rows.slice(0, MAX_AD_ROWS);
     }, [ads, draftAd]);
 
-    const stopPolling = useCallback(() => {
-        if (pollTimerRef.current) {
-            clearInterval(pollTimerRef.current);
-            pollTimerRef.current = null;
-        }
-    }, []);
-
-    const syncPolling = useCallback(
-        (rows: MarketingAd[]) => {
-            if (hasInProgressAds(rows)) {
-                if (!pollTimerRef.current) {
-                    pollTimerRef.current = setInterval(() => {
-                        void listMarketingPostAds(postId)
-                            .then((updated) => {
-                                setAds(updated);
-                                if (!hasInProgressAds(updated)) {
-                                    stopPolling();
-                                }
-                            })
-                            .catch(() => {
-                                /* keep polling on transient errors */
-                            });
-                    }, POLL_INTERVAL_MS);
-                }
-            } else {
-                stopPolling();
-            }
+    useVisiblePolling(
+        () => {
+            void listMarketingPostAds(postId)
+                .then((updated) => {
+                    setAds(updated);
+                })
+                .catch(() => {
+                    /* keep polling on transient errors */
+                });
         },
-        [postId, stopPolling],
+        POLL_INTERVAL_MS,
+        {
+            enabled: hasInProgressAds(ads.filter((row) => row.post_id === postId)),
+            immediate: false,
+        },
     );
 
     const refreshAds = useCallback(async () => {
         const rows = await listMarketingPostAds(postId);
         setAds(rows);
-        syncPolling(rows);
         return rows;
-    }, [postId, syncPolling]);
+    }, [postId]);
 
     useEffect(() => {
         let cancelled = false;
@@ -305,7 +289,6 @@ export default function AdPanel({
                 setBrandKit(kit);
                 setEditSpokenName(kit.spoken_name ?? '');
                 setEditVoice((kit.voice_name as MarketingAdVoice) ?? 'Sarah (en)');
-                syncPolling(rows);
             })
             .catch(() => {
                 if (!cancelled) setError(LOAD_ERROR);
@@ -316,9 +299,8 @@ export default function AdPanel({
 
         return () => {
             cancelled = true;
-            stopPolling();
         };
-    }, [postId, stopPolling, syncPolling]);
+    }, [postId]);
 
     const markSaved = (sceneId: number, field: SavedField) => {
         const key = `${sceneId}:${field}`;
