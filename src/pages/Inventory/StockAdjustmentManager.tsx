@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, type CSSProperties } from 'react';
+import { useVisiblePolling } from '../../hooks/useVisiblePolling';
 import { useNavigate } from 'react-router-dom';
 import {
     Brain,
@@ -132,10 +133,7 @@ export default function StockAdjustmentManager() {
         }
     }, []);
 
-    useEffect(() => {
-        const timer = setInterval(() => { void loadData(); }, 30000);
-        return () => clearInterval(timer);
-    }, []);
+    useVisiblePolling(() => { void loadData(); }, 60_000, { immediate: false });
 
     const loadData = async () => {
         setLoading(true);

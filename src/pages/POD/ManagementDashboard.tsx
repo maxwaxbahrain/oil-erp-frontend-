@@ -3,7 +3,8 @@
 // Backend-backed delivery note/POD monitoring
 // ============================================
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useVisiblePolling } from '../../hooks/useVisiblePolling';
 import { Truck, Package, AlertCircle, MapPin, RefreshCw } from 'lucide-react';
 import FleetMap from './components/FleetMap';
 import VanStatusCard from './components/VanStatusCard';
@@ -21,17 +22,6 @@ export default function ManagementDashboard() {
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
-
-    useEffect(() => {
-        loadDashboardData();
-
-        // Auto-refresh every 10 seconds
-        const interval = setInterval(() => {
-            loadDashboardData();
-        }, 10000);
-
-        return () => clearInterval(interval);
-    }, []);
 
     const loadDashboardData = async () => {
         try {
@@ -52,6 +42,10 @@ export default function ManagementDashboard() {
             setLoading(false);
         }
     };
+
+    useVisiblePolling(() => {
+        void loadDashboardData();
+    }, 30_000);
 
     const handleRefresh = () => {
         setLoading(true);
