@@ -590,7 +590,21 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
                         checked={isChecked}
                         onChange={(e) => {
                           if (e.target.checked) {
-                            setSelectedInvoiceIds(prev => [...prev, idStr]);
+                            const nextIds = selectedInvoiceIds.includes(idStr)
+                              ? selectedInvoiceIds
+                              : [...selectedInvoiceIds, idStr];
+                            setSelectedInvoiceIds(nextIds);
+                            if (methodIsCashReceipt(paymentMethod)) return;
+                            if (inv.deposit_account_id == null) return;
+                            const depositKey = String(inv.deposit_account_id);
+                            const disagree = openInvoices.some((row) =>
+                              selectedInvoiceIds.includes(String(row.id))
+                              && row.deposit_account_id != null
+                              && String(row.deposit_account_id) !== depositKey,
+                            );
+                            if (disagree) return;
+                            if (!banks.some((account) => String(account.id) === depositKey)) return;
+                            setDepositAccountId(depositKey);
                           } else {
                             setSelectedInvoiceIds(prev => prev.filter(x => x !== idStr));
                           }

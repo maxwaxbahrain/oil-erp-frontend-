@@ -462,3 +462,42 @@ export function renameBankingAccount(id: number, name: string): Promise<BankingA
     body: JSON.stringify({ name }),
   });
 }
+
+export interface BankingAccountOption {
+  id: number;
+  code: string;
+  name: string;
+  role: 'cash' | 'bank' | string;
+  is_default: boolean;
+}
+
+export interface BankingAccountOptionsResponse {
+  accounts: BankingAccountOption[];
+  collections_bank_account_id: number | null;
+}
+
+export interface CollectionsBank {
+  id: number;
+  code: string;
+  name: string;
+}
+
+export interface CollectionsBankSettings {
+  collections_bank_account_id: number | null;
+  bank: CollectionsBank | null;
+}
+
+export function getBankingAccountOptions(): Promise<BankingAccountOptionsResponse> {
+  return apiRequest<BankingAccountOptionsResponse>('/banking/accounts/options');
+}
+
+export function getCollectionsBankSettings(): Promise<CollectionsBankSettings> {
+  return apiRequest<CollectionsBankSettings>('/banking/collections-settings');
+}
+
+export function patchCollectionsBankSettings(id: number | null): Promise<CollectionsBankSettings> {
+  return apiRequest<CollectionsBankSettings>('/banking/collections-settings', {
+    method: 'PATCH',
+    body: JSON.stringify({ collections_bank_account_id: id }),
+  });
+}

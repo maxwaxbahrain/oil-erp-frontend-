@@ -137,6 +137,7 @@ export default function Invoices() {
   const [shareMenuInvoiceId, setShareMenuInvoiceId] = useState<string | null>(null);
   const [shareMenuPos, setShareMenuPos] = useState<{ top: number; left: number } | null>(null);
   const shareButtonRef = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [pendingDelete, setPendingDelete] = useState<Invoice | null>(null);
   const [shareAttachModal, setShareAttachModal] = useState<{
     channel: 'whatsapp' | 'sms' | 'email';
     fileName: string;
@@ -288,15 +289,19 @@ export default function Invoices() {
     }
   };
 
-  // FIX W2-1 — Delete invoice with paid-guard + confirm + optimistic state.
-  const handleDeleteInvoice = async (inv: { id: string | number; invoiceNumber?: string; status?: string }, e: React.MouseEvent) => {
+  const requestDeleteInvoice = (inv: Invoice, e: React.MouseEvent) => {
     e.stopPropagation();
     if ((inv.status || '').toLowerCase() === 'paid') {
       alert('Cannot delete a Paid invoice.  Void or refund it first.');
       return;
     }
-    const num = inv.invoiceNumber || `#${inv.id}`;
-    if (!window.confirm(`Delete invoice ${num}?  This cannot be undone.`)) return;
+    setPendingDelete(inv);
+  };
+
+  const confirmDeleteInvoice = async () => {
+    const inv = pendingDelete;
+    if (!inv) return;
+    setPendingDelete(null);
     try {
       await deleteInvoice(String(inv.id));
       setInvoices(prev => prev.filter(x => String(x.id) !== String(inv.id)));
@@ -442,6 +447,21 @@ export default function Invoices() {
   return (
     <div className="min-h-screen bg-redwood-bg-light pb-24 md:pb-10">
       <div className="max-w-7xl mx-auto px-4 md:px-6 pt-6 space-y-6">
+        {pendingDelete && (
+          <div className="bg-white border border-red-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3" data-testid="delete-invoice-confirm">
+            <p className="text-sm font-bold text-gray-900">
+              Delete invoice {pendingDelete.invoiceNumber || `#${pendingDelete.id}`}? This cannot be undone.
+            </p>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => void confirmDeleteInvoice()} className="px-3 py-2 rounded-lg bg-red-600 text-white text-xs font-black">
+                Delete
+              </button>
+              <button type="button" onClick={() => setPendingDelete(null)} className="px-3 py-2 rounded-lg border border-gray-300 text-xs font-black text-gray-700">
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
         <div className="bg-white p-8 md:p-10 rounded-3xl border border-gray-100 shadow-sm relative overflow-hidden">
           <div className="absolute top-0 right-0 p-6 opacity-[0.06] pointer-events-none">
             <FileText size={160} className="text-white" />
@@ -708,7 +728,7 @@ export default function Invoices() {
                             </button>
                             <button
                               title="Delete Invoice"
-                              onClick={(e) => void handleDeleteInvoice(inv, e)}
+                              onClick={(e) => requestDeleteInvoice(inv, e)}
                               className="p-2 text-redwood-text-muted hover:text-[#FCA5A5] hover:bg-[#EF4444]/10 rounded transition-colors"
                               aria-label="Delete invoice"
                             >
@@ -855,6 +875,11 @@ export default function Invoices() {
                     </p>
                   </div>
                 </div>
+                {detailInvoice.deposit_account_name ? (
+                  <p className="text-xs text-gray-600 font-semibold pt-2 border-t border-gray-200">
+                    Deposit to: {detailInvoice.deposit_account_name}
+                  </p>
+                ) : null}
                 <p className="text-xs text-gray-500 font-medium pt-2 border-t border-gray-200">
                   Detailed payment history is available on the customer ledger when payments are recorded there.
                 </p>

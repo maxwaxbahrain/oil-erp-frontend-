@@ -35,6 +35,8 @@ export interface InvoicePDFInput {
     salesman?: string;
     notes?: string;
     currency?: string;
+    /** Account name only. Printed when set. Never an account number. */
+    deposit_account_name?: string | null;
 }
 
 export function generateInvoicePDF(input: InvoicePDFInput): void {
@@ -57,6 +59,7 @@ export function generateInvoicePDF(input: InvoicePDFInput): void {
         salesman,
         notes,
         currency = 'USD',
+        deposit_account_name,
     } = input;
 
     const filename = `invoice-${invoiceNumber.replace(/[^A-Za-z0-9-]/g, '_')}`;
@@ -181,8 +184,8 @@ export function generateInvoicePDF(input: InvoicePDFInput): void {
         }
 
         // ── Notes (left-aligned, below the table, below the totals) ────
+        let notesY = Math.max(summaryY + 10, 240);
         if (notes && notes.trim()) {
-            const notesY = Math.max(summaryY + 10, 240);
             doc.setFontSize(9);
             doc.setFont('helvetica', 'bold');
             doc.setTextColor(80, 80, 80);
@@ -191,6 +194,15 @@ export function generateInvoicePDF(input: InvoicePDFInput): void {
             doc.setTextColor(40, 40, 40);
             const wrapped = doc.splitTextToSize(notes.trim(), 180);
             doc.text(wrapped, 14, notesY + 5);
+            const lineCount = Array.isArray(wrapped) ? wrapped.length : 1;
+            notesY += 5 + lineCount * 4;
+        }
+        const depositName = (deposit_account_name ?? '').trim();
+        if (depositName) {
+            doc.setFontSize(9);
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(40, 40, 40);
+            doc.text(`Deposit to: ${depositName}`, 14, notesY + 6);
         }
     }, 'invoice');
 }
