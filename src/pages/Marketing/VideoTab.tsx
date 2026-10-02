@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useVisiblePolling } from '../../hooks/useVisiblePolling';
 import { RefreshCw } from 'lucide-react';
 import AdPanel from './AdPanel';
 import VideoPanel from './VideoPanel';
@@ -78,6 +79,14 @@ function clipProgress(row: MarketingVideo): string | null {
     return null;
 }
 
+function listWorkInProgress(videos: MarketingVideo[], ads: MarketingAd[]): boolean {
+    const videoBusy = videos.some((row) => row.status === 'queued' || row.status === 'rendering');
+    const adBusy = ads.some((row) =>
+        row.status === 'approved' || row.status === 'rendering' || row.status === 'assembling',
+    );
+    return videoBusy || adBusy;
+}
+
 function productHintFromPost(post: MarketingPost): string | undefined {
     const hint = (post as MarketingPost & { product_hint?: string }).product_hint;
     if (hint?.trim()) return hint.trim();
@@ -145,16 +154,22 @@ export default function VideoTab({ post }: { post: MarketingPost }) {
             .finally(() => {
                 if (!cancelled) setLoadingList(false);
             });
-        const pollId = window.setInterval(() => {
-            void refreshList().catch(() => {
-                /* keep polling on transient errors */
-            });
-        }, POLL_INTERVAL_MS);
         return () => {
             cancelled = true;
-            window.clearInterval(pollId);
         };
     }, [refreshList]);
+
+    const workInProgress = listWorkInProgress(
+        videos.filter((row) => row.post_id === post.id),
+        ads.filter((row) => row.post_id === post.id),
+    );
+
+    const LIST_IDLE_POLL_MS = 30_000;
+    useVisiblePolling(
+        () => { void refreshList().catch(() => { /* keep polling on transient errors */ }); },
+        workInProgress ? POLL_INTERVAL_MS : LIST_IDLE_POLL_MS,
+        { immediate: false },
+    );
 
     const unifiedRows = useMemo(() => buildUnifiedRows(videos, ads), [videos, ads]);
     const isEmpty = videos.length === 0 && ads.length === 0;

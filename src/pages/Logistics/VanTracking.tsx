@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useVisiblePolling } from '../../hooks/useVisiblePolling';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import { Icon, type LatLngExpression } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -14,7 +15,7 @@ import {
   type VanLiveStatus,
 } from '../../lib/vanLiveStatus';
 
-const POLL_MS = 15_000;
+export const POLL_MS = 30_000;
 const DEFAULT_CENTER: LatLngExpression = [26.2235, 50.5876];
 
 const C = {
@@ -89,10 +90,12 @@ export default function VanTracking() {
   }, []);
 
   useEffect(() => {
-    fetchLocations();
-    const timer = window.setInterval(() => fetchLocations(true), POLL_MS);
-    return () => window.clearInterval(timer);
+    void fetchLocations();
   }, [fetchLocations]);
+
+  useVisiblePolling(() => {
+    void fetchLocations(true);
+  }, POLL_MS, { immediate: false });
 
   const trackedVans: TrackedVan[] = useMemo(
     () =>
