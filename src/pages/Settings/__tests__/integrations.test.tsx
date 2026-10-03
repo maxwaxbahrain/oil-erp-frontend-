@@ -224,7 +224,15 @@ describe('Integrations', () => {
   }
 
   it('renders a checkbox for every new scope and partitions the catalog', async () => {
-    expect(integrationsApi.API_KEY_SCOPES).toHaveLength(37);
+    expect(integrationsApi.API_KEY_SCOPES).toHaveLength(39);
+    const invoicesGroup = integrationsApi.SCOPE_GROUPS.find((group) => group.label === 'Invoices & returns');
+    expect(invoicesGroup?.scopes).toEqual([
+      'invoices:read',
+      'invoices:write',
+      'sales_returns:read',
+      'sales_returns:write',
+    ]);
+    expect(integrationsApi.MONEY_WRITE_SCOPES).toContain('sales_returns:write');
     expect(new Set(integrationsApi.API_KEY_SCOPES).size).toBe(integrationsApi.API_KEY_SCOPES.length);
     const grouped = integrationsApi.SCOPE_GROUPS.flatMap((group) => group.scopes);
     for (const scope of [...grouped, ...integrationsApi.MONEY_WRITE_SCOPES, ...integrationsApi.FINANCE_ROLE_SCOPES]) {

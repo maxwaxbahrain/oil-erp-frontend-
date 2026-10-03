@@ -9,7 +9,9 @@ import {
   Search,
   XCircle,
 } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 import {
+  cancelSalesReturn,
   getSalesReturns,
   getReturnStats,
   patchSalesReturn,
@@ -101,6 +103,8 @@ type Tab = 'all' | ReturnStatus;
 
 export default function SalesReturns() {
   const navigate = useNavigate();
+  const { hasRole } = useAuth();
+  const canCancel = hasRole('admin', 'accountant');
   const [returns, setReturns] = useState<SalesReturn[]>([]);
   const [stats, setStats] = useState<ReturnStats | null>(null);
   const [creditNotes, setCreditNotes] = useState<CreditNote[]>([]);
@@ -149,11 +153,12 @@ export default function SalesReturns() {
   );
 
   const statusCounts = useMemo(() => {
-    const counts = { all: returns.length, pending: 0, approved: 0, completed: 0 };
+    const counts = { all: returns.length, pending: 0, approved: 0, completed: 0, cancelled: 0 };
     for (const r of returns) {
       if (r.status === 'pending') counts.pending += 1;
       else if (r.status === 'approved') counts.approved += 1;
       else if (r.status === 'completed') counts.completed += 1;
+      else if (r.status === 'cancelled') counts.cancelled += 1;
     }
     return counts;
   }, [returns]);
@@ -180,7 +185,7 @@ export default function SalesReturns() {
     e.stopPropagation();
     if (
       !confirm(
-        'Approve this return? Customer ledger will be credited and the invoice balance updated.',
+        'Approve this return? Customer ledger will be credited, the invoice balance updated and returned stock put back.',
       )
     )
       return;
@@ -209,11 +214,31 @@ export default function SalesReturns() {
     }
   }
 
+  async function handleCancel(e: React.MouseEvent, r: SalesReturn) {
+    e.stopPropagation();
+    if (
+      !confirm(
+        `Cancel return ${r.returnNumber}? Any ledger credit, journal and restocked quantities will be reversed. This cannot be undone.`,
+      )
+    )
+      return;
+    setBusyId(r.id);
+    try {
+      await cancelSalesReturn(r.id);
+      await load(true);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Cancel failed');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   const tabs: { key: Tab; label: string; showCount?: boolean }[] = [
     { key: 'all', label: 'All', showCount: true },
     { key: 'pending', label: 'Pending' },
     { key: 'approved', label: 'Approved' },
     { key: 'completed', label: 'Completed' },
+    { key: 'cancelled', label: 'Cancelled' },
   ];
 
   const ghostBtn: CSSProperties = {
@@ -267,31 +292,38 @@ export default function SalesReturns() {
 
   function CreditNoteCell({ r }: { r: SalesReturn }) {
     const cn = creditNoteByReturnId.get(r.id);
-    if (cn) {
-      return (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            navigate(`/sales/credit-notes/${cn.id}`);
-          }}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            padding: 0,
-            cursor: 'pointer',
-            fontFamily: 'ui-monospace, monospace',
-            fontSize: 12,
-            fontWeight: 600,
-            color: 'var(--color-brand-green-tint)',
-          }}
-        >
-          {cn.creditNoteNumber}
-        </button>
-      );
+    const cancellable =
+      canCancel &&
+      (r.status === 'draft' || r.status === 'pending' || r.status === 'approved' || r.status === 'completed');
+
+    const creditNoteButton = cn ? (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          navigate(`/sales/credit-notes/${cn.id}`);
+        }}
+        style={{
+          background: 'transparent',
+          border: 'none',
+          padding: 0,
+          cursor: 'pointer',
+          fontFamily: 'ui-monospace, monospace',
+          fontSize: 12,
+          fontWeight: 600,
+          color: 'var(--color-brand-green-tint)',
+        }}
+      >
+        {cn.creditNoteNumber}
+      </button>
+    ) : null;
+
+    if (r.status === 'cancelled') {
+      return creditNoteButton ?? <span style={{ color: 'var(--color-redwood-text-subtle)' }}>—</span>;
     }
-    if (r.status === 'pending') {
-      return (
+
+    const approveButton =
+      r.status === 'pending' ? (
         <button
           type="button"
           disabled={busyId === r.id}
@@ -310,10 +342,10 @@ export default function SalesReturns() {
           )}
           Approve
         </button>
-      );
-    }
-    if (r.status === 'approved') {
-      return (
+      ) : null;
+
+    const completeButton =
+      r.status === 'approved' ? (
         <button
           type="button"
           disabled={busyId === r.id}
@@ -340,9 +372,50 @@ export default function SalesReturns() {
           )}
           Complete
         </button>
-      );
+      ) : null;
+
+    const cancelButton = cancellable ? (
+      <button
+        type="button"
+        title="Cancel return"
+        disabled={busyId === r.id}
+        onClick={(e) => handleCancel(e, r)}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 4,
+          fontSize: 10,
+          fontWeight: 600,
+          padding: '4px 10px',
+          borderRadius: 6,
+          cursor: 'pointer',
+          border: '1px solid rgba(239,68,68,.28)',
+          background: 'var(--color-badge-red-bg)',
+          color: 'var(--color-brand-red-tint)',
+          opacity: busyId === r.id ? 0.6 : 1,
+        }}
+      >
+        {busyId === r.id ? (
+          <Loader2 size={12} className="animate-spin" />
+        ) : (
+          <XCircle size={12} />
+        )}
+        Cancel return
+      </button>
+    ) : null;
+
+    if (!creditNoteButton && !approveButton && !completeButton && !cancelButton) {
+      return <span style={{ color: 'var(--color-redwood-text-subtle)' }}>—</span>;
     }
-    return <span style={{ color: 'var(--color-redwood-text-subtle)' }}>—</span>;
+
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        {creditNoteButton}
+        {approveButton}
+        {completeButton}
+        {cancelButton}
+      </div>
+    );
   }
 
   if (loading) {
@@ -589,7 +662,7 @@ export default function SalesReturns() {
             const count =
               t.key === 'all'
                 ? statusCounts.all
-                : (statusCounts[t.key as 'pending' | 'approved' | 'completed'] ?? 0);
+                : (statusCounts[t.key as 'pending' | 'approved' | 'completed' | 'cancelled'] ?? 0);
             return (
               <button
                 key={t.key}
@@ -776,15 +849,34 @@ export default function SalesReturns() {
                       }}
                     >
                       <td style={tdStyle}>
-                        <span
-                          style={{
-                            fontFamily: 'ui-monospace, monospace',
-                            fontSize: 12,
-                            fontWeight: 600,
-                            color: 'var(--color-brand-red-tint)',
-                          }}
-                        >
-                          {r.returnNumber}
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                          <span
+                            style={{
+                              fontFamily: 'ui-monospace, monospace',
+                              fontSize: 12,
+                              fontWeight: 600,
+                              color: 'var(--color-brand-red-tint)',
+                            }}
+                          >
+                            {r.returnNumber}
+                          </span>
+                          {r.status === 'cancelled' && (
+                            <span
+                              style={{
+                                fontSize: 9,
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                                letterSpacing: '.4px',
+                                padding: '2px 8px',
+                                borderRadius: 20,
+                                background: '#F3F4F6',
+                                color: '#6B7280',
+                                border: '1px solid #D1D5DB',
+                              }}
+                            >
+                              Cancelled
+                            </span>
+                          )}
                         </span>
                       </td>
                       <td style={tdStyle}>
