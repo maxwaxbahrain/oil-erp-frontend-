@@ -186,4 +186,85 @@ describe('Integrations', () => {
     });
     expect(container.querySelector('a[href="/settings/integrations"]')).not.toBeNull();
   });
+
+  const NEW_SCOPES = [
+    'credit_notes:read',
+    'credit_notes:write',
+    'collections:read',
+    'collections:write',
+    'credit:read',
+    'banking:read',
+    'banking:write',
+    'bank_transactions:read',
+    'bank_transactions:write',
+    'pdc:read',
+    'pdc:write',
+    'reports:read',
+    'tax:read',
+    'tax:write',
+    'quotations:read',
+    'quotations:write',
+    'deliveries:write',
+  ] as const;
+
+  const IDEMPOTENCY_NOTE = 'Money writes require an Idempotency-Key header on every request.';
+  const ACCOUNTANT_NOTE = 'This key will be created with the Accountant role so it can reach finance and reports endpoints.';
+
+  async function openCreateKey() {
+    await renderPage();
+    const create = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Create API key');
+    await act(async () => {
+      create?.click();
+    });
+  }
+
+  function clickScope(scope: string) {
+    const box = Array.from(container.querySelectorAll('input[type="checkbox"]')).find((input) => input.parentElement?.textContent?.includes(scope));
+    return box as HTMLInputElement | undefined;
+  }
+
+  it('renders a checkbox for every new scope and partitions the catalog', async () => {
+    expect(integrationsApi.API_KEY_SCOPES).toHaveLength(37);
+    expect(new Set(integrationsApi.API_KEY_SCOPES).size).toBe(integrationsApi.API_KEY_SCOPES.length);
+    const grouped = integrationsApi.SCOPE_GROUPS.flatMap((group) => group.scopes);
+    for (const scope of [...grouped, ...integrationsApi.MONEY_WRITE_SCOPES, ...integrationsApi.FINANCE_ROLE_SCOPES]) {
+      expect(integrationsApi.API_KEY_SCOPES).toContain(scope);
+    }
+    for (const scope of integrationsApi.API_KEY_SCOPES) {
+      expect(grouped.filter((item) => item === scope)).toHaveLength(1);
+    }
+    await openCreateKey();
+    for (const scope of NEW_SCOPES) {
+      const box = Array.from(container.querySelectorAll('input[type="checkbox"]')).find((input) => input.parentElement?.textContent?.includes(scope));
+      expect(box).toBeInstanceOf(HTMLInputElement);
+      expect(box?.parentElement?.textContent).toContain(scope);
+    }
+  });
+
+  it('shows the Idempotency-Key and Accountant notes for pdc:write', async () => {
+    await openCreateKey();
+    await act(async () => {
+      clickScope('pdc:write')?.click();
+    });
+    expect(container.textContent).toContain(IDEMPOTENCY_NOTE);
+    expect(container.textContent).toContain(ACCOUNTANT_NOTE);
+  });
+
+  it('shows only the Accountant note for reports:read', async () => {
+    await openCreateKey();
+    await act(async () => {
+      clickScope('reports:read')?.click();
+    });
+    expect(container.textContent).toContain(ACCOUNTANT_NOTE);
+    expect(container.textContent).not.toContain(IDEMPOTENCY_NOTE);
+  });
+
+  it('shows neither finance note for quotations:read', async () => {
+    await openCreateKey();
+    await act(async () => {
+      clickScope('quotations:read')?.click();
+    });
+    expect(container.textContent).not.toContain(ACCOUNTANT_NOTE);
+    expect(container.textContent).not.toContain(IDEMPOTENCY_NOTE);
+  });
 });
