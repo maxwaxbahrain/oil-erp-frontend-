@@ -21,6 +21,23 @@ export const API_KEY_SCOPES = [
   'chat:write',
   'ai:chat',
   'ai:news',
+  'credit_notes:read',
+  'credit_notes:write',
+  'collections:read',
+  'collections:write',
+  'credit:read',
+  'banking:read',
+  'banking:write',
+  'bank_transactions:read',
+  'bank_transactions:write',
+  'pdc:read',
+  'pdc:write',
+  'reports:read',
+  'tax:read',
+  'tax:write',
+  'quotations:read',
+  'quotations:write',
+  'deliveries:write',
 ] as const;
 
 export type ApiKeyScope = (typeof API_KEY_SCOPES)[number];
@@ -35,7 +52,17 @@ export const SCOPE_GROUPS: { label: string; scopes: ApiKeyScope[] }[] = [
     scopes: ['suppliers:read', 'suppliers:write', 'purchase_orders:read', 'purchase_orders:write'],
   },
   { label: 'Accounting', scopes: ['accounts:read'] },
-  { label: 'Sales & delivery', scopes: ['sales_orders:read', 'sales_orders:write', 'deliveries:read'] },
+  {
+    label: 'Sales & delivery',
+    scopes: ['sales_orders:read', 'sales_orders:write', 'quotations:read', 'quotations:write', 'deliveries:read', 'deliveries:write'],
+  },
+  {
+    label: 'Finance',
+    scopes: ['credit_notes:read', 'credit_notes:write', 'bank_transactions:read', 'bank_transactions:write', 'pdc:read', 'pdc:write', 'banking:read', 'banking:write'],
+  },
+  { label: 'Collections & credit', scopes: ['collections:read', 'collections:write', 'credit:read'] },
+  { label: 'Reports', scopes: ['reports:read'] },
+  { label: 'Tax', scopes: ['tax:read', 'tax:write'] },
   { label: 'Team-Pulse', scopes: ['chat:read', 'chat:write'] },
   { label: 'AI', scopes: ['ai:chat', 'ai:news'] },
 ];
@@ -44,6 +71,22 @@ export const MONEY_WRITE_SCOPES: ApiKeyScope[] = [
   'invoices:write',
   'payments:write',
   'purchase_orders:write',
+  'credit_notes:write',
+  'bank_transactions:write',
+  'pdc:write',
+];
+
+// Mirrors backend FINANCE_ROLE_SCOPES: finance/management gates that are not money writes. A key holding any of these, or any MONEY_WRITE_SCOPES member, is created with the Accountant role.
+export const FINANCE_ROLE_SCOPES: ApiKeyScope[] = [
+  'collections:write',
+  'banking:read',
+  'banking:write',
+  'bank_transactions:read',
+  'pdc:read',
+  'reports:read',
+  'tax:read',
+  'tax:write',
+  'quotations:write',
 ];
 
 export const CSV_IMPORT_ENTITIES = [
