@@ -4,7 +4,7 @@
 import { API_BASE_URL, getInvoices, type Invoice } from './api';
 import { authFetch } from '../api/axios';
 
-export type ReturnStatus = 'draft' | 'pending' | 'approved' | 'completed';
+export type ReturnStatus = 'draft' | 'pending' | 'approved' | 'completed' | 'cancelled';
 
 export type ReturnReasonCode =
   | 'damaged'
@@ -235,6 +235,10 @@ export async function patchSalesReturn(
   return mapApiRow((await res.json()) as Record<string, unknown>);
 }
 
+export async function cancelSalesReturn(id: string): Promise<SalesReturn> {
+  return patchSalesReturn(id, { status: 'cancelled' });
+}
+
 /** @deprecated use createSalesReturnApi */
 export async function createSalesReturn(data: unknown): Promise<SalesReturn> {
   return createSalesReturnApi(data as CreateSalesReturnPayload);
@@ -256,6 +260,7 @@ export default {
   getEligibleInvoicesForReturn,
   createSalesReturn: createSalesReturnApi,
   patchSalesReturn,
+  cancelSalesReturn,
   RETURN_REASON_OPTIONS,
   RETURN_POLICY_DAYS,
 };
