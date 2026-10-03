@@ -7,6 +7,8 @@ export const API_KEY_SCOPES = [
   'products:write',
   'invoices:read',
   'invoices:write',
+  'sales_returns:read',
+  'sales_returns:write',
   'payments:read',
   'payments:write',
   'suppliers:read',
@@ -45,7 +47,7 @@ export type ApiKeyScope = (typeof API_KEY_SCOPES)[number];
 export const SCOPE_GROUPS: { label: string; scopes: ApiKeyScope[] }[] = [
   { label: 'Customers', scopes: ['customers:read', 'customers:write'] },
   { label: 'Products', scopes: ['products:read', 'products:write'] },
-  { label: 'Invoices', scopes: ['invoices:read', 'invoices:write'] },
+  { label: 'Invoices & returns', scopes: ['invoices:read', 'invoices:write', 'sales_returns:read', 'sales_returns:write'] },
   { label: 'Payments', scopes: ['payments:read', 'payments:write'] },
   {
     label: 'Suppliers & purchasing',
@@ -69,6 +71,7 @@ export const SCOPE_GROUPS: { label: string; scopes: ApiKeyScope[] }[] = [
 
 export const MONEY_WRITE_SCOPES: ApiKeyScope[] = [
   'invoices:write',
+  'sales_returns:write',
   'payments:write',
   'purchase_orders:write',
   'credit_notes:write',
