@@ -1260,10 +1260,12 @@ export default function InvoiceFormPage() {
                         <div className="flex flex-col gap-2">
                             <div className="flex items-center justify-between !pl-4">
                                 <label className="text-xs font-semibold text-gray-600">Customer <span className="text-red-500">*</span></label>
-                                <button type="button" onClick={() => setShowNewCustomer(true)}
-                                    className="flex items-center gap-1 text-xs font-black text-orange-600 hover:text-orange-800 transition-all">
-                                    <UserPlus size={12} /> New Customer
-                                </button>
+                                {!isEditMode && (
+                                    <button type="button" onClick={() => setShowNewCustomer(true)}
+                                        className="flex items-center gap-1 text-xs font-black text-orange-600 hover:text-orange-800 transition-all">
+                                        <UserPlus size={12} /> New Customer
+                                    </button>
+                                )}
                             </div>
                             <SearchableSelect
                                 options={customers}
@@ -1271,10 +1273,15 @@ export default function InvoiceFormPage() {
                                 onChange={handleCustomerChange}
                                 placeholder="Search and select customer..."
                                 displayKey="name"
-                                disabled={loading}
+                                disabled={loading || isEditMode}
                                 theme="dark"
                                 className="!px-4 !py-3 !border-2 border-gray-300"
                             />
+                            {isEditMode && (
+                                <p className="text-xs text-gray-500 !pl-4">
+                                    Customer cannot be changed on a saved invoice — void it and create a new one.
+                                </p>
+                            )}
                             {/* GAP D — customer avatar pill (visual enrichment below
                                 the SearchableSelect; cannot change what the select
                                 itself renders since that's in a shared component). */}
