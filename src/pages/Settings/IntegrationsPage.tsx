@@ -4,6 +4,7 @@ import {
   API_KEY_SCOPES,
   CSV_EXPORT_ENTITIES,
   CSV_IMPORT_ENTITIES,
+  FINANCE_ROLE_SCOPES,
   MONEY_WRITE_SCOPES,
   SCOPE_GROUPS,
   apiDocsUrl,
@@ -93,6 +94,7 @@ export function ScopePicker({
   onChange: (scopes: string[]) => void;
 }) {
   const money = selected.some((scope) => MONEY_WRITE_SCOPES.includes(scope as ApiKeyScope));
+  const accountant = selected.some((s) => MONEY_WRITE_SCOPES.includes(s as ApiKeyScope) || FINANCE_ROLE_SCOPES.includes(s as ApiKeyScope));
   return (
     <div className="space-y-3">
       {SCOPE_GROUPS.map((group) => (
@@ -123,6 +125,11 @@ export function ScopePicker({
       {money && (
         <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-sm px-3 py-2">
           Money writes require an Idempotency-Key header on every request.
+        </p>
+      )}
+      {accountant && (
+        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-sm px-3 py-2">
+          This key will be created with the Accountant role so it can reach finance and reports endpoints.
         </p>
       )}
       <p className="sr-only">{API_KEY_SCOPES.join(' ')}</p>
