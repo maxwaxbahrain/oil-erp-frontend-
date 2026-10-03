@@ -197,7 +197,7 @@ export interface Invoice {
   discount: number;
   grandTotal: number;
   notes: string;
-  status: 'Unpaid' | 'Paid' | 'Partial' | 'Overdue';
+  status: 'Unpaid' | 'Paid' | 'Partial' | 'Overdue' | 'Void' | 'Cancelled';
   payment_status?: 'Paid' | 'Unpaid' | 'Advance Paid';
   payment_method?: string;
   amount_paid?: number;
@@ -647,6 +647,14 @@ export const updateCustomer = (id: string, data: Partial<Customer>): Promise<Cus
 export const deleteCustomer = (id: string): Promise<void> => apiRequest<void>(`/customers/${id}`, { method: 'DELETE' });
 // FIX W2-1 — Invoice delete (paid-invoice guard lives at the call site).
 export const deleteInvoice = (id: string): Promise<void> => apiRequest<void>(`/invoices/${id}`, { method: 'DELETE' });
+export const voidInvoice = (id: string) =>
+  apiRequest<{
+    id: number;
+    invoice_number: string;
+    status: string;
+    reversed_entries: number[];
+    customer_balance: number | null;
+  }>(`/invoices/${id}/void`, { method: 'POST' });
 /**
  * Root B — customer receivable ledger. Returns backend-computed
  * { opening_balance, rows[], closing_balance }. With start/end the backend
@@ -1062,7 +1070,11 @@ function mapApiInvoiceToInvoice(inv: Record<string, unknown>): Invoice {
         ? 'Partial'
         : statusRaw === 'overdue'
           ? 'Overdue'
-          : 'Unpaid';
+          : statusRaw === 'void'
+            ? 'Void'
+            : statusRaw === 'cancelled'
+              ? 'Cancelled'
+              : 'Unpaid';
 
   const cid = inv.customer_id ?? inv.customerId;
   const cname = inv.customer_name ?? inv.customerName;
