@@ -359,3 +359,69 @@ export function startQuickBooksConnect(): Promise<{ authorize_url: string }> {
 export function disconnectQuickBooks(): Promise<{ status: string }> {
   return api.post<{ status: string }>('/api/v1/connectors/quickbooks/disconnect').then((res) => res.data);
 }
+
+export type QuickBooksSettings = {
+  income_account_ref: string | null;
+  item_type: 'Service' | 'NonInventory';
+};
+
+export type QuickBooksIncomeAccount = {
+  id: string;
+  name: string;
+};
+
+export type QuickBooksSyncResult = {
+  requested: number;
+  ok: number;
+  error: number;
+  results: Array<{
+    entity_id: number;
+    qbo_id: string | null;
+    action: string;
+    status: string;
+    error: string | null;
+  }>;
+};
+
+export type QuickBooksSyncLogRow = {
+  id: number;
+  entity_type: string;
+  entity_id: number;
+  qbo_id: string | null;
+  action: string;
+  status: string;
+  error_text: string | null;
+  attempted_at: string;
+};
+
+export function getQuickBooksSettings(): Promise<QuickBooksSettings> {
+  return api.get<QuickBooksSettings>('/api/v1/connectors/quickbooks/settings').then((res) => res.data);
+}
+
+export function putQuickBooksSettings(body: {
+  income_account_ref?: string | null;
+  item_type?: 'Service' | 'NonInventory';
+}): Promise<QuickBooksSettings> {
+  return api.put<QuickBooksSettings>('/api/v1/connectors/quickbooks/settings', body).then((res) => res.data);
+}
+
+export function listQuickBooksIncomeAccounts(): Promise<QuickBooksIncomeAccount[]> {
+  return api.get<QuickBooksIncomeAccount[]>('/api/v1/connectors/quickbooks/accounts/income').then((res) => res.data);
+}
+
+export function syncQuickBooks(
+  entity: 'customers' | 'products',
+  body: { ids?: number[]; all?: boolean },
+): Promise<QuickBooksSyncResult> {
+  return api.post<QuickBooksSyncResult>(`/api/v1/connectors/quickbooks/sync/${entity}`, body).then((res) => res.data);
+}
+
+export function listQuickBooksSyncLog(params: {
+  entity_type?: string;
+  status?: string;
+  limit?: number;
+}): Promise<QuickBooksSyncLogRow[]> {
+  return api
+    .get<QuickBooksSyncLogRow[]>('/api/v1/connectors/quickbooks/sync/log', { params })
+    .then((res) => res.data);
+}
