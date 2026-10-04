@@ -16,17 +16,22 @@ import {
   downloadCsvTemplate,
   importCsv,
   disconnectQuickBooks,
+  getQuickBooksSettings,
   getQuickBooksStatus,
   listApiKeys,
+  listQuickBooksIncomeAccounts,
+  listQuickBooksSyncLog,
   listWebhookDeliveries,
   listWebhookEventTypes,
   listWebhooks,
+  putQuickBooksSettings,
   QBO_ERROR_REASONS,
   retryWebhookDelivery,
   revokeApiKey,
   rotateApiKey,
   rotateWebhookSecret,
   startQuickBooksConnect,
+  syncQuickBooks,
   testWebhook,
   updateWebhook,
   webhookUrlError,
@@ -35,7 +40,11 @@ import {
   type ApiKeyScope,
   type CsvExportEntity,
   type CsvImportResult,
+  type QuickBooksIncomeAccount,
+  type QuickBooksSettings,
   type QuickBooksStatus,
+  type QuickBooksSyncLogRow,
+  type QuickBooksSyncResult,
   type WebhookDelivery,
   type WebhookEndpoint,
 } from '../../api/integrations';
@@ -285,6 +294,13 @@ export default function IntegrationsPage() {
   const [qbo, setQbo] = useState<QuickBooksStatus | null>(null);
   const [qboLoading, setQboLoading] = useState(false);
   const [qboBusy, setQboBusy] = useState(false);
+  const [qboSettings, setQboSettings] = useState<QuickBooksSettings | null>(null);
+  const [qboIncomeRef, setQboIncomeRef] = useState('');
+  const [qboItemType, setQboItemType] = useState<'Service' | 'NonInventory'>('NonInventory');
+  const [qboAccounts, setQboAccounts] = useState<QuickBooksIncomeAccount[]>([]);
+  const [qboLog, setQboLog] = useState<QuickBooksSyncLogRow[] | null>(null);
+  const [qboSyncing, setQboSyncing] = useState(false);
+  const [qboSyncSummary, setQboSyncSummary] = useState<QuickBooksSyncResult | null>(null);
 
   const loadKeys = useCallback(async () => {
     setLoading(true);
@@ -314,7 +330,23 @@ export default function IntegrationsPage() {
     if (!isAdmin) return;
     setQboLoading(true);
     try {
-      setQbo(await getQuickBooksStatus());
+      const status = await getQuickBooksStatus();
+      setQbo(status);
+      if (status.status !== 'connected') return;
+      try {
+        const [settings, accounts, log] = await Promise.all([
+          getQuickBooksSettings(),
+          listQuickBooksIncomeAccounts(),
+          listQuickBooksSyncLog({ limit: 20 }),
+        ]);
+        setQboSettings(settings);
+        setQboIncomeRef(settings.income_account_ref ?? '');
+        setQboItemType(settings.item_type);
+        setQboAccounts(accounts);
+        setQboLog(log);
+      } catch (error) {
+        fail(error, 'Could not load QuickBooks sync');
+      }
     } catch (error) {
       fail(error, 'Could not load QuickBooks status');
     } finally {
@@ -367,6 +399,49 @@ export default function IntegrationsPage() {
       fail(error, 'Could not disconnect');
     } finally {
       setQboBusy(false);
+    }
+  }
+
+  async function saveQuickBooksSettings() {
+    try {
+      const saved = await putQuickBooksSettings({
+        income_account_ref: qboIncomeRef === '' ? null : qboIncomeRef,
+        item_type: qboItemType,
+      });
+      if (saved) {
+        setQboSettings(saved);
+        setQboIncomeRef(saved.income_account_ref ?? '');
+        setQboItemType(saved.item_type);
+      }
+      showToast('QuickBooks settings saved');
+    } catch (error) {
+      fail(error, 'Could not save QuickBooks settings');
+    }
+  }
+
+  async function pushQuickBooks(entity: 'customers' | 'products') {
+    if (!window.confirm(`Push all ${entity} to QuickBooks? Existing records are matched by name/SKU and updated.`)) return;
+    setQboSyncing(true);
+    try {
+      const result = await syncQuickBooks(entity, { all: true });
+      setQboSyncSummary(result);
+      try {
+        setQboLog(await listQuickBooksSyncLog({ limit: 20 }));
+      } catch (error) {
+        fail(error, 'Could not load QuickBooks sync log');
+      }
+    } catch (error) {
+      fail(error, 'Could not sync to QuickBooks');
+    } finally {
+      setQboSyncing(false);
+    }
+  }
+
+  async function refreshQuickBooksLog() {
+    try {
+      setQboLog(await listQuickBooksSyncLog({ limit: 20 }));
+    } catch (error) {
+      fail(error, 'Could not load QuickBooks sync log');
     }
   }
 
@@ -713,6 +788,127 @@ export default function IntegrationsPage() {
                   </button>
                 )}
               </div>
+              {isAdmin && qbo.status === 'connected' && (
+                <div className="space-y-4 border-t border-redwood-border pt-4">
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-bold text-redwood-text-main">Sync settings</h3>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-redwood-text-muted">
+                      Income account
+                      <select
+                        title="QuickBooks income account"
+                        className="mt-1 block w-full max-w-sm border border-redwood-border rounded-sm px-3 py-2 text-sm font-normal normal-case tracking-normal text-redwood-text-main"
+                        value={qboIncomeRef}
+                        onChange={(event) => setQboIncomeRef(event.target.value)}
+                      >
+                        <option value="">— choose —</option>
+                        {qboAccounts.map((account) => (
+                          <option key={account.id} value={account.id}>{account.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-redwood-text-muted">
+                      Item type
+                      <select
+                        title="QuickBooks item type"
+                        className="mt-1 block w-full max-w-sm border border-redwood-border rounded-sm px-3 py-2 text-sm font-normal normal-case tracking-normal text-redwood-text-main"
+                        value={qboItemType}
+                        onChange={(event) => setQboItemType(event.target.value as 'Service' | 'NonInventory')}
+                      >
+                        <option value="Service">Service</option>
+                        <option value="NonInventory">NonInventory</option>
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      className="px-3 py-2 text-xs font-bold uppercase tracking-widest bg-redwood-brand text-white rounded-sm"
+                      onClick={() => { void saveQuickBooksSettings(); }}
+                    >
+                      Save settings
+                    </button>
+                  </div>
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-bold text-redwood-text-main">Push to QuickBooks</h3>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        title="Sync customers to QuickBooks"
+                        disabled={qboSyncing}
+                        className="px-3 py-2 text-xs font-bold uppercase tracking-widest bg-redwood-brand text-white rounded-sm disabled:opacity-50"
+                        onClick={() => { void pushQuickBooks('customers'); }}
+                      >
+                        Sync customers
+                      </button>
+                      <button
+                        type="button"
+                        title={qboSettings?.income_account_ref ? 'Sync products to QuickBooks' : 'Set an income account first'}
+                        disabled={qboSyncing || !qboSettings?.income_account_ref}
+                        className="px-3 py-2 text-xs font-bold uppercase tracking-widest bg-redwood-brand text-white rounded-sm disabled:opacity-50"
+                        onClick={() => { void pushQuickBooks('products'); }}
+                      >
+                        Sync products
+                      </button>
+                    </div>
+                    {qboSyncing && <p className="text-sm text-redwood-text-muted">Syncing…</p>}
+                    {qboSyncSummary && (
+                      <div className="space-y-1">
+                        <p className="text-sm text-redwood-text-main">
+                          {qboSyncSummary.ok} synced, {qboSyncSummary.error} failed
+                        </p>
+                        {qboSyncSummary.error > 0 && (
+                          <ul className="list-disc pl-5 text-sm text-redwood-text-main">
+                            {qboSyncSummary.results
+                              .filter((row) => row.status === 'error')
+                              .slice(0, 10)
+                              .map((row) => (
+                                <li key={`${row.entity_id}-${row.action}-${row.error ?? ''}`}>
+                                  {row.entity_id} {row.error}
+                                </li>
+                              ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-sm font-bold text-redwood-text-main">Recent sync log</h3>
+                      <button type="button" className="underline" onClick={() => { void refreshQuickBooksLog(); }}>
+                        Refresh
+                      </button>
+                    </div>
+                    {qboLog == null ? null : qboLog.length === 0 ? (
+                      <p className="text-sm text-redwood-text-muted">No sync activity yet.</p>
+                    ) : (
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr>
+                            <th className="p-2">When</th>
+                            <th className="p-2">Type</th>
+                            <th className="p-2">ID</th>
+                            <th className="p-2">QBO ID</th>
+                            <th className="p-2">Action</th>
+                            <th className="p-2">Status</th>
+                            <th className="p-2">Error</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {qboLog.map((row) => (
+                            <tr key={row.id} className="border-t border-redwood-border align-top">
+                              <td className="p-2">{when(row.attempted_at)}</td>
+                              <td className="p-2">{row.entity_type}</td>
+                              <td className="p-2">{row.entity_id}</td>
+                              <td className="p-2">{row.qbo_id ?? '—'}</td>
+                              <td className="p-2">{row.action}</td>
+                              <td className="p-2">{row.status}</td>
+                              <td className="p-2">{row.error_text ?? '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </div>
+              )}
             </>
           ) : null}
         </section>
