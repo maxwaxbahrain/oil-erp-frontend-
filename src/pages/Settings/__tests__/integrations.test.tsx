@@ -34,10 +34,18 @@ vi.mock('../../../api/integrations', async () => {
     getQuickBooksStatus: vi.fn(),
     startQuickBooksConnect: vi.fn(),
     disconnectQuickBooks: vi.fn(),
-    getQuickBooksSettings: vi.fn().mockResolvedValue({ income_account_ref: null, item_type: 'NonInventory' }),
+    getQuickBooksSettings: vi.fn().mockResolvedValue({
+      income_account_ref: null,
+      item_type: 'NonInventory',
+      deposit_account_ref: null,
+      tax_mode: 'none',
+      auto_sync: false,
+    }),
     putQuickBooksSettings: vi.fn(),
     listQuickBooksIncomeAccounts: vi.fn().mockResolvedValue([{ id: '79', name: 'Sales of Product Income' }]),
+    listQuickBooksDepositAccounts: vi.fn().mockResolvedValue([{ id: '35', name: 'Undeposited Funds', type: 'Other Current Asset' }]),
     syncQuickBooks: vi.fn(),
+    retryQuickBooksSync: vi.fn().mockResolvedValue({ entity_id: 1, qbo_id: '1', action: 'update', status: 'ok', error: null }),
     listQuickBooksSyncLog: vi.fn().mockResolvedValue([]),
   };
 });
@@ -119,13 +127,28 @@ describe('Integrations', () => {
     vi.mocked(integrationsApi.getQuickBooksSettings).mockResolvedValue({
       income_account_ref: null,
       item_type: 'NonInventory',
+      deposit_account_ref: null,
+      tax_mode: 'none',
+      auto_sync: false,
     });
     vi.mocked(integrationsApi.putQuickBooksSettings).mockReset();
     vi.mocked(integrationsApi.listQuickBooksIncomeAccounts).mockReset();
     vi.mocked(integrationsApi.listQuickBooksIncomeAccounts).mockResolvedValue([
       { id: '79', name: 'Sales of Product Income' },
     ]);
+    vi.mocked(integrationsApi.listQuickBooksDepositAccounts).mockReset();
+    vi.mocked(integrationsApi.listQuickBooksDepositAccounts).mockResolvedValue([
+      { id: '35', name: 'Undeposited Funds', type: 'Other Current Asset' },
+    ]);
     vi.mocked(integrationsApi.syncQuickBooks).mockReset();
+    vi.mocked(integrationsApi.retryQuickBooksSync).mockReset();
+    vi.mocked(integrationsApi.retryQuickBooksSync).mockResolvedValue({
+      entity_id: 1,
+      qbo_id: '1',
+      action: 'update',
+      status: 'ok',
+      error: null,
+    });
     vi.mocked(integrationsApi.listQuickBooksSyncLog).mockReset();
     vi.mocked(integrationsApi.listQuickBooksSyncLog).mockResolvedValue([]);
     locationAssign.mockReset();
@@ -496,7 +519,9 @@ describe('Integrations', () => {
     expect(integrationsApi.getQuickBooksSettings).not.toHaveBeenCalled();
     expect(integrationsApi.putQuickBooksSettings).not.toHaveBeenCalled();
     expect(integrationsApi.listQuickBooksIncomeAccounts).not.toHaveBeenCalled();
+    expect(integrationsApi.listQuickBooksDepositAccounts).not.toHaveBeenCalled();
     expect(integrationsApi.syncQuickBooks).not.toHaveBeenCalled();
+    expect(integrationsApi.retryQuickBooksSync).not.toHaveBeenCalled();
     expect(integrationsApi.listQuickBooksSyncLog).not.toHaveBeenCalled();
   });
 
@@ -515,6 +540,9 @@ describe('Integrations', () => {
     vi.mocked(integrationsApi.putQuickBooksSettings).mockResolvedValue({
       income_account_ref: '79',
       item_type: 'NonInventory',
+      deposit_account_ref: null,
+      tax_mode: 'none',
+      auto_sync: false,
     });
     await renderPage();
     await openConnections();
@@ -533,6 +561,9 @@ describe('Integrations', () => {
     expect(integrationsApi.putQuickBooksSettings).toHaveBeenCalledWith({
       income_account_ref: '79',
       item_type: 'NonInventory',
+      deposit_account_ref: null,
+      tax_mode: 'none',
+      auto_sync: false,
     });
     expect(document.getElementById('app-global-share-toast')?.textContent).toContain('QuickBooks settings saved');
   });
@@ -549,6 +580,9 @@ describe('Integrations', () => {
     vi.mocked(integrationsApi.getQuickBooksSettings).mockResolvedValue({
       income_account_ref: '79',
       item_type: 'NonInventory',
+      deposit_account_ref: null,
+      tax_mode: 'none',
+      auto_sync: false,
     });
     await openConnections();
     const enabled = container.querySelector('button[title="Sync products to QuickBooks"]') as HTMLButtonElement;
@@ -641,7 +675,9 @@ describe('Integrations', () => {
     vi.mocked(integrationsApi.getQuickBooksSettings).mockClear();
     vi.mocked(integrationsApi.putQuickBooksSettings).mockClear();
     vi.mocked(integrationsApi.listQuickBooksIncomeAccounts).mockClear();
+    vi.mocked(integrationsApi.listQuickBooksDepositAccounts).mockClear();
     vi.mocked(integrationsApi.syncQuickBooks).mockClear();
+    vi.mocked(integrationsApi.retryQuickBooksSync).mockClear();
     vi.mocked(integrationsApi.listQuickBooksSyncLog).mockClear();
     await openConnections();
     expect(container.textContent).not.toContain('Sync settings');
@@ -651,7 +687,208 @@ describe('Integrations', () => {
     expect(integrationsApi.getQuickBooksSettings).not.toHaveBeenCalled();
     expect(integrationsApi.putQuickBooksSettings).not.toHaveBeenCalled();
     expect(integrationsApi.listQuickBooksIncomeAccounts).not.toHaveBeenCalled();
+    expect(integrationsApi.listQuickBooksDepositAccounts).not.toHaveBeenCalled();
     expect(integrationsApi.syncQuickBooks).not.toHaveBeenCalled();
+    expect(integrationsApi.retryQuickBooksSync).not.toHaveBeenCalled();
     expect(integrationsApi.listQuickBooksSyncLog).not.toHaveBeenCalled();
+  });
+
+  it('saves deposit account, tax mode, and automatic sync with the income settings', async () => {
+    authState.role = 'admin';
+    vi.mocked(integrationsApi.getQuickBooksStatus).mockResolvedValue(connectedQuickBooks());
+    vi.mocked(integrationsApi.putQuickBooksSettings).mockResolvedValue({
+      income_account_ref: '79',
+      item_type: 'NonInventory',
+      deposit_account_ref: '35',
+      tax_mode: 'qbo_automatic',
+      auto_sync: true,
+    });
+    await renderPage();
+    await openConnections();
+    const income = container.querySelector('select[title="QuickBooks income account"]') as HTMLSelectElement;
+    const deposit = container.querySelector('select[title="QuickBooks deposit account"]') as HTMLSelectElement;
+    const taxMode = container.querySelector('select[title="QuickBooks tax mode"]') as HTMLSelectElement;
+    const autoSync = container.querySelector('input[title="QuickBooks automatic sync"]') as HTMLInputElement;
+    await act(async () => {
+      setValue(income, '79');
+      setValue(deposit, '35');
+      setValue(taxMode, 'qbo_automatic');
+      autoSync.click();
+    });
+    const save = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Save settings');
+    await act(async () => {
+      save?.click();
+    });
+    await act(async () => {});
+    expect(integrationsApi.putQuickBooksSettings).toHaveBeenCalledWith({
+      income_account_ref: '79',
+      item_type: 'NonInventory',
+      deposit_account_ref: '35',
+      tax_mode: 'qbo_automatic',
+      auto_sync: true,
+    });
+  });
+
+  it('gates invoice, payment, and credit note sync on an income account', async () => {
+    authState.role = 'admin';
+    vi.mocked(integrationsApi.getQuickBooksStatus).mockResolvedValue(connectedQuickBooks());
+    await renderPage();
+    await openConnections();
+    for (const label of ['Sync invoices', 'Sync payments', 'Sync credit notes']) {
+      const blocked = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === label) as HTMLButtonElement;
+      expect(blocked.title).toBe('Set an income account first');
+      expect(blocked.disabled).toBe(true);
+    }
+
+    vi.mocked(integrationsApi.getQuickBooksSettings).mockResolvedValue({
+      income_account_ref: '79',
+      item_type: 'NonInventory',
+      deposit_account_ref: null,
+      tax_mode: 'none',
+      auto_sync: false,
+    });
+    await openConnections();
+    for (const [label, title] of [
+      ['Sync invoices', 'Sync invoices to QuickBooks'],
+      ['Sync payments', 'Sync payments to QuickBooks'],
+      ['Sync credit notes', 'Sync credit notes to QuickBooks'],
+    ] as const) {
+      const enabled = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === label) as HTMLButtonElement;
+      expect(enabled.title).toBe(title);
+      expect(enabled.disabled).toBe(false);
+    }
+    const syncPayments = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Sync payments') as HTMLButtonElement;
+    await act(async () => {
+      syncPayments.click();
+    });
+    await act(async () => {});
+    expect(window.confirm).toHaveBeenCalledWith('Push all payments to QuickBooks? Existing records are matched by name/SKU and updated.');
+    expect(integrationsApi.syncQuickBooks).toHaveBeenCalledWith('payments', { all: true });
+  });
+
+  it('retries a failed sync row and omits Retry on ok rows', async () => {
+    authState.role = 'admin';
+    vi.mocked(integrationsApi.getQuickBooksStatus).mockResolvedValue(connectedQuickBooks());
+    vi.mocked(integrationsApi.listQuickBooksSyncLog).mockResolvedValue([
+      {
+        id: 1,
+        entity_type: 'invoice',
+        entity_id: 4,
+        qbo_id: '10',
+        action: 'create',
+        status: 'ok',
+        error_text: null,
+        attempted_at: '2026-02-01T12:00:00Z',
+      },
+      {
+        id: 9,
+        entity_type: 'payment',
+        entity_id: 5,
+        qbo_id: null,
+        action: 'create',
+        status: 'error',
+        error_text: 'rejected',
+        attempted_at: '2026-02-01T12:05:00Z',
+      },
+    ]);
+    vi.mocked(integrationsApi.retryQuickBooksSync).mockResolvedValue({
+      entity_id: 5,
+      qbo_id: '11',
+      action: 'update',
+      status: 'ok',
+      error: null,
+    });
+    await renderPage();
+    await openConnections();
+    const rows = Array.from(container.querySelectorAll('tbody tr'));
+    const okRow = rows.find((row) => row.textContent?.includes('invoice'));
+    const errorRow = rows.find((row) => row.textContent?.includes('payment'));
+    expect(okRow?.querySelector('button[title="Retry this row"]')).toBeNull();
+    const retry = errorRow?.querySelector('button[title="Retry this row"]') as HTMLButtonElement;
+    expect(retry.textContent).toBe('Retry');
+    const callsBefore = vi.mocked(integrationsApi.listQuickBooksSyncLog).mock.calls.length;
+    await act(async () => {
+      retry.click();
+    });
+    await act(async () => {});
+    expect(integrationsApi.retryQuickBooksSync).toHaveBeenCalledWith(9);
+    expect(document.getElementById('app-global-share-toast')?.textContent).toContain('Retried — synced');
+    expect(vi.mocked(integrationsApi.listQuickBooksSyncLog).mock.calls.length).toBeGreaterThan(callsBefore);
+  });
+
+  it('shows the retry error text when the retry result is not ok', async () => {
+    authState.role = 'admin';
+    vi.mocked(integrationsApi.getQuickBooksStatus).mockResolvedValue(connectedQuickBooks());
+    vi.mocked(integrationsApi.listQuickBooksSyncLog).mockResolvedValue([
+      {
+        id: 4,
+        entity_type: 'invoice',
+        entity_id: 8,
+        qbo_id: null,
+        action: 'create',
+        status: 'error',
+        error_text: 'totals differ',
+        attempted_at: '2026-02-02T12:00:00Z',
+      },
+    ]);
+    vi.mocked(integrationsApi.retryQuickBooksSync).mockResolvedValue({
+      entity_id: 8,
+      qbo_id: null,
+      action: 'update',
+      status: 'error',
+      error: 'QBO total 40.1 ≠ SOLTOL total 40.0',
+    });
+    await renderPage();
+    await openConnections();
+    const retry = container.querySelector('button[title="Retry this row"]') as HTMLButtonElement;
+    await act(async () => {
+      retry.click();
+    });
+    await act(async () => {});
+    expect(document.getElementById('integrations-error-toast')?.textContent).toBe('QBO total 40.1 ≠ SOLTOL total 40.0');
+  });
+
+  it('reloads the sync log for failed rows and marks ok rows that carry an error as a warning', async () => {
+    authState.role = 'admin';
+    vi.mocked(integrationsApi.getQuickBooksStatus).mockResolvedValue(connectedQuickBooks());
+    vi.mocked(integrationsApi.listQuickBooksSyncLog).mockResolvedValue([
+      {
+        id: 3,
+        entity_type: 'invoice',
+        entity_id: 8,
+        qbo_id: '20',
+        action: 'update',
+        status: 'ok',
+        error_text: 'tax rounded',
+        attempted_at: '2026-03-01T00:00:00Z',
+      },
+    ]);
+    await renderPage();
+    await openConnections();
+    expect(container.textContent).toContain('ok (warning)');
+    const failedOnly = container.querySelector('input[title="Show failed rows only"]') as HTMLInputElement;
+    await act(async () => {
+      failedOnly.click();
+    });
+    await act(async () => {});
+    expect(integrationsApi.listQuickBooksSyncLog).toHaveBeenCalledWith({ limit: 20, failed_only: true });
+  });
+
+  it('shows a 409 QuickBooks sync busy detail in the error toast', async () => {
+    authState.role = 'admin';
+    vi.mocked(integrationsApi.getQuickBooksStatus).mockResolvedValue(connectedQuickBooks());
+    vi.mocked(integrationsApi.syncQuickBooks).mockRejectedValue({
+      response: { status: 409, data: { detail: 'A QuickBooks sync is already running for this company; try again shortly' } },
+    });
+    await renderPage();
+    await openConnections();
+    const syncCustomers = container.querySelector('button[title="Sync customers to QuickBooks"]') as HTMLButtonElement;
+    await act(async () => {
+      syncCustomers.click();
+    });
+    await act(async () => {});
+    expect(document.getElementById('integrations-error-toast')?.textContent).toBe(
+      'A QuickBooks sync is already running for this company; try again shortly',
+    );
   });
 });

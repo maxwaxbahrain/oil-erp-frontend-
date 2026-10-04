@@ -363,11 +363,20 @@ export function disconnectQuickBooks(): Promise<{ status: string }> {
 export type QuickBooksSettings = {
   income_account_ref: string | null;
   item_type: 'Service' | 'NonInventory';
+  deposit_account_ref: string | null;
+  tax_mode: 'none' | 'qbo_automatic';
+  auto_sync: boolean;
 };
 
 export type QuickBooksIncomeAccount = {
   id: string;
   name: string;
+};
+
+export type QuickBooksDepositAccount = {
+  id: string;
+  name: string;
+  type: string;
 };
 
 export type QuickBooksSyncResult = {
@@ -401,6 +410,9 @@ export function getQuickBooksSettings(): Promise<QuickBooksSettings> {
 export function putQuickBooksSettings(body: {
   income_account_ref?: string | null;
   item_type?: 'Service' | 'NonInventory';
+  deposit_account_ref?: string | null;
+  tax_mode?: 'none' | 'qbo_automatic';
+  auto_sync?: boolean;
 }): Promise<QuickBooksSettings> {
   return api.put<QuickBooksSettings>('/api/v1/connectors/quickbooks/settings', body).then((res) => res.data);
 }
@@ -409,17 +421,28 @@ export function listQuickBooksIncomeAccounts(): Promise<QuickBooksIncomeAccount[
   return api.get<QuickBooksIncomeAccount[]>('/api/v1/connectors/quickbooks/accounts/income').then((res) => res.data);
 }
 
+export function listQuickBooksDepositAccounts(): Promise<QuickBooksDepositAccount[]> {
+  return api.get<QuickBooksDepositAccount[]>('/api/v1/connectors/quickbooks/accounts/deposit').then((res) => res.data);
+}
+
 export function syncQuickBooks(
-  entity: 'customers' | 'products',
+  entity: 'customers' | 'products' | 'invoices' | 'payments' | 'credit-notes',
   body: { ids?: number[]; all?: boolean },
 ): Promise<QuickBooksSyncResult> {
   return api.post<QuickBooksSyncResult>(`/api/v1/connectors/quickbooks/sync/${entity}`, body).then((res) => res.data);
+}
+
+export function retryQuickBooksSync(logId: number): Promise<QuickBooksSyncResult['results'][number]> {
+  return api
+    .post<QuickBooksSyncResult['results'][number]>(`/api/v1/connectors/quickbooks/sync/retry/${logId}`)
+    .then((res) => res.data);
 }
 
 export function listQuickBooksSyncLog(params: {
   entity_type?: string;
   status?: string;
   limit?: number;
+  failed_only?: boolean;
 }): Promise<QuickBooksSyncLogRow[]> {
   return api
     .get<QuickBooksSyncLogRow[]>('/api/v1/connectors/quickbooks/sync/log', { params })
