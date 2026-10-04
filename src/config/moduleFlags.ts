@@ -9,11 +9,11 @@ import { isStaging } from './appEnv';
 // sales_returns: PATCH /api/sales-returns/{id} -> "approved" does NOT post
 // to the GL. Subledger and GL silently diverge. See backend repo
 // docs/PHASE_A_FINDINGS.md section D3.0. Restore after D3.0.1.
-// Always false in every environment until D3.0.1 lands.
+// Always false in every environment (enabled Oct 3 2026 after GL fixes M6+M8) lands.
 const PILOT_VISIBLE = isStaging;
 
 export const MODULE_FLAGS = {
-  sales_returns: false,
+  sales_returns: true,
 
   // Mock / invoice-math screens — not GL-aligned. Gated at route + sidebar (all envs).
   finance_accounting_dashboard: false,
