@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as integrationsApi from '../../../api/integrations';
+import { QBO_ERROR_REASONS, type QuickBooksStatus } from '../../../api/integrations';
 import Sidebar from '../../../components/layout/Sidebar';
 import IntegrationsPage, { ImportResultTable } from '../IntegrationsPage';
 
@@ -30,8 +31,58 @@ vi.mock('../../../api/integrations', async () => {
     listWebhookEventTypes: vi.fn().mockResolvedValue(['invoice.created']),
     createApiKey: vi.fn(),
     createWebhook: vi.fn(),
+    getQuickBooksStatus: vi.fn(),
+    startQuickBooksConnect: vi.fn(),
+    disconnectQuickBooks: vi.fn(),
   };
 });
+
+const locationAssign = vi.fn();
+
+function disconnectedQuickBooks(overrides: Partial<QuickBooksStatus> = {}): QuickBooksStatus {
+  return {
+    provider: 'quickbooks',
+    status: 'disconnected',
+    realm_id: null,
+    company_name: null,
+    environment: 'sandbox',
+    connected_at: null,
+    access_expires_at: null,
+    refresh_expires_at: null,
+    last_error: null,
+    configured: true,
+    ...overrides,
+  };
+}
+
+function stubLocationAssign(): () => void {
+  const real = window.location;
+  const descriptor = Object.getOwnPropertyDescriptor(window, 'location');
+  const fake = {
+    assign: locationAssign,
+    replace: (url: string | URL) => real.replace(url),
+    reload: () => real.reload(),
+    get href() { return real.href; },
+    set href(value: string) { real.href = value; },
+    get pathname() { return real.pathname; },
+    get search() { return real.search; },
+    get hash() { return real.hash; },
+    get origin() { return real.origin; },
+    get protocol() { return real.protocol; },
+    get host() { return real.host; },
+    get hostname() { return real.hostname; },
+    get port() { return real.port; },
+    toString: () => real.toString(),
+  };
+  Object.defineProperty(window, 'location', {
+    configurable: true,
+    enumerable: true,
+    value: fake,
+  });
+  return () => {
+    if (descriptor) Object.defineProperty(window, 'location', descriptor);
+  };
+}
 
 function setValue(element: HTMLInputElement | HTMLSelectElement, value: string) {
   const prototype = element instanceof HTMLSelectElement
@@ -45,6 +96,7 @@ function setValue(element: HTMLInputElement | HTMLSelectElement, value: string) 
 describe('Integrations', () => {
   let container: HTMLDivElement;
   let root: Root;
+  let restoreLocation = () => {};
 
   beforeEach(() => {
     authState.role = 'sales';
@@ -54,6 +106,13 @@ describe('Integrations', () => {
     vi.mocked(integrationsApi.listApiKeys).mockResolvedValue([]);
     vi.mocked(integrationsApi.listWebhooks).mockResolvedValue([]);
     vi.mocked(integrationsApi.listWebhookEventTypes).mockResolvedValue(['invoice.created']);
+    vi.mocked(integrationsApi.getQuickBooksStatus).mockReset();
+    vi.mocked(integrationsApi.getQuickBooksStatus).mockResolvedValue(disconnectedQuickBooks());
+    vi.mocked(integrationsApi.startQuickBooksConnect).mockReset();
+    vi.mocked(integrationsApi.disconnectQuickBooks).mockReset();
+    locationAssign.mockReset();
+    restoreLocation = stubLocationAssign();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -61,6 +120,11 @@ describe('Integrations', () => {
       root.unmount();
     });
     container.remove();
+    document.getElementById('app-global-share-toast')?.remove();
+    document.getElementById('integrations-error-toast')?.remove();
+    window.history.pushState(null, '', '/');
+    restoreLocation();
+    vi.mocked(window.confirm).mockRestore();
   });
 
   async function renderPage() {
@@ -274,5 +338,141 @@ describe('Integrations', () => {
     });
     expect(container.textContent).not.toContain(ACCOUNTANT_NOTE);
     expect(container.textContent).not.toContain(IDEMPOTENCY_NOTE);
+  });
+
+  async function openConnections() {
+    const keys = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'API Keys');
+    await act(async () => {
+      keys?.click();
+    });
+    const tab = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Connections');
+    await act(async () => {
+      tab?.click();
+    });
+    await act(async () => {});
+  }
+
+  it('shows a QuickBooks badge for each connection status', async () => {
+    authState.role = 'admin';
+    const cases: { status: QuickBooksStatus; text: string }[] = [
+      { status: disconnectedQuickBooks({ status: 'disconnected' }), text: 'Disconnected' },
+      { status: disconnectedQuickBooks({ status: 'pending' }), text: 'Pending' },
+      {
+        status: disconnectedQuickBooks({ status: 'connected', company_name: 'Sandbox Co', environment: 'sandbox' }),
+        text: 'Connected to Sandbox Co (sandbox)',
+      },
+      {
+        status: disconnectedQuickBooks({ status: 'error', last_error: 'token refresh failed' }),
+        text: 'Error: token refresh failed',
+      },
+    ];
+    for (const row of cases) {
+      vi.mocked(integrationsApi.getQuickBooksStatus).mockResolvedValue(row.status);
+      await renderPage();
+      await openConnections();
+      expect(container.textContent).toContain(row.text);
+    }
+  });
+
+  it('starts QuickBooks connect and disables Connect when the server is not configured', async () => {
+    authState.role = 'admin';
+    const authorizeUrl = 'https://appcenter.intuit.com/connect/oauth2';
+    vi.mocked(integrationsApi.getQuickBooksStatus).mockResolvedValue(disconnectedQuickBooks({ status: 'disconnected', configured: true }));
+    vi.mocked(integrationsApi.startQuickBooksConnect).mockResolvedValue({ authorize_url: authorizeUrl });
+    await renderPage();
+    await openConnections();
+    const connect = container.querySelector('button[title="Connect QuickBooks"]') as HTMLButtonElement;
+    expect(connect.disabled).toBe(false);
+    await act(async () => {
+      connect.click();
+    });
+    await act(async () => {});
+    expect(integrationsApi.startQuickBooksConnect).toHaveBeenCalledTimes(1);
+    expect(locationAssign).toHaveBeenCalledWith(authorizeUrl);
+
+    vi.mocked(integrationsApi.startQuickBooksConnect).mockClear();
+    locationAssign.mockClear();
+    vi.mocked(integrationsApi.getQuickBooksStatus).mockResolvedValue(disconnectedQuickBooks({ status: 'disconnected', configured: false }));
+    await renderPage();
+    await openConnections();
+    const disabled = container.querySelector('button[title="Connect QuickBooks"]') as HTMLButtonElement;
+    expect(disabled.disabled).toBe(true);
+    expect(container.textContent).toContain('Not configured on this server');
+    await act(async () => {
+      disabled.click();
+    });
+    expect(integrationsApi.startQuickBooksConnect).not.toHaveBeenCalled();
+    expect(locationAssign).not.toHaveBeenCalled();
+  });
+
+  it('disconnects QuickBooks after confirm and surfaces a 502 detail', async () => {
+    authState.role = 'admin';
+    const connected = disconnectedQuickBooks({
+      status: 'connected',
+      company_name: 'Sandbox Co',
+      environment: 'sandbox',
+      connected_at: '2026-01-01T00:00:00Z',
+    });
+    vi.mocked(integrationsApi.getQuickBooksStatus).mockResolvedValue(connected);
+    vi.mocked(integrationsApi.disconnectQuickBooks).mockResolvedValue({ status: 'disconnected' });
+    await renderPage();
+    await openConnections();
+    const callsBefore = vi.mocked(integrationsApi.getQuickBooksStatus).mock.calls.length;
+    const disconnect = container.querySelector('button[title="Disconnect QuickBooks"]') as HTMLButtonElement;
+    await act(async () => {
+      disconnect.click();
+    });
+    await act(async () => {});
+    expect(window.confirm).toHaveBeenCalledWith('Disconnect QuickBooks? SOLTOL will revoke its access; nothing in QuickBooks is deleted.');
+    expect(integrationsApi.disconnectQuickBooks).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(integrationsApi.getQuickBooksStatus).mock.calls.length).toBeGreaterThan(callsBefore);
+
+    vi.mocked(integrationsApi.disconnectQuickBooks).mockRejectedValue({
+      response: { status: 502, data: { detail: 'Could not revoke at QuickBooks; try again' } },
+    });
+    await renderPage();
+    await openConnections();
+    const again = container.querySelector('button[title="Disconnect QuickBooks"]') as HTMLButtonElement;
+    await act(async () => {
+      again.click();
+    });
+    await act(async () => {});
+    expect(document.getElementById('integrations-error-toast')?.textContent).toBe('Could not revoke at QuickBooks; try again');
+  });
+
+  it('opens Connections from the QuickBooks callback query and strips it', async () => {
+    authState.role = 'admin';
+    vi.mocked(integrationsApi.getQuickBooksStatus).mockClear();
+    window.history.pushState(null, '', '/settings/integrations?qbo=connected');
+    await renderPage();
+    await act(async () => {});
+    const selected = container.querySelector('button[role="tab"][aria-selected="true"]');
+    expect(selected?.textContent).toBe('Connections');
+    expect(document.getElementById('app-global-share-toast')?.textContent).toContain('QuickBooks connected');
+    expect(integrationsApi.getQuickBooksStatus).toHaveBeenCalled();
+    expect(window.location.search).toBe('');
+
+    act(() => {
+      root.unmount();
+    });
+    document.getElementById('app-global-share-toast')?.remove();
+    container.remove();
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    window.history.pushState(null, '', '/settings/integrations?qbo=error&reason=bad_state');
+    await renderPage();
+    await act(async () => {});
+    expect(document.getElementById('integrations-error-toast')?.textContent).toBe(QBO_ERROR_REASONS.bad_state);
+    expect(window.location.search).toBe('');
+  });
+
+  it('shows a read-only line for non-admins and does not load QuickBooks status', async () => {
+    authState.role = 'sales';
+    vi.mocked(integrationsApi.getQuickBooksStatus).mockClear();
+    await renderPage();
+    await openConnections();
+    expect(container.textContent).toContain('Ask a company admin to manage connections.');
+    expect(integrationsApi.getQuickBooksStatus).not.toHaveBeenCalled();
   });
 });
