@@ -323,3 +323,39 @@ export function importCsv(entity: string, file: File, system: string): Promise<C
     })
     .then((res) => res.data);
 }
+
+export type QuickBooksStatus = {
+  provider: string;
+  status: 'disconnected' | 'pending' | 'connected' | 'error';
+  realm_id: string | null;
+  company_name: string | null;
+  environment: string;
+  connected_at: string | null;
+  access_expires_at: string | null;
+  refresh_expires_at: string | null;
+  last_error: string | null;
+  configured: boolean;
+};
+
+export const QBO_ERROR_REASONS: Record<string, string> = {
+  bad_state: 'The QuickBooks link expired or was already used. Try Connect again.',
+  nonce: 'This QuickBooks link did not match this browser session. Try Connect again.',
+  not_admin: 'Only a company admin can connect QuickBooks.',
+  missing_code: 'QuickBooks did not return an authorization code.',
+  not_configured: 'QuickBooks is not configured on this server.',
+  exchange_failed: 'QuickBooks login succeeded but the connection could not be saved. Try again.',
+  access_denied: 'Access to QuickBooks was denied.',
+  error: 'QuickBooks connection failed.',
+};
+
+export function getQuickBooksStatus(): Promise<QuickBooksStatus> {
+  return api.get<QuickBooksStatus>('/api/v1/connectors/quickbooks/status').then((res) => res.data);
+}
+
+export function startQuickBooksConnect(): Promise<{ authorize_url: string }> {
+  return api.get<{ authorize_url: string }>('/api/v1/connectors/quickbooks/connect').then((res) => res.data);
+}
+
+export function disconnectQuickBooks(): Promise<{ status: string }> {
+  return api.post<{ status: string }>('/api/v1/connectors/quickbooks/disconnect').then((res) => res.data);
+}
