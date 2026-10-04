@@ -15,14 +15,18 @@ import {
   downloadCsvExport,
   downloadCsvTemplate,
   importCsv,
+  disconnectQuickBooks,
+  getQuickBooksStatus,
   listApiKeys,
   listWebhookDeliveries,
   listWebhookEventTypes,
   listWebhooks,
+  QBO_ERROR_REASONS,
   retryWebhookDelivery,
   revokeApiKey,
   rotateApiKey,
   rotateWebhookSecret,
+  startQuickBooksConnect,
   testWebhook,
   updateWebhook,
   webhookUrlError,
@@ -31,9 +35,11 @@ import {
   type ApiKeyScope,
   type CsvExportEntity,
   type CsvImportResult,
+  type QuickBooksStatus,
   type WebhookDelivery,
   type WebhookEndpoint,
 } from '../../api/integrations';
+import { useAuth } from '../../contexts/AuthContext';
 import { formatDateTime, parseApiDateTime } from '../../utils/formatters';
 import { showToast } from '../../utils/showToast';
 
@@ -41,7 +47,7 @@ const MAX_CSV_BYTES = 5 * 1024 * 1024;
 const SIGNATURE_HELP =
   'Verify signatures: header X-Soltol-Signature: t=<unix>,v1=<hex HMAC-SHA256 of "<t>.<raw body>"> with the endpoint secret; reject if t is older than 300 seconds.';
 
-type TabId = 'keys' | 'webhooks' | 'csv' | 'docs';
+type TabId = 'keys' | 'webhooks' | 'connections' | 'csv' | 'docs';
 type DeliveryFilter = '' | 'pending' | 'delivered' | 'failed' | 'dead';
 
 function showErrorToast(message: string): void {
@@ -84,6 +90,13 @@ function apiKeyStatus(row: ApiKeyRow): 'Active' | 'Revoked' | 'Expired' {
 function when(value: string | null | undefined, empty = '—'): string {
   if (!value) return empty;
   return formatDateTime(value) || empty;
+}
+
+function quickBooksStatusLabel(row: QuickBooksStatus): string {
+  if (row.status === 'connected') return `Connected to ${row.company_name ?? '—'} (${row.environment})`;
+  if (row.status === 'error') return `Error: ${row.last_error ?? 'unknown'}`;
+  if (row.status === 'pending') return 'Pending';
+  return 'Disconnected';
 }
 
 export function ScopePicker({
@@ -235,6 +248,8 @@ function ModalFrame({ title, children, onClose }: { title: string; children: Rea
 }
 
 export default function IntegrationsPage() {
+  const { hasRole } = useAuth();
+  const isAdmin = hasRole('admin');
   const [tab, setTab] = useState<TabId>('keys');
   const [loading, setLoading] = useState(false);
   const [keys, setKeys] = useState<ApiKeyRow[]>([]);
@@ -267,6 +282,9 @@ export default function IntegrationsPage() {
   const [csvRunning, setCsvRunning] = useState(false);
   const [csvError, setCsvError] = useState<string | null>(null);
   const [csvResult, setCsvResult] = useState<CsvImportResult | null>(null);
+  const [qbo, setQbo] = useState<QuickBooksStatus | null>(null);
+  const [qboLoading, setQboLoading] = useState(false);
+  const [qboBusy, setQboBusy] = useState(false);
 
   const loadKeys = useCallback(async () => {
     setLoading(true);
@@ -292,10 +310,65 @@ export default function IntegrationsPage() {
     }
   }, []);
 
+  const loadQbo = useCallback(async () => {
+    if (!isAdmin) return;
+    setQboLoading(true);
+    try {
+      setQbo(await getQuickBooksStatus());
+    } catch (error) {
+      fail(error, 'Could not load QuickBooks status');
+    } finally {
+      setQboLoading(false);
+    }
+  }, [isAdmin]);
+
   useEffect(() => {
     if (tab === 'keys') void loadKeys();
     if (tab === 'webhooks' || tab === 'docs') void loadHooks();
-  }, [tab, loadKeys, loadHooks]);
+    if (tab === 'connections') void loadQbo();
+  }, [tab, loadKeys, loadHooks, loadQbo]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const flag = params.get('qbo');
+    if (flag === 'connected') {
+      setTab('connections');
+      showToast('QuickBooks connected');
+      void loadQbo();
+    } else if (flag === 'error') {
+      setTab('connections');
+      const reason = params.get('reason') ?? '';
+      showErrorToast(QBO_ERROR_REASONS[reason] ?? `QuickBooks connection failed (${reason})`);
+    }
+    if (flag === 'connected' || flag === 'error') {
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  }, [loadQbo]);
+
+  async function connectQuickBooks() {
+    setQboBusy(true);
+    try {
+      const { authorize_url } = await startQuickBooksConnect();
+      window.location.assign(authorize_url);
+    } catch (error) {
+      fail(error, 'Could not start QuickBooks connection');
+    } finally {
+      setQboBusy(false);
+    }
+  }
+
+  async function confirmDisconnectQuickBooks() {
+    if (!window.confirm('Disconnect QuickBooks? SOLTOL will revoke its access; nothing in QuickBooks is deleted.')) return;
+    setQboBusy(true);
+    try {
+      await disconnectQuickBooks();
+      await loadQbo();
+    } catch (error) {
+      fail(error, 'Could not disconnect');
+    } finally {
+      setQboBusy(false);
+    }
+  }
 
   function closeSecret() {
     setSecret(null);
@@ -413,6 +486,7 @@ export default function IntegrationsPage() {
         {([
           ['keys', 'API Keys'],
           ['webhooks', 'Webhooks'],
+          ['connections', 'Connections'],
           ['csv', 'Import / Export'],
           ['docs', 'API Docs'],
         ] as const).map(([id, label]) => (
@@ -589,6 +663,58 @@ export default function IntegrationsPage() {
               </table>
             </div>
           )}
+        </section>
+      )}
+
+      {tab === 'connections' && (
+        <section className="bg-white border border-redwood-border rounded-sm p-4 space-y-4">
+          <div className="flex justify-between items-center">
+            <h2 className="font-black text-redwood-text-main">QuickBooks Online</h2>
+            {isAdmin && (
+              <button type="button" className="underline" onClick={() => { void loadQbo(); }}>
+                Refresh
+              </button>
+            )}
+          </div>
+          {!isAdmin ? (
+            <p className="text-sm text-redwood-text-muted">Ask a company admin to manage connections.</p>
+          ) : qboLoading && !qbo ? (
+            <p className="flex items-center gap-2 text-sm text-redwood-text-muted"><Loader2 className="animate-spin" size={16} /> Loading QuickBooks…</p>
+          ) : qbo ? (
+            <>
+              <p className="text-sm font-bold text-redwood-text-main">{quickBooksStatusLabel(qbo)}</p>
+              {qbo.status === 'connected' && (
+                <p className="text-sm text-redwood-text-muted">Connected since {when(qbo.connected_at)}</p>
+              )}
+              {qbo.configured === false && (
+                <p className="text-sm text-redwood-text-muted">Not configured on this server</p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                {(qbo.status === 'disconnected' || qbo.status === 'error' || qbo.status === 'pending') && (
+                  <button
+                    type="button"
+                    title="Connect QuickBooks"
+                    disabled={!qbo.configured || qboBusy}
+                    className="px-3 py-2 text-xs font-bold uppercase tracking-widest bg-redwood-brand text-white rounded-sm"
+                    onClick={() => { void connectQuickBooks(); }}
+                  >
+                    Connect
+                  </button>
+                )}
+                {(qbo.status === 'connected' || qbo.status === 'error' || qbo.status === 'pending') && (
+                  <button
+                    type="button"
+                    title="Disconnect QuickBooks"
+                    disabled={qboBusy}
+                    className="px-3 py-2 text-xs font-bold uppercase tracking-widest bg-redwood-brand text-white rounded-sm"
+                    onClick={() => { void confirmDisconnectQuickBooks(); }}
+                  >
+                    Disconnect
+                  </button>
+                )}
+              </div>
+            </>
+          ) : null}
         </section>
       )}
 
