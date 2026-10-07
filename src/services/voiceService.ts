@@ -342,6 +342,23 @@ export function hangupAgentTask(taskId: string): Promise<AgentTask> {
     return agentJwtRequest(`/agent/tasks/${encodeURIComponent(taskId)}/hangup`, { method: 'POST' });
 }
 
+export interface StagingVoiceLine {
+    voice_tenant_id: string;
+    saas_tenant_id: number;
+    telnyx_number: string;
+    webhook_path: string;
+    company_name: string;
+    api_key: string | null;
+    key_already_issued: boolean;
+}
+
+export function setupStagingVoiceLine(rotateKey = false): Promise<StagingVoiceLine> {
+    return agentJwtRequest('/agent/staging-voice-tenant', {
+        method: 'POST',
+        body: JSON.stringify({ rotate_key: rotateKey }),
+    });
+}
+
 // ── Admin (POST /api/tenants/onboard — platform admin key) ─────
 export function onboardTenant(
     body: {
