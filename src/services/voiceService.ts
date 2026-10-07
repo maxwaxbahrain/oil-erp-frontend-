@@ -281,6 +281,18 @@ export function getWsToken(repId: number): Promise<WSTokenResponse> {
     return voiceRequest<WSTokenResponse>(`/ws-token?rep_id=${repId}`);
 }
 
+export function answerOwnerQuestion(body: {
+    call_id: string;
+    function_id: string;
+    answer: string;
+}): Promise<{ ok: boolean; call_id: string }> {
+    return voiceRequest('/agent/ask-owner/answer', {
+        method: 'POST',
+        body: JSON.stringify(body),
+        noTenantAuth: true,
+    });
+}
+
 // ── Admin (POST /api/tenants/onboard — platform admin key) ─────
 export function onboardTenant(
     body: {
@@ -317,7 +329,9 @@ export type VoiceWSMessage =
     | { type: 'stock_alert'; call_id: string | null; sku: string; product_name: string;
         requested: number; available: number }
     | { type: 'call_ended'; call_id: string; duration: number; summary: string;
-        sentiment: string; order_drafts_count: number };
+        sentiment: string; order_drafts_count: number }
+    | { type: 'owner_question'; call_id: string; function_id: string; question: string;
+        timeout_seconds: number };
 
 export interface VoiceWSHandle {
     /** Close the connection. Auto-reconnect is also stopped. */
