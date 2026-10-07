@@ -151,6 +151,63 @@ export interface ChequeConfirmInput {
   glPosted?: boolean;
 }
 
+/** Rows and period totals for the statement PDF. Totals always come from `rows`. */
+export function buildStatementExport(
+  allRows: LedgerRow[],
+  opts: { search?: string; direction?: 'all' | 'in' | 'out' },
+): {
+  rows: LedgerRow[];
+  filterActive: boolean;
+  label: string | null;
+  moneyIn: number;
+  moneyOut: number;
+} {
+  const filterActive = Boolean((opts.search || '').trim())
+    || (opts.direction != null && opts.direction !== 'all');
+  const rows = filterActive ? filterLedgerRows(allRows, opts) : allRows;
+  const totals = periodTotals(rows);
+  return {
+    rows,
+    filterActive,
+    label: filterActive ? `Filtered · ${rows.length} of ${allRows.length} rows` : null,
+    moneyIn: totals.moneyIn,
+    moneyOut: totals.moneyOut,
+  };
+}
+
+/** Copy when a ledger row belongs to a different cash/bank account than the one on screen. */
+export function foreignTransferEditMessage(
+  txAccountId: number | null | undefined,
+  selectedAccountId: number | null,
+  accountName: string,
+): string | null {
+  if (txAccountId == null || selectedAccountId == null || txAccountId === selectedAccountId) {
+    return null;
+  }
+  return `This transfer was recorded from the ${accountName} account — edit it there`;
+}
+
+/** One-line effect shown in the inline cheque confirmation. */
+export function chequeEffectSentence(
+  action: 'clear' | 'bounce' | 'cancel',
+  cheque: ChequeConfirmInput,
+  formatAmount: (amount: number) => string,
+): string {
+  if (action === 'clear' && cheque.type === 'Received') {
+    return `Clear will record a ${formatAmount(cheque.amount)} payment dated today`;
+  }
+  if (action === 'clear') {
+    return 'Clear will mark this issued cheque cleared. Nothing is posted to the books.';
+  }
+  if (action === 'bounce' && cheque.glPosted) {
+    return 'Bounce will void that payment';
+  }
+  if (action === 'bounce') {
+    return 'Bounce will mark this cheque bounced. Nothing was posted, so only the status changes.';
+  }
+  return 'Cancel will mark this cheque cancelled. This cannot be undone.';
+}
+
 export function chequeConfirmText(
   action: 'clear' | 'bounce' | 'cancel',
   cheque: ChequeConfirmInput,

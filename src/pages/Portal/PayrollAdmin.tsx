@@ -19,6 +19,7 @@ import {
   type ApiPayslip,
   type PayrollProfile,
 } from '../../services/payrollService';
+import ProfileAllowancesEditor from './ProfileAllowancesEditor';
 import { generatePayslipPDF } from '../../utils/payslipPDF';
 
 const C = {
@@ -53,6 +54,11 @@ interface PayrollAdminProps {
   employees: PortalEmployee[];
   onToast: (message: string) => void;
   onError: (message: string) => void;
+  /** When set, open this employee's pay-profile row once profiles have loaded. */
+  openEmployeeId?: string | null;
+  onOpenEmployeeIdConsumed?: () => void;
+  /** Fired with the latest profile list after each successful load. */
+  onProfilesChanged?: (rows: PayrollProfile[]) => void;
 }
 
 function defaultRunDates() {
@@ -64,10 +70,18 @@ function defaultRunDates() {
   return { periodLabel: label, periodStart: fmt(start), periodEnd: fmt(end) };
 }
 
-export default function PayrollAdmin({ employees, onToast, onError }: PayrollAdminProps) {
+export default function PayrollAdmin({
+  employees,
+  onToast,
+  onError,
+  openEmployeeId,
+  onOpenEmployeeIdConsumed,
+  onProfilesChanged,
+}: PayrollAdminProps) {
   const defaults = useMemo(() => defaultRunDates(), []);
   const [profiles, setProfiles] = useState<PayrollProfile[]>([]);
   const [profilesLoading, setProfilesLoading] = useState(false);
+  const [profilesReady, setProfilesReady] = useState(false);
   const [profileSavingId, setProfileSavingId] = useState<string | null>(null);
   const [editingProfile, setEditingProfile] = useState<ProfileEditState | null>(null);
 
@@ -107,12 +121,14 @@ export default function PayrollAdmin({ employees, onToast, onError }: PayrollAdm
     try {
       const rows = await getPayrollProfiles();
       setProfiles(rows);
+      onProfilesChanged?.(rows);
     } catch (err) {
       onError(err instanceof Error ? err.message : 'Failed to load pay profiles');
     } finally {
       setProfilesLoading(false);
+      setProfilesReady(true);
     }
-  }, [onError]);
+  }, [onError, onProfilesChanged]);
 
   const loadRuns = useCallback(async () => {
     setRunsLoading(true);
@@ -149,6 +165,14 @@ export default function PayrollAdmin({ employees, onToast, onError }: PayrollAdm
     if (selectedRunId != null) void loadRunPayslips(selectedRunId);
     else setRunPayslips([]);
   }, [selectedRunId, loadRunPayslips]);
+
+  useEffect(() => {
+    if (!openEmployeeId || !profilesReady) return;
+    const employee = employees.find((e) => e.id === openEmployeeId);
+    if (!employee) return;
+    openProfileEditor(employee);
+    onOpenEmployeeIdConsumed?.();
+  }, [openEmployeeId, profilesReady, employees, profileByEmployeeId, onOpenEmployeeIdConsumed]);
 
   function openProfileEditor(employee: PortalEmployee) {
     const existing = profileByEmployeeId.get(Number(employee.id));
@@ -201,17 +225,22 @@ export default function PayrollAdmin({ employees, onToast, onError }: PayrollAdm
           overtimeRate,
         });
         onToast('Pay profile updated');
+        setEditingProfile(null);
       } else {
-        await createPayrollProfile({
+        const created = await createPayrollProfile({
           employeeId,
           payType,
           monthlySalary,
           hourlyRate,
           overtimeRate,
         });
-        onToast('Pay profile created');
+        onToast('Profile saved — you can now add allowances');
+        setEditingProfile((prev) => (
+          prev && prev.employeeId === editingProfile.employeeId
+            ? { ...prev, profileId: created.id }
+            : prev
+        ));
       }
-      setEditingProfile(null);
       await loadProfiles();
     } catch (err) {
       onError(err instanceof Error ? err.message : 'Failed to save pay profile');
@@ -438,6 +467,21 @@ export default function PayrollAdmin({ employees, onToast, onError }: PayrollAdm
                           />
                         </label>
                       </>
+                    )}
+                    {editingProfile.profileId == null ? (
+                      <div style={{ fontSize: 11, color: C.t2, marginBottom: 8 }}>
+                        Save the pay profile first to add allowances
+                      </div>
+                    ) : (
+                      <ProfileAllowancesEditor
+                        key={`${editingProfile.profileId}:${(profile?.allowances ?? []).map((line) => `${line.type}|${line.label}|${line.amount}`).join(';')}`}
+                        profileId={editingProfile.profileId}
+                        initialLines={profile?.allowances ?? []}
+                        onSaved={async () => {
+                          onToast('Allowances saved');
+                          await loadProfiles();
+                        }}
+                      />
                     )}
                     <button
                       type="button"

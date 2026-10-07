@@ -75,9 +75,13 @@ import PurchaseOrderForm from '../pages/Purchases/PurchaseOrderForm';
 import SupplierForm from '../pages/Purchases/SupplierForm';
 import GoodsReceivedForm from '../pages/Inventory/GoodsReceivedForm';
 import GoodsReceivedList from '../pages/Inventory/GoodsReceivedList';
+import PurchaseReturns from '../pages/Purchases/PurchaseReturns';
+import PurchaseReturnFormPage from '../pages/Purchases/PurchaseReturnFormPage';
+import PurchaseReturnDetailPage from '../pages/Purchases/PurchaseReturnDetailPage';
 import StockTransfer from '../pages/Inventory/StockTransfer';
 import InventoryReports from '../pages/Inventory/InventoryReports';
 import SettingsPage from '../pages/Settings/SettingsPage';
+import IntegrationsPage from '../pages/Settings/IntegrationsPage';
 import UserManagement from '../pages/Settings/UserManagement';
 import ChangePassword from '../pages/Settings/ChangePassword';
 import SupplierList from '../pages/Purchases/SupplierList';
@@ -336,6 +340,10 @@ export const AppRoutes = () => {
             <Route path="/receiving" element={<GoodsReceivedList />} />
             <Route path="/receiving/new" element={<GoodsReceivedForm />} />
             <Route path="/receiving/:id" element={<GoodsReceivedForm />} />
+            <Route path="/purchases/returns" element={<PurchaseReturns />} />
+            <Route path="/purchases/returns/new" element={<PurchaseReturnFormPage />} />
+            <Route path="/purchases/returns/:id/edit" element={<PurchaseReturnFormPage />} />
+            <Route path="/purchases/returns/:id" element={<PurchaseReturnDetailPage />} />
             <Route path="/sales" element={<SalesOverview />} />
             <Route path="/sales/estimates" element={<PlaceholderPage title="Sales Estimates" />} />
             <Route path="/sales/delivery-notes" element={<PlaceholderPage title="Delivery Notes" />} />
@@ -458,6 +466,7 @@ export const AppRoutes = () => {
                 <Route path="/billing/success" element={<BillingCheckoutSuccess />} />
                 <Route path="/billing/cancel" element={<BillingCheckoutCancel />} />
                 <Route path="/settings/users" element={<UserManagement />} />
+                <Route path="/settings/integrations" element={<IntegrationsPage />} />
             </Route>
 
             {/* Platform super-admin only (username === 'admin') */}

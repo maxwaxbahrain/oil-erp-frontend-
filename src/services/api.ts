@@ -197,11 +197,13 @@ export interface Invoice {
   discount: number;
   grandTotal: number;
   notes: string;
-  status: 'Unpaid' | 'Paid' | 'Partial' | 'Overdue';
+  status: 'Unpaid' | 'Paid' | 'Partial' | 'Overdue' | 'Void' | 'Cancelled';
   payment_status?: 'Paid' | 'Unpaid' | 'Advance Paid';
   payment_method?: string;
   amount_paid?: number;
   remaining_balance?: number;
+  deposit_account_id?: number | null;
+  deposit_account_name?: string | null;
   createdAt: string;
   sales_order_id?: string | number;
   salesOrderId?: string | number;
@@ -645,6 +647,14 @@ export const updateCustomer = (id: string, data: Partial<Customer>): Promise<Cus
 export const deleteCustomer = (id: string): Promise<void> => apiRequest<void>(`/customers/${id}`, { method: 'DELETE' });
 // FIX W2-1 — Invoice delete (paid-invoice guard lives at the call site).
 export const deleteInvoice = (id: string): Promise<void> => apiRequest<void>(`/invoices/${id}`, { method: 'DELETE' });
+export const voidInvoice = (id: string) =>
+  apiRequest<{
+    id: number;
+    invoice_number: string;
+    status: string;
+    reversed_entries: number[];
+    customer_balance: number | null;
+  }>(`/invoices/${id}/void`, { method: 'POST' });
 /**
  * Root B — customer receivable ledger. Returns backend-computed
  * { opening_balance, rows[], closing_balance }. With start/end the backend
@@ -924,6 +934,14 @@ export async function createInvoice(
     amount_paid: amountPaid,
     remaining_balance: remainingBalance,
     status: invoice.status,
+    ...('deposit_account_id' in invoice
+      ? {
+          deposit_account_id:
+            invoice.deposit_account_id == null || !Number.isFinite(Number(invoice.deposit_account_id))
+              ? null
+              : Number(invoice.deposit_account_id),
+        }
+      : {}),
   };
 
   const raw = await apiRequest<any>('/invoices/', {
@@ -969,6 +987,14 @@ export async function updateInvoice(id: string, invoice: Partial<Invoice>): Prom
     grandTotal: Number(invoice.grandTotal) || 0,
     notes: invoice.notes || '',
     status: invoice.status,
+    ...('deposit_account_id' in invoice
+      ? {
+          deposit_account_id:
+            invoice.deposit_account_id == null || !Number.isFinite(Number(invoice.deposit_account_id))
+              ? null
+              : Number(invoice.deposit_account_id),
+        }
+      : {}),
   };
   const raw = await apiRequest<any>(`/invoices/${id}`, {
     method: 'PUT',
@@ -1044,7 +1070,11 @@ function mapApiInvoiceToInvoice(inv: Record<string, unknown>): Invoice {
         ? 'Partial'
         : statusRaw === 'overdue'
           ? 'Overdue'
-          : 'Unpaid';
+          : statusRaw === 'void'
+            ? 'Void'
+            : statusRaw === 'cancelled'
+              ? 'Cancelled'
+              : 'Unpaid';
 
   const cid = inv.customer_id ?? inv.customerId;
   const cname = inv.customer_name ?? inv.customerName;
@@ -1082,6 +1112,14 @@ function mapApiInvoiceToInvoice(inv: Record<string, unknown>): Invoice {
       : 'Unpaid',
     amount_paid: paid,
     remaining_balance,
+    deposit_account_id:
+      inv.deposit_account_id != null && inv.deposit_account_id !== '' && Number.isFinite(Number(inv.deposit_account_id))
+        ? Number(inv.deposit_account_id)
+        : null,
+    deposit_account_name:
+      inv.deposit_account_name != null && String(inv.deposit_account_name).trim() !== ''
+        ? String(inv.deposit_account_name)
+        : null,
     createdAt: inv.created_at != null ? String(inv.created_at) : new Date().toISOString(),
     sales_order_id: inv.sales_order_id != null ? (inv.sales_order_id as string | number) : undefined,
     salesOrderId: inv.sales_order_id != null ? String(inv.sales_order_id) : undefined,
@@ -1379,7 +1417,15 @@ export interface RecurringInvoice {
     frequency: 'weekly' | 'monthly' | 'quarterly';
     nextRunDate: string;
     lastRunDate?: string;
-    lineItems: Array<{ product: string; description: string; quantity: number; rate: number; amount: number }>;
+    lineItems: Array<{
+        product: string;
+        description: string;
+        quantity: number;
+        rate: number;
+        amount: number;
+        /** Backend invoice line `product_id` (integer). */
+        product_id?: number;
+    }>;
     subtotal: number;
     taxRate: number;
     discount: number;

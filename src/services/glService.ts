@@ -254,6 +254,171 @@ export function getGLTrialBalance(asOf?: string): Promise<GLTrialBalance> {
   return apiRequest<GLTrialBalance>(`/gl/trial-balance${qs ? `?${qs}` : ''}`);
 }
 
+export interface GLLedgerContra {
+  account_id: number;
+  code: string;
+  name: string;
+  debit: number;
+  credit: number;
+}
+
+export interface GLLedgerRow {
+  entry_id: number;
+  entry_number: string;
+  entry_date: string | null;
+  memo: string | null;
+  source_type: string | null;
+  source_id: string | null;
+  status: string;
+  debit: number;
+  credit: number;
+  running_balance: number;
+  contra: GLLedgerContra[];
+}
+
+export interface GLAccountLedgerAccount {
+  id: number;
+  code: string;
+  name: string;
+  type: string;
+  normal_balance: string;
+  system_key: string | null;
+}
+
+export interface GLAccountLedger {
+  account: GLAccountLedgerAccount;
+  start_date: string | null;
+  end_date: string | null;
+  opening_balance: number;
+  rows: GLLedgerRow[];
+  total_debit: number;
+  total_credit: number;
+  net_movement: number;
+  closing_balance: number;
+  all_time_balance: number;
+}
+
+export function getGLAccountLedger(
+  accountId: number,
+  startDate: string,
+  endDate: string,
+): Promise<GLAccountLedger> {
+  const params = new URLSearchParams({ start_date: startDate, end_date: endDate });
+  return apiRequest<GLAccountLedger>(`/gl/accounts/${accountId}/ledger?${params.toString()}`);
+}
+
+export interface DayBookLine {
+  account_id: number;
+  account_code: string | null;
+  account_name: string | null;
+  account_type: string | null;
+  debit: number;
+  credit: number;
+  memo: string | null;
+  customer_id: number | null;
+  supplier_id: number | null;
+}
+
+export interface DayBookEntry {
+  id: number;
+  entry_number: string;
+  entry_date: string | null;
+  created_at: string | null;
+  source_type: string | null;
+  voucher_type: string;
+  group: string;
+  memo: string | null;
+  status: 'posted' | 'reversed';
+  party_type: 'customer' | 'supplier' | null;
+  party_name: string | null;
+  party_id: number | null;
+  total_debit: number;
+  total_credit: number;
+  amount: number;
+  amount_basis: 'party' | 'debit_total';
+  lines: DayBookLine[];
+}
+
+export interface DayBookSummary {
+  entry_count: number;
+  total_debit: number;
+  total_credit: number;
+  total_amount: number;
+  balanced: boolean;
+  by_type: Array<{
+    source_type: string | null;
+    voucher_type: string;
+    group: string;
+    count: number;
+    total_debit: number;
+    total_credit: number;
+    total_amount: number;
+  }>;
+  by_day: Array<{
+    date: string;
+    count: number;
+    total_debit: number;
+    total_credit: number;
+    total_amount: number;
+  }>;
+}
+
+export interface DayBookResponse {
+  start_date: string;
+  end_date: string;
+  entries: DayBookEntry[];
+  summary: DayBookSummary;
+}
+
+export interface DayBookQuery {
+  startDate: string;
+  endDate: string;
+  sourceType?: string;
+  accountId?: number;
+}
+
+function dayBookSearch(query: DayBookQuery): string {
+  const params = new URLSearchParams({
+    start_date: query.startDate,
+    end_date: query.endDate,
+  });
+  if (query.sourceType) params.set('source_type', query.sourceType);
+  if (query.accountId != null) params.set('account_id', String(query.accountId));
+  return params.toString();
+}
+
+export function getDayBook(query: DayBookQuery): Promise<DayBookResponse> {
+  return apiRequest<DayBookResponse>(`/gl/day-book?${dayBookSearch(query)}`);
+}
+
+export async function downloadDayBookCsv(query: DayBookQuery): Promise<void> {
+  const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(`${API_BASE_URL}/gl/day-book.csv?${dayBookSearch(query)}`, { headers });
+  if (!response.ok) {
+    let detail = `HTTP ${response.status}`;
+    try {
+      const error = await response.json();
+      if (error?.detail) {
+        detail = typeof error.detail === 'string' ? error.detail : JSON.stringify(error.detail);
+      }
+    } catch {
+      /* ignore malformed error payloads */
+    }
+    throw new Error(detail);
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `day-book-${query.startDate}_${query.endDate}.csv`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
 export function getGLJournalEntries(): Promise<GLJournalEntry[]> {
   return apiRequest<GLJournalEntry[]>('/gl/journal-entries');
 }
@@ -265,5 +430,74 @@ export function postOpeningBalances(
   return apiRequest<PostOpeningBalancesResult>('/gl/opening-balances', {
     method: 'POST',
     body: JSON.stringify({ entries, as_of_date: asOfDate }),
+  });
+}
+
+export interface BankingAccount {
+  id: number;
+  code: string;
+  name: string;
+  type: string;
+  system_key: string | null;
+  role: 'cash' | 'bank' | string;
+  is_active: boolean;
+  is_default: boolean;
+  balance: number;
+}
+
+export function getBankingAccounts(): Promise<BankingAccount[]> {
+  return apiRequest<BankingAccount[]>('/banking/accounts');
+}
+
+export function createBankingAccount(name: string): Promise<BankingAccount> {
+  return apiRequest<BankingAccount>('/banking/accounts', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function renameBankingAccount(id: number, name: string): Promise<BankingAccount> {
+  return apiRequest<BankingAccount>(`/banking/accounts/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name }),
+  });
+}
+
+export interface BankingAccountOption {
+  id: number;
+  code: string;
+  name: string;
+  role: 'cash' | 'bank' | string;
+  is_default: boolean;
+}
+
+export interface BankingAccountOptionsResponse {
+  accounts: BankingAccountOption[];
+  collections_bank_account_id: number | null;
+}
+
+export interface CollectionsBank {
+  id: number;
+  code: string;
+  name: string;
+}
+
+export interface CollectionsBankSettings {
+  collections_bank_account_id: number | null;
+  bank: CollectionsBank | null;
+}
+
+export function getBankingAccountOptions(): Promise<BankingAccountOptionsResponse> {
+  return apiRequest<BankingAccountOptionsResponse>('/banking/accounts/options');
+}
+
+export function getCollectionsBankSettings(): Promise<CollectionsBankSettings> {
+  return apiRequest<CollectionsBankSettings>('/banking/collections-settings');
+}
+
+export function patchCollectionsBankSettings(id: number | null): Promise<CollectionsBankSettings> {
+  return apiRequest<CollectionsBankSettings>('/banking/collections-settings', {
+    method: 'PATCH',
+    body: JSON.stringify({ collections_bank_account_id: id }),
   });
 }

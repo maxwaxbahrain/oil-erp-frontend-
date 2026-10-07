@@ -299,6 +299,38 @@ function suggestEmployeeNumber(rows: Employee[]): string {
   return `EMP-${String(max + 1).padStart(3, '0')}`;
 }
 
+function formatTeamUsd(amount: number): string {
+  const whole = Number.isInteger(amount);
+  return amount.toLocaleString('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: whole ? 0 : 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function allowanceTotal(profile: PayrollProfile): number {
+  return (profile.allowances ?? []).reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
+}
+
+/** Team-table pay cell. No profile → "Not set". Hourly allowances still show. */
+function formatTeamPaySummary(profile?: PayrollProfile | null): string {
+  if (!profile) return 'Not set';
+  const payType = profile.payType?.toLowerCase();
+  const allowances = allowanceTotal(profile);
+  const allowanceText = allowances > 0 ? ` + ${formatTeamUsd(allowances)} allowances` : '';
+  if (payType === 'hourly') return `${formatTeamUsd(profile.hourlyRate ?? 0)}/hr${allowanceText}`;
+  if (payType === 'salaried') return `${formatTeamUsd(profile.monthlySalary ?? 0)}/mo${allowanceText}`;
+  return 'Not set';
+}
+
+/** KPI total: salaried monthly salary + that profile's allowances. Hourly contributes 0. */
+function salariedPayrollAmount(profile?: PayrollProfile | null): number {
+  if (!profile || profile.payType?.toLowerCase() !== 'salaried') return 0;
+  const salary = Number(profile.monthlySalary ?? 0);
+  return (Number.isFinite(salary) ? salary : 0) + allowanceTotal(profile);
+}
+
 function apiToPortalEmployee(e: ApiEmployee): Employee {
   const roleLabel = portalRoleLabelFromEmployee(e);
   return {
@@ -425,11 +457,22 @@ export default function EmployeePortal() {
 
   const teamTableRef = useRef<HTMLDivElement>(null);
   const payslipsSectionRef = useRef<HTMLDivElement>(null);
+  const payrollSectionRef = useRef<HTMLDivElement>(null);
   const currentUser = useMemo(() => getCurrentUser(), []);
   const { hasRole } = useAuth();
   const canManageEmployees = hasRole(...MANAGEMENT_ROLES);
   const canRunPayroll = hasRole(...FINANCE_ROLES);
   const canApproveLeave = hasRole('admin', 'manager');
+  const [teamPayProfiles, setTeamPayProfiles] = useState<PayrollProfile[]>([]);
+  const [openPayEmployeeId, setOpenPayEmployeeId] = useState<string | null>(null);
+  const handleOpenPayEmployeeConsumed = useCallback(() => {
+    setOpenPayEmployeeId(null);
+  }, []);
+  const teamPayByEmployeeId = useMemo(() => {
+    const map = new Map<number, PayrollProfile>();
+    for (const profile of teamPayProfiles) map.set(profile.employeeId, profile);
+    return map;
+  }, [teamPayProfiles]);
 
   const loadEmployees = useCallback(async () => {
     if (!canManageEmployees) {
@@ -646,6 +689,19 @@ export default function EmployeePortal() {
   }
   function closeEditModal() {
     setState(s => ({ ...s, showEditModal: false, editingEmployee: null, newEmp: { ...EMPTY_NEW_EMP } }));
+  }
+
+  function openPayProfileFromEdit() {
+    const employeeId = state.editingEmployee?.id;
+    if (!employeeId) return;
+    setState(s => ({ ...s, showEditModal: false, editingEmployee: null, newEmp: { ...EMPTY_NEW_EMP } }));
+    setOpenPayEmployeeId(employeeId);
+    requestAnimationFrame(() => {
+      const node = payrollSectionRef.current;
+      if (node && typeof node.scrollIntoView === 'function') {
+        node.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    });
   }
 
   async function handleAddEmployee() {
@@ -1039,10 +1095,15 @@ export default function EmployeePortal() {
   const totalOvertime = state.employees.reduce((sum, e) => sum + e.overtimeHours, 0);
   const totalHours = totalRegular + totalOvertime;
   const avgPerPerson = totalEmps > 0 ? (totalHours / totalEmps).toFixed(1) : '0';
-  const totalPayrollNum = state.employees.reduce((sum, e) => {
-    const n = parseFloat(e.netPay.replace(/[$,]/g, ''));
-    return sum + (isNaN(n) ? 0 : n);
-  }, 0);
+  const totalPayrollNum = canRunPayroll
+    ? state.employees.reduce(
+        (sum, e) => sum + salariedPayrollAmount(teamPayByEmployeeId.get(Number(e.id))),
+        0,
+      )
+    : state.employees.reduce((sum, e) => {
+        const n = parseFloat(e.netPay.replace(/[$,]/g, ''));
+        return sum + (isNaN(n) ? 0 : n);
+      }, 0);
   const totalPayrollFmt = totalPayrollNum >= 1000
     ? '$' + (totalPayrollNum / 1000).toFixed(1) + 'k'
     : '$' + totalPayrollNum.toFixed(0);
@@ -1079,7 +1140,7 @@ export default function EmployeePortal() {
     { stripe: '#4F8EF7', value: String(totalEmps),         label: 'Total Employees',           sub: `${distinctRoles} roles · ${totalActive} active`, badge: 'Active',     badgeBg: 'rgba(79,142,247,.12)',  badgeColor: '#4F8EF7', Icon: Users },
     { stripe: '#22C55E', value: totalHours.toLocaleString(), label: 'Hours Logged (this month)', sub: `avg ${avgPerPerson} per person`,                 badge: 'This month', badgeBg: 'rgba(34,197,94,.12)',   badgeColor: '#22C55E', Icon: Clock },
     { stripe: '#F59E0B', value: String(pendingLeaveCount), label: 'Leave Requests',            sub: pendingLeaveCount > 0 ? 'awaiting approval' : 'none pending', badge: 'Pending', badgeBg: 'rgba(245,158,11,.12)', badgeColor: '#F59E0B', Icon: Calendar },
-    { stripe: '#7C3AED', value: totalPayrollFmt,           label: 'Total Payroll Est.',        sub: 'salary + overtime',                              badge: 'May 2026',   badgeBg: 'rgba(124,58,237,.12)',  badgeColor: '#7C3AED', Icon: Download },
+    { stripe: '#7C3AED', value: totalPayrollFmt,           label: 'Total Payroll Est.',        sub: canRunPayroll ? 'salaried + allowances' : 'salary + overtime', badge: 'May 2026', badgeBg: 'rgba(124,58,237,.12)', badgeColor: '#7C3AED', Icon: Download },
   ];
 
   const card = {
@@ -1412,7 +1473,9 @@ export default function EmployeePortal() {
                         </span>
                       </td>
                       <td style={{ padding: '9px 10px', borderBottom: `1px solid ${C.bd2}`, color: C.green, fontWeight: 600, whiteSpace: 'nowrap' }}>
-                        {emp.netPay}
+                        {canRunPayroll
+                          ? formatTeamPaySummary(teamPayByEmployeeId.get(Number(emp.id)))
+                          : emp.netPay}
                       </td>
                       <td style={{ padding: '9px 10px', borderBottom: `1px solid ${C.bd2}`, color: C.t2, whiteSpace: 'nowrap' }}>
                         {emp.regularHours} reg + {emp.overtimeHours} OT
@@ -1777,16 +1840,19 @@ export default function EmployeePortal() {
 
         {/* SECTION 4c — Payroll admin (finance roles only) */}
         {canRunPayroll && (
-          <>
+          <div ref={payrollSectionRef}>
             <SectionDivider label="PAYROLL · RUN PAYROLL" />
             <div style={{ ...card, marginBottom: 4 }}>
               <PayrollAdmin
                 employees={state.employees}
                 onToast={showPortalToast}
                 onError={showPortalError}
+                openEmployeeId={openPayEmployeeId}
+                onOpenEmployeeIdConsumed={handleOpenPayEmployeeConsumed}
+                onProfilesChanged={setTeamPayProfiles}
               />
             </div>
-          </>
+          </div>
         )}
 
         {/* SECTION 4d — Commission report (management only) */}
@@ -2194,6 +2260,12 @@ export default function EmployeePortal() {
               value={state.newEmp}
               twoCol={cols.formTwoCol}
               onChange={next => setState(s => ({ ...s, newEmp: next }))}
+              netPaySummary={
+                canRunPayroll
+                  ? formatTeamPaySummary(teamPayByEmployeeId.get(Number(state.editingEmployee.id)))
+                  : '—'
+              }
+              onOpenPayProfile={canRunPayroll ? openPayProfileFromEdit : undefined}
             />
             <ModalFooter>
               <button
@@ -2471,11 +2543,14 @@ function FieldLabel({ label, children, full }: { label: string; children: React.
 }
 
 function EmployeeFormFields({
-  value, onChange, twoCol,
+  value, onChange, twoCol, netPaySummary, onOpenPayProfile,
 }: {
   value: NewEmployeeForm;
   onChange: (next: NewEmployeeForm) => void;
   twoCol: boolean;
+  /** When set, Net Pay Est. is display text (the edit modal). Omit on Add so the field stays a form input. */
+  netPaySummary?: string;
+  onOpenPayProfile?: () => void;
 }) {
   const set = <K extends keyof NewEmployeeForm>(k: K, v: NewEmployeeForm[K]) =>
     onChange({ ...value, [k]: v });
@@ -2552,14 +2627,41 @@ function EmployeeFormFields({
         />
       </FieldLabel>
       <FieldLabel label="Net Pay Est.">
-        <input
-          type="text"
-          value={value.netPay}
-          onChange={e => set('netPay', e.target.value)}
-          placeholder="$3,000"
-          style={{ ...formInputStyle, textAlign: 'left' }}
-        />
+        {netPaySummary !== undefined ? (
+          <div style={{ fontSize: 12, fontWeight: 600, color: C.t, padding: '7px 0', lineHeight: 1.4 }}>
+            {netPaySummary}
+          </div>
+        ) : (
+          <input
+            type="text"
+            value={value.netPay}
+            onChange={e => set('netPay', e.target.value)}
+            placeholder="$3,000"
+            style={{ ...formInputStyle, textAlign: 'left' }}
+          />
+        )}
       </FieldLabel>
+      {onOpenPayProfile && (
+        <div style={{ gridColumn: '1 / -1' }}>
+          <button
+            type="button"
+            onClick={onOpenPayProfile}
+            style={{
+              background: 'transparent',
+              border: `1px solid ${C.blue}`,
+              color: C.blue,
+              borderRadius: 8,
+              padding: '8px 12px',
+              fontSize: 11,
+              fontWeight: 700,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+            }}
+          >
+            Pay profile & allowances
+          </button>
+        </div>
+      )}
       <FieldLabel label="Regular Hrs">
         <input
           type="number"

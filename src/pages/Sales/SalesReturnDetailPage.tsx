@@ -11,7 +11,9 @@ import {
   XCircle,
 } from 'lucide-react';
 import clsx from 'clsx';
+import { useAuth } from '../../contexts/AuthContext';
 import {
+  cancelSalesReturn,
   getSalesReturn,
   patchSalesReturn,
   reasonLabel,
@@ -33,13 +35,14 @@ const STEPS: { key: ReturnStatus; label: string }[] = [
 ];
 
 function stepIndex(status: ReturnStatus): number {
-  const i = STEPS.findIndex((s) => s.key === status);
-  return i >= 0 ? i : 0;
+  return STEPS.findIndex((s) => s.key === status);
 }
 
 export default function SalesReturnDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { hasRole } = useAuth();
+  const canCancel = hasRole('admin', 'accountant');
   const [data, setData] = useState<SalesReturn | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -65,7 +68,7 @@ export default function SalesReturnDetailPage() {
 
   async function approve() {
     if (!id || !data) return;
-    if (!confirm('Approve this return? Ledger credit will be posted and invoice balance updated.')) return;
+    if (!confirm('Approve this return? Ledger credit will be posted, the invoice balance updated and returned stock put back.')) return;
     setBusy(true);
     try {
       const u = await patchSalesReturn(id, { status: 'approved' });
@@ -102,41 +105,20 @@ export default function SalesReturnDetailPage() {
     }
   }
 
-  // FIX W8-2 — Escape hatch for accidentally-approved returns.
-  // Rolls status back to "rejected" with a required reason. NOTE: ledger
-  // credits posted by the approve step are NOT auto-reversed — user
-  // must void those payments manually via W6-1's Void button. We warn
-  // explicitly in the prompt.
-  async function reject() {
+  async function cancelReturn() {
     if (!id || !data) return;
-    if (data.status !== 'approved') {
-      alert('Only approved returns can be rejected. Completed returns are terminal.');
+    if (
+      !confirm(
+        `Cancel return ${data.returnNumber}? Any ledger credit, journal and restocked quantities will be reversed. This cannot be undone.`,
+      )
+    )
       return;
-    }
-    const reason = prompt(
-      'Reject this approved return?\n\n' +
-      'This rolls the status back to "rejected". Note: ledger credits already ' +
-      'posted by the approve step are NOT auto-reversed — you may need to void ' +
-      'the related payment(s) manually from the Banking page.\n\n' +
-      'Enter a reason (required):'
-    );
-    if (reason === null) return; // user cancelled
-    if (!reason.trim()) {
-      alert('Reject reason is required.');
-      return;
-    }
     setBusy(true);
     try {
-      const newNotes = data.notes
-        ? `${data.notes}\n\n[Rejected after approval: ${reason.trim()}]`
-        : `[Rejected after approval: ${reason.trim()}]`;
-      // ReturnStatus has no 'rejected'; rolling back to 'draft' matches the
-      // intent (return is editable again, no longer counted as approved).
-      const u = await patchSalesReturn(id, { status: 'draft', notes: newNotes });
+      const u = await cancelSalesReturn(id);
       setData(u);
-      alert('✅ Return rejected. Status rolled back.');
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Reject failed');
+      alert(e instanceof Error ? e.message : 'Cancel failed');
     } finally {
       setBusy(false);
     }
@@ -227,26 +209,33 @@ export default function SalesReturnDetailPage() {
 
           <div>
             <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-3">Timeline</p>
-            <div className="flex flex-wrap gap-2">
-              {STEPS.map((s, idx) => (
-                <div
-                  key={s.key}
-                  className={clsx(
-                    'flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black uppercase border',
-                    idx <= si ? 'border-[#800020]/40 bg-[#800020]/5 text-[#800020]' : 'border-gray-200 text-gray-400'
-                  )}
-                >
-                  {idx < si ? <CheckCircle size={16} /> : idx === si ? <Clock size={16} /> : <span className="w-4" />}
-                  {s.label}
-                </div>
-              ))}
-            </div>
+            {data.status === 'cancelled' ? (
+              <div className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black uppercase border border-gray-300 bg-gray-100 text-gray-500">
+                Cancelled
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {STEPS.map((s, idx) => (
+                  <div
+                    key={s.key}
+                    className={clsx(
+                      'flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black uppercase border',
+                      si >= 0 && idx <= si ? 'border-[#800020]/40 bg-[#800020]/5 text-[#800020]' : 'border-gray-200 text-gray-400'
+                    )}
+                  >
+                    {si >= 0 && idx < si ? <CheckCircle size={16} /> : si >= 0 && idx === si ? <Clock size={16} /> : <span className="w-4" />}
+                    {s.label}
+                  </div>
+                ))}
+              </div>
+            )}
             <p className="text-xs text-gray-500 mt-3 font-medium">
               {data.status === 'approved' &&
                 'Credit has been posted to the customer ledger and the invoice balance was reduced.'}
               {data.status === 'pending' && 'Waiting for manager approval.'}
               {data.status === 'draft' && 'Draft — submit from the edit form when ready.'}
               {data.status === 'completed' && 'Return closed.'}
+              {data.status === 'cancelled' && 'This return is cancelled.'}
             </p>
           </div>
 
@@ -376,19 +365,23 @@ export default function SalesReturnDetailPage() {
                   {busy ? <Loader2 className="animate-spin" size={18} /> : <FileText size={18} />}
                   Mark completed
                 </button>
-                {/* FIX W8-2 — Reject escape hatch on approved returns.
-                    Outlined rose style differentiates from primary/positive
-                    actions; clearly destructive but recoverable. */}
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => reject()}
-                  className="px-4 py-2.5 rounded-xl border-2 border-rose-300 text-rose-700 hover:bg-rose-50 font-black text-xs uppercase flex items-center gap-2 disabled:opacity-50"
-                  title="Roll status back to rejected — does not auto-reverse ledger credits"
-                >
-                  <XCircle size={18} /> Reject
-                </button>
               </>
+            )}
+            {canCancel &&
+              (data.status === 'draft' ||
+                data.status === 'pending' ||
+                data.status === 'approved' ||
+                data.status === 'completed') && (
+              <button
+                type="button"
+                disabled={busy}
+                title="Cancel return"
+                onClick={() => cancelReturn()}
+                className="px-4 py-2.5 rounded-xl border-2 border-gray-300 bg-gray-100 text-gray-600 hover:bg-gray-50 font-black text-xs uppercase flex items-center gap-2 disabled:opacity-50"
+              >
+                {busy ? <Loader2 className="animate-spin" size={18} /> : <XCircle size={18} />}
+                Cancel return
+              </button>
             )}
           </div>
 

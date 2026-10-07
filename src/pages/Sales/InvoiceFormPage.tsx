@@ -26,8 +26,7 @@ import { authFetch } from '../../api/axios';
 import { PAYMENT_METHODS } from '../../constants/data';
 import SearchableSelect from '../../components/common/SearchableSelect';
 import InvoiceLineRow, { type InvoiceLineItem } from './InvoiceLineRow';
-// ITEM 7F — Deposit (bank/cash) account picker for inline Record Payment.
-import { getAccounts, type Account } from '../Accounts/ChartOfAccounts';
+import { useBankingAccountOptions } from '../../hooks/useBankingAccountOptions';
 // ITEM 7G — Real PDF download (mirrors payslip/receipt PDFs).
 import { generateInvoicePDF } from '../../utils/invoicePDF';
 // ITEM 16 — Escape closes the topmost open inline modal.
@@ -58,9 +57,7 @@ interface InvoiceFormData {
     paymentMethod: string;
     amountPaid: number;
     remainingBalance: number;
-    // ITEM 7F — Deposit account for inline Record Payment. Persisted as
-    // deposit_account_id on the invoice payload so the journal posting
-    // hits the correct Cash/Bank sub-account.
+    /** Optional deposit account. Blank means no preference. Sent as deposit_account_id. */
     depositAccountId: string;
 }
 
@@ -147,7 +144,7 @@ type InvoiceSaveExtras = {
     amount_paid: number;
     remaining_balance: number;
     status: string;
-    deposit_account_id?: string;
+    deposit_account_id: number | null;
     credit_hold_override?: boolean;
 };
 
@@ -198,6 +195,7 @@ async function persistInvoiceWithSalesmanFk(
         amount_paid: extras.amount_paid,
         remaining_balance: extras.remaining_balance,
         status: extras.status,
+        deposit_account_id: extras.deposit_account_id,
     };
 
     if (formData.salesmanEmployeeId) {
@@ -232,6 +230,13 @@ async function persistInvoiceWithSalesmanFk(
         id: String(raw.id ?? editId ?? ''),
         invoiceNumber: String(raw.invoice_number ?? raw.invoiceNumber ?? formData.invoiceNumber),
     };
+}
+
+function depositIdOrNull(raw: string): number | null {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    const id = Number(trimmed);
+    return Number.isFinite(id) ? id : null;
 }
 
 function autoRoundOffAmount(subtotal: number, effectiveDiscount: number, taxAmount: number): number {
@@ -313,6 +318,7 @@ export default function InvoiceFormPage() {
     const location = useLocation();
     const { hasRole } = useAuth();
     const canOverrideCreditHold = hasRole(...MANAGEMENT_ROLES);
+    const { cash: depositCash, banks: depositBanks } = useBankingAccountOptions();
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
     const [loading, setLoading] = useState(false);
@@ -329,10 +335,6 @@ export default function InvoiceFormPage() {
     const [salesmen, setSalesmen] = useState<SalesmanPickerOption[]>([]);
     const [vanOptions, setVanOptions] = useState<{ id: string; name: string }[]>([]);
     const [vansLoading, setVansLoading] = useState(true);
-
-    // ITEM 7F — Bank/Cash accounts loaded from COA (1110 "Cash & Bank" subtree).
-    // Powers the inline Record Payment "Deposit To Account" dropdown.
-    const [bankAccounts, setBankAccounts] = useState<Account[]>([]);
     const [creditHold, setCreditHold] = useState<CreditHoldDetail | null>(null);
     const lastSaveKindRef = useRef<'draft' | 'save'>('save');
 
@@ -386,33 +388,6 @@ export default function InvoiceFormPage() {
     });
 
     const [roundOffManual, setRoundOffManual] = useState(false);
-
-    // ITEM 7F — Load bank/cash accounts from COA (1110 subtree). Auto-pick
-    // the first sub-account of 1110 so users with a single bank get a sane
-    // default without having to open the dropdown.
-    useEffect(() => {
-        try {
-            const all = getAccounts();
-            const isUnderCashBank = (a: Account): boolean => {
-                if (a.id === '1110') return true;
-                let pid = a.parentId;
-                while (pid) {
-                    if (pid === '1110') return true;
-                    const parent = all.find(x => x.id === pid);
-                    pid = parent ? parent.parentId : null;
-                }
-                return false;
-            };
-            const bank = all.filter(isUnderCashBank);
-            setBankAccounts(bank);
-            const firstChild = bank.find(a => a.parentId === '1110');
-            const fallback = bank.find(a => a.id === '1110');
-            const initial = firstChild?.id || fallback?.id || '';
-            if (initial) setFormData(prev => ({ ...prev, depositAccountId: prev.depositAccountId || initial }));
-        } catch (e) {
-            console.warn('Could not load bank accounts from Chart of Accounts:', e);
-        }
-    }, []);
 
     useEffect(() => {
         let cancelled = false;
@@ -575,6 +550,8 @@ export default function InvoiceFormPage() {
                 } else if (isEditMode && invoiceToEdit) {
                     const inv = invoiceToEdit;
                     let rawFk: unknown;
+                    let rawDeposit: unknown;
+                    let sawDeposit = false;
                     try {
                         const r = await authFetch(`${API_BASE_URL}/invoices/`);
                         if (r.ok) {
@@ -584,10 +561,15 @@ export default function InvoiceFormPage() {
                                     String(row.id) === String(inv.id),
                             );
                             rawFk = raw?.salesman_employee_id ?? raw?.salesmanEmployeeId;
+                            if (raw && Object.prototype.hasOwnProperty.call(raw, 'deposit_account_id')) {
+                                rawDeposit = raw.deposit_account_id;
+                                sawDeposit = true;
+                            }
                         }
                     } catch {
                         /* best-effort FK restore */
                     }
+                    const depositSource = sawDeposit ? rawDeposit : inv.deposit_account_id;
                     const storedSubtotal = Number(inv.subtotal) || 0;
                     const storedTaxAmount = Number(inv.taxAmount) || 0;
                     const explicitTaxRate = Number(inv.taxRate) || 0;
@@ -630,8 +612,8 @@ export default function InvoiceFormPage() {
                         paymentMethod: inv.payment_method || 'Cash',
                         amountPaid: Number(inv.amount_paid) || 0,
                         remainingBalance: Number(inv.remaining_balance) || 0,
-                        // ITEM 7F — Preserve deposit account on edit.
-                        depositAccountId: String(inv.deposit_account_id || ''),
+                        depositAccountId:
+                            depositSource != null && String(depositSource) !== '' ? String(depositSource) : '',
                     });
                 }
             } catch (error) {
@@ -875,6 +857,9 @@ export default function InvoiceFormPage() {
                 paymentStatus: formData.paymentStatus,
                 salesman: selectedSalesmanName ?? parseSalesmanNameFromNotes(formData.notes) ?? undefined,
                 notes: formData.notes,
+                deposit_account_name:
+                    [...depositBanks, ...depositCash].find((account) => String(account.id) === formData.depositAccountId)?.name
+                    || undefined,
             });
         } catch (e: any) {
             console.error('PDF download failed:', e);
@@ -911,7 +896,7 @@ export default function InvoiceFormPage() {
                 amount_paid: 0,
                 remaining_balance: formData.grandTotal,
                 status: 'Draft',
-                deposit_account_id: formData.depositAccountId || undefined,
+                deposit_account_id: depositIdOrNull(formData.depositAccountId),
                 credit_hold_override: creditHoldOverride,
             });
             const invNum = saved.invoiceNumber || formData.invoiceNumber;
@@ -955,7 +940,7 @@ export default function InvoiceFormPage() {
                 amount_paid: formData.paymentStatus === 'Paid' ? formData.grandTotal : formData.amountPaid,
                 remaining_balance: formData.remainingBalance,
                 status: formData.paymentStatus === 'Paid' ? 'Paid' : formData.paymentStatus === 'Advance Paid' ? 'Partial' : 'Unpaid',
-                deposit_account_id: formData.depositAccountId || undefined,
+                deposit_account_id: depositIdOrNull(formData.depositAccountId),
                 credit_hold_override: creditHoldOverride,
             });
 
@@ -1275,10 +1260,12 @@ export default function InvoiceFormPage() {
                         <div className="flex flex-col gap-2">
                             <div className="flex items-center justify-between !pl-4">
                                 <label className="text-xs font-semibold text-gray-600">Customer <span className="text-red-500">*</span></label>
-                                <button type="button" onClick={() => setShowNewCustomer(true)}
-                                    className="flex items-center gap-1 text-xs font-black text-orange-600 hover:text-orange-800 transition-all">
-                                    <UserPlus size={12} /> New Customer
-                                </button>
+                                {!isEditMode && (
+                                    <button type="button" onClick={() => setShowNewCustomer(true)}
+                                        className="flex items-center gap-1 text-xs font-black text-orange-600 hover:text-orange-800 transition-all">
+                                        <UserPlus size={12} /> New Customer
+                                    </button>
+                                )}
                             </div>
                             <SearchableSelect
                                 options={customers}
@@ -1286,10 +1273,15 @@ export default function InvoiceFormPage() {
                                 onChange={handleCustomerChange}
                                 placeholder="Search and select customer..."
                                 displayKey="name"
-                                disabled={loading}
+                                disabled={loading || isEditMode}
                                 theme="dark"
                                 className="!px-4 !py-3 !border-2 border-gray-300"
                             />
+                            {isEditMode && (
+                                <p className="text-xs text-gray-500 !pl-4">
+                                    Customer cannot be changed on a saved invoice — void it and create a new one.
+                                </p>
+                            )}
                             {/* GAP D — customer avatar pill (visual enrichment below
                                 the SearchableSelect; cannot change what the select
                                 itself renders since that's in a shared component). */}
@@ -1558,30 +1550,24 @@ export default function InvoiceFormPage() {
                             </div>
                         )}
 
-                        {/* ITEM 7F — Deposit To Account (COA 1110 subtree). Tells the
-                            ledger posting which Cash/Bank sub-account to debit. */}
-                        {(formData.paymentStatus === 'Paid' || formData.paymentStatus === 'Advance Paid') && (
-                            <div className="space-y-3">
-                                <label className="block text-xs font-semibold text-gray-500">Deposit to account</label>
-                                {bankAccounts.length === 0 ? (
-                                    <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-snug">
-                                        No bank or cash accounts configured. Add sub-accounts under <strong>Finance → Chart of Accounts → Cash &amp; Bank (1110)</strong>.
-                                    </div>
-                                ) : (
-                                    <select
-                                        value={formData.depositAccountId}
-                                        onChange={(e) => setFormData(p => ({ ...p, depositAccountId: e.target.value }))}
-                                        className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-bold focus:border-[#4F8EF7] outline-none bg-white transition-all shadow-sm"
-                                        required
-                                    >
-                                        <option value="">-- Select Account --</option>
-                                        {bankAccounts.map(a => (
-                                            <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-                                        ))}
-                                    </select>
-                                )}
-                            </div>
-                        )}
+                        <div className="flex flex-col gap-2">
+                            <label className="block text-xs font-semibold text-gray-500">Deposit to (optional)</label>
+                            <select
+                                aria-label="Deposit to (optional)"
+                                data-testid="deposit-to-account"
+                                value={formData.depositAccountId}
+                                onChange={(e) => setFormData(p => ({ ...p, depositAccountId: e.target.value }))}
+                                className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-bold focus:border-[#4F8EF7] outline-none bg-white transition-all shadow-sm"
+                            >
+                                <option value="">No preference</option>
+                                {depositBanks.map((account) => (
+                                    <option key={`bank-${account.id}`} value={String(account.id)}>{account.code} — {account.name}</option>
+                                ))}
+                                {depositCash.map((account) => (
+                                    <option key={`cash-${account.id}`} value={String(account.id)}>{account.code} — {account.name}</option>
+                                ))}
+                            </select>
+                        </div>
 
                         {formData.paymentStatus === 'Advance Paid' && (
                             <div className="space-y-3">

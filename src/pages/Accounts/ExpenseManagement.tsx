@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, type CSSProperties } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { parseNewExpenseParams } from './expenseQueryParams';
 import { getSystemSettings } from '../../services/settingsService';
 import {
     DollarSign, Upload, Plus,
@@ -31,6 +32,45 @@ import {
 import { getCustomers as loadCustomerList } from '../../services/customerService';
 // ITEM 16 — Escape closes the manual entry modal and the category dropdown.
 import { useEscape } from '../../hooks/useEscape';
+import { useBankingAccounts } from '../../hooks/useBankingAccounts';
+import type { BankingAccount } from '../../services/glService';
+import { expenseMethodIsCash, expensePaymentAccountIdForSave } from '../../utils/bankingAccounts';
+
+export function PaidFromBankPicker({
+    method,
+    banks,
+    value,
+    onChange,
+    posted,
+}: {
+    method: string;
+    banks: BankingAccount[];
+    value: string;
+    onChange: (id: string) => void;
+    posted: boolean;
+}) {
+    if (expenseMethodIsCash(method) || banks.length === 0) return null;
+    return (
+        <div>
+            <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest block mb-3">Paid from bank</label>
+            <select
+                aria-label="Paid from bank"
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                disabled={posted}
+                className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-2xl px-6 py-4 text-sm font-bold outline-none disabled:opacity-60"
+            >
+                <option value="">Select a bank</option>
+                {banks.map((bank) => (
+                    <option key={bank.id} value={String(bank.id)}>{bank.code} — {bank.name}</option>
+                ))}
+            </select>
+            {posted && (
+                <p className="text-xs font-bold text-gray-500 mt-2">Bank is locked after posting</p>
+            )}
+        </div>
+    );
+}
 
 function pickDefaultExpenseAccountId(categories: ExpenseCategory[]): string {
     const general = categories.find(a => a.name.toLowerCase().includes('general expenses'));
@@ -146,6 +186,7 @@ function ConfidenceBadge({ value }: { value?: number }) {
 
 export default function ExpenseManagement() {
     const navigate = useNavigate();
+    const location = useLocation();
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [categories, setCategories] = useState<ExpenseCategory[]>([]);
     const [loading, setLoading] = useState(true);
@@ -158,6 +199,7 @@ export default function ExpenseManagement() {
     const [showManualForm, setShowManualForm] = useState(false);
     const [showAiUpload, setShowAiUpload] = useState(false);
     const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+    const [prefillClientId, setPrefillClientId] = useState<string | null>(null);
 
     function closeAiUpload() {
         setShowAiUpload(false);
@@ -171,6 +213,7 @@ export default function ExpenseManagement() {
     useEscape(() => {
         setShowManualForm(false);
         setEditingExpense(null);
+        setPrefillClientId(null);
     }, showManualForm);
     useEscape(closeAiUpload, showAiUpload);
 
@@ -231,7 +274,28 @@ export default function ExpenseManagement() {
     const dateRef = useRef<HTMLInputElement>(null);
     const vendorRef = useRef<HTMLInputElement>(null);
     const descriptionRef = useRef<HTMLTextAreaElement>(null);
-    const paymentMethodRef = useRef<HTMLSelectElement>(null);
+    const [paymentMethod, setPaymentMethod] = useState<string>('Cash');
+    const [paymentAccountId, setPaymentAccountId] = useState('');
+    const [saveError, setSaveError] = useState<string | null>(null);
+    const { banks, defaultBank } = useBankingAccounts();
+    const expensePosted = Boolean(editingExpense?.journal_voucher_number);
+    useEffect(() => {
+        if (!showManualForm) return;
+        const method = editingExpense?.paymentMethod || 'Cash';
+        setPaymentMethod(method);
+        const existing = editingExpense?.paymentAccountId;
+        const posted = Boolean(editingExpense?.journal_voucher_number);
+        if (expenseMethodIsCash(method)) {
+            setPaymentAccountId('');
+        } else if (existing != null) {
+            setPaymentAccountId(String(existing));
+        } else if (!posted && defaultBank) {
+            setPaymentAccountId(String(defaultBank.id));
+        } else {
+            setPaymentAccountId('');
+        }
+        setSaveError(null);
+    }, [showManualForm, editingExpense, defaultBank]);
     const currencyRef = useRef<HTMLSelectElement>(null);
     const taxAmountRef = useRef<HTMLInputElement>(null);
     const recurringRef = useRef<HTMLInputElement>(null);
@@ -325,6 +389,17 @@ export default function ExpenseManagement() {
         loadData();
     }, []);
 
+    useEffect(() => {
+        if (loading) return;
+        const { open, clientId } = parseNewExpenseParams(location.search);
+        if (!open) return;
+        setEditingExpense(null);
+        setPrefillClientId(clientId);
+        setShowManualForm(true);
+        navigate('/finance/expenses', { replace: true });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [loading, location.search]);
+
     const loadData = async (opts?: { silent?: boolean }) => {
         if (!opts?.silent) setLoading(true);
         try {
@@ -379,7 +454,11 @@ export default function ExpenseManagement() {
         const date = dateRef.current?.value;
         const vendor = vendorRef.current?.value;
         const description = descriptionRef.current?.value;
-        const paymentMethod = paymentMethodRef.current?.value as any;
+        const paymentAccountIdToSend = expensePaymentAccountIdForSave(
+            paymentMethod,
+            paymentAccountId,
+            Boolean(editingExpense?.journal_voucher_number),
+        );
         const currency = currencyRef.current?.value || 'USD';
         const taxAmount = parseFloat(taxAmountRef.current?.value || '0');
         const isRecurring = recurringRef.current?.checked || false;
@@ -393,6 +472,7 @@ export default function ExpenseManagement() {
         }
 
         setSaving(true);
+        setSaveError(null);
         try {
             const dupCheck = checkExpenseDuplicate({ vendor, amount, date, category, excludeId: editingExpense?.id });
             const policy = checkExpensePolicy({ category, amount, date, hasReceipt: !!receiptUrl });
@@ -408,7 +488,8 @@ export default function ExpenseManagement() {
                 date,
                 vendor,
                 description: description || '',
-                paymentMethod,
+                paymentMethod: paymentMethod as Expense['paymentMethod'],
+                ...(paymentAccountIdToSend != null ? { paymentAccountId: paymentAccountIdToSend } : {}),
                 taxAmount,
                 isRecurring,
                 status: nextStatus,
@@ -424,10 +505,11 @@ export default function ExpenseManagement() {
             await loadData();
             setShowManualForm(false);
             setEditingExpense(null);
+            setPrefillClientId(null);
             setSelectedAccountId('');
         } catch (error) {
             console.error('Failed to save expense:', error);
-            alert('Failed to save expense');
+            setSaveError(error instanceof Error ? error.message : 'Failed to save expense');
         } finally {
             setSaving(false);
         }
@@ -957,7 +1039,7 @@ export default function ExpenseManagement() {
                     </button>
                     <button
                         type="button"
-                        onClick={() => { setShowManualForm(false); setShowAiUpload(true); }}
+                        onClick={() => { setShowManualForm(false); setPrefillClientId(null); setShowAiUpload(true); }}
                         style={{
                             flex: '1 1 200px',
                             padding: '14px 20px',
@@ -1486,8 +1568,17 @@ export default function ExpenseManagement() {
                                         <div>
                                             <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest block mb-3">Payment Method</label>
                                             <select
-                                                ref={paymentMethodRef}
-                                                defaultValue={editingExpense?.paymentMethod || 'Cash'}
+                                                aria-label="Payment Method"
+                                                value={paymentMethod}
+                                                onChange={(e) => {
+                                                    const next = e.target.value;
+                                                    setPaymentMethod(next);
+                                                    if (expenseMethodIsCash(next)) {
+                                                        setPaymentAccountId('');
+                                                    } else if (!expensePosted) {
+                                                        setPaymentAccountId((prev) => prev || (defaultBank ? String(defaultBank.id) : ''));
+                                                    }
+                                                }}
                                                 className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-2xl px-6 py-4 text-sm font-bold outline-none"
                                             >
                                                 <option value="Cash">Cash</option>
@@ -1496,6 +1587,18 @@ export default function ExpenseManagement() {
                                                 <option value="Check">Check</option>
                                                 <option value="Other">Other</option>
                                             </select>
+                                        </div>
+                                        <div>
+                                            <PaidFromBankPicker
+                                                method={paymentMethod}
+                                                banks={banks}
+                                                value={paymentAccountId}
+                                                onChange={setPaymentAccountId}
+                                                posted={expensePosted}
+                                            />
+                                            {saveError && (
+                                                <p className="text-xs font-bold text-red-600 mt-2">{saveError}</p>
+                                            )}
                                         </div>
                                         <div>
                                             <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest block mb-3">Tax Amount</label>
@@ -1561,14 +1664,14 @@ export default function ExpenseManagement() {
                                             <input
                                                 ref={isBillableRef}
                                                 type="checkbox"
-                                                defaultChecked={editingExpense?.is_billable}
+                                                defaultChecked={editingExpense ? editingExpense.is_billable : prefillClientId != null}
                                                 className="w-5 h-5"
                                             />
                                             <label className="text-sm font-bold text-gray-700">Billable to client</label>
                                         </div>
                                         <select
                                             ref={clientIdRef}
-                                            defaultValue={editingExpense?.client_id || ''}
+                                            defaultValue={editingExpense ? (editingExpense.client_id || '') : (customers.some((c) => String(c.id) === prefillClientId) ? prefillClientId ?? '' : '')}
                                             className="w-full bg-white border border-blue-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-blue-500"
                                         >
                                             <option value="">Select customer…</option>
@@ -1663,6 +1766,7 @@ export default function ExpenseManagement() {
                                         onClick={() => {
                                             setShowManualForm(false);
                                             setEditingExpense(null);
+                                            setPrefillClientId(null);
                                         }}
                                         disabled={saving}
                                         className="flex-1 py-5 bg-white border border-gray-200 text-[11px] font-black uppercase tracking-widest text-gray-600 rounded-2xl hover:bg-gray-100 transition-all"

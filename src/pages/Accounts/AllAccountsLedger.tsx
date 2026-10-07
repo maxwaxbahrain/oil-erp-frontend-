@@ -1,52 +1,40 @@
-// ITEM 11 — Central All-Accounts Ledger.
-// Single page where the user picks ANY account from the Chart of Accounts
-// and sees every posted journal voucher line that touches it, with a
-// running balance computed using the account's nature ('Debit' or
-// 'Credit'). Date-range filterable. Pulls journal vouchers via the
-// existing getJournalVouchers() helper — no new backend surface.
+// All-accounts ledger against the general ledger.
+// Account list: GET /api/accounts/ via getGLAccounts.
+// Lines: GET /api/gl/accounts/{id}/ledger via getGLAccountLedger.
+// Both use glService's apiRequest — the same helper as the trial-balance page.
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
     BookOpen,
     Download,
-    X,
     Calendar,
     Printer,
     Search,
-    ChevronDown,
     Check,
     Sparkles,
     Bot,
     ChevronRight,
 } from 'lucide-react';
-import { getAccounts, type Account } from './ChartOfAccounts';
-import { getJournalVouchers, type JournalVoucher, type JVLine } from './JournalVoucher';
+import {
+    getGLAccountLedger,
+    getGLAccounts,
+    monthStartISO,
+    type GLAccount,
+    type GLAccountLedger,
+    type GLLedgerContra,
+    type GLLedgerRow,
+} from '../../services/glService';
 
-interface LedgerRow {
-    date: string;
-    jvNumber: string;
-    jvId: string;
-    reference: string;
-    description: string;
-    contraAccount: string;
-    source: string;
-    jvType: JournalVoucher['type'];
-    debit: number;
-    credit: number;
-    runningBalance: number;
-}
-
-const QUICK_ACCOUNTS: { code: string; label: string }[] = [
-    { code: '1110', label: 'Cash on hand' },
-    { code: '1120', label: 'Bank accounts' },
-    { code: '1130', label: 'AR' },
-    { code: '4100', label: 'Sales Revenue' },
-    { code: '4120', label: 'Amazon Revenue' },
-    { code: '5100', label: 'COGS' },
-    { code: '5200', label: 'Operating Expenses' },
-    { code: '2100', label: 'Current Liabilities' },
-];
+const CHIP_SYSTEM_KEYS = [
+    'cash_on_hand',
+    'bank',
+    'accounts_receivable',
+    'accounts_payable',
+    'sales_revenue',
+    'cogs',
+    'operating_expenses',
+    'tax_payable',
+] as const;
 
 const AI_PROMPTS = [
     'What drove credit activity this period?',
@@ -121,126 +109,113 @@ function formatUsdSigned(n: number): string {
     return `${prefix}${formatUsd(n)}`;
 }
 
-function sourceLabel(jv: JournalVoucher): string {
-    const ref = (jv.reference || '').toUpperCase();
-    if (ref.startsWith('INV') || ref.includes('INVOICE')) return 'Sales';
-    if (ref.startsWith('PAY') || ref.includes('PAYMENT')) return 'Payments';
-    if (ref.startsWith('PO') || ref.includes('PURCHASE')) return 'Purchases';
-    if (jv.type === 'Bad Debt') return 'Bad Debt';
-    if (jv.type === 'Depreciation') return 'Depreciation';
-    if (jv.type === 'Opening Balance') return 'Opening';
-    if (jv.type === 'Adjustment') return 'Adjustment';
-    return 'Manual JV';
+function localTodayISO(): string {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
 }
 
-function contraFromJv(jv: JournalVoucher, accountId: string): string {
-    const others = (jv.lines || []).filter(l => String(l.accountId) !== String(accountId));
-    if (others.length === 0) return '—';
-    const primary = others.reduce((best, l) => {
-        const amt = Math.max(Number(l.debit) || 0, Number(l.credit) || 0);
-        const bestAmt = Math.max(Number(best.debit) || 0, Number(best.credit) || 0);
-        return amt > bestAmt ? l : best;
-    }, others[0]);
-    return `${primary.accountCode} ${primary.accountName}`;
+function errorMessage(err: unknown): string {
+    return err instanceof Error ? err.message : 'Could not load ledger data.';
 }
 
-function periodLabel(dateFrom: string, dateTo: string): string {
-    if (dateFrom && dateTo) {
-        const from = new Date(`${dateFrom}T12:00:00`);
-        const to = new Date(`${dateTo}T12:00:00`);
-        if (!Number.isNaN(from.getTime()) && !Number.isNaN(to.getTime())) {
-            const sameMonth = from.getFullYear() === to.getFullYear() && from.getMonth() === to.getMonth();
-            if (sameMonth) {
-                return from.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
-            }
-            return `${from.toLocaleDateString(undefined, { month: 'short', year: 'numeric' })} – ${to.toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}`;
-        }
-    }
-    if (dateFrom) {
-        const d = new Date(`${dateFrom}T12:00:00`);
-        if (!Number.isNaN(d.getTime())) return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
-    }
-    return new Date().toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+function contraLabel(contra: GLLedgerContra[]): string {
+    if (!contra.length) return '—';
+    const shown = contra.slice(0, 3).map(item => `${item.code} ${item.name}`);
+    const extra = contra.length - shown.length;
+    return extra > 0 ? `${shown.join(' · ')} +${extra}` : shown.join(' · ');
+}
+
+function moneyCell(amount: number, color: string): { text: string; color: string } {
+    if (amount <= 0) return { text: '', color: 'transparent' };
+    return { text: formatUsd(amount), color };
 }
 
 export default function AllAccountsLedger() {
-    const navigate = useNavigate();
-    const [accounts, setAccounts] = useState<Account[]>([]);
-    const [vouchers, setVouchers] = useState<JournalVoucher[]>([]);
-    const [selectedAccountId, setSelectedAccountId] = useState<string>('4100');
-    const [dateFrom, setDateFrom] = useState<string>('');
-    const [dateTo, setDateTo] = useState<string>('');
-    const [loading, setLoading] = useState(true);
+    const [accounts, setAccounts] = useState<GLAccount[]>([]);
+    const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
+    const [dateFrom, setDateFrom] = useState<string>(monthStartISO);
+    const [dateTo, setDateTo] = useState<string>(localTodayISO);
+    const [ledger, setLedger] = useState<GLAccountLedger | null>(null);
+    const [accountsLoading, setAccountsLoading] = useState(true);
+    const [ledgerLoading, setLedgerLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [search, setSearch] = useState('');
     const [tableSearch, setTableSearch] = useState('');
     const [typeFilter, setTypeFilter] = useState('all');
     const [sourceFilter, setSourceFilter] = useState('all');
-    const [showAccountPicker, setShowAccountPicker] = useState(false);
     const [showInsights, setShowInsights] = useState(false);
     const [aiQuestion, setAiQuestion] = useState('');
+
+    const datesInvalid = Boolean(dateFrom && dateTo && dateFrom > dateTo);
+    const loading = accountsLoading || ledgerLoading;
 
     useEffect(() => {
         let cancelled = false;
         (async () => {
             try {
-                setLoading(true);
+                setAccountsLoading(true);
                 setError(null);
-                const accs = getAccounts();
-                if (!cancelled) setAccounts(accs);
-                const jvs = await getJournalVouchers();
-                if (!cancelled) setVouchers(jvs);
-            } catch (e: any) {
-                if (!cancelled) setError(e?.message || 'Could not load ledger data.');
+                const rows = await getGLAccounts();
+                if (cancelled) return;
+                const active = rows.filter(account => account.is_active);
+                setAccounts(active);
+                setSelectedAccountId(prev => {
+                    if (prev != null && active.some(account => account.id === prev)) return prev;
+                    const receivable = active.find(account => account.system_key === 'accounts_receivable');
+                    return receivable?.id ?? active[0]?.id ?? null;
+                });
+            } catch (err) {
+                if (cancelled) return;
+                setAccounts([]);
+                setLedger(null);
+                setError(errorMessage(err));
             } finally {
-                if (!cancelled) setLoading(false);
+                if (!cancelled) setAccountsLoading(false);
             }
         })();
         return () => { cancelled = true; };
     }, []);
 
-    const selectedAccount = accounts.find(a => a.id === selectedAccountId) || null;
-
-    const rows: LedgerRow[] = useMemo(() => {
-        if (!selectedAccount) return [];
-        const out: Omit<LedgerRow, 'runningBalance'>[] = [];
-        for (const jv of vouchers) {
-            if (jv.status !== 'Posted') continue;
-            if (dateFrom && (jv.date || '') < dateFrom) continue;
-            if (dateTo && (jv.date || '') > dateTo) continue;
-            for (const l of (jv.lines || []) as JVLine[]) {
-                if (String(l.accountId) !== String(selectedAccount.id)) continue;
-                out.push({
-                    date: jv.date,
-                    jvNumber: jv.jvNumber,
-                    jvId: jv.id,
-                    reference: jv.reference || '',
-                    description: l.description || jv.narration || '',
-                    contraAccount: contraFromJv(jv, selectedAccount.id),
-                    source: sourceLabel(jv),
-                    jvType: jv.type,
-                    debit: Number(l.debit) || 0,
-                    credit: Number(l.credit) || 0,
-                });
-            }
+    useEffect(() => {
+        if (selectedAccountId == null || datesInvalid) {
+            setLedger(null);
+            setLedgerLoading(false);
+            return;
         }
-        out.sort((a, b) => (a.date || '').localeCompare(b.date || '') || a.jvNumber.localeCompare(b.jvNumber));
+        let cancelled = false;
+        setLedgerLoading(true);
+        setError(null);
+        getGLAccountLedger(selectedAccountId, dateFrom, dateTo)
+            .then(data => {
+                if (cancelled) return;
+                setLedger(data);
+                setLedgerLoading(false);
+            })
+            .catch(err => {
+                if (cancelled) return;
+                setLedger(null);
+                setError(errorMessage(err));
+                setLedgerLoading(false);
+            });
+        return () => { cancelled = true; };
+    }, [selectedAccountId, dateFrom, dateTo, datesInvalid]);
 
-        const sign = selectedAccount.nature === 'Debit' ? 1 : -1;
-        let running = Number(selectedAccount.openingBalance) || 0;
-        return out.map(r => {
-            running += (r.debit - r.credit) * sign;
-            return { ...r, runningBalance: Math.round(running * 100) / 100 };
-        });
-    }, [selectedAccount, vouchers, dateFrom, dateTo]);
+    const selectedAccount = accounts.find(account => account.id === selectedAccountId) || null;
+    const chips = CHIP_SYSTEM_KEYS
+        .map(key => accounts.find(account => account.system_key === key))
+        .filter((account): account is GLAccount => Boolean(account));
+
+    const rows: GLLedgerRow[] = ledger?.rows ?? [];
 
     const sourceOptions = useMemo(() => {
-        const set = new Set(rows.map(r => r.source));
+        const set = new Set(rows.map(row => row.source_type || '').filter(Boolean));
         return Array.from(set).sort();
     }, [rows]);
 
     const typeOptions = useMemo(() => {
-        const set = new Set(rows.map(r => r.jvType));
+        const set = new Set(rows.map(row => row.status || '').filter(Boolean));
         return Array.from(set).sort();
     }, [rows]);
 
@@ -248,67 +223,41 @@ export default function AllAccountsLedger() {
         let out = rows;
         if (tableSearch.trim()) {
             const q = tableSearch.toLowerCase();
-            out = out.filter(r =>
-                r.description.toLowerCase().includes(q) ||
-                r.reference.toLowerCase().includes(q) ||
-                r.jvNumber.toLowerCase().includes(q),
+            out = out.filter(row =>
+                (row.memo || '').toLowerCase().includes(q) ||
+                (row.entry_number || '').toLowerCase().includes(q) ||
+                (row.source_type || '').toLowerCase().includes(q) ||
+                (row.source_id || '').toLowerCase().includes(q) ||
+                contraLabel(row.contra).toLowerCase().includes(q),
             );
         }
-        if (typeFilter !== 'all') {
-            out = out.filter(r => r.jvType === typeFilter);
-        }
-        if (sourceFilter !== 'all') {
-            out = out.filter(r => r.source === sourceFilter);
-        }
+        if (typeFilter !== 'all') out = out.filter(row => row.status === typeFilter);
+        if (sourceFilter !== 'all') out = out.filter(row => row.source_type === sourceFilter);
         return out;
     }, [rows, tableSearch, typeFilter, sourceFilter]);
 
-    const totals = useMemo(() => rows.reduce(
-        (acc, r) => ({ debit: acc.debit + r.debit, credit: acc.credit + r.credit }),
-        { debit: 0, credit: 0 },
-    ), [rows]);
-
-    const openingBalance = Number(selectedAccount?.openingBalance) || 0;
-    const closingBalance = rows.length > 0 ? rows[rows.length - 1].runningBalance : openingBalance;
-    const netMovement = selectedAccount?.nature === 'Debit'
-        ? totals.debit - totals.credit
-        : totals.credit - totals.debit;
-
-    const filteredAccounts = useMemo(() => {
-        if (!search) return accounts;
-        const q = search.toLowerCase();
-        return accounts.filter(a =>
-            a.code.toLowerCase().includes(q) ||
-            a.name.toLowerCase().includes(q) ||
-            a.type.toLowerCase().includes(q),
-        );
-    }, [accounts, search]);
-
     const exportCSV = () => {
-        if (!selectedAccount || rows.length === 0) {
+        if (!selectedAccount || !ledger || rows.length === 0) {
             alert('Pick an account with at least one ledger entry first.');
             return;
         }
         const lines: string[] = [];
         lines.push(`"Account","${selectedAccount.code} — ${selectedAccount.name}"`);
-        lines.push(`"Opening Balance","${openingBalance.toFixed(2)}"`);
+        lines.push(`"Opening Balance","${ledger.opening_balance.toFixed(2)}"`);
         lines.push('');
-        lines.push('"Date","JV","Reference","Description","Contra Account","Source","Debit","Credit","Balance"');
-        for (const r of rows) {
+        lines.push('"Date","JE","Description","Contra Account","Source","Debit","Credit","Balance"');
+        for (const row of rows) {
             lines.push([
-                r.date,
-                r.jvNumber,
-                r.reference.replace(/"/g, '""'),
-                r.description.replace(/"/g, '""'),
-                r.contraAccount.replace(/"/g, '""'),
-                r.source,
-                r.debit.toFixed(2),
-                r.credit.toFixed(2),
-                r.runningBalance.toFixed(2),
-            ].map(v => `"${v}"`).join(','));
+                row.entry_date || '',
+                row.entry_number,
+                (row.memo || '').replace(/"/g, '""'),
+                contraLabel(row.contra).replace(/"/g, '""'),
+                row.source_type || '',
+                row.debit.toFixed(2),
+                row.credit.toFixed(2),
+                row.running_balance.toFixed(2),
+            ].map(value => `"${value}"`).join(','));
         }
-        lines.push('');
-        lines.push(`"Totals","","","","","","${totals.debit.toFixed(2)}","${totals.credit.toFixed(2)}","${closingBalance.toFixed(2)}"`);
         const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -324,21 +273,17 @@ export default function AllAccountsLedger() {
         const q = aiQuestion.trim() || 'Summarize this account ledger';
         alert(
             `AI Ledger insight (preview)\n\nQuestion: ${q}\n\n` +
-            `Account ${selectedAccount?.code || '—'} · Opening ${formatUsd(openingBalance)} · ` +
-            `Closing ${formatUsd(closingBalance)} · ${rows.length} entries.\n\n` +
+            `Account ${selectedAccount?.code || '—'} · Opening ${formatUsd(ledger?.opening_balance ?? 0)} · ` +
+            `Closing ${formatUsd(ledger?.closing_balance ?? 0)} · ${ledger?.rows.length ?? 0} entries.\n\n` +
             'Connect the AI CFO endpoint for live ledger analysis.',
         );
     };
 
-    const aiInsightText = selectedAccount
-        ? `${selectedAccount.name} (${selectedAccount.code}) shows ${formatUsd(totals.credit)} in credits and ${formatUsd(totals.debit)} in debits ` +
-          `this period. Net movement is ${formatUsdSigned(netMovement)} with a closing balance of ${formatUsd(closingBalance)}. ` +
-          `${rows.length === 0 ? 'No posted entries in the selected range — try widening the date filter.' : `${rows.length} journal entries recorded.`}`
-        : 'Select an account to see AI-powered ledger insights.';
-
-    const accountChipLabel = selectedAccount
-        ? `Account ${selectedAccount.code} ${selectedAccount.name.split(' ')[0]}`
-        : 'No account selected';
+    const aiInsightText = ledger
+        ? `Opening ${formatUsd(ledger.opening_balance)}, debits ${formatUsd(ledger.total_debit)}, credits ${formatUsd(ledger.total_credit)}. ` +
+          `Net movement ${formatUsdSigned(ledger.net_movement)}. Closing balance ${formatUsd(ledger.closing_balance)}. ` +
+          `${ledger.rows.length} entries.`
+        : 'Ledger insight will appear after the account loads.';
 
     const dateInputStyle: CSSProperties = {
         width: '100%',
@@ -352,9 +297,10 @@ export default function AllAccountsLedger() {
         outline: 'none',
     };
 
+    const showLedger = !loading && !error && !datesInvalid && ledger != null;
+
     return (
-        <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: 8, paddingBottom: 120, maxWidth: 1280, margin: '0 auto' }}>
-            {/* 1. Page Header */}
+        <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: 8, paddingBottom: 24, maxWidth: 1280, margin: '0 auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
                     <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(79,142,247,.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -376,8 +322,8 @@ export default function AllAccountsLedger() {
                     <button
                         type="button"
                         onClick={exportCSV}
-                        disabled={!selectedAccount || rows.length === 0}
-                        style={{ ...ghostBtn, opacity: !selectedAccount || rows.length === 0 ? 0.45 : 1 }}
+                        disabled={!showLedger || rows.length === 0}
+                        style={{ ...ghostBtn, opacity: !showLedger || rows.length === 0 ? 0.45 : 1 }}
                         title="Export"
                     >
                         <Download size={12} /> Export
@@ -385,151 +331,75 @@ export default function AllAccountsLedger() {
                 </div>
             </div>
 
-            {/* 2. Account Selector Box */}
             <div style={{ ...panel, padding: '14px 16px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'start' }}>
-                    <div style={{ position: 'relative' }}>
+                    <div>
                         <label style={{ display: 'block', fontSize: 9, fontWeight: 700, color: 'var(--color-redwood-text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.3px' }}>
                             Account:
                         </label>
-                        <button
-                            type="button"
-                            onClick={() => setShowAccountPicker(s => !s)}
-                            style={{
-                                width: '100%',
-                                textAlign: 'left',
-                                border: '1px solid var(--color-redwood-border)',
-                                borderRadius: 8,
-                                padding: '10px 12px',
-                                background: 'var(--color-redwood-row-bg)',
-                                cursor: 'pointer',
-                                fontFamily: 'inherit',
-                            }}
-                        >
-                            {selectedAccount ? (
+                        <div style={{
+                            border: '1px solid var(--color-redwood-border)',
+                            borderRadius: 8,
+                            padding: '10px 12px',
+                            background: 'var(--color-redwood-row-bg)',
+                        }}>
+                            {selectedAccount && showLedger ? (
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                    <div>
-                                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>
-                                            {selectedAccount.type} | {selectedAccount.code} | {selectedAccount.name}
-                                        </div>
-                                        <div style={{ fontSize: 9.5, color: 'var(--color-redwood-text-subtle)', marginTop: 3 }}>
-                                            {selectedAccount.description || '—'}
-                                        </div>
+                                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>
+                                        {selectedAccount.type} | {selectedAccount.code} | {selectedAccount.name}
                                     </div>
-                                    <div style={{ fontFamily: 'ui-monospace,monospace', fontSize: 13, fontWeight: 700, color: 'var(--color-brand-green-tint)', flexShrink: 0 }}>
-                                        {formatUsd(closingBalance)}
+                                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                                        <div style={{ fontFamily: 'ui-monospace,monospace', fontSize: 13, fontWeight: 700, color: 'var(--color-brand-green-tint)' }}>
+                                            {formatUsd(ledger.all_time_balance)}
+                                        </div>
+                                        <div style={{ fontSize: 8, color: 'var(--color-redwood-text-subtle)', letterSpacing: '.3px' }}>all-time</div>
                                     </div>
                                 </div>
                             ) : (
-                                <span style={{ fontSize: 11, color: 'var(--color-redwood-text-subtle)' }}>— Choose an account from the chart —</span>
+                                <span style={{ fontSize: 11, color: 'var(--color-redwood-text-subtle)' }}>
+                                    {selectedAccount ? `${selectedAccount.type} | ${selectedAccount.code} | ${selectedAccount.name}` : '— Choose an account —'}
+                                </span>
                             )}
-                            <ChevronDown size={14} style={{ position: 'absolute', right: 12, top: 38, color: 'var(--color-redwood-text-muted)' }} />
-                        </button>
-                        {showAccountPicker && (
-                            <div style={{
-                                position: 'absolute',
-                                zIndex: 30,
-                                left: 0,
-                                right: 0,
-                                marginTop: 6,
-                                background: 'var(--color-redwood-bg-surface)',
-                                border: '1px solid var(--color-redwood-border)',
-                                borderRadius: 10,
-                                boxShadow: '0 8px 32px rgba(0,0,0,.45)',
-                                maxHeight: 320,
-                                overflowY: 'auto',
-                            }}>
-                                <div style={{ position: 'sticky', top: 0, padding: 8, borderBottom: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-bg-surface)' }}>
-                                    <div style={{ position: 'relative' }}>
-                                        <input
-                                            type="text"
-                                            value={search}
-                                            onChange={(e) => setSearch(e.target.value)}
-                                            placeholder="Search by code, name, or type…"
-                                            style={{
-                                                width: '100%',
-                                                border: '1px solid var(--color-redwood-border)',
-                                                borderRadius: 6,
-                                                padding: '6px 28px 6px 10px',
-                                                fontSize: 10,
-                                                background: 'var(--color-redwood-row-bg)',
-                                                color: 'var(--color-redwood-text-main)',
-                                                fontFamily: 'inherit',
-                                                outline: 'none',
-                                            }}
-                                            autoFocus
-                                        />
-                                        {search && (
-                                            <button type="button" onClick={() => setSearch('')} style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-redwood-text-muted)' }}>
-                                                <X size={12} />
-                                            </button>
-                                        )}
-                                    </div>
-                                </div>
-                                {filteredAccounts.length === 0 ? (
-                                    <div style={{ padding: 20, textAlign: 'center', fontSize: 10, color: 'var(--color-redwood-text-subtle)' }}>No accounts match your search.</div>
-                                ) : filteredAccounts.map(a => (
-                                    <button
-                                        key={a.id}
-                                        type="button"
-                                        onClick={() => { setSelectedAccountId(a.id); setShowAccountPicker(false); setSearch(''); }}
-                                        style={{
-                                            width: '100%',
-                                            textAlign: 'left',
-                                            padding: '8px 12px',
-                                            fontSize: 10,
-                                            background: a.id === selectedAccountId ? 'rgba(79,142,247,.12)' : 'transparent',
-                                            border: 'none',
-                                            borderLeft: a.id === selectedAccountId ? '3px solid #4F8EF7' : '3px solid transparent',
-                                            cursor: 'pointer',
-                                            fontFamily: 'inherit',
-                                            color: 'var(--color-redwood-text-main)',
-                                        }}
-                                    >
-                                        <span style={{ fontFamily: 'ui-monospace,monospace', color: 'var(--color-redwood-text-muted)', marginRight: 6 }}>{a.code}</span>
-                                        <span style={{ fontWeight: 600 }}>{a.name}</span>
-                                        <span style={{ marginLeft: 6, fontSize: 9, color: 'var(--color-redwood-text-subtle)', textTransform: 'uppercase' }}>{a.type}</span>
-                                    </button>
-                                ))}
-                            </div>
-                        )}
+                        </div>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, minWidth: 220 }}>
                         <div>
                             <label style={{ display: 'block', fontSize: 9, fontWeight: 700, color: 'var(--color-redwood-text-muted)', marginBottom: 6, textTransform: 'uppercase' }}>From</label>
                             <div style={{ position: 'relative' }}>
-                                <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={dateInputStyle} />
+                                <input type="date" aria-label="From" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={dateInputStyle} />
                                 <Calendar size={12} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-redwood-text-muted)', pointerEvents: 'none' }} />
                             </div>
                         </div>
                         <div>
                             <label style={{ display: 'block', fontSize: 9, fontWeight: 700, color: 'var(--color-redwood-text-muted)', marginBottom: 6, textTransform: 'uppercase' }}>To</label>
                             <div style={{ position: 'relative' }}>
-                                <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={dateInputStyle} />
+                                <input type="date" aria-label="To" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={dateInputStyle} />
                                 <Calendar size={12} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-redwood-text-muted)', pointerEvents: 'none' }} />
                             </div>
                         </div>
                     </div>
                 </div>
+                {datesInvalid && (
+                    <p role="alert" style={{ fontSize: 10, color: 'var(--color-brand-red-tint)', margin: '8px 0 0', fontWeight: 600 }}>
+                        From must be on or before To.
+                    </p>
+                )}
             </div>
 
-            {/* 3. Quick Access Bar */}
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                {QUICK_ACCOUNTS.map(({ code, label }) => {
-                    const acc = accounts.find(a => a.code === code);
-                    const active = selectedAccountId === acc?.id;
+                {chips.map(account => {
+                    const active = selectedAccountId === account.id;
                     return (
                         <button
-                            key={code}
+                            key={account.system_key || account.id}
                             type="button"
-                            onClick={() => acc && setSelectedAccountId(acc.id)}
-                            disabled={!acc}
+                            onClick={() => setSelectedAccountId(account.id)}
                             style={{
                                 padding: '4px 10px',
                                 borderRadius: 999,
                                 fontSize: 9,
                                 fontWeight: 600,
-                                cursor: acc ? 'pointer' : 'not-allowed',
+                                cursor: 'pointer',
                                 border: active ? '1px solid #4F8EF7' : '1px solid var(--color-redwood-border)',
                                 background: active ? 'rgba(79,142,247,.15)' : 'rgba(255,255,255,.04)',
                                 color: active ? '#93C5FD' : 'var(--color-redwood-text-muted)',
@@ -537,19 +407,26 @@ export default function AllAccountsLedger() {
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: 4,
-                                opacity: acc ? 1 : 0.4,
                             }}
                         >
-                            <span style={{ fontFamily: 'ui-monospace,monospace', fontSize: 8.5 }}>{code}</span>
-                            {label}
+                            {account.code} {account.name}
                             {active && <Check size={10} style={{ color: '#4F8EF7' }} />}
                         </button>
                     );
                 })}
+                <select
+                    aria-label="All accounts"
+                    value={selectedAccountId ?? ''}
+                    onChange={(e) => setSelectedAccountId(Number(e.target.value))}
+                    style={selectStyle}
+                >
+                    {accounts.map(account => (
+                        <option key={account.id} value={account.id}>{account.code} — {account.name}</option>
+                    ))}
+                </select>
             </div>
 
-            {/* Loading / Error */}
-            {loading && (
+            {loading && !error && (
                 <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
                     <div style={{ width: 32, height: 32, border: '3px solid rgba(79,142,247,.25)', borderTopColor: '#4F8EF7', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
                 </div>
@@ -560,24 +437,15 @@ export default function AllAccountsLedger() {
                 </div>
             )}
 
-            {!loading && !error && !selectedAccount && (
-                <div style={{ ...panel, padding: 48, textAlign: 'center', borderStyle: 'dashed' }}>
-                    <BookOpen size={40} style={{ color: 'var(--color-redwood-text-subtle)', margin: '0 auto 12px' }} />
-                    <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-redwood-text-main)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Choose an account to begin</p>
-                    <p style={{ fontSize: 9.5, color: 'var(--color-redwood-text-subtle)', marginTop: 6 }}>Pick from the Chart of Accounts above to see its full transaction history.</p>
-                </div>
-            )}
-
-            {!loading && !error && selectedAccount && (
+            {showLedger && (
                 <>
-                    {/* 4. Financial Summary Cards */}
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
                         {[
-                            { label: 'OPENING BALANCE', value: formatUsd(openingBalance), color: 'var(--color-redwood-text-main)' },
-                            { label: 'TOTAL CREDITS', value: formatUsd(totals.credit), color: 'var(--color-brand-green-tint)' },
-                            { label: 'TOTAL DEBITS', value: formatUsd(totals.debit), color: 'var(--color-brand-red-tint)' },
-                            { label: 'NET MOVEMENT', value: formatUsdSigned(netMovement), color: 'var(--color-brand-blue-tint)' },
-                            { label: 'CLOSING BALANCE', value: formatUsd(closingBalance), color: 'var(--color-brand-green-tint)' },
+                            { label: 'OPENING BALANCE', value: formatUsd(ledger.opening_balance), color: 'var(--color-redwood-text-main)' },
+                            { label: 'TOTAL CREDITS', value: formatUsd(ledger.total_credit), color: 'var(--color-brand-green-tint)' },
+                            { label: 'TOTAL DEBITS', value: formatUsd(ledger.total_debit), color: 'var(--color-brand-red-tint)' },
+                            { label: 'NET MOVEMENT', value: formatUsdSigned(ledger.net_movement), color: 'var(--color-brand-blue-tint)' },
+                            { label: 'CLOSING BALANCE', value: formatUsd(ledger.closing_balance), color: 'var(--color-brand-green-tint)' },
                         ].map(card => (
                             <div key={card.label} style={{ ...panel, padding: '10px 12px' }}>
                                 <div style={{ fontSize: 8, fontWeight: 700, color: 'var(--color-redwood-text-muted)', letterSpacing: '.4px', marginBottom: 4 }}>{card.label}</div>
@@ -586,12 +454,12 @@ export default function AllAccountsLedger() {
                         ))}
                     </div>
 
-                    {/* 5. Search & Filters */}
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                         <div style={{ flex: 1, minWidth: 220, position: 'relative' }}>
                             <Search size={12} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-redwood-text-muted)' }} />
                             <input
                                 type="text"
+                                aria-label="Search ledger"
                                 value={tableSearch}
                                 onChange={(e) => setTableSearch(e.target.value)}
                                 placeholder="Search description, reference, JE number..."
@@ -608,112 +476,92 @@ export default function AllAccountsLedger() {
                                 }}
                             />
                         </div>
-                        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={selectStyle}>
+                        <select aria-label="Type" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={selectStyle}>
                             <option value="all">All types</option>
-                            {typeOptions.map(t => <option key={t} value={t}>{t}</option>)}
+                            {typeOptions.map(type => <option key={type} value={type}>{type}</option>)}
                         </select>
-                        <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} style={selectStyle}>
+                        <select aria-label="Source" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} style={selectStyle}>
                             <option value="all">All sources</option>
-                            {sourceOptions.map(s => <option key={s} value={s}>{s}</option>)}
+                            {sourceOptions.map(source => <option key={source} value={source}>{source}</option>)}
                         </select>
                     </div>
 
-                    {/* 6. Ledger Table */}
                     <div style={{ ...panel, padding: 0, overflow: 'hidden' }}>
                         <div style={{ overflowX: 'auto' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                 <thead>
                                     <tr style={{ background: 'rgba(255,255,255,.03)' }}>
-                                        {['Date', 'JE #', 'Description', 'Reference', 'Contra account', 'Source', 'Debit', 'Credit'].map((h, i) => (
-                                            <th key={h} style={{ ...thStyle, textAlign: i >= 6 ? 'right' : 'left' }}>{h}</th>
+                                        {['Date', 'JE #', 'Description', 'Contra account', 'Source', 'Debit', 'Credit', 'Running balance'].map((heading, index) => (
+                                            <th key={heading} style={{ ...thStyle, textAlign: index >= 5 ? 'right' : 'left' }}>{heading}</th>
                                         ))}
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {/* Opening balance row */}
-                                    <tr style={{ background: 'rgba(79,142,247,.1)' }}>
-                                        <td colSpan={6} style={{ ...tdStyle, fontWeight: 700, fontSize: 10, color: 'var(--color-brand-blue-tint)' }}>
-                                            Opening balance
-                                        </td>
-                                        <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'ui-monospace,monospace', fontWeight: 700, color: 'var(--color-brand-blue-tint)' }}>
-                                            {selectedAccount.nature === 'Debit' && openingBalance !== 0 ? formatUsd(Math.abs(openingBalance)) : ''}
-                                        </td>
-                                        <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'ui-monospace,monospace', fontWeight: 700, color: 'var(--color-brand-blue-tint)' }}>
-                                            {selectedAccount.nature === 'Credit' || openingBalance === 0 ? formatUsd(Math.abs(openingBalance)) : ''}
-                                        </td>
-                                    </tr>
-
-                                    {filteredRows.length === 0 ? (
+                                    {rows.length === 0 ? (
                                         <tr>
                                             <td colSpan={8} style={{ ...tdStyle, textAlign: 'center', padding: '32px 10px', color: 'var(--color-redwood-text-subtle)' }}>
                                                 No posted journal entries for this account in the selected range.
                                             </td>
                                         </tr>
-                                    ) : filteredRows.map((r, idx) => (
-                                        <tr key={`${r.jvNumber}-${idx}`} style={{ background: 'transparent' }}>
-                                            <td style={{ ...tdStyle, fontFamily: 'ui-monospace,monospace', fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>
-                                                {r.date ? new Date(r.date.includes('T') ? r.date : `${r.date}T12:00:00`).toLocaleDateString() : '—'}
-                                            </td>
-                                            <td style={tdStyle}>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => navigate('/finance/journal-voucher')}
-                                                    style={{
-                                                        background: 'none',
-                                                        border: 'none',
-                                                        padding: 0,
-                                                        fontFamily: 'ui-monospace,monospace',
-                                                        fontSize: 10,
-                                                        fontWeight: 700,
-                                                        color: 'var(--color-brand-blue)',
-                                                        cursor: 'pointer',
-                                                        textDecoration: 'underline',
-                                                        textUnderlineOffset: 2,
-                                                    }}
-                                                >
-                                                    {r.jvNumber}
-                                                </button>
-                                            </td>
-                                            <td style={{ ...tdStyle, maxWidth: 200 }}>{r.description || '—'}</td>
-                                            <td style={{ ...tdStyle, fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>{r.reference || '—'}</td>
-                                            <td style={{ ...tdStyle, fontSize: 10, color: '#C4B5FD', fontWeight: 500 }}>{r.contraAccount}</td>
-                                            <td style={{ ...tdStyle, fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>{r.source}</td>
-                                            <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'ui-monospace,monospace', fontWeight: 600, color: r.debit > 0 ? 'var(--color-brand-red-tint)' : 'transparent' }}>
-                                                {r.debit > 0 ? formatUsd(r.debit) : ''}
-                                            </td>
-                                            <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'ui-monospace,monospace', fontWeight: 600, color: r.credit > 0 ? 'var(--color-brand-green-tint)' : 'transparent' }}>
-                                                {r.credit > 0 ? formatUsd(r.credit) : ''}
+                                    ) : filteredRows.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={8} style={{ ...tdStyle, textAlign: 'center', padding: '32px 10px', color: 'var(--color-redwood-text-subtle)' }}>
+                                                No entries match your search.
                                             </td>
                                         </tr>
-                                    ))}
-
-                                    {/* Closing balance row */}
-                                    {(rows.length > 0 || openingBalance !== 0) && (
-                                        <tr style={{ background: 'rgba(34,197,94,.1)' }}>
-                                            <td colSpan={6} style={{ ...tdStyle, fontWeight: 700, fontSize: 10, color: 'var(--color-brand-green-tint)' }}>
-                                                Closing balance
-                                            </td>
-                                            <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'ui-monospace,monospace', fontWeight: 700, color: 'var(--color-brand-green-tint)' }}>
-                                                {selectedAccount.nature === 'Debit' && closingBalance !== 0 ? formatUsd(Math.abs(closingBalance)) : ''}
-                                            </td>
-                                            <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'ui-monospace,monospace', fontWeight: 700, color: 'var(--color-brand-green-tint)' }}>
-                                                {selectedAccount.nature === 'Credit' || closingBalance === 0 ? formatUsd(Math.abs(closingBalance)) : ''}
-                                            </td>
-                                        </tr>
-                                    )}
+                                    ) : filteredRows.map((row, index) => {
+                                        const debit = moneyCell(row.debit, 'var(--color-brand-red-tint)');
+                                        const credit = moneyCell(row.credit, 'var(--color-brand-green-tint)');
+                                        return (
+                                            <tr key={`${row.entry_id}-${index}`}>
+                                                <td style={{ ...tdStyle, fontFamily: 'ui-monospace,monospace', fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>
+                                                    {row.entry_date ? new Date(row.entry_date.includes('T') ? row.entry_date : `${row.entry_date}T12:00:00`).toLocaleDateString() : '—'}
+                                                </td>
+                                                <td style={tdStyle}>
+                                                    <span
+                                                        style={{
+                                                            fontFamily: 'ui-monospace,monospace',
+                                                            fontSize: 10,
+                                                            fontWeight: 700,
+                                                            color: 'var(--color-redwood-text-main)',
+                                                        }}
+                                                    >
+                                                        {row.entry_number}
+                                                    </span>
+                                                    {row.status === 'reversed' && (
+                                                        <span style={{ marginLeft: 6, fontSize: 8, fontWeight: 700, letterSpacing: '.3px', textTransform: 'uppercase', color: 'var(--color-redwood-text-subtle)' }}>
+                                                            reversed
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td style={{ ...tdStyle, maxWidth: 200 }}>{row.memo || '—'}</td>
+                                                <td style={{ ...tdStyle, fontSize: 10, color: '#C4B5FD', fontWeight: 500 }}>{contraLabel(row.contra)}</td>
+                                                <td title={row.source_id || undefined} style={{ ...tdStyle, fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>
+                                                    {row.source_type || '—'}
+                                                </td>
+                                                <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'ui-monospace,monospace', fontWeight: 600, color: debit.color }}>
+                                                    {debit.text}
+                                                </td>
+                                                <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'ui-monospace,monospace', fontWeight: 600, color: credit.color }}>
+                                                    {credit.text}
+                                                </td>
+                                                <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'ui-monospace,monospace', fontWeight: 700 }}>
+                                                    {formatUsd(row.running_balance)}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>
                     </div>
 
-                    {/* 7. Footer — pagination info */}
                     <div style={{ fontSize: 9.5, color: 'var(--color-redwood-text-subtle)' }}>
-                        Showing {filteredRows.length} of {rows.length} entries · {periodLabel(dateFrom, dateTo)} · {accountChipLabel}
+                        Showing {filteredRows.length} of {rows.length} entries · {dateFrom} – {dateTo} · {selectedAccount?.code} {selectedAccount?.name}
                     </div>
                 </>
             )}
 
-            {/* AI Insight box */}
             <div
                 style={{
                     ...panel,
@@ -728,12 +576,12 @@ export default function AllAccountsLedger() {
                             <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>AI Insight</span>
                         </div>
                         <p style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)', margin: 0, lineHeight: 1.5 }}>
-                            {showInsights ? aiInsightText : `${aiInsightText.slice(0, 180)}…`}
+                            {showInsights || !ledger ? aiInsightText : `${aiInsightText.slice(0, 180)}…`}
                         </p>
                     </div>
                     <button
                         type="button"
-                        onClick={() => setShowInsights(v => !v)}
+                        onClick={() => setShowInsights(value => !value)}
                         style={{
                             ...ghostBtn,
                             background: 'rgba(124,58,237,.15)',
@@ -748,15 +596,11 @@ export default function AllAccountsLedger() {
                 </div>
             </div>
 
-            {/* Ask AI bar */}
             <div
                 style={{
                     ...panel,
-                    position: 'sticky',
-                    bottom: 8,
                     background: 'linear-gradient(135deg, rgba(124,58,237,.12) 0%, var(--color-redwood-bg-surface) 60%)',
                     borderColor: 'rgba(124,58,237,.28)',
-                    zIndex: 10,
                 }}
             >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
@@ -764,11 +608,11 @@ export default function AllAccountsLedger() {
                     <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>Ask AI</span>
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-                    {AI_PROMPTS.map(p => (
+                    {AI_PROMPTS.map(prompt => (
                         <button
-                            key={p}
+                            key={prompt}
                             type="button"
-                            onClick={() => setAiQuestion(p)}
+                            onClick={() => setAiQuestion(prompt)}
                             style={{
                                 padding: '3px 8px',
                                 borderRadius: 999,
@@ -780,7 +624,7 @@ export default function AllAccountsLedger() {
                                 fontFamily: 'inherit',
                             }}
                         >
-                            {p}
+                            {prompt}
                         </button>
                     ))}
                 </div>

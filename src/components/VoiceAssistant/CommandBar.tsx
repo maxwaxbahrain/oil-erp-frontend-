@@ -25,7 +25,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Sparkles, Mic } from 'lucide-react';
 import { useDeepgramRecognition } from './useDeepgramRecognition';
 import { processVoiceCommand } from './VoiceCommandProcessor';
@@ -69,6 +69,8 @@ export function CommandBar({
     onSubscriptionRequired?: () => void;
 } = {}) {
     const navigate = useNavigate();
+    const { pathname } = useLocation();
+    const hideFloatingMic = pathname.startsWith('/finance/banking');
     const [state, setState] = useState<BarState>('idle');
     const [query, setQuery] = useState('');
     const [transcript, setTranscript] = useState('');
@@ -523,8 +525,8 @@ export function CommandBar({
             </div>
         </div>
 
-        {/* Desktop floating mic FAB — bottom-right, separate from header pill */}
-        <VoiceMicFabShell
+        {/* Desktop floating mic FAB — hidden on Banking so it does not cover Amount. */}
+        {!hideFloatingMic && <VoiceMicFabShell
             variant="desktop"
             voiceLang={voiceLang}
             ringOpen={ringOpen}
@@ -534,7 +536,7 @@ export function CommandBar({
             micDisabled={micDisabled}
             fabListening={state === 'listening'}
             showProcessing={state === 'processing'}
-        />
+        />}
         </>
     );
 }

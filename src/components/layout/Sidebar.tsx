@@ -20,6 +20,7 @@ import {
     Settings,
     ChevronRight,
     RefreshCw,
+    RotateCcw,
     Globe,
     Briefcase,
     PieChart,
@@ -27,7 +28,7 @@ import {
     TrendingUp,
     User,
     MapPin
-, CalendarDays , Tag , BookOpen , Scale , Clock , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 , Mail , LogOut , Sparkles , Lock , Activity , Inbox , MessageSquare } from 'lucide-react';
+, CalendarDays , Tag , BookOpen , Scale , Clock , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 , Mail , LogOut , Sparkles , Lock , Activity , Inbox , MessageSquare , Key } from 'lucide-react';
 import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
 import { isProduction } from '../../config/appEnv';
@@ -230,6 +231,7 @@ export default function Sidebar({
                 </div>
                 <NavItem to="/purchases/suppliers" icon={Users} label="Suppliers" />
                 <NavItem to="/receiving" icon={Inbox} label="Material Receipt (GRN)" />
+                <NavItem to="/purchases/returns" icon={RotateCcw} label="Purchase Returns" />
                 <NavItem to="/purchases" icon={FileText} label="Recent Orders" />
                 <NavItem to="/purchases/new" icon={Package} label="Create New PO" />
                 <div className="h-px bg-white/5 my-3 mx-2" />
@@ -393,6 +395,20 @@ export default function Sidebar({
                 {canSeeAdmin && (
                 <>
                 <NavItem to="/settings" icon={Settings} label="Settings" />
+                {showNav('/settings/integrations') && (
+                <Link
+                    to="/settings/integrations"
+                    className={clsx(
+                        "flex items-center gap-3 px-4 py-2.5 transition-all duration-200 rounded-sm relative group mb-0.5",
+                        location.pathname.startsWith('/settings/integrations')
+                            ? "bg-redwood-brand text-white shadow-md z-10"
+                            : "text-redwood-text-muted hover:bg-white/5 hover:text-white"
+                    )}
+                >
+                    <Key size={18} />
+                    <span className="text-[12px] font-semibold tracking-wide flex-1">Integrations</span>
+                </Link>
+                )}
                 {MODULE_FLAGS.credit_intelligence && (
                 <NavItem to="/settings/credit-sources" icon={Shield} label="Credit data sources" />
                 )}

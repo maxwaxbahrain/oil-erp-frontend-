@@ -177,6 +177,7 @@ export default function SalesOrderFormPage() {
   const [panelPayments, setPanelPayments] = useState<Payment[]>([]);
 
   const [vans, setVans] = useState<Van[]>([]);
+  const [vansError, setVansError] = useState(false);
   const [selectedVanId, setSelectedVanId] = useState('');
   const [creditHold, setCreditHold] = useState<CreditHoldDetail | null>(null);
   const lastSubmitStatusRef = useRef<SalesOrderStatus>('draft');
@@ -211,6 +212,7 @@ export default function SalesOrderFormPage() {
         }
       } catch (e) {
         console.error(e);
+        setVansError(true);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -446,6 +448,10 @@ export default function SalesOrderFormPage() {
       return;
     }
     if (status === 'confirmed') {
+      if (vansError) {
+        alert("Couldn't load vans — refresh the page and try again");
+        return;
+      }
       if (activeVans.length === 0) {
         alert('No active vans available. Add a van before confirming.');
         return;
@@ -873,7 +879,11 @@ export default function SalesOrderFormPage() {
           <Truck size={16} style={{ color: THEME_PRIMARY }} />
           <label className="block text-xs font-black text-gray-500 ">Deliver by van</label>
         </div>
-        {activeVans.length === 0 ? (
+        {vansError ? (
+          <p className="min-h-[52px] flex items-center px-4 rounded-xl border border-amber-200 bg-amber-50 text-sm font-bold text-amber-900">
+            Couldn't load vans — refresh the page and try again
+          </p>
+        ) : activeVans.length === 0 ? (
           <p className="min-h-[52px] flex items-center px-4 rounded-xl border border-amber-200 bg-amber-50 text-sm font-bold text-amber-900">
             No active vans available
           </p>

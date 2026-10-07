@@ -128,7 +128,12 @@ export const createVanSale = async (formData: VanSaleFormData): Promise<VanSale>
     const customers = await getCustomers();
     const customer = customers.find(c => c.id === formData.customer_id);
 
-    const vans = await vanService.getAll();
+    let vans: Awaited<ReturnType<typeof vanService.getAll>> = [];
+    try {
+        vans = await vanService.getAll();
+    } catch (error) {
+        console.error(error);
+    }
     const van = vans.find(v => v.id === formData.van_id);
 
     // Create sale record
@@ -331,7 +336,12 @@ export const getVanDailySummary = async (
         return sale.van_id === vanId && saleDate === targetDate && sale.status === 'completed';
     });
 
-    const vans = await vanService.getAll();
+    let vans: Awaited<ReturnType<typeof vanService.getAll>> = [];
+    try {
+        vans = await vanService.getAll();
+    } catch (error) {
+        console.error(error);
+    }
     const van = vans.find(v => v.id === vanId);
 
     const summary: VanDailySummary = {

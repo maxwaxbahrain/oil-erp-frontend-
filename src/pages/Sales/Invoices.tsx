@@ -18,10 +18,11 @@ import {
   Smartphone,
   X,
   Edit2,
-  Trash2,
+  Ban,
   Plus } from 'lucide-react';
 import clsx from 'clsx';
-import { API_BASE_URL, getInvoices, type Invoice, deleteInvoice } from '../../services/api';
+import { API_BASE_URL, getInvoices, type Invoice, voidInvoice } from '../../services/api';
+import { useAuth } from '../../contexts/AuthContext';
 import { ACCESS_TOKEN_KEY } from '../../api/axios';
 import { getCustomers, type Customer } from '../../services/customerService';
 import { getCompanySettings, type CompanySettings } from '../../services/settingsService';
@@ -99,6 +100,14 @@ function isOverdue(inv: Invoice, today: Date): boolean {
   return due.getTime() < today.getTime();
 }
 
+function isSettledStatus(inv: Invoice): boolean {
+  return inv.status === 'Paid' || inv.status === 'Void' || inv.status === 'Cancelled';
+}
+
+function hasMoney(inv: Invoice): boolean {
+  return (inv.amount_paid ?? 0) > 0.005;
+}
+
 type FilterTab = 'all' | 'today' | 'unpaid' | 'paid' | 'overdue';
 
 function statusBadgeClass(status: Invoice['status']): string {
@@ -111,6 +120,10 @@ function statusBadgeClass(status: Invoice['status']): string {
       return 'bg-[rgba(251,146,60,0.12)] text-[#FDBA74] border border-[rgba(251,146,60,0.2)]';
     case 'Overdue':
       return 'text-white border border-transparent';
+    case 'Void':
+      return 'bg-gray-200 text-gray-600 border border-gray-300 line-through';
+    case 'Cancelled':
+      return 'bg-gray-100 text-gray-500 border border-gray-300';
     default:
       return 'bg-white/10 text-redwood-text-main border border-redwood-border';
   }
@@ -118,6 +131,8 @@ function statusBadgeClass(status: Invoice['status']): string {
 
 export default function Invoices() {
   const navigate = useNavigate();
+  const { hasRole } = useAuth();
+  const canVoid = hasRole('admin', 'accountant');
   const { trackPage } = useTracking();
   useEffect(() => { trackPage('invoices'); }, [trackPage]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -137,6 +152,7 @@ export default function Invoices() {
   const [shareMenuInvoiceId, setShareMenuInvoiceId] = useState<string | null>(null);
   const [shareMenuPos, setShareMenuPos] = useState<{ top: number; left: number } | null>(null);
   const shareButtonRef = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [pendingVoid, setPendingVoid] = useState<Invoice | null>(null);
   const [shareAttachModal, setShareAttachModal] = useState<{
     channel: 'whatsapp' | 'sms' | 'email';
     fileName: string;
@@ -288,21 +304,21 @@ export default function Invoices() {
     }
   };
 
-  // FIX W2-1 — Delete invoice with paid-guard + confirm + optimistic state.
-  const handleDeleteInvoice = async (inv: { id: string | number; invoiceNumber?: string; status?: string }, e: React.MouseEvent) => {
+  const requestVoidInvoice = (inv: Invoice, e: React.MouseEvent) => {
     e.stopPropagation();
-    if ((inv.status || '').toLowerCase() === 'paid') {
-      alert('Cannot delete a Paid invoice.  Void or refund it first.');
-      return;
-    }
-    const num = inv.invoiceNumber || `#${inv.id}`;
-    if (!window.confirm(`Delete invoice ${num}?  This cannot be undone.`)) return;
+    setPendingVoid(inv);
+  };
+
+  const confirmVoidInvoice = async () => {
+    const inv = pendingVoid;
+    if (!inv) return;
+    setPendingVoid(null);
     try {
-      await deleteInvoice(String(inv.id));
-      setInvoices(prev => prev.filter(x => String(x.id) !== String(inv.id)));
+      await voidInvoice(String(inv.id));
+      await load();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Delete failed.';
-      alert(`Could not delete invoice: ${msg}`);
+      const msg = err instanceof Error ? err.message : 'Void failed.';
+      alert(`Could not void invoice: ${msg}`);
     }
   };
 
@@ -442,6 +458,21 @@ export default function Invoices() {
   return (
     <div className="min-h-screen bg-redwood-bg-light pb-24 md:pb-10">
       <div className="max-w-7xl mx-auto px-4 md:px-6 pt-6 space-y-6">
+        {pendingVoid && (
+          <div className="bg-white border border-red-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3" data-testid="void-invoice-confirm">
+            <p className="text-sm font-bold text-gray-900">
+              Void invoice {pendingVoid.invoiceNumber || `#${pendingVoid.id}`}? This reverses its ledger entries and restores stock. This cannot be undone.
+            </p>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => void confirmVoidInvoice()} className="px-3 py-2 rounded-lg bg-red-600 text-white text-xs font-black">
+                Void
+              </button>
+              <button type="button" onClick={() => setPendingVoid(null)} className="px-3 py-2 rounded-lg border border-gray-300 text-xs font-black text-gray-700">
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
         <div className="bg-white p-8 md:p-10 rounded-3xl border border-gray-100 shadow-sm relative overflow-hidden">
           <div className="absolute top-0 right-0 p-6 opacity-[0.06] pointer-events-none">
             <FileText size={160} className="text-white" />
@@ -698,22 +729,26 @@ export default function Invoices() {
                         </td>
                         <td className="px-3 sm:px-4 py-3">
                           <div className="flex items-center justify-center gap-0.5 sm:gap-1 flex-nowrap">
-                            <button
-                              type="button"
-                              title="Edit Invoice"
-                              onClick={() => navigate(`/sales/invoices/${inv.id}`, { state: { editMode: true, invoice: inv } })}
-                              className="p-1.5 sm:p-2 rounded-lg text-[#FB923C] hover:bg-[#FB923C]/10 transition-colors"
-                            >
-                              <Edit2 size={17} className="sm:w-[18px] sm:h-[18px]" />
-                            </button>
-                            <button
-                              title="Delete Invoice"
-                              onClick={(e) => void handleDeleteInvoice(inv, e)}
-                              className="p-2 text-redwood-text-muted hover:text-[#FCA5A5] hover:bg-[#EF4444]/10 rounded transition-colors"
-                              aria-label="Delete invoice"
-                            >
-                              <Trash2 size={17} className="sm:w-[18px] sm:h-[18px]" />
-                            </button>
+                            {!hasMoney(inv) && inv.status !== 'Void' && inv.status !== 'Cancelled' && (
+                              <button
+                                type="button"
+                                title="Edit Invoice"
+                                onClick={() => navigate(`/sales/invoices/${inv.id}`, { state: { editMode: true, invoice: inv } })}
+                                className="p-1.5 sm:p-2 rounded-lg text-[#FB923C] hover:bg-[#FB923C]/10 transition-colors"
+                              >
+                                <Edit2 size={17} className="sm:w-[18px] sm:h-[18px]" />
+                              </button>
+                            )}
+                            {canVoid && !hasMoney(inv) && inv.status !== 'Void' && inv.status !== 'Cancelled' && (
+                              <button
+                                type="button"
+                                title="Void Invoice"
+                                onClick={(e) => requestVoidInvoice(inv, e)}
+                                className="p-1.5 sm:p-2 rounded-lg text-gray-600 hover:bg-gray-100 transition-colors"
+                              >
+                                <Ban size={17} className="sm:w-[18px] sm:h-[18px]" />
+                              </button>
+                            )}
                             <button
                               type="button"
                               title="View"
@@ -742,7 +777,7 @@ export default function Invoices() {
                             >
                               <Download size={17} className="sm:w-[18px] sm:h-[18px]" />
                             </button>
-                            {inv.status !== 'Paid' && (
+                            {!isSettledStatus(inv) && (
                               <button
                                 type="button"
                                 title="Apply Credit"
@@ -855,6 +890,11 @@ export default function Invoices() {
                     </p>
                   </div>
                 </div>
+                {detailInvoice.deposit_account_name ? (
+                  <p className="text-xs text-gray-600 font-semibold pt-2 border-t border-gray-200">
+                    Deposit to: {detailInvoice.deposit_account_name}
+                  </p>
+                ) : null}
                 <p className="text-xs text-gray-500 font-medium pt-2 border-t border-gray-200">
                   Detailed payment history is available on the customer ledger when payments are recorded there.
                 </p>

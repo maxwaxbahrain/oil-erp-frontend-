@@ -50,6 +50,7 @@ import {
 } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { MANAGEMENT_ROLES } from '../../utils/rbac';
+import { buildNewExpenseUrl } from '../Accounts/expenseQueryParams';
 import { getCustomerCreditNotes, updateCreditNote, type CreditNote } from '../../services/creditNoteService';
 // STEP 11B — load customer billable expenses for the Unbilled tab.
 import { saveExpense, type Expense } from '../../services/expenseService';
@@ -2547,9 +2548,13 @@ export default function CustomerOverview() {
                                 No expenses recorded
                             </div>
                             <div style={{ fontSize: 11, color: 'var(--t2,#8BA3C7)', marginBottom: 16 }}>
-                                No expenses are linked to this customer yet
+                                Expenses linked to this customer are managed in Finance › Expenses.
                             </div>
-                            <button style={{
+                            {hasRole(...MANAGEMENT_ROLES) && (
+                            <button
+                                type="button"
+                                onClick={() => navigate(buildNewExpenseUrl(customer.id))}
+                                style={{
                                 background: '#4F8EF7', color: '#fff', border: 'none',
                                 borderRadius: 8, padding: '8px 16px',
                                 fontSize: 11, fontWeight: 600, cursor: 'pointer',
@@ -2557,6 +2562,7 @@ export default function CustomerOverview() {
                             }}>
                                 + Add expense
                             </button>
+                            )}
                         </div>
                     )}
                 </div>

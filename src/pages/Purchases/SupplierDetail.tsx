@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type CSSProperties } from 'react';
+import { useState, useEffect, useMemo, useRef, type CSSProperties } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
     ArrowLeft,
@@ -37,21 +37,7 @@ import {
 } from '../../services/purchasesService';
 import { authFetch } from '../../api/axios';
 import { getSupplierLedger, type PartyLedgerRow } from '../../services/api';
-import { getGLAccounts, type GLAccount } from '../../services/glService';
-
-/** Backend supplier payment lookup matches accounts.id; cash_on_hand / bank only. */
-const PAY_FROM_SYSTEM_KEYS = new Set(['cash_on_hand', 'bank']);
-
-function filterPayFromAccounts(rows: GLAccount[]): GLAccount[] {
-    return rows.filter((a) => a.system_key != null && PAY_FROM_SYSTEM_KEYS.has(a.system_key));
-}
-
-function defaultPayFromAccountId(accounts: GLAccount[]): string {
-    const bank = accounts.find((a) => a.system_key === 'bank');
-    const cash = accounts.find((a) => a.system_key === 'cash_on_hand');
-    const pick = bank ?? cash ?? accounts[0];
-    return pick ? String(pick.id) : '';
-}
+import { useBankingAccounts } from '../../hooks/useBankingAccounts';
 
 // SupplierDetail v3 (direct API): bypasses the service layer for read paths
 // so cached old bundles can't show stale localStorage data. Writes still
@@ -95,10 +81,15 @@ function poWorkflowStatusBadge(status: string): { label: string; bg: string; col
 /** Map backend PartyLedgerRow → display row; running_balance from API only. */
 function mapSupplierPartyRow(row: PartyLedgerRow): SupplierLedgerEntry {
     const rawType = (row.type || '').toLowerCase();
+    const type: SupplierLedgerEntry['type'] =
+        rawType === 'payment' ? 'Payment'
+            : rawType === 'purchase_return' ? 'Purchase return'
+                : rawType === 'purchase_return_refund' ? 'Supplier refund'
+                    : 'Purchase';
     return {
         id: String(row.id),
         date: row.date ?? '',
-        type: rawType === 'payment' ? 'Payment' : 'Purchase',
+        type,
         referenceNumber: row.reference || '',
         description: row.description || '',
         debit: Number(row.debit) || 0,
@@ -210,6 +201,7 @@ export default function SupplierDetail() {
     const [toDate, setToDate] = useState('');
     const [purchases, setPurchases] = useState<PurchaseOrder[]>([]);
     const [payments, setPayments] = useState<SupplierPayment[]>([]);
+    const [balanceBreakdown, setBalanceBreakdown] = useState<{ totalReturns?: number; totalRefunds?: number }>({});
 
     // Modal state
     const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -237,10 +229,9 @@ export default function SupplierDetail() {
     // ITEM 6E — Multi-PO checklist state (mirror of customer 5E).
     const [selectedPOIds, setSelectedPOIds] = useState<string[]>([]);
     // Pay-from-account dropdown — real GL accounts from GET /api/accounts/.
-    const [bankAccounts, setBankAccounts] = useState<GLAccount[]>([]);
+    const { cash, banks, defaultBank, loading: accountsLoading, error: accountsLoadError } = useBankingAccounts();
+    const bankAccounts = useMemo(() => [...banks, ...cash], [banks, cash]);
     const [payFromAccountId, setPayFromAccountId] = useState<string>('');
-    const [accountsLoading, setAccountsLoading] = useState(true);
-    const [accountsLoadError, setAccountsLoadError] = useState<string | null>(null);
 
     const [selectedCurrency, setSelectedCurrency] = useState(WORLD_CURRENCIES[0]); // Default to USD
 
@@ -253,36 +244,18 @@ export default function SupplierDetail() {
         }
     }, [location.search]);
 
-    // Load cash/bank GL accounts from GET /api/accounts/ (same pattern as PaymentReceipt 5H).
     useEffect(() => {
-        let cancelled = false;
-        setAccountsLoading(true);
-        setAccountsLoadError(null);
-        getGLAccounts()
-            .then((rows) => {
-                if (cancelled) return;
-                const payTargets = filterPayFromAccounts(rows);
-                setBankAccounts(payTargets);
-                setPayFromAccountId(defaultPayFromAccountId(payTargets));
-                if (payTargets.length === 0) {
-                    setAccountsLoadError('No cash or bank accounts are configured in the chart of accounts.');
-                }
-            })
-            .catch((e: unknown) => {
-                if (cancelled) return;
-                setBankAccounts([]);
-                setPayFromAccountId('');
-                const msg = e instanceof Error ? e.message : 'Could not load chart of accounts.';
-                setAccountsLoadError(msg);
-                console.warn('Could not load pay-from accounts from API:', e);
-            })
-            .finally(() => {
-                if (!cancelled) setAccountsLoading(false);
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, []);
+        if (accountsLoading) return;
+        if (accountsLoadError) {
+            setPayFromAccountId('');
+            return;
+        }
+        setPayFromAccountId((prev) => {
+            if (bankAccounts.some((account) => String(account.id) === prev)) return prev;
+            const pick = defaultBank ?? cash[0] ?? bankAccounts[0];
+            return pick ? String(pick.id) : '';
+        });
+    }, [accountsLoading, accountsLoadError, bankAccounts, defaultBank, cash]);
 
     // FIX W2-3 — Auto-open the edit modal when the user clicked the
     // per-row Edit button on SupplierList. We clear the history state
@@ -371,6 +344,34 @@ export default function SupplierDetail() {
 
     useEffect(() => {
         if (id) loadAllData();
+    }, [id]);
+
+    useEffect(() => {
+        if (!id) return;
+        let cancelled = false;
+        setBalanceBreakdown({});
+        (async () => {
+            try {
+                const r = await authFetch(`${SUPPLIERS_API}/${encodeURIComponent(id)}/balance`);
+                if (!r.ok || cancelled) return;
+                const j = await r.json() as Record<string, unknown>;
+                const next: { totalReturns?: number; totalRefunds?: number } = {};
+                if ('totalReturns' in j && j.totalReturns != null && j.totalReturns !== '') {
+                    const n = Number(j.totalReturns);
+                    if (Number.isFinite(n)) next.totalReturns = n;
+                }
+                if ('totalRefunds' in j && j.totalRefunds != null && j.totalRefunds !== '') {
+                    const n = Number(j.totalRefunds);
+                    if (Number.isFinite(n)) next.totalRefunds = n;
+                }
+                if (!cancelled) setBalanceBreakdown(next);
+            } catch {
+                // Balance breakdown is optional; the ledger card still renders.
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
     }, [id]);
 
     useEffect(() => {
@@ -865,10 +866,26 @@ export default function SupplierDetail() {
                         sub: purchases.length > 0 ? formatDateOnly(purchases[0].date) : 'No purchases',
                     },
                 ];
+                if (balanceBreakdown.totalReturns != null) {
+                    statCells.push({
+                        label: 'Returns',
+                        value: formatCurrency(balanceBreakdown.totalReturns),
+                        color: '#F59E0B',
+                        sub: 'Purchase returns',
+                    });
+                }
+                if (balanceBreakdown.totalRefunds != null) {
+                    statCells.push({
+                        label: 'Refunds',
+                        value: formatCurrency(balanceBreakdown.totalRefunds),
+                        color: '#22C55E',
+                        sub: 'Supplier refunds',
+                    });
+                }
 
                 return (
                     <div style={{
-                        display: 'grid', gridTemplateColumns: 'repeat(6,1fr)',
+                        display: 'grid', gridTemplateColumns: `repeat(${statCells.length}, minmax(0, 1fr))`,
                         borderBottom: '1px solid rgba(255,255,255,.07)',
                         background: 'var(--bg2,#0a1726)', borderRadius: 10, overflow: 'hidden',
                     }}>
@@ -877,7 +894,7 @@ export default function SupplierDetail() {
                                 key={cell.label}
                                 style={{
                                     padding: '12px 14px',
-                                    borderRight: i < 5 ? '1px solid rgba(255,255,255,.07)' : 'none',
+                                    borderRight: i < statCells.length - 1 ? '1px solid rgba(255,255,255,.07)' : 'none',
                                 }}
                             >
                                 <div style={{

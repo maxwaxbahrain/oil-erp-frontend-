@@ -2,7 +2,8 @@
 // the engine status. Used at the top of the Tax Engine landing page so
 // the user knows whether the backend is reachable.
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useVisiblePolling } from '../../../hooks/useVisiblePolling';
 import { CheckCircle, AlertCircle, RefreshCw } from 'lucide-react';
 import { fetchEngineHealth } from '../integrations/taxEngineApi';
 import type { TaxEngineHealth } from '../data/types';
@@ -25,11 +26,7 @@ export function HealthBadge({ externalRuleCount }: Props = {}) {
         finally { setLoading(false); }
     };
 
-    useEffect(() => {
-        refresh();
-        const t = setInterval(refresh, 60_000); // re-check every minute
-        return () => clearInterval(t);
-    }, []);
+    useVisiblePolling(refresh, 60_000);
 
     if (loading && !health) {
         return (

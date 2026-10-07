@@ -15,21 +15,51 @@ import { WORLD_CURRENCIES } from '../../constants/currencies';
 import { getSystemSettings } from '../../services/settingsService';
 import { formatDateOnly } from '../../utils/formatters';
 import { localIsoDate } from '../../utils/localDate';
-// ITEM 5H — Bank/Cash account dropdown from backend COA (cash_on_hand + bank).
-import { getGLAccounts, type GLAccount } from '../../services/glService';
+import { useBankingAccounts } from '../../hooks/useBankingAccounts';
+import type { BankingAccount } from '../../services/glService';
+import { depositPickerForMethod, methodIsCashReceipt } from '../../utils/bankingAccounts';
 
-/** Backend payment lookup matches accounts.id; only cash_on_hand / bank system_keys pass validation. */
-const DEPOSIT_SYSTEM_KEYS = new Set(['cash_on_hand', 'bank']);
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
-function filterDepositAccounts(rows: GLAccount[]): GLAccount[] {
-  return rows.filter((a) => a.system_key != null && DEPOSIT_SYSTEM_KEYS.has(a.system_key));
-}
-
-function defaultDepositAccountId(accounts: GLAccount[]): string {
-  const bank = accounts.find((a) => a.system_key === 'bank');
-  const cash = accounts.find((a) => a.system_key === 'cash_on_hand');
-  const pick = bank ?? cash ?? accounts[0];
-  return pick ? String(pick.id) : '';
+export function DepositAccountField({
+  method,
+  cash,
+  banks,
+  value,
+  onChange,
+  errored,
+}: {
+  method: string;
+  cash: BankingAccount[];
+  banks: BankingAccount[];
+  value: string;
+  onChange: (id: string) => void;
+  errored: boolean;
+}) {
+  if (errored) return null;
+  const picker = depositPickerForMethod(method, cash, banks);
+  if (picker.options.length === 0) return null;
+  return (
+    <>
+      <select
+        aria-label="Deposit To Account"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        required
+        disabled={picker.disabled}
+        className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-sm font-bold focus:border-[#4F8EF7] focus:ring-4 focus:ring-[#4F8EF7]/10 outline-none transition-all bg-white disabled:bg-gray-100"
+      >
+        {picker.options.map((account) => (
+          <option key={account.id} value={String(account.id)}>
+            {account.code} — {account.name}
+          </option>
+        ))}
+      </select>
+      {picker.helper && (
+        <p className="text-xs font-bold text-gray-600">{picker.helper}</p>
+      )}
+    </>
+  );
 }
 
 interface PaymentReceiptProps {
@@ -69,14 +99,16 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
   // Now: an array of selected ids. Single-invoice flow still works
   // (just one item in the array); multi-invoice auto-sums amounts.
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
+  const [allocationAmounts, setAllocationAmounts] = useState<Record<string, number>>({});
+  const [allocationError, setAllocationError] = useState<string | null>(null);
   const [unpaidInvoices, setUnpaidInvoices] = useState<Invoice[]>([]);
   const [advanceBalance, setAdvanceBalance] = useState<number>(0);
 
-  // ITEM 5H — Cash/bank GL accounts from GET /api/accounts/ (real DB ids).
-  const [bankAccounts, setBankAccounts] = useState<GLAccount[]>([]);
+  const { cash, banks, defaultBank, loading: accountsLoading, error: accountsLoadError } = useBankingAccounts();
   const [depositAccountId, setDepositAccountId] = useState<string>('');
-  const [accountsLoading, setAccountsLoading] = useState(true);
-  const [accountsLoadError, setAccountsLoadError] = useState<string | null>(null);
+  const depositOptions = accountsLoadError
+    ? []
+    : depositPickerForMethod(paymentMethod, cash, banks).options;
 
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -91,34 +123,20 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
   }, [customer.id]);
 
   useEffect(() => {
-    let cancelled = false;
-    setAccountsLoading(true);
-    setAccountsLoadError(null);
-    getGLAccounts()
-      .then((rows) => {
-        if (cancelled) return;
-        const depositTargets = filterDepositAccounts(rows);
-        setBankAccounts(depositTargets);
-        setDepositAccountId(defaultDepositAccountId(depositTargets));
-        if (depositTargets.length === 0) {
-          setAccountsLoadError('No cash or bank accounts are configured in the chart of accounts.');
-        }
-      })
-      .catch((e: unknown) => {
-        if (cancelled) return;
-        setBankAccounts([]);
-        setDepositAccountId('');
-        const msg = e instanceof Error ? e.message : 'Could not load chart of accounts.';
-        setAccountsLoadError(msg);
-        console.warn('Could not load deposit accounts from API:', e);
-      })
-      .finally(() => {
-        if (!cancelled) setAccountsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [customer.id]);
+    if (accountsLoading) return;
+    if (accountsLoadError) {
+      setDepositAccountId('');
+      return;
+    }
+    if (methodIsCashReceipt(paymentMethod)) {
+      setDepositAccountId(cash[0] ? String(cash[0].id) : '');
+      return;
+    }
+    setDepositAccountId((prev) => {
+      if (banks.some((account) => String(account.id) === prev)) return prev;
+      return defaultBank ? String(defaultBank.id) : '';
+    });
+  }, [accountsLoading, accountsLoadError, paymentMethod, cash, banks, defaultBank]);
 
   // FIX #2B — the outstanding set is EXACTLY what the API returns via
   // getUnpaidInvoices, which is derived from PaymentAllocation rows by the 2A
@@ -127,10 +145,9 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
   // cleared while the ledger was wrong). Display each invoice's API balance.
   const openInvoices = unpaidInvoices;
 
-  // ITEM 5E — Auto-sum amount when invoices are selected. With 1 invoice,
-  // amount stays editable so the user can partial-pay. With N>1, amount
-  // becomes the sum of all selected invoices' remaining balances and the
-  // input goes read-only (each invoice gets its full remaining_balance).
+  // ITEM 5E — With 1 invoice, amount stays editable so the user can partial-pay.
+  // With N>1, amount is the sum of the per-invoice Apply boxes and the input
+  // goes read-only. selectedInvoicesTotal stays the outstanding sum for the banner.
   const selectedInvoices = openInvoices.filter(inv => selectedInvoiceIds.includes(String(inv.id)));
   const selectedInvoicesTotal = selectedInvoices.reduce(
     (s, inv) => s + Number(inv.remaining_balance ?? inv.grandTotal ?? 0),
@@ -140,9 +157,12 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
   const selectedInvoice = selectedInvoices.length === 1 ? selectedInvoices[0] : null;
 
   // FIX #2B — the invoice portion (single invoice = editable `amount` so partial
-  // pay still works; multiple = auto-sum of each invoice's API remaining) plus
+  // pay still works; multiple = sum of per-invoice Apply amounts) plus
   // the optional opening-balance line. Used for the preview + submitted total.
-  const invoicesPortion = selectedInvoices.length === 1 ? amount : selectedInvoicesTotal;
+  const allocatedTotal = round2(
+    selectedInvoiceIds.reduce((sum, id) => sum + Number(allocationAmounts[id] ?? 0), 0),
+  );
+  const invoicesPortion = selectedInvoices.length === 1 ? amount : allocatedTotal;
   const previewTotal = invoicesPortion + (includeOpeningBalance ? openingBalanceAmount : 0);
 
   useEffect(() => {
@@ -152,11 +172,11 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
       const inv = openInvoices.find(i => String(i.id) === selectedInvoiceIds[0]);
       if (inv) setAmount(Number(inv.remaining_balance ?? inv.grandTotal ?? 0));
     } else {
-      // Multi-invoice mode: amount is the auto-sum (input goes read-only).
-      setAmount(Number(selectedInvoicesTotal.toFixed(2)));
+      // Multi-invoice mode: amount is the sum of Apply boxes (input stays read-only).
+      setAmount(Number(allocatedTotal.toFixed(2)));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedInvoiceIds, unpaidInvoices.length]);
+  }, [selectedInvoiceIds, unpaidInvoices.length, allocationAmounts]);
 
   async function loadInvoices() {
     try {
@@ -197,7 +217,7 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
   }, [openInvoices.length]);
 
   const depositReady =
-    !accountsLoading && !accountsLoadError && bankAccounts.length > 0 && depositAccountId !== '';
+    !accountsLoading && !accountsLoadError && depositOptions.length > 0 && depositAccountId !== '';
   const submitDisabled = loading || !depositReady;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -258,12 +278,25 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
         allocations.push({ invoice_id: null, amount: toBase(excess) });
       }
     } else {
-      // Multiple invoices: each gets its full API remaining balance.
-      for (const inv of selectedInvoices) {
-        const remaining = Number(inv.remaining_balance ?? 0);
-        if (remaining > 0.005) {
-          allocations.push({ invoice_id: Number(inv.id), amount: toBase(remaining) });
+      // Multiple invoices: post each Apply amount (partial pay allowed).
+      for (const id of selectedInvoiceIds) {
+        const amt = round2(allocationAmounts[id] ?? 0);
+        const inv = selectedInvoices.find((row) => String(row.id) === id);
+        const remaining = Number(inv?.remaining_balance ?? 0);
+        if (amt < 0 || amt > remaining + 0.005) {
+          setAllocationError('One or more Apply amounts exceed the invoice balance or are negative. Fix them before saving.');
+          return;
         }
+      }
+      for (const inv of selectedInvoices) {
+        const amt = round2(allocationAmounts[String(inv.id)] ?? 0);
+        if (amt > 0.005) {
+          allocations.push({ invoice_id: Number(inv.id), amount: toBase(amt) });
+        }
+      }
+      if (allocations.length === 0 && !hasOpening) {
+        setAllocationError('Enter an Apply amount on at least one invoice.');
+        return;
       }
     }
     // Opening balance is one more line ALONGSIDE the invoices (never a wipe).
@@ -314,6 +347,8 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
       });
 
       setSuccess(true);
+      setAllocationAmounts({});
+      setAllocationError(null);
     } catch (error) {
       console.error('Failed to record payment:', error);
       alert('Failed to record payment. Please try again.');
@@ -566,36 +601,89 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
                   const idStr = String(inv.id);
                   const isChecked = selectedInvoiceIds.includes(idStr);
                   const bal = Number(inv.remaining_balance ?? inv.grandTotal ?? 0);
+                  const applyTooHigh = (allocationAmounts[idStr] ?? 0) > bal + 0.005;
                   return (
-                    <label
+                    <div
                       key={idStr}
-                      className={`flex items-center gap-4 px-4 py-3 cursor-pointer transition-colors ${isChecked ? 'bg-emerald-50' : 'hover:bg-gray-50'}`}
+                      className={`flex items-center gap-4 px-4 py-3 transition-colors ${isChecked ? 'bg-emerald-50' : 'hover:bg-gray-50'}`}
                     >
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedInvoiceIds(prev => [...prev, idStr]);
-                          } else {
-                            setSelectedInvoiceIds(prev => prev.filter(x => x !== idStr));
-                          }
-                        }}
-                        className="w-5 h-5 rounded border-2 border-gray-300 text-[#4F8EF7] focus:ring-2 focus:ring-[#4F8EF7]"
-                      />
-                      <div className="flex-1">
-                        <div className="font-bold text-sm text-gray-900">{inv.invoiceNumber}</div>
-                        <div className="text-[10px] text-gray-400 font-bold  mt-0.5">
-                          {inv.invoiceDate ? formatDateOnly(inv.invoiceDate) : '—'}
-                          {inv.dueDate ? ` · Due ${formatDateOnly(inv.dueDate)}` : ''}
-                          {' · Total ' + Number(inv.grandTotal ?? 0).toFixed(2)}
+                      <label
+                        htmlFor={`pay-inv-${idStr}`}
+                        className="flex flex-1 items-center gap-4 cursor-pointer min-w-0"
+                      >
+                        <input
+                          id={`pay-inv-${idStr}`}
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            setAllocationError(null);
+                            if (e.target.checked) {
+                              const nextIds = selectedInvoiceIds.includes(idStr)
+                                ? selectedInvoiceIds
+                                : [...selectedInvoiceIds, idStr];
+                              setSelectedInvoiceIds(nextIds);
+                              setAllocationAmounts((prev) => ({
+                                ...prev,
+                                [idStr]: round2(Number(inv.remaining_balance ?? inv.grandTotal ?? 0)),
+                              }));
+                              if (methodIsCashReceipt(paymentMethod)) return;
+                              if (inv.deposit_account_id == null) return;
+                              const depositKey = String(inv.deposit_account_id);
+                              const disagree = openInvoices.some((row) =>
+                                selectedInvoiceIds.includes(String(row.id))
+                                && row.deposit_account_id != null
+                                && String(row.deposit_account_id) !== depositKey,
+                              );
+                              if (disagree) return;
+                              if (!banks.some((account) => String(account.id) === depositKey)) return;
+                              setDepositAccountId(depositKey);
+                            } else {
+                              setSelectedInvoiceIds(prev => prev.filter(x => x !== idStr));
+                              setAllocationAmounts((prev) => {
+                                const next = { ...prev };
+                                delete next[idStr];
+                                return next;
+                              });
+                            }
+                          }}
+                          className="w-5 h-5 rounded border-2 border-gray-300 text-[#4F8EF7] focus:ring-2 focus:ring-[#4F8EF7]"
+                        />
+                        <div className="flex-1">
+                          <div className="font-bold text-sm text-gray-900">{inv.invoiceNumber}</div>
+                          <div className="text-[10px] text-gray-400 font-bold  mt-0.5">
+                            {inv.invoiceDate ? formatDateOnly(inv.invoiceDate) : '—'}
+                            {inv.dueDate ? ` · Due ${formatDateOnly(inv.dueDate)}` : ''}
+                            {' · Total ' + Number(inv.grandTotal ?? 0).toFixed(2)}
+                          </div>
                         </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-sm font-mono font-black text-red-600">{bal.toFixed(2)}</div>
-                        <div className="text-[9px] text-gray-400 uppercase font-bold tracking-widest">Outstanding</div>
-                      </div>
-                    </label>
+                        <div className="text-right">
+                          <div className="text-sm font-mono font-black text-red-600">{bal.toFixed(2)}</div>
+                          <div className="text-[9px] text-gray-400 uppercase font-bold tracking-widest">Outstanding</div>
+                        </div>
+                      </label>
+                      {isChecked && selectedInvoiceIds.length > 1 && (
+                        <div className="text-right">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={allocationAmounts[idStr] ?? ''}
+                            aria-label={`Apply to ${inv.invoiceNumber}`}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => {
+                              const v = parseFloat(e.target.value);
+                              setAllocationAmounts(prev => ({ ...prev, [idStr]: Number.isFinite(v) ? v : 0 }));
+                              setAllocationError(null);
+                            }}
+                            className="w-28 px-2 py-1 border-2 border-gray-300 rounded-md text-sm font-mono text-right focus:border-[#4F8EF7] outline-none"
+                          />
+                          <div className="text-[9px] text-gray-400 uppercase font-bold tracking-widest">Apply</div>
+                          {applyTooHigh && (
+                            <div className="text-[10px] font-bold text-red-600">exceeds outstanding</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -642,7 +730,7 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
             </div>
             {selectedInvoiceIds.length > 1 && (
                 <p className="text-[10px] text-emerald-700 font-bold mt-1 ">
-                    Auto-summed from {selectedInvoiceIds.length} selected invoices · each invoice gets its full balance
+                    Sum of amounts applied to {selectedInvoiceIds.length} invoices · edit each invoice's Apply box to partial-pay
                 </p>
             )}
           </div>
@@ -731,22 +819,20 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
               <div className="px-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-lg text-xs text-gray-600">
                 Loading cash and bank accounts…
               </div>
-            ) : accountsLoadError || bankAccounts.length === 0 ? (
+            ) : accountsLoadError || depositOptions.length === 0 ? (
               <div className="px-4 py-3 bg-amber-50 border-2 border-amber-200 rounded-lg text-xs text-amber-800">
                 {accountsLoadError ||
                   'No cash or bank accounts found. Add accounts with system keys cash_on_hand or bank in Finance → Chart of Accounts.'}
               </div>
             ) : (
-                <select
-                    value={depositAccountId}
-                    onChange={(e) => setDepositAccountId(e.target.value)}
-                    required
-                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-sm font-bold focus:border-[#4F8EF7] focus:ring-4 focus:ring-[#4F8EF7]/10 outline-none transition-all bg-white"
-                >
-                    {bankAccounts.map(a => (
-                        <option key={a.id} value={String(a.id)}>{a.code} — {a.name}</option>
-                    ))}
-                </select>
+              <DepositAccountField
+                method={paymentMethod}
+                cash={cash}
+                banks={banks}
+                value={depositAccountId}
+                onChange={setDepositAccountId}
+                errored={false}
+              />
             )}
           </div>
 
@@ -790,6 +876,10 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
               </p>
             </div>
           </div>
+        )}
+
+        {allocationError && (
+          <p className="text-sm font-bold text-red-600">{allocationError}</p>
         )}
 
         {/* Action Buttons */}

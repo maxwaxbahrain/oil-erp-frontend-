@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, type CSSProperties } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, type CSSProperties } from 'react';
 import {
     Landmark,
     RefreshCw,
@@ -16,16 +16,21 @@ import autoTable from 'jspdf-autotable';
 import { getPayments, voidPayment, type Payment } from '../../services/api';
 import { getCompanyProfile } from '../../services/settingsService';
 import { getArSummary, getCustomers, type Customer } from '../../services/customerService';
-import { getGLAccounts, type GLAccount } from '../../services/glService';
+import { createBankingAccount, getBankingAccounts, getCollectionsBankSettings, getGLAccounts, patchCollectionsBankSettings, renameBankingAccount, type GLAccount } from '../../services/glService';
 import { authFetch } from '../../api/axios';
+import { useAuth } from '../../contexts/AuthContext';
+import { FINANCE_ROLES } from '../../utils/rbac';
+import { chequeBankAccountEditable, pdcCreateBody, pdcListUrl } from '../../utils/bankingAccounts';
 import { formatDateOnly } from '../../utils/formatters';
 import { localIsoDate } from '../../utils/localDate';
 import { getOilErpApiBase } from '../../config/apiBase';
 import {
     bankTxHomeState,
     bankTxIdFromSourceId,
+    buildStatementExport,
     chequeActions,
-    chequeConfirmText,
+    chequeEffectSentence,
+    foreignTransferEditMessage,
     contraAccountOptions,
     contraOptionsWithCurrent,
     filterLedgerRows,
@@ -69,6 +74,8 @@ interface PDCheque {
     clearedDate?: string;
     bouncedDate?: string;
     glPosted?: boolean;
+    bank_account_id?: number | null;
+    bank_account_name?: string | null;
 }
 
 interface BankAccountRow {
@@ -76,6 +83,8 @@ interface BankAccountRow {
     code: string;
     name: string;
     role?: string;
+    is_default?: boolean;
+    balance?: number;
 }
 
 interface AccountLedger {
@@ -175,9 +184,9 @@ async function deleteBankTxApi(id: string): Promise<ApiResult<void>> {
     }
 }
 
-async function getPDC(): Promise<PDCheque[]> {
+async function getPDC(bankAccountId = ''): Promise<PDCheque[]> {
     try {
-        const r = await authFetch(`${PDC_API}/`);
+        const r = await authFetch(pdcListUrl(PDC_API, bankAccountId));
         if (!r.ok) return [];
         const rows = await r.json();
         return Array.isArray(rows) ? rows : [];
@@ -227,6 +236,107 @@ async function fetchAccountLedger(accountId: number, startDate?: string, endDate
         return null;
     }
 }
+
+export function ForeignTransferNotice({
+    accountName,
+    onOpenAccount,
+}: {
+    accountName: string;
+    onOpenAccount: () => void;
+}) {
+    return (
+        <span>
+            This transfer was recorded from the {accountName} account —{' '}
+            <button type="button" onClick={onOpenAccount}>edit it there</button>
+        </span>
+    );
+}
+
+export function InlineConfirmPanel({
+    title,
+    lines,
+    effect,
+    onConfirm,
+    onCancel,
+}: {
+    title: string;
+    lines: string[];
+    effect: string;
+    onConfirm: () => void;
+    onCancel: () => void;
+}) {
+    return (
+        <div role="dialog" aria-label={title} style={{ ...panelStyle, borderColor: 'rgba(79,142,247,.45)' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-redwood-text-main)', marginBottom: 6 }}>
+                {title}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--color-redwood-text-main)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {lines.map((line, index) => (
+                    <div key={`${index}-${line}`}>{line}</div>
+                ))}
+                <div>{effect}</div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                <button type="button" onClick={onConfirm} style={primaryBtnSafe}>Confirm</button>
+                <button type="button" onClick={onCancel} style={ghostBtnSafe}>Cancel</button>
+            </div>
+        </div>
+    );
+}
+
+export function ChequeConfirmPanel({
+    chequeNo,
+    amountLabel,
+    customer,
+    effect,
+    onConfirm,
+    onCancel,
+}: {
+    chequeNo: string;
+    amountLabel: string;
+    customer: string;
+    effect: string;
+    onConfirm: () => void;
+    onCancel: () => void;
+}) {
+    return (
+        <InlineConfirmPanel
+            title="Confirm cheque"
+            lines={[`Cheque no. ${chequeNo}`, `Amount ${amountLabel}`, `Customer ${customer}`]}
+            effect={effect}
+            onConfirm={onConfirm}
+            onCancel={onCancel}
+        />
+    );
+}
+
+const ghostBtnSafe: CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '6px 11px',
+    borderRadius: '6px',
+    fontSize: '10.5px',
+    fontWeight: 500,
+    cursor: 'pointer',
+    border: '1px solid var(--color-redwood-border)',
+    background: 'rgba(255,255,255,.04)',
+    color: 'var(--color-redwood-text-muted)',
+};
+
+const primaryBtnSafe: CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '6px 11px',
+    borderRadius: '6px',
+    fontSize: '10.5px',
+    fontWeight: 500,
+    cursor: 'pointer',
+    border: 'none',
+    background: '#4F8EF7',
+    color: '#fff',
+};
 
 function CustomerPicker({
     customers,
@@ -285,7 +395,99 @@ function CustomerPicker({
     );
 }
 
+function cardBalance(acct: BankAccountRow, closing: number | null | undefined): number | null {
+    if (typeof acct.balance === 'number' && Number.isFinite(acct.balance)) return acct.balance;
+    return closing == null ? null : closing;
+}
+
+function collectionsBankLabel(bank: BankAccountRow): string {
+    if (bank.is_default || bank.code === '1010') return 'Bank (default)';
+    return `${bank.code} — ${bank.name}`;
+}
+
+function DriverCollectionsPanel({ banks }: { banks: BankAccountRow[] }) {
+    const [selectedId, setSelectedId] = useState('');
+    const [loaded, setLoaded] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [notice, setNotice] = useState<string | null>(null);
+    const [errorText, setErrorText] = useState<string | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        getCollectionsBankSettings()
+            .then((data) => {
+                if (cancelled) return;
+                setSelectedId(data.collections_bank_account_id != null ? String(data.collections_bank_account_id) : '');
+                setLoaded(true);
+            })
+            .catch((err) => {
+                if (cancelled) return;
+                console.warn('Could not load collections bank settings', err);
+                setErrorText(err instanceof Error ? err.message : 'Could not load collections bank');
+                setLoaded(true);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    const save = async () => {
+        setSaving(true);
+        setNotice(null);
+        setErrorText(null);
+        const id = selectedId === '' ? null : Number(selectedId);
+        try {
+            const saved = await patchCollectionsBankSettings(id);
+            setSelectedId(saved.collections_bank_account_id != null ? String(saved.collections_bank_account_id) : '');
+            setNotice('Saved.');
+        } catch (err) {
+            setErrorText(err instanceof Error ? err.message : 'Could not save collections bank');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div style={panelStyle} data-testid="driver-collections-panel">
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: 8 }}>
+                Driver &amp; mobile collections
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--color-redwood-text-muted)', marginBottom: 8 }}>
+                Non-cash collections recorded from the driver/sales app are deposited to:
+            </p>
+            <select
+                aria-label="Collections bank"
+                data-testid="collections-bank-select"
+                value={selectedId}
+                onChange={(e) => setSelectedId(e.target.value)}
+                disabled={!loaded || saving}
+                style={{ width: '100%', maxWidth: 360, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }}
+            >
+                <option value="">Use default bank</option>
+                {banks.map((bank) => (
+                    <option key={bank.id} value={String(bank.id)}>
+                        {collectionsBankLabel(bank)}
+                    </option>
+                ))}
+            </select>
+            <div style={{ marginTop: 10 }}>
+                <button type="button" onClick={() => void save()} disabled={!loaded || saving} style={primaryBtnSafe}>
+                    {saving ? 'Saving…' : 'Save'}
+                </button>
+            </div>
+            {notice && (
+                <div data-testid="collections-bank-notice" style={{ marginTop: 8, fontSize: 12, color: 'var(--color-brand-green)' }}>{notice}</div>
+            )}
+            {errorText && (
+                <div data-testid="collections-bank-error" style={{ marginTop: 8, fontSize: 12, color: 'var(--color-brand-red-tint)' }}>{errorText}</div>
+            )}
+        </div>
+    );
+}
+
 export default function Banking() {
+    const { hasRole } = useAuth();
+    const canManageBanks = hasRole(...FINANCE_ROLES);
     const [payments, setPayments] = useState<Payment[]>([]);
     const [arTotal, setArTotal] = useState<number | null>(null);
     const [loading, setLoading] = useState(true);
@@ -304,9 +506,9 @@ export default function Banking() {
         type: 'Credit' as 'Credit' | 'Debit',
         amount: '',
         reference: '',
+        memo: '',
         contraAccountId: '' as string,
     });
-    const [editingCategory, setEditingCategory] = useState<string | null>(null);
     const [editingContraName, setEditingContraName] = useState<string | null>(null);
     const [manualTxs, setManualTxs] = useState<BankTxRow[]>([]);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -321,8 +523,23 @@ export default function Banking() {
         amount: '',
         type: 'Received' as PDCheque['type'],
         description: '',
+        bankAccountId: '',
     });
+    const [pdcBankFilter, setPdcBankFilter] = useState('');
+    const pdcBankFilterRef = useRef('');
+    pdcBankFilterRef.current = pdcBankFilter;
     const [voidingId, setVoidingId] = useState<string | null>(null);
+    const [pendingVoid, setPendingVoid] = useState<{ id: string; amount: number; customerId: string; invoiceId?: string | null } | null>(null);
+    const [voidReason, setVoidReason] = useState('');
+    const [showAddBank, setShowAddBank] = useState(false);
+    const [newBankName, setNewBankName] = useState('');
+    const [addBankError, setAddBankError] = useState<string | null>(null);
+    const [addingBank, setAddingBank] = useState(false);
+    const [renamingId, setRenamingId] = useState<number | null>(null);
+    const [renameValue, setRenameValue] = useState('');
+    const [renameError, setRenameError] = useState<string | null>(null);
+    const [pendingCheque, setPendingCheque] = useState<{ pdc: PDCheque; status: PDCheque['status'] } | null>(null);
+    const [pendingDelete, setPendingDelete] = useState<BankTxRow | null>(null);
     const [cashAccounts, setCashAccounts] = useState<BankAccountRow[]>([]);
     const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
     const [closingByAccount, setClosingByAccount] = useState<Record<number, number | null>>({});
@@ -376,10 +593,13 @@ export default function Banking() {
         if (isRefresh) setRefreshing(true);
         else setLoading(true);
         try {
-            const [p, ar, acctRes, gl, cust] = await Promise.all([
+            const [p, ar, bankRows, gl, cust] = await Promise.all([
                 getPayments().catch(() => []),
                 getArSummary().catch(() => null),
-                authFetch(`${BANKING_API}/accounts`).catch(() => null),
+                getBankingAccounts().catch((err) => {
+                    console.warn('Could not load banking accounts', err);
+                    return [] as BankAccountRow[];
+                }),
                 getGLAccounts().catch(() => []),
                 getCustomers().catch(() => []),
             ]);
@@ -388,11 +608,7 @@ export default function Banking() {
             setGlAccounts(Array.isArray(gl) ? gl.filter(a => a.is_active) : []);
             setCustomers(cust);
 
-            let accounts: BankAccountRow[] = [];
-            if (acctRes?.ok) {
-                const rows = await acctRes.json();
-                accounts = Array.isArray(rows) ? rows : [];
-            }
+            const accounts: BankAccountRow[] = Array.isArray(bankRows) ? bankRows : [];
             setCashAccounts(accounts);
             setSelectedAccountId((prev) => {
                 if (prev != null && accounts.some((acct) => acct.id === prev)) return prev;
@@ -404,7 +620,7 @@ export default function Banking() {
             setRefreshing(false);
         }
         const [pdc, txs] = await Promise.all([
-            getPDC(),
+            getPDC(pdcBankFilterRef.current),
             getBankTxsApi(),
         ]);
         setPdcList(pdc);
@@ -414,7 +630,7 @@ export default function Banking() {
     const refetchAfterAction = useCallback(async () => {
         const [p, pdc, txs, ar] = await Promise.all([
             getPayments().catch(() => payments),
-            getPDC(),
+            getPDC(pdcBankFilterRef.current),
             getBankTxsApi(),
             getArSummary().catch(() => null),
         ]);
@@ -431,6 +647,22 @@ export default function Banking() {
     }, [cashAccounts, loadClosingBalances, loadSelectedLedger, payments, selectedAccountId]);
 
     useEffect(() => {
+        const banks = cashAccounts.filter((acct) => acct.role === 'bank');
+        const preferred = banks.find((acct) => acct.is_default) ?? banks.find((acct) => acct.code === '1010') ?? banks[0];
+        if (!preferred) return;
+        setPdcForm((prev) => (prev.bankAccountId ? prev : { ...prev, bankAccountId: String(preferred.id) }));
+    }, [cashAccounts]);
+
+    const pdcFilterBoot = useRef(true);
+    useEffect(() => {
+        if (pdcFilterBoot.current) {
+            pdcFilterBoot.current = false;
+            return;
+        }
+        void getPDC(pdcBankFilter).then(setPdcList);
+    }, [pdcBankFilter]);
+
+    useEffect(() => {
         void reloadAll();
     }, [reloadAll]);
 
@@ -443,12 +675,21 @@ export default function Banking() {
         void loadSelectedLedger(selectedAccountId);
     }, [selectedAccountId, loadSelectedLedger]);
 
+    const displayAccounts = useMemo(() => {
+        const cash = cashAccounts.filter((acct) => acct.role === 'cash');
+        const banks = cashAccounts
+            .filter((acct) => acct.role === 'bank')
+            .sort((a, b) => Number(Boolean(b.is_default)) - Number(Boolean(a.is_default)) || a.code.localeCompare(b.code));
+        const rest = cashAccounts.filter((acct) => acct.role !== 'cash' && acct.role !== 'bank');
+        return [...cash, ...banks, ...rest];
+    }, [cashAccounts]);
+
     const netCash = useMemo(() => {
-        if (cashAccounts.length === 0) return null;
-        const values = cashAccounts.map((acct) => closingByAccount[acct.id]);
+        if (displayAccounts.length === 0) return null;
+        const values = displayAccounts.map((acct) => cardBalance(acct, closingByAccount[acct.id]));
         if (values.some((value) => value == null)) return null;
         return (values as number[]).reduce((sum, value) => sum + value, 0);
-    }, [cashAccounts, closingByAccount]);
+    }, [displayAccounts, closingByAccount]);
 
     const pendingPDC = useMemo(
         () => pdcList.filter(p => p.status === 'Pending'),
@@ -493,22 +734,64 @@ export default function Banking() {
             showMsg('error', 'This is already a reversal entry — cannot void a void.');
             return;
         }
-        const reason = prompt(
-            `Void payment of $${original.amount.toFixed(2)}?\n\n` +
-            'A reversing entry will be created. The original record stays for audit. ' +
-            'Customer balance and any linked invoice will adjust.\n\n' +
-            'Enter a reason (optional):',
-        );
-        if (reason === null) return;
+        setVoidReason('');
+        setPendingVoid({
+            id: String(original.id),
+            amount: original.amount,
+            customerId: original.customer_id,
+            invoiceId: original.invoice_id,
+        });
+    };
+
+    const submitNewBank = async () => {
+        const name = newBankName.trim();
+        if (!name) {
+            setAddBankError('Enter a bank name.');
+            return;
+        }
+        setAddingBank(true);
+        setAddBankError(null);
+        try {
+            await createBankingAccount(name);
+            setNewBankName('');
+            setShowAddBank(false);
+            await reloadAll(true);
+        } catch (err) {
+            setAddBankError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setAddingBank(false);
+        }
+    };
+
+    const submitRename = async (accountId: number) => {
+        const name = renameValue.trim();
+        if (!name) {
+            setRenameError('Enter a bank name.');
+            return;
+        }
+        setRenameError(null);
+        try {
+            await renameBankingAccount(accountId, name);
+            setRenamingId(null);
+            await reloadAll(true);
+        } catch (err) {
+            setRenameError(err instanceof Error ? err.message : String(err));
+        }
+    };
+
+    const confirmVoid = async () => {
+        if (!pendingVoid) return;
+        const paymentId = pendingVoid.id;
         setVoidingId(paymentId);
         try {
             await voidPayment({
-                id: String(original.id),
-                customer_id: original.customer_id,
-                amount: original.amount,
-                invoice_id: original.invoice_id,
-                reason: reason || undefined,
+                id: paymentId,
+                customer_id: pendingVoid.customerId,
+                amount: pendingVoid.amount,
+                invoice_id: pendingVoid.invoiceId ?? undefined,
+                reason: voidReason || undefined,
             });
+            setPendingVoid(null);
             await refetchAfterAction();
             showMsg('success', 'Payment voided. Reversal entry created.');
         } catch (e) {
@@ -537,7 +820,7 @@ export default function Banking() {
             reference: editingId
                 ? (txForm.reference || '')
                 : (txForm.reference || `REF-${Date.now().toString().slice(-6)}`),
-            category: editingId ? (editingCategory || 'General') : 'General',
+            category: txForm.memo.trim() || 'General',
             account_id: selectedAccountId,
             contra_account_id: txForm.contraAccountId ? Number(txForm.contraAccountId) : null,
         };
@@ -558,9 +841,9 @@ export default function Banking() {
             type: 'Credit',
             amount: '',
             reference: '',
+            memo: '',
             contraAccountId: '',
         });
-        setEditingCategory(null);
         setEditingContraName(null);
         setShowAddTx(false);
         setEditingId(null);
@@ -583,8 +866,18 @@ export default function Banking() {
             showMsg('error', 'Bank transaction not found in the manual list.');
             return;
         }
+        const home = cashAccounts.find(a => a.id === tx.accountId);
+        const foreign = foreignTransferEditMessage(
+            tx.accountId,
+            selectedAccountId,
+            home?.name || 'Bank',
+        );
+        if (foreign) {
+            showMsg('error', foreign);
+            return;
+        }
+        const storedMemo = (tx.category || '').trim();
         setEditingId(String(tx.id));
-        setEditingCategory(tx.category || 'General');
         setEditingContraName(tx.contraAccountName ?? null);
         setTxForm({
             date: tx.date || localIsoDate(),
@@ -592,18 +885,22 @@ export default function Banking() {
             type: tx.type === 'Debit' ? 'Debit' : 'Credit',
             amount: String(tx.amount || ''),
             reference: tx.reference || '',
+            memo: storedMemo && storedMemo !== 'General' ? storedMemo : '',
             contraAccountId: tx.contraAccountId != null ? String(tx.contraAccountId) : '',
         });
         setShowAddTx(true);
     };
 
-    const deleteManualTx = async (row: LedgerRow) => {
+    const deleteManualTx = (row: LedgerRow) => {
         clearMsg();
         const txId = bankTxIdFromSourceId(row.source_id);
         if (txId == null) return;
         const tx = manualTxs.find(t => String(t.id) === String(txId));
         if (!tx) return;
-        if (!confirm(`Delete this transaction?\n\n${tx.description} · ${moneyDirectionLabel(tx.type)} ${formatUsd(tx.amount)}`)) return;
+        setPendingDelete(tx);
+    };
+
+    const performDelete = async (tx: BankTxRow) => {
         const result = await deleteBankTxApi(String(tx.id));
         if (!result.ok) {
             showMsg('error', result.detail || 'Failed to delete transaction');
@@ -619,38 +916,21 @@ export default function Banking() {
             showMsg('error', 'Cheque number, date and amount are required');
             return;
         }
-        const payload: Record<string, unknown> = {
-            date: pdcForm.date,
-            chequeNo: pdcForm.chequeNo,
-            bankName: pdcForm.bankName,
-            payee: pdcForm.payee,
-            amount: parseFloat(pdcForm.amount) || 0,
-            type: pdcForm.type,
-            description: pdcForm.description,
-        };
-        if (pdcForm.type === 'Received' && pdcForm.customerId != null) {
-            payload.customerId = pdcForm.customerId;
-        }
+        const payload = pdcCreateBody(pdcForm);
         const result = await createPDCApi(payload);
         if (!result.ok) {
             showMsg('error', result.detail || 'Failed to save PDC');
             return;
         }
-        setPdcForm({ date: '', chequeNo: '', bankName: '', payee: '', customerId: null, amount: '', type: 'Received', description: '' });
+        setPdcForm({ date: '', chequeNo: '', bankName: '', payee: '', customerId: null, amount: '', type: 'Received', description: '', bankAccountId: pdcForm.bankAccountId });
         setShowPDCForm(false);
         await refetchAfterAction();
         showMsg('success', 'Cheque recorded.');
     };
 
     const confirmAndUpdatePDCStatus = (pdc: PDCheque, status: PDCheque['status']) => {
-        const action = status === 'Cleared' ? 'clear' as const : status === 'Bounced' ? 'bounce' as const : 'cancel' as const;
-        const text = chequeConfirmText(
-            action,
-            { chequeNo: pdc.chequeNo, amount: pdc.amount, type: pdc.type, glPosted: pdc.glPosted },
-            formatUsd,
-        );
-        if (!confirm(text)) return;
-        void updatePDCStatus(pdc.id, status);
+        clearMsg();
+        setPendingCheque({ pdc, status });
     };
 
     const updatePDCStatus = async (id: string, status: PDCheque['status']) => {
@@ -677,6 +957,9 @@ export default function Banking() {
 
     const exportStatementPDF = () => {
         if (!accountLedger || !selectedAccountId) return;
+        const statement = buildStatementExport(ledgerRows, { search, direction: directionFilter });
+        const exportRows = orderLedgerRows(statement.rows, ledgerOrder);
+        const exportTotals = periodTotals(exportRows);
         const acct = cashAccounts.find(a => a.id === selectedAccountId);
         const doc = new jsPDF({ orientation: 'landscape' });
         doc.setFontSize(16);
@@ -686,16 +969,19 @@ export default function Banking() {
         const periodStr = (dateFrom || dateTo)
             ? `${dateFrom || 'earliest'} to ${dateTo || today}`
             : `Up to ${today}`;
-        doc.text(`${getCompanyProfile().name || 'Company'} · ${acct?.name || 'Account'} · ${periodStr}`, 14, 22);
+        const scope = statement.label ? `${statement.label} · ` : '';
+        doc.text(`${scope}${getCompanyProfile().name || 'Company'} · ${acct?.name || 'Account'} · ${periodStr}`, 14, 22);
         doc.text(
-            `Opening: ${formatUsd(accountLedger.opening_balance)} · In: ${formatUsd(moneyIn)} · Out: ${formatUsd(moneyOut)} · Closing: ${formatUsd(accountLedger.closing_balance)}`,
+            statement.filterActive
+                ? `In: ${formatUsd(exportTotals.moneyIn)} · Out: ${formatUsd(exportTotals.moneyOut)}`
+                : `Opening: ${formatUsd(accountLedger.opening_balance)} · In: ${formatUsd(exportTotals.moneyIn)} · Out: ${formatUsd(exportTotals.moneyOut)} · Closing: ${formatUsd(accountLedger.closing_balance)}`,
             14,
             28,
         );
         autoTable(doc, {
             startY: 34,
             head: [['Date', 'Type', 'Reference', 'Description', 'Debit', 'Credit', 'Balance']],
-            body: ledgerRows.map(row => [
+            body: exportRows.map(row => [
                 row.date ? formatDateOnly(row.date) : '—',
                 ledgerTypeLabel(row.type),
                 row.reference || '',
@@ -705,9 +991,11 @@ export default function Banking() {
                 formatUsd(row.running_balance),
             ]),
             foot: [[
-                '', '', '', 'Closing balance',
-                '', '',
-                formatUsd(accountLedger.closing_balance),
+                '', '', '',
+                statement.filterActive ? 'Exported rows' : 'Closing balance',
+                formatUsd(exportTotals.moneyIn),
+                formatUsd(exportTotals.moneyOut),
+                statement.filterActive ? '' : formatUsd(accountLedger.closing_balance),
             ]],
             styles: { fontSize: 8 },
             headStyles: { fillColor: [33, 33, 33] },
@@ -794,6 +1082,30 @@ export default function Banking() {
                     </div>
                 )}
 
+                {pendingVoid && (
+                    <div>
+                        <label style={{ fontSize: 11, color: 'var(--color-redwood-text-muted)' }}>
+                            Reason (optional)
+                            <input
+                                aria-label="Void reason"
+                                value={voidReason}
+                                onChange={(e) => setVoidReason(e.target.value)}
+                                style={{ display: 'block', width: '100%', marginTop: 4, marginBottom: 8, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }}
+                            />
+                        </label>
+                        <InlineConfirmPanel
+                            title="Void payment"
+                            lines={[
+                                `Void payment of $${pendingVoid.amount.toFixed(2)}?`,
+                                'A reversing entry will be created. The original record stays for audit.',
+                            ]}
+                            effect="Customer balance and any linked invoice will adjust."
+                            onConfirm={() => void confirmVoid()}
+                            onCancel={() => setPendingVoid(null)}
+                        />
+                    </div>
+                )}
+
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
                         <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--color-badge-blue-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -809,6 +1121,11 @@ export default function Banking() {
                         </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                        {canManageBanks && (
+                            <button type="button" onClick={() => { setAddBankError(null); setShowAddBank((open) => !open); }} style={ghostBtn}>
+                                <Plus size={14} /> Add bank
+                            </button>
+                        )}
                         <button type="button" onClick={() => void reloadAll(true)} disabled={refreshing} style={ghostBtn}>
                             <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} /> Refresh
                         </button>
@@ -820,9 +1137,8 @@ export default function Banking() {
                             onClick={() => {
                                 clearMsg();
                                 setEditingId(null);
-                                setEditingCategory(null);
                                 setEditingContraName(null);
-                                setTxForm({ date: localIsoDate(), description: '', type: 'Credit', amount: '', reference: '', contraAccountId: '' });
+                                setTxForm({ date: localIsoDate(), description: '', type: 'Credit', amount: '', reference: '', memo: '', contraAccountId: '' });
                                 setShowAddTx(true);
                             }}
                             disabled={selectedAccountId == null}
@@ -842,6 +1158,31 @@ export default function Banking() {
                     </div>
                 )}
 
+                {canManageBanks && (
+                    <DriverCollectionsPanel banks={cashAccounts.filter((acct) => acct.role === 'bank')} />
+                )}
+
+                {showAddBank && canManageBanks && (
+                    <div style={panelStyle}>
+                        <label style={{ fontSize: 11, color: 'var(--color-redwood-text-muted)' }}>
+                            Bank name
+                            <input
+                                aria-label="New bank name"
+                                value={newBankName}
+                                onChange={(e) => setNewBankName(e.target.value)}
+                                style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }}
+                            />
+                        </label>
+                        {addBankError && (
+                            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--color-brand-red-tint)' }}>{addBankError}</div>
+                        )}
+                        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                            <button type="button" onClick={() => void submitNewBank()} disabled={addingBank} style={primaryBtn}>{addingBank ? 'Saving…' : 'Save bank'}</button>
+                            <button type="button" onClick={() => setShowAddBank(false)} style={ghostBtn}>Cancel</button>
+                        </div>
+                    </div>
+                )}
+
                 {cashAccounts.length === 0 ? (
                     <div style={{ ...panelStyle, textAlign: 'center', padding: 48 }}>
                         <Landmark size={40} style={{ margin: '0 auto 12px', opacity: 0.3 }} />
@@ -850,26 +1191,55 @@ export default function Banking() {
                 ) : (
                     <>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3" style={{ gap: 10 }}>
-                            {cashAccounts.map(acct => {
-                                const closing = closingByAccount[acct.id];
+                            {displayAccounts.map(acct => {
+                                const closing = cardBalance(acct, closingByAccount[acct.id]);
                                 const isCash = acct.role === 'cash';
+                                const isDefaultBank = !isCash && (acct.is_default || acct.code === '1010');
                                 return (
-                                    <div key={acct.id} style={{ ...panelStyle, position: 'relative', overflow: 'hidden' }}>
+                                    <div key={acct.id} data-testid="banking-account-card" style={{ ...panelStyle, position: 'relative', overflow: 'hidden' }}>
                                         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: isCash ? 'linear-gradient(90deg,#22C55E,#86EFAC)' : 'linear-gradient(90deg,#4F8EF7,#93C5FD)' }} />
-                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 8 }}>
                                             <span style={{ fontSize: 10.5, color: 'var(--color-redwood-text-muted)', fontWeight: 500 }}>{acct.code} · {acct.name}</span>
-                                            {isCash ? <DollarSign size={16} style={{ color: 'var(--color-brand-green)' }} /> : <Building2 size={16} style={{ color: 'var(--color-brand-blue)' }} />}
+                                            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                {isDefaultBank && (
+                                                    <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--color-brand-blue)', background: 'var(--color-badge-blue-bg)', borderRadius: 999, padding: '2px 6px' }}>Default</span>
+                                                )}
+                                                {isCash ? <DollarSign size={16} style={{ color: 'var(--color-brand-green)' }} /> : <Building2 size={16} style={{ color: 'var(--color-brand-blue)' }} />}
+                                            </span>
                                         </div>
-                                        {closing == null ? (
-                                            <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 16, fontWeight: 600, color: 'var(--color-redwood-text-muted)', letterSpacing: '-.5px' }}>Unavailable</div>
+                                        {renamingId === acct.id ? (
+                                            <div>
+                                                <input
+                                                    aria-label={`Rename ${acct.code}`}
+                                                    value={renameValue}
+                                                    onChange={(e) => setRenameValue(e.target.value)}
+                                                    style={{ width: '100%', padding: '6px 8px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }}
+                                                />
+                                                {renameError && <div style={{ fontSize: 11, color: 'var(--color-brand-red-tint)', marginTop: 4 }}>{renameError}</div>}
+                                                <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                                                    <button type="button" onClick={() => void submitRename(acct.id)} style={primaryBtn}>Save</button>
+                                                    <button type="button" onClick={() => { setRenamingId(null); setRenameError(null); }} style={ghostBtn}>Cancel</button>
+                                                </div>
+                                            </div>
                                         ) : (
-                                            <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 22, fontWeight: 600, color: isCash ? 'var(--color-brand-green)' : 'var(--color-brand-blue)', letterSpacing: '-.5px' }}>{formatUsd(closing)}</div>
+                                            <>
+                                                {closing == null ? (
+                                                    <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 16, fontWeight: 600, color: 'var(--color-redwood-text-muted)', letterSpacing: '-.5px' }}>Unavailable</div>
+                                                ) : (
+                                                    <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 22, fontWeight: 600, color: isCash ? 'var(--color-brand-green)' : 'var(--color-brand-blue)', letterSpacing: '-.5px' }}>{formatUsd(closing)}</div>
+                                                )}
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                                                    <div style={{ fontSize: 10, color: 'var(--color-redwood-text-subtle)' }}>GL closing balance</div>
+                                                    {canManageBanks && acct.role === 'bank' && (
+                                                        <button type="button" onClick={() => { setRenamingId(acct.id); setRenameValue(acct.name); setRenameError(null); }} style={{ ...ghostBtn, padding: '2px 6px', fontSize: 10 }}>Rename</button>
+                                                    )}
+                                                </div>
+                                            </>
                                         )}
-                                        <div style={{ fontSize: 10, color: 'var(--color-redwood-text-subtle)', marginTop: 4 }}>GL closing balance</div>
                                     </div>
                                 );
                             })}
-                            <div style={{ ...panelStyle, position: 'relative', overflow: 'hidden' }}>
+                            <div data-testid="banking-net-cash" style={{ ...panelStyle, position: 'relative', overflow: 'hidden' }}>
                                 <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg,#4F8EF7,#93C5FD)' }} />
                                 <div style={{ fontSize: 10.5, color: 'var(--color-redwood-text-muted)', fontWeight: 500, marginBottom: 8 }}>Net cash</div>
                                 {netCash == null ? (
@@ -928,6 +1298,24 @@ export default function Banking() {
 
                         {activeTab === 'ledger' && (
                             <>
+                                {pendingDelete && (
+                                    <InlineConfirmPanel
+                                        title="Confirm delete"
+                                        lines={[
+                                            pendingDelete.description,
+                                            moneyDirectionLabel(pendingDelete.type),
+                                            formatUsd(pendingDelete.amount),
+                                            pendingDelete.date ? formatDateOnly(pendingDelete.date) : '—',
+                                        ]}
+                                        effect="Delete will reverse the posted entry in the books. The row stays visible as Reversed."
+                                        onConfirm={() => {
+                                            const tx = pendingDelete;
+                                            setPendingDelete(null);
+                                            void performDelete(tx);
+                                        }}
+                                        onCancel={() => setPendingDelete(null)}
+                                    />
+                                )}
                                 {showAddTx && (
                                     <div style={{ ...panelStyle, borderColor: 'rgba(251,146,60,.4)' }}>
                                         <p style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-redwood-text-muted)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '.4px' }}>{editingId ? 'Edit transaction' : 'Add manual transaction'}</p>
@@ -937,6 +1325,7 @@ export default function Banking() {
                                             <div><label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Amount ($)</label><input type="number" placeholder="0.00" value={txForm.amount} onChange={e => setTxForm(p => ({ ...p, amount: e.target.value }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }} /></div>
                                             <div><label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Description</label><input value={txForm.description} onChange={e => setTxForm(p => ({ ...p, description: e.target.value }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }} /></div>
                                             <div><label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Reference</label><input value={txForm.reference} onChange={e => setTxForm(p => ({ ...p, reference: e.target.value }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }} /></div>
+                                            <div><label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Memo (optional)</label><input value={txForm.memo} onChange={e => setTxForm(p => ({ ...p, memo: e.target.value }))} placeholder="e.g. Bank fee, Owner deposit" style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }} /></div>
                                             <div style={{ gridColumn: 'span 2' }}>
                                                 <label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Other account</label>
                                                 <select value={txForm.contraAccountId} onChange={e => setTxForm(p => ({ ...p, contraAccountId: e.target.value }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }}>
@@ -958,7 +1347,7 @@ export default function Banking() {
                                         </div>
                                         <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                                             <button type="button" onClick={saveManualTx} disabled={!txForm.description || !txForm.amount} style={primaryBtn}>{editingId ? 'Update' : 'Save'}</button>
-                                            <button type="button" onClick={() => { setEditingId(null); setEditingCategory(null); setEditingContraName(null); setShowAddTx(false); }} style={ghostBtn}>Cancel</button>
+                                            <button type="button" onClick={() => { setEditingId(null); setEditingContraName(null); setShowAddTx(false); }} style={ghostBtn}>Cancel</button>
                                         </div>
                                     </div>
                                 )}
@@ -1050,13 +1439,14 @@ export default function Banking() {
                                                                     {action === 'edit-delete' && bankTxHome === 'here' && (
                                                                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4 }}>
                                                                             <button type="button" onClick={() => editManualTx(row)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--color-brand-blue-tint)', padding: 4 }} title="Edit"><Edit2 size={13} /></button>
-                                                                            <button type="button" onClick={() => void deleteManualTx(row)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--color-brand-red-tint)', padding: 4 }} title="Delete"><Trash2 size={13} /></button>
+                                                                            <button type="button" onClick={() => deleteManualTx(row)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--color-brand-red-tint)', padding: 4 }} title="Delete"><Trash2 size={13} /></button>
                                                                         </div>
                                                                     )}
-                                                                    {action === 'edit-delete' && bankTxHome === 'elsewhere' && homeAccount && (
-                                                                        <span style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>
-                                                                            Entered on {homeAccount.code} · {homeAccount.name}
-                                                                        </span>
+                                                                    {action === 'edit-delete' && bankTxHome === 'elsewhere' && homeAccount && foreignTransferEditMessage(bankTx?.accountId, selectedAccountId, homeAccount.name) && (
+                                                                        <ForeignTransferNotice
+                                                                            accountName={homeAccount.name}
+                                                                            onOpenAccount={() => setSelectedAccountId(homeAccount.id)}
+                                                                        />
                                                                     )}
                                                                     {action === 'void' && (() => {
                                                                         const pid = paymentIdFromRow(row);
@@ -1103,15 +1493,69 @@ export default function Banking() {
                                         {dueTodayPDC.length} cheque(s) due today or overdue
                                     </div>
                                 )}
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                {pendingCheque && (
+                                    <ChequeConfirmPanel
+                                        chequeNo={pendingCheque.pdc.chequeNo}
+                                        amountLabel={formatUsd(pendingCheque.pdc.amount)}
+                                        customer={pendingCheque.pdc.payee
+                                            || customers.find(c => Number(c.id) === Number(pendingCheque.pdc.customerId))?.name
+                                            || '—'}
+                                        effect={chequeEffectSentence(
+                                            pendingCheque.status === 'Cleared' ? 'clear' : pendingCheque.status === 'Bounced' ? 'bounce' : 'cancel',
+                                            {
+                                                chequeNo: pendingCheque.pdc.chequeNo,
+                                                amount: pendingCheque.pdc.amount,
+                                                type: pendingCheque.pdc.type,
+                                                glPosted: pendingCheque.pdc.glPosted,
+                                            },
+                                            formatUsd,
+                                        )}
+                                        onConfirm={() => {
+                                            const next = pendingCheque;
+                                            setPendingCheque(null);
+                                            void updatePDCStatus(next.pdc.id, next.status);
+                                        }}
+                                        onCancel={() => setPendingCheque(null)}
+                                    />
+                                )}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                     <span style={{ fontSize: 11, color: 'var(--color-redwood-text-muted)' }}>{pdcList.length} recorded</span>
+                                    <label style={{ fontSize: 11, color: 'var(--color-redwood-text-muted)' }}>
+                                        Bank
+                                        <select
+                                            aria-label="Filter cheques by bank"
+                                            value={pdcBankFilter}
+                                            onChange={(e) => setPdcBankFilter(e.target.value)}
+                                            style={{ marginLeft: 6, padding: '6px 8px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }}
+                                        >
+                                            <option value="">All banks</option>
+                                            {displayAccounts.filter(acct => acct.role === 'bank').map(acct => (
+                                                <option key={acct.id} value={String(acct.id)}>{acct.code} — {acct.name}</option>
+                                            ))}
+                                        </select>
+                                    </label>
                                     <button type="button" onClick={() => { clearMsg(); setShowPDCForm(!showPDCForm); }} style={primaryBtn}><Plus size={14} /> Record cheque</button>
                                 </div>
                                 {showPDCForm && (
                                     <div style={{ ...panelStyle, borderColor: 'rgba(251,146,60,.4)' }}>
                                         <div className="grid grid-cols-2 md:grid-cols-4" style={{ gap: 10 }}>
                                             <div><label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Cheque no.</label><input value={pdcForm.chequeNo} onChange={e => setPdcForm(p => ({ ...p, chequeNo: e.target.value }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }} /></div>
-                                            <div><label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Bank</label><input value={pdcForm.bankName} onChange={e => setPdcForm(p => ({ ...p, bankName: e.target.value }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }} /></div>
+                                            <div><label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Bank</label><input aria-label="Bank name" value={pdcForm.bankName} onChange={e => setPdcForm(p => ({ ...p, bankName: e.target.value }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }} /></div>
+                                            <div>
+                                                <label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Bank account</label>
+                                                <select
+                                                    aria-label="Bank account"
+                                                    value={pdcForm.bankAccountId}
+                                                    disabled={!chequeBankAccountEditable('Pending')}
+                                                    onChange={e => setPdcForm(p => ({ ...p, bankAccountId: e.target.value }))}
+                                                    style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }}
+                                                >
+                                                    <option value="">Select a bank</option>
+                                                    {displayAccounts.filter(acct => acct.role === 'bank').map(acct => (
+                                                        <option key={acct.id} value={String(acct.id)}>{acct.code} — {acct.name}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
                                             {pdcForm.type === 'Received' ? (
                                                 <div><label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Customer</label><CustomerPicker customers={customers} value={pdcForm.customerId} onChange={c => setPdcForm(p => ({ ...p, customerId: c ? Number(c.id) : null, payee: c?.name || p.payee }))} /></div>
                                             ) : (
@@ -1138,7 +1582,7 @@ export default function Banking() {
                                                     return (
                                                         <tr key={pdc.id} style={{ borderBottom: '1px solid var(--color-redwood-border)', background: isOverdue ? 'var(--color-badge-amber-bg)' : undefined }}>
                                                             <td style={{ ...tdStyle, fontWeight: 700 }}>{pdc.chequeNo}</td>
-                                                            <td style={tdStyle}>{pdc.bankName || '—'}</td>
+                                                            <td style={tdStyle}>{pdc.bank_account_name || pdc.bankName || '—'}</td>
                                                             <td style={tdStyle}>
                                                                 {pdc.payee || '—'}
                                                                 {pdc.status === 'Pending' && pdc.type === 'Received' && !pdc.customerId && (
