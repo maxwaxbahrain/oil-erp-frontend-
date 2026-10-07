@@ -81,10 +81,15 @@ function poWorkflowStatusBadge(status: string): { label: string; bg: string; col
 /** Map backend PartyLedgerRow → display row; running_balance from API only. */
 function mapSupplierPartyRow(row: PartyLedgerRow): SupplierLedgerEntry {
     const rawType = (row.type || '').toLowerCase();
+    const type: SupplierLedgerEntry['type'] =
+        rawType === 'payment' ? 'Payment'
+            : rawType === 'purchase_return' ? 'Purchase return'
+                : rawType === 'purchase_return_refund' ? 'Supplier refund'
+                    : 'Purchase';
     return {
         id: String(row.id),
         date: row.date ?? '',
-        type: rawType === 'payment' ? 'Payment' : 'Purchase',
+        type,
         referenceNumber: row.reference || '',
         description: row.description || '',
         debit: Number(row.debit) || 0,
@@ -196,6 +201,7 @@ export default function SupplierDetail() {
     const [toDate, setToDate] = useState('');
     const [purchases, setPurchases] = useState<PurchaseOrder[]>([]);
     const [payments, setPayments] = useState<SupplierPayment[]>([]);
+    const [balanceBreakdown, setBalanceBreakdown] = useState<{ totalReturns?: number; totalRefunds?: number }>({});
 
     // Modal state
     const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -338,6 +344,34 @@ export default function SupplierDetail() {
 
     useEffect(() => {
         if (id) loadAllData();
+    }, [id]);
+
+    useEffect(() => {
+        if (!id) return;
+        let cancelled = false;
+        setBalanceBreakdown({});
+        (async () => {
+            try {
+                const r = await authFetch(`${SUPPLIERS_API}/${encodeURIComponent(id)}/balance`);
+                if (!r.ok || cancelled) return;
+                const j = await r.json() as Record<string, unknown>;
+                const next: { totalReturns?: number; totalRefunds?: number } = {};
+                if ('totalReturns' in j && j.totalReturns != null && j.totalReturns !== '') {
+                    const n = Number(j.totalReturns);
+                    if (Number.isFinite(n)) next.totalReturns = n;
+                }
+                if ('totalRefunds' in j && j.totalRefunds != null && j.totalRefunds !== '') {
+                    const n = Number(j.totalRefunds);
+                    if (Number.isFinite(n)) next.totalRefunds = n;
+                }
+                if (!cancelled) setBalanceBreakdown(next);
+            } catch {
+                // Balance breakdown is optional; the ledger card still renders.
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
     }, [id]);
 
     useEffect(() => {
@@ -832,10 +866,26 @@ export default function SupplierDetail() {
                         sub: purchases.length > 0 ? formatDateOnly(purchases[0].date) : 'No purchases',
                     },
                 ];
+                if (balanceBreakdown.totalReturns != null) {
+                    statCells.push({
+                        label: 'Returns',
+                        value: formatCurrency(balanceBreakdown.totalReturns),
+                        color: '#F59E0B',
+                        sub: 'Purchase returns',
+                    });
+                }
+                if (balanceBreakdown.totalRefunds != null) {
+                    statCells.push({
+                        label: 'Refunds',
+                        value: formatCurrency(balanceBreakdown.totalRefunds),
+                        color: '#22C55E',
+                        sub: 'Supplier refunds',
+                    });
+                }
 
                 return (
                     <div style={{
-                        display: 'grid', gridTemplateColumns: 'repeat(6,1fr)',
+                        display: 'grid', gridTemplateColumns: `repeat(${statCells.length}, minmax(0, 1fr))`,
                         borderBottom: '1px solid rgba(255,255,255,.07)',
                         background: 'var(--bg2,#0a1726)', borderRadius: 10, overflow: 'hidden',
                     }}>
@@ -844,7 +894,7 @@ export default function SupplierDetail() {
                                 key={cell.label}
                                 style={{
                                     padding: '12px 14px',
-                                    borderRight: i < 5 ? '1px solid rgba(255,255,255,.07)' : 'none',
+                                    borderRight: i < statCells.length - 1 ? '1px solid rgba(255,255,255,.07)' : 'none',
                                 }}
                             >
                                 <div style={{

@@ -54,6 +54,9 @@ export interface Supplier {
     creditLimit?: number;
     notes?: string;
     openingBalance?: number;
+    /** Present when a supplier payload includes return totals. Used only by the balance fallback. */
+    totalReturns?: number;
+    totalRefunds?: number;
 }
 
 export interface SupplierPayment {
@@ -71,7 +74,7 @@ export interface SupplierPayment {
 export interface SupplierLedgerEntry {
     id: string;
     date: string;
-    type: 'Purchase' | 'Payment' | 'Return' | 'Adjustment';
+    type: 'Purchase' | 'Payment' | 'Return' | 'Adjustment' | 'Purchase return' | 'Supplier refund';
     referenceNumber: string;
     description: string;
     debit: number; // For payments/returns? Actually normally Debit is increase in asset or decrease in liability.
@@ -137,6 +140,16 @@ const fromApi = (r: any): Supplier => ({
     creditLimit: typeof r.credit_limit === 'number' ? r.credit_limit : 0,
     openingBalance: typeof r.opening_balance === 'number' ? r.opening_balance : 0,
     notes: r.notes || '',
+    ...(typeof r.totalReturns === 'number'
+        ? { totalReturns: r.totalReturns }
+        : typeof r.total_returns === 'number'
+            ? { totalReturns: r.total_returns }
+            : {}),
+    ...(typeof r.totalRefunds === 'number'
+        ? { totalRefunds: r.totalRefunds }
+        : typeof r.total_refunds === 'number'
+            ? { totalRefunds: r.total_refunds }
+            : {}),
 });
 
 // Frontend → backend translation. Omits id; backend assigns it.
@@ -460,7 +473,9 @@ export const getSupplierBalance = async (supplierId: string): Promise<number> =>
         const openingBalance = supplier?.openingBalance || 0;
         const totalPurchases = allPurchases.reduce((sum, p) => sum + (p.grandTotal || 0), 0);
         const totalPayments = allPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
-        return openingBalance + totalPurchases - totalPayments;
+        const totalReturns = supplier?.totalReturns != null ? Number(supplier.totalReturns) || 0 : 0;
+        const totalRefunds = supplier?.totalRefunds != null ? Number(supplier.totalRefunds) || 0 : 0;
+        return openingBalance + totalPurchases - totalPayments - totalReturns + totalRefunds;
     }
 };
 

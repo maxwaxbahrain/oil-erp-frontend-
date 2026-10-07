@@ -20,6 +20,7 @@ import {
     Settings,
     ChevronRight,
     RefreshCw,
+    RotateCcw,
     Globe,
     Briefcase,
     PieChart,
@@ -230,6 +231,7 @@ export default function Sidebar({
                 </div>
                 <NavItem to="/purchases/suppliers" icon={Users} label="Suppliers" />
                 <NavItem to="/receiving" icon={Inbox} label="Material Receipt (GRN)" />
+                <NavItem to="/purchases/returns" icon={RotateCcw} label="Purchase Returns" />
                 <NavItem to="/purchases" icon={FileText} label="Recent Orders" />
                 <NavItem to="/purchases/new" icon={Package} label="Create New PO" />
                 <div className="h-px bg-white/5 my-3 mx-2" />

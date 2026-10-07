@@ -13,6 +13,7 @@ export default function VanManagement() {
 
     const [vans, setVans] = useState<Van[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const [showForm, setShowForm] = useState(false);
     const [editingVan, setEditingVan] = useState<Van | null>(null);
     const [formData, setFormData] = useState<Partial<Van>>({
@@ -34,9 +35,11 @@ export default function VanManagement() {
         try {
             const data = await vanService.getAll();
             setVans(data);
-        } catch (error) {
-            console.error('Failed to load vans:', error);
-            alert('Failed to load vans');
+            setError(null);
+        } catch (loadError) {
+            console.error('Failed to load vans:', loadError);
+            const message = loadError instanceof Error ? loadError.message : 'Van request failed';
+            setError(`Couldn't load vans: ${message}`);
         } finally {
             setLoading(false);
         }
@@ -69,9 +72,9 @@ export default function VanManagement() {
                 status: 'active'
             });
             loadVans();
-        } catch (error) {
-            console.error('Failed to save van:', error);
-            alert('Failed to save van');
+        } catch (saveError) {
+            console.error('Failed to save van:', saveError);
+            alert(saveError instanceof Error ? saveError.message : 'Failed to save van');
         }
     };
 
@@ -398,6 +401,12 @@ export default function VanManagement() {
                         All Vans ({vans.length})
                     </h2>
                 </div>
+
+                {error ? (
+                    <p style={{ color: '#c62828', margin: 0, padding: '0.75rem 1.5rem', fontWeight: 600 }}>
+                        {error}
+                    </p>
+                ) : null}
 
                 {loading ? (
                     <div style={{ padding: '3rem', textAlign: 'center', color: '#666' }}>

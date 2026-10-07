@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, type CSSProperties } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { parseNewExpenseParams } from './expenseQueryParams';
 import { getSystemSettings } from '../../services/settingsService';
 import {
     DollarSign, Upload, Plus,
@@ -185,6 +186,7 @@ function ConfidenceBadge({ value }: { value?: number }) {
 
 export default function ExpenseManagement() {
     const navigate = useNavigate();
+    const location = useLocation();
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [categories, setCategories] = useState<ExpenseCategory[]>([]);
     const [loading, setLoading] = useState(true);
@@ -197,6 +199,7 @@ export default function ExpenseManagement() {
     const [showManualForm, setShowManualForm] = useState(false);
     const [showAiUpload, setShowAiUpload] = useState(false);
     const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+    const [prefillClientId, setPrefillClientId] = useState<string | null>(null);
 
     function closeAiUpload() {
         setShowAiUpload(false);
@@ -210,6 +213,7 @@ export default function ExpenseManagement() {
     useEscape(() => {
         setShowManualForm(false);
         setEditingExpense(null);
+        setPrefillClientId(null);
     }, showManualForm);
     useEscape(closeAiUpload, showAiUpload);
 
@@ -385,6 +389,17 @@ export default function ExpenseManagement() {
         loadData();
     }, []);
 
+    useEffect(() => {
+        if (loading) return;
+        const { open, clientId } = parseNewExpenseParams(location.search);
+        if (!open) return;
+        setEditingExpense(null);
+        setPrefillClientId(clientId);
+        setShowManualForm(true);
+        navigate('/finance/expenses', { replace: true });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [loading, location.search]);
+
     const loadData = async (opts?: { silent?: boolean }) => {
         if (!opts?.silent) setLoading(true);
         try {
@@ -490,6 +505,7 @@ export default function ExpenseManagement() {
             await loadData();
             setShowManualForm(false);
             setEditingExpense(null);
+            setPrefillClientId(null);
             setSelectedAccountId('');
         } catch (error) {
             console.error('Failed to save expense:', error);
@@ -1023,7 +1039,7 @@ export default function ExpenseManagement() {
                     </button>
                     <button
                         type="button"
-                        onClick={() => { setShowManualForm(false); setShowAiUpload(true); }}
+                        onClick={() => { setShowManualForm(false); setPrefillClientId(null); setShowAiUpload(true); }}
                         style={{
                             flex: '1 1 200px',
                             padding: '14px 20px',
@@ -1648,14 +1664,14 @@ export default function ExpenseManagement() {
                                             <input
                                                 ref={isBillableRef}
                                                 type="checkbox"
-                                                defaultChecked={editingExpense?.is_billable}
+                                                defaultChecked={editingExpense ? editingExpense.is_billable : prefillClientId != null}
                                                 className="w-5 h-5"
                                             />
                                             <label className="text-sm font-bold text-gray-700">Billable to client</label>
                                         </div>
                                         <select
                                             ref={clientIdRef}
-                                            defaultValue={editingExpense?.client_id || ''}
+                                            defaultValue={editingExpense ? (editingExpense.client_id || '') : (customers.some((c) => String(c.id) === prefillClientId) ? prefillClientId ?? '' : '')}
                                             className="w-full bg-white border border-blue-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-blue-500"
                                         >
                                             <option value="">Select customer…</option>
@@ -1750,6 +1766,7 @@ export default function ExpenseManagement() {
                                         onClick={() => {
                                             setShowManualForm(false);
                                             setEditingExpense(null);
+                                            setPrefillClientId(null);
                                         }}
                                         disabled={saving}
                                         className="flex-1 py-5 bg-white border border-gray-200 text-[11px] font-black uppercase tracking-widest text-gray-600 rounded-2xl hover:bg-gray-100 transition-all"
