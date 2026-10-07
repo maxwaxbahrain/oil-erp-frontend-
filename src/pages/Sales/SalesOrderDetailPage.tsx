@@ -120,7 +120,7 @@ export default function SalesOrderDetailPage() {
     }
   }
 
-  async function loadActiveVans(): Promise<Van[]> {
+  async function loadActiveVans(): Promise<Van[] | null> {
     setVansLoading(true);
     try {
       const list = await getVans();
@@ -131,8 +131,8 @@ export default function SalesOrderDetailPage() {
       if (active.length === 1) setSelectedVanId(active[0].id);
       return active;
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Could not load vans');
-      return [];
+      console.error(e);
+      return null;
     } finally {
       setVansLoading(false);
     }
@@ -146,6 +146,10 @@ export default function SalesOrderDetailPage() {
     }
 
     const active = await loadActiveVans();
+    if (active === null) {
+      alert("Couldn't load vans — refresh the page and try again");
+      return;
+    }
     if (active.length === 0) {
       alert('No active vans available. Add a van before confirming.');
       return;
