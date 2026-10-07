@@ -281,6 +281,67 @@ export function getWsToken(repId: number): Promise<WSTokenResponse> {
     return voiceRequest<WSTokenResponse>(`/ws-token?rep_id=${repId}`);
 }
 
+export function answerOwnerQuestion(body: {
+    call_id: string;
+    function_id: string;
+    answer: string;
+}): Promise<{ ok: boolean; call_id: string }> {
+    return voiceRequest('/agent/ask-owner/answer', {
+        method: 'POST',
+        body: JSON.stringify(body),
+        noTenantAuth: true,
+    });
+}
+
+export interface AgentTask {
+    id: string;
+    tenant_id: string;
+    saas_tenant_id: number | null;
+    user_id: number | null;
+    phone_number: string;
+    goal: string;
+    plan_text: string;
+    status: 'draft' | 'approved' | 'calling' | 'completed' | 'failed' | 'cancelled' | string;
+    call_id: string | null;
+    fail_reason: string | null;
+    result_summary: string | null;
+    transcript: string | null;
+    suggested_next_steps: string | null;
+    created_at: string | null;
+    approved_at: string | null;
+}
+
+function agentJwtRequest<T>(path: string, options: VoiceRequestOptions = {}): Promise<T> {
+    return voiceRequest<T>(path, { ...options, noTenantAuth: true });
+}
+
+export function listAgentTasks(): Promise<{ items: AgentTask[] }> {
+    return agentJwtRequest('/agent/tasks');
+}
+
+export function createAgentTask(body: { phone_number: string; goal: string }): Promise<AgentTask> {
+    return agentJwtRequest('/agent/tasks', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function editAgentPlan(taskId: string, plan_text: string): Promise<AgentTask> {
+    return agentJwtRequest(`/agent/tasks/${encodeURIComponent(taskId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ plan_text }),
+    });
+}
+
+export function approveAgentTask(taskId: string): Promise<AgentTask> {
+    return agentJwtRequest(`/agent/tasks/${encodeURIComponent(taskId)}/approve`, { method: 'POST' });
+}
+
+export function cancelAgentTask(taskId: string): Promise<AgentTask> {
+    return agentJwtRequest(`/agent/tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' });
+}
+
+export function hangupAgentTask(taskId: string): Promise<AgentTask> {
+    return agentJwtRequest(`/agent/tasks/${encodeURIComponent(taskId)}/hangup`, { method: 'POST' });
+}
+
 // ── Admin (POST /api/tenants/onboard — platform admin key) ─────
 export function onboardTenant(
     body: {
@@ -317,7 +378,11 @@ export type VoiceWSMessage =
     | { type: 'stock_alert'; call_id: string | null; sku: string; product_name: string;
         requested: number; available: number }
     | { type: 'call_ended'; call_id: string; duration: number; summary: string;
-        sentiment: string; order_drafts_count: number };
+        sentiment: string; order_drafts_count: number }
+    | { type: 'owner_question'; call_id: string; function_id: string; question: string;
+        timeout_seconds: number }
+    | { type: 'agent_transcript'; call_id: string; role: string; text: string }
+    | { type: 'agent_task_updated'; task: AgentTask };
 
 export interface VoiceWSHandle {
     /** Close the connection. Auto-reconnect is also stopped. */

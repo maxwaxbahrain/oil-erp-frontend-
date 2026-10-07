@@ -21,6 +21,8 @@ import PasswordInput from '../../components/ui/PasswordInput';
 import LiveCallCard from '../../components/Voice/LiveCallCard';
 import CoachingTipBanner from '../../components/Voice/CoachingTipBanner';
 import SentimentBadge from '../../components/Voice/SentimentBadge';
+import VoiceAgentPanel, { type AgentTranscriptLine } from '../../components/Voice/VoiceAgentPanel';
+import { shouldShowVoiceAgentPanel } from './voiceAgentUi';
 import {
     getAnalytics,
     getCalls,
@@ -30,6 +32,8 @@ import {
     setStoredApiKey,
     getStoredRepId,
     setStoredRepId,
+    answerOwnerQuestion,
+    type AgentTask,
     type AnalyticsResponse,
     type CallListItem,
     type VoiceWSMessage,
@@ -56,6 +60,13 @@ interface TipEntry {
     message: string;
 }
 
+interface OwnerQuestionEntry {
+    callId: string;
+    functionId: string;
+    question: string;
+    timeoutSeconds: number;
+}
+
 export default function VoiceDashboard() {
     const navigate = useNavigate();
     const [credsReady, setCredsReady] = useState<boolean>(hasVoiceCredentials());
@@ -68,6 +79,12 @@ export default function VoiceDashboard() {
     const [wsStatus, setWsStatus] = useState<'idle' | 'connecting' | 'connected' | 'disconnected'>('idle');
     const [liveCalls, setLiveCalls] = useState<LiveCallEntry[]>([]);
     const [tips, setTips] = useState<TipEntry[]>([]);
+    const [ownerQuestions, setOwnerQuestions] = useState<OwnerQuestionEntry[]>([]);
+    const [ownerAnswers, setOwnerAnswers] = useState<Record<string, string>>({});
+    const [ownerSending, setOwnerSending] = useState<string | null>(null);
+    const [ownerError, setOwnerError] = useState<string | null>(null);
+    const [agentLines, setAgentLines] = useState<AgentTranscriptLine[]>([]);
+    const [liveAgentTask, setLiveAgentTask] = useState<AgentTask | null>(null);
 
     const wsHandleRef = useRef<{ close: () => void } | null>(null);
 
@@ -138,8 +155,31 @@ export default function VoiceDashboard() {
             }
             case 'call_ended': {
                 setLiveCalls((prev) => prev.filter((c) => c.callId !== msg.call_id));
+                setOwnerQuestions((prev) => prev.filter((q) => q.callId !== msg.call_id));
                 // refresh recent calls so the ended call appears in history
                 loadDashboardData();
+                break;
+            }
+            case 'owner_question': {
+                const entry: OwnerQuestionEntry = {
+                    callId: msg.call_id,
+                    functionId: msg.function_id,
+                    question: msg.question,
+                    timeoutSeconds: msg.timeout_seconds || 60,
+                };
+                setOwnerQuestions((prev) => [
+                    entry,
+                    ...prev.filter((q) => q.functionId !== entry.functionId),
+                ]);
+                setOwnerError(null);
+                break;
+            }
+            case 'agent_transcript': {
+                setAgentLines((prev) => [...prev, { callId: msg.call_id, role: msg.role, text: msg.text }].slice(-80));
+                break;
+            }
+            case 'agent_task_updated': {
+                setLiveAgentTask(msg.task);
                 break;
             }
             default:
@@ -152,6 +192,30 @@ export default function VoiceDashboard() {
 
     const dismissLiveCall = (callId: string) =>
         setLiveCalls((prev) => prev.filter((c) => c.callId !== callId));
+
+    const sendOwnerAnswer = async (q: OwnerQuestionEntry) => {
+        const text = (ownerAnswers[q.functionId] || '').trim();
+        if (!text) return;
+        setOwnerSending(q.functionId);
+        setOwnerError(null);
+        try {
+            await answerOwnerQuestion({
+                call_id: q.callId,
+                function_id: q.functionId,
+                answer: text,
+            });
+            setOwnerQuestions((prev) => prev.filter((item) => item.functionId !== q.functionId));
+            setOwnerAnswers((prev) => {
+                const next = { ...prev };
+                delete next[q.functionId];
+                return next;
+            });
+        } catch (e) {
+            setOwnerError(e instanceof Error ? e.message : 'Failed to send answer');
+        } finally {
+            setOwnerSending(null);
+        }
+    };
 
     // ── credentials modal ─────────────────────────────────────────
     const [tmpKey, setTmpKey] = useState(getStoredApiKey());
@@ -244,6 +308,21 @@ export default function VoiceDashboard() {
                         />
                     ))}
                 </div>
+            )}
+
+            {shouldShowVoiceAgentPanel() && (
+                <VoiceAgentPanel
+                    ownerQuestions={ownerQuestions}
+                    ownerAnswers={ownerAnswers}
+                    ownerSending={ownerSending}
+                    ownerError={ownerError}
+                    onOwnerAnswerChange={(functionId, value) =>
+                        setOwnerAnswers((prev) => ({ ...prev, [functionId]: value }))
+                    }
+                    onSendOwnerAnswer={sendOwnerAnswer}
+                    transcriptLines={agentLines}
+                    liveTask={liveAgentTask}
+                />
             )}
 
             {/* Coaching tips stack */}
