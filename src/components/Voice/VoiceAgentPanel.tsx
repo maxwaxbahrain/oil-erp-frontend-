@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { PhoneCall, PhoneOff, RefreshCw } from 'lucide-react';
+import api from '../../api/axios';
 import {
     approveAgentTask,
     cancelAgentTask,
@@ -7,6 +8,7 @@ import {
     editAgentPlan,
     hangupAgentTask,
     listAgentTasks,
+    setupStagingVoiceLine,
     type AgentTask,
 } from '../../services/voiceService';
 
@@ -33,6 +35,7 @@ interface Props {
     transcriptLines: AgentTranscriptLine[];
     onTaskUpdated?: (task: AgentTask) => void;
     liveTask?: AgentTask | null;
+    onLineReady?: (apiKey: string, repId: number) => void;
 }
 
 export default function VoiceAgentPanel({
@@ -44,6 +47,7 @@ export default function VoiceAgentPanel({
     onSendOwnerAnswer,
     transcriptLines,
     liveTask,
+    onLineReady,
 }: Props) {
     const [phone, setPhone] = useState('');
     const [goal, setGoal] = useState('');
@@ -52,6 +56,37 @@ export default function VoiceAgentPanel({
     const [planDraft, setPlanDraft] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
+    const [setupBusy, setSetupBusy] = useState(false);
+    const [setupNote, setSetupNote] = useState<string | null>(null);
+    const [needsNewKey, setNeedsNewKey] = useState(false);
+
+    const connectStagingLine = async (rotateKey: boolean) => {
+        setSetupBusy(true);
+        setSetupNote(null);
+        try {
+            const me = await api.get<{ id?: number }>('/api/auth/me');
+            const repId = Number(me.data?.id);
+            if (!Number.isFinite(repId) || repId <= 0) {
+                setSetupNote('Your login has no numeric user id, so the dashboard cannot connect.');
+                return;
+            }
+            const line = await setupStagingVoiceLine(rotateKey);
+            if (!line.api_key) {
+                setNeedsNewKey(true);
+                setSetupNote(
+                    'This line already has a key, and it cannot be shown again. Issue a new key to connect. The previous key will stop working.',
+                );
+                return;
+            }
+            onLineReady?.(line.api_key, repId);
+            setNeedsNewKey(false);
+            setSetupNote(`Connected ${line.telnyx_number}. The dashboard is using your login as rep ${repId}.`);
+        } catch (e) {
+            setSetupNote(e instanceof Error ? e.message : 'Could not set up the staging line');
+        } finally {
+            setSetupBusy(false);
+        }
+    };
 
     const loadTasks = async () => {
         try {
@@ -112,6 +147,33 @@ export default function VoiceAgentPanel({
 
             <div className="p-5 space-y-5">
                 {error && <p className="text-sm text-rose-700">{error}</p>}
+
+                <div className="rounded-xl border border-redwood-border bg-redwood-bg-light p-4 space-y-2">
+                    <p className="text-[11px] font-black uppercase tracking-widest text-redwood-text-muted">
+                        Staging line +1 201 409 6065
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                        <button
+                            type="button"
+                            disabled={setupBusy}
+                            onClick={() => connectStagingLine(false)}
+                            className="px-3 py-2 text-[11px] font-black uppercase tracking-widest text-white bg-redwood-primary rounded-lg disabled:opacity-50"
+                        >
+                            {setupBusy ? 'Working…' : 'Set up staging line'}
+                        </button>
+                        {needsNewKey && (
+                            <button
+                                type="button"
+                                disabled={setupBusy}
+                                onClick={() => connectStagingLine(true)}
+                                className="px-3 py-2 text-[11px] font-black uppercase tracking-widest border border-redwood-border rounded-lg disabled:opacity-50"
+                            >
+                                Issue a new key
+                            </button>
+                        )}
+                    </div>
+                    {setupNote && <p className="text-sm text-redwood-text-main">{setupNote}</p>}
+                </div>
 
                 <form
                     className="grid gap-3 md:grid-cols-[1fr_2fr_auto]"

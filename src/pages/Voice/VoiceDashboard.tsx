@@ -85,6 +85,7 @@ export default function VoiceDashboard() {
     const [ownerError, setOwnerError] = useState<string | null>(null);
     const [agentLines, setAgentLines] = useState<AgentTranscriptLine[]>([]);
     const [liveAgentTask, setLiveAgentTask] = useState<AgentTask | null>(null);
+    const [credsEpoch, setCredsEpoch] = useState(0);
 
     const wsHandleRef = useRef<{ close: () => void } | null>(null);
 
@@ -127,7 +128,7 @@ export default function VoiceDashboard() {
             handle.close();
             wsHandleRef.current = null;
         };
-    }, [credsReady]);
+    }, [credsReady, credsEpoch]);
 
     const handleWsMessage = (msg: VoiceWSMessage) => {
         switch (msg.type) {
@@ -223,6 +224,16 @@ export default function VoiceDashboard() {
         const r = getStoredRepId();
         return r ? String(r) : '';
     });
+
+    const applyVoiceCreds = (apiKey: string, repId: number) => {
+        setStoredApiKey(apiKey);
+        setStoredRepId(repId);
+        setTmpKey(apiKey);
+        setTmpRep(String(repId));
+        setCredsReady(true);
+        setShowCredsModal(false);
+        setCredsEpoch((n) => n + 1);
+    };
 
     const handleSaveCreds = () => {
         const repInt = parseInt(tmpRep, 10);
@@ -322,6 +333,7 @@ export default function VoiceDashboard() {
                     onSendOwnerAnswer={sendOwnerAnswer}
                     transcriptLines={agentLines}
                     liveTask={liveAgentTask}
+                    onLineReady={applyVoiceCreds}
                 />
             )}
 
