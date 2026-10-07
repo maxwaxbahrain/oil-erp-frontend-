@@ -14,14 +14,15 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     PhoneCall, Activity, ShoppingCart, AlertCircle, Wifi, WifiOff, Loader2,
-    Settings, RefreshCw, ArrowRight, MessageSquare,
+    Settings, RefreshCw, ArrowRight,
 } from 'lucide-react';
 import clsx from 'clsx';
 import PasswordInput from '../../components/ui/PasswordInput';
 import LiveCallCard from '../../components/Voice/LiveCallCard';
 import CoachingTipBanner from '../../components/Voice/CoachingTipBanner';
 import SentimentBadge from '../../components/Voice/SentimentBadge';
-import { isProduction } from '../../config/appEnv';
+import VoiceAgentPanel, { type AgentTranscriptLine } from '../../components/Voice/VoiceAgentPanel';
+import { shouldShowVoiceAgentPanel } from './voiceAgentUi';
 import {
     getAnalytics,
     getCalls,
@@ -32,6 +33,7 @@ import {
     getStoredRepId,
     setStoredRepId,
     answerOwnerQuestion,
+    type AgentTask,
     type AnalyticsResponse,
     type CallListItem,
     type VoiceWSMessage,
@@ -81,6 +83,8 @@ export default function VoiceDashboard() {
     const [ownerAnswers, setOwnerAnswers] = useState<Record<string, string>>({});
     const [ownerSending, setOwnerSending] = useState<string | null>(null);
     const [ownerError, setOwnerError] = useState<string | null>(null);
+    const [agentLines, setAgentLines] = useState<AgentTranscriptLine[]>([]);
+    const [liveAgentTask, setLiveAgentTask] = useState<AgentTask | null>(null);
 
     const wsHandleRef = useRef<{ close: () => void } | null>(null);
 
@@ -168,6 +172,14 @@ export default function VoiceDashboard() {
                     ...prev.filter((q) => q.functionId !== entry.functionId),
                 ]);
                 setOwnerError(null);
+                break;
+            }
+            case 'agent_transcript': {
+                setAgentLines((prev) => [...prev, { callId: msg.call_id, role: msg.role, text: msg.text }].slice(-80));
+                break;
+            }
+            case 'agent_task_updated': {
+                setLiveAgentTask(msg.task);
                 break;
             }
             default:
@@ -298,48 +310,19 @@ export default function VoiceDashboard() {
                 </div>
             )}
 
-            {/* Live ask_owner box — Phase 3 test surface; full panel is Phase 5 */}
-            {!isProduction && ownerQuestions.length > 0 && (
-                <div className="space-y-3">
-                    {ownerQuestions.map((q) => (
-                        <div
-                            key={q.functionId}
-                            className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3"
-                        >
-                            <div className="flex items-start gap-2">
-                                <MessageSquare size={16} className="text-amber-700 shrink-0 mt-0.5" />
-                                <div className="min-w-0">
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-amber-800">
-                                        Agent needs you · {q.timeoutSeconds}s
-                                    </p>
-                                    <p className="text-sm font-medium text-redwood-text-main mt-1">{q.question}</p>
-                                </div>
-                            </div>
-                            <div className="flex flex-col sm:flex-row gap-2">
-                                <input
-                                    type="text"
-                                    value={ownerAnswers[q.functionId] || ''}
-                                    onChange={(e) => setOwnerAnswers((prev) => ({ ...prev, [q.functionId]: e.target.value }))}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter') sendOwnerAnswer(q);
-                                    }}
-                                    placeholder="Type your answer for the caller"
-                                    className="flex-1 px-3 py-2 rounded-lg border border-amber-300 bg-white text-sm outline-none focus:border-redwood-primary"
-                                />
-                                <button
-                                    onClick={() => sendOwnerAnswer(q)}
-                                    disabled={ownerSending === q.functionId || !(ownerAnswers[q.functionId] || '').trim()}
-                                    className="px-4 py-2 text-[11px] font-black uppercase tracking-widest text-white bg-redwood-primary rounded-lg hover:brightness-95 disabled:opacity-50"
-                                >
-                                    {ownerSending === q.functionId ? 'Sending…' : 'Send to caller'}
-                                </button>
-                            </div>
-                            {ownerError && (
-                                <p className="text-xs text-rose-700">{ownerError}</p>
-                            )}
-                        </div>
-                    ))}
-                </div>
+            {shouldShowVoiceAgentPanel() && (
+                <VoiceAgentPanel
+                    ownerQuestions={ownerQuestions}
+                    ownerAnswers={ownerAnswers}
+                    ownerSending={ownerSending}
+                    ownerError={ownerError}
+                    onOwnerAnswerChange={(functionId, value) =>
+                        setOwnerAnswers((prev) => ({ ...prev, [functionId]: value }))
+                    }
+                    onSendOwnerAnswer={sendOwnerAnswer}
+                    transcriptLines={agentLines}
+                    liveTask={liveAgentTask}
+                />
             )}
 
             {/* Coaching tips stack */}
