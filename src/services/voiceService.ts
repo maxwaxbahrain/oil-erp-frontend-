@@ -96,11 +96,11 @@ async function voiceRequest<T>(path: string, options: VoiceRequestOptions = {}):
             throw new VoiceApiError(401, 'Voice credentials not configured. Set your X-Tenant-Api-Key.');
         }
         headers['X-Tenant-Api-Key'] = key;
-    } else {
-        const token = localStorage.getItem(ACCESS_TOKEN_KEY);
-        if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
-        }
+    }
+    // Call list and ws-token require the ERP login as well as the tenant key.
+    const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+    if (token && !headers.Authorization) {
+        headers.Authorization = `Bearer ${token}`;
     }
     const res = await fetch(url, { ...options, headers });
     if (!res.ok) {
@@ -411,7 +411,9 @@ export interface VoiceWSHandle {
 interface ConnectVoiceWSOptions {
     repId: number;
     onMessage: (msg: VoiceWSMessage) => void;
-    onStatusChange?: (status: 'connecting' | 'connected' | 'disconnected') => void;
+    onStatusChange?: (status: 'idle' | 'connecting' | 'connected' | 'disconnected') => void;
+    /** Auth was rejected. Reconnect stops so the pill does not stay on Connecting. */
+    onStopped?: (message: string) => void;
 }
 
 /** Connect to the rep-dashboard WS with transparent auto-reconnect.
@@ -421,13 +423,13 @@ interface ConnectVoiceWSOptions {
  * show a "Reconnecting..." indicator and a transient "Connected"
  * flash on recovery.
  */
-export function connectVoiceWS({ repId, onMessage, onStatusChange }: ConnectVoiceWSOptions): VoiceWSHandle {
+export function connectVoiceWS({ repId, onMessage, onStatusChange, onStopped }: ConnectVoiceWSOptions): VoiceWSHandle {
     let ws: WebSocket | null = null;
     let closedByUser = false;
     let retryDelayMs = 1000;
     const MAX_RETRY_MS = 30_000;
 
-    const notifyStatus = (s: 'connecting' | 'connected' | 'disconnected') => {
+    const notifyStatus = (s: 'idle' | 'connecting' | 'connected' | 'disconnected') => {
         if (onStatusChange) try { onStatusChange(s); } catch { /* ignore */ }
     };
 
@@ -439,6 +441,13 @@ export function connectVoiceWS({ repId, onMessage, onStatusChange }: ConnectVoic
             tokenResp = await getWsToken(repId);
         } catch (e) {
             console.error('[voiceWS] ws-token fetch failed:', e);
+            const status = e instanceof VoiceApiError ? e.status : 0;
+            if (status === 401 || status === 403) {
+                notifyStatus('idle');
+                const detail = e instanceof Error ? e.message : 'Voice login was rejected';
+                try { onStopped?.(detail); } catch { /* ignore */ }
+                return;
+            }
             scheduleReconnect();
             return;
         }

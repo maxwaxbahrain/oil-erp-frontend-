@@ -121,6 +121,7 @@ export default function VoiceDashboard() {
         const handle = connectVoiceWS({
             repId,
             onStatusChange: (s) => setWsStatus(s),
+            onStopped: (message) => setLoadError(message),
             onMessage: (msg: VoiceWSMessage) => handleWsMessage(msg),
         });
         wsHandleRef.current = handle;
