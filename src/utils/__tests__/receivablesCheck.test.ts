@@ -99,4 +99,27 @@ describe('receivables check', () => {
       Math.round((onlyAged.amount - onlyCollections.amount + same.amount) * 100) / 100,
     );
   });
+
+  it('shows the unapplied part of a sales return in the credits column', () => {
+    const report = buildReceivablesCheck({
+      asOf: new Date('2026-08-01T12:00:00'),
+      invoices: [],
+      payments: [],
+      creditNotes: [],
+      importedCredits: [
+        {
+          id: '9',
+          customer_id: 'c1',
+          customer_name: 'Alpha',
+          amount: 15,
+          reference: 'RTN-9',
+          stored_as: 'return_credit',
+        },
+      ],
+      unappliedPayments: [],
+      collections: { total: 0, rows: [] },
+    });
+    expect(report.unappliedCredits.total).toBe(15);
+    expect(report.unappliedCredits.rows[0].reason).toContain('above the invoice open balance');
+  });
 });

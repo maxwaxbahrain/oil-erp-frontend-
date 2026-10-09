@@ -185,6 +185,6 @@ describe('Sales returns cancel action', () => {
       rowAgain.querySelector<HTMLButtonElement>('button[title="Cancel return"]')?.click();
     });
     await flush();
-    expect(window.alert).toHaveBeenCalledWith('Sales return is linked to a credit note and cannot be cancelled');
+    expect(container.textContent).toContain('Sales return is linked to a credit note and cannot be cancelled');
   });
 });

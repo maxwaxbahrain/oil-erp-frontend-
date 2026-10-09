@@ -70,6 +70,78 @@ export interface ReturnStats {
 
 export const RETURN_POLICY_DAYS = 30;
 
+function invoiceClosed(status: string): boolean {
+  const value = status.trim().toLowerCase();
+  return value === 'void' || value === 'cancelled' || value === 'canceled';
+}
+
+function demoInvoice(invoiceNumber: string): boolean {
+  return invoiceNumber.trim().toUpperCase().startsWith('INV-DEMO');
+}
+
+function withinReturnWindow(invoice: Invoice, today: Date): boolean {
+  const invoiceDate = new Date(
+    invoice.invoiceDate.includes('T') ? invoice.invoiceDate : `${invoice.invoiceDate}T12:00:00`,
+  );
+  const diffDays = Math.ceil((today.getTime() - invoiceDate.getTime()) / (1000 * 60 * 60 * 24));
+  return diffDays <= RETURN_POLICY_DAYS;
+}
+
+export function returnInvoiceStatusLabel(status: string): string {
+  if (status === 'Paid') return 'Paid';
+  if (status === 'Partial') return 'Partly paid';
+  return status;
+}
+
+export function invoicesEligibleForReturn(
+  invoices: Invoice[],
+  customerId: string,
+  today: Date = new Date(),
+): Invoice[] {
+  return invoices.filter((invoice) => {
+    if (String(invoice.customerId) !== String(customerId)) return false;
+    if (invoiceClosed(invoice.status)) return false;
+    if (Number(invoice.grandTotal) <= 0.005) return false;
+    if (demoInvoice(invoice.invoiceNumber || '')) return false;
+    return withinReturnWindow(invoice, today);
+  });
+}
+
+export function eligibleInvoiceEmptyReason(
+  invoices: Invoice[],
+  customerId: string,
+  today: Date = new Date(),
+): string {
+  const mine = invoices.filter((invoice) => String(invoice.customerId) === String(customerId));
+  if (mine.length === 0) return 'This customer has no invoices.';
+  let closed = 0;
+  let zero = 0;
+  let demo = 0;
+  let outside = 0;
+  for (const invoice of mine) {
+    if (invoiceClosed(invoice.status)) {
+      closed += 1;
+      continue;
+    }
+    if (Number(invoice.grandTotal) <= 0.005) {
+      zero += 1;
+      continue;
+    }
+    if (demoInvoice(invoice.invoiceNumber || '')) {
+      demo += 1;
+      continue;
+    }
+    if (!withinReturnWindow(invoice, today)) outside += 1;
+  }
+  const parts: string[] = [];
+  if (closed) parts.push(`${closed} void or cancelled`);
+  if (zero) parts.push(`${zero} with a zero total`);
+  if (demo) parts.push(`${demo} demo`);
+  if (outside) parts.push(`${outside} outside the ${RETURN_POLICY_DAYS}-day window`);
+  if (parts.length === 0) return 'No invoice can be returned.';
+  return `No invoice can be returned: ${parts.join(', ')}.`;
+}
+
 async function parseError(res: Response): Promise<string> {
   const j = await res.json().catch(() => ({}));
   const d = (j as { detail?: unknown }).detail;
@@ -156,17 +228,7 @@ export async function getReturnStats(): Promise<ReturnStats> {
 
 export async function getEligibleInvoicesForReturn(customerId: string): Promise<Invoice[]> {
   const allInvoices = await getInvoices();
-  const today = new Date();
-
-  return allInvoices.filter((invoice) => {
-    if (String(invoice.customerId) !== String(customerId)) return false;
-    const invoiceDate = new Date(
-      invoice.invoiceDate.includes('T') ? invoice.invoiceDate : `${invoice.invoiceDate}T12:00:00`
-    );
-    const diffTime = today.getTime() - invoiceDate.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays <= RETURN_POLICY_DAYS;
-  });
+  return invoicesEligibleForReturn(allInvoices, customerId);
 }
 
 export interface CreateSalesReturnPayload {

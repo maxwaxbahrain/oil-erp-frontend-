@@ -6,14 +6,11 @@ import { isStaging } from './appEnv';
 // Routes and components are untouched; only sidebar links are gated here
 // (except sales_returns, which is also gated at the route level).
 
-// sales_returns: PATCH /api/sales-returns/{id} -> "approved" does NOT post
-// to the GL. Subledger and GL silently diverge. See backend repo
-// docs/PHASE_A_FINDINGS.md section D3.0. Restore after D3.0.1.
-// Always false in every environment (enabled Oct 3 2026 after GL fixes M6+M8) lands.
+// sales_returns is on only when VITE_APP_ENV is staging.
 const PILOT_VISIBLE = isStaging;
 
 export const MODULE_FLAGS = {
-  sales_returns: true,
+  sales_returns: PILOT_VISIBLE,
 
   // Mock / invoice-math screens — not GL-aligned. Gated at route + sidebar (all envs).
   finance_accounting_dashboard: false,

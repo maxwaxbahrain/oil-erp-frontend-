@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Plus, FileText, Loader2 } from 'lucide-react';
-import { getCustomers, getProducts, type Customer, type Product } from '../../services/api';
+import { customersOpenForNewDocument, getCustomers, getProducts, type Customer, type Product } from '../../services/api';
 import SearchableSelect from '../../components/common/SearchableSelect';
 import InvoiceLineRow, { type InvoiceLineItem } from './InvoiceLineRow';
 import { getSalesmen, type SalesmanPickerOption } from '../../services/employeeService';
@@ -173,7 +173,7 @@ export default function QuotationFormPage() {
                     getProducts(),
                     getSalesmen().catch(() => [] as SalesmanPickerOption[]),
                 ]);
-                setCustomers(cust);
+                setCustomers(customersOpenForNewDocument(cust));
                 setProducts(prods);
                 setSalesmen(sm);
             } catch (e) {
