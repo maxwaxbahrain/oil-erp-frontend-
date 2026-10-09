@@ -166,7 +166,7 @@ export default function Sidebar({
                 )}
 
                 {isStaging && canSeeManagement && (
-                <NavItem to="/agent" icon={Bot} label="AI Agent" />
+                <NavItem to="/agent" icon={Bot} label="Zava" />
                 )}
 
                 {(showSalesSection || showSalesIntelExtras) && (
