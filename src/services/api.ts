@@ -1956,6 +1956,7 @@ export interface CollectionsGroups {
   1: CollectionsGroupSummary;
   2: CollectionsGroupSummary;
   3: CollectionsGroupSummary;
+  4?: CollectionsGroupSummary;
 }
 
 export interface CollectionsRow {
@@ -1968,16 +1969,19 @@ export interface CollectionsRow {
   outstanding: number;
   days_unpaid: number;
   last_order: string;
-  group: 1 | 2 | 3;
+  group: 1 | 2 | 3 | 4;
   action: string;
   statement_message: string;
   driver_line: string | null;
   phone_missing: boolean;
+  data_problem?: boolean;
+  data_problem_reason?: string | null;
 }
 
 export interface CollectionsReport {
   as_of: string;
   settings_used: CollectionsSettings;
+  scope?: 'all' | 'late';
   groups: CollectionsGroups;
   total: number;
   rows: CollectionsRow[];
@@ -2019,9 +2023,15 @@ export interface CollectionsLogCreate {
   status?: string | null;
 }
 
-export const getCollectionsReport = (asOf?: string): Promise<CollectionsReport> => {
-  const qs = asOf ? `?as_of=${encodeURIComponent(asOf)}` : '';
-  return apiRequest<CollectionsReport>(`/credit/collections${qs}`);
+export const getCollectionsReport = (
+  asOf?: string,
+  scope?: 'all' | 'late',
+): Promise<CollectionsReport> => {
+  const params = new URLSearchParams();
+  if (asOf) params.set('as_of', asOf);
+  if (scope) params.set('scope', scope);
+  const qs = params.toString();
+  return apiRequest<CollectionsReport>(`/credit/collections${qs ? `?${qs}` : ''}`);
 };
 
 export function getCollectionsCsvUrl(asOf?: string): string {

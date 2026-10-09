@@ -17,7 +17,7 @@ export default function CollectionsDriver() {
       setLoading(true);
       setError(null);
       try {
-        const report = await getCollectionsReport();
+        const report = await getCollectionsReport(undefined, 'late');
         setRows(group1Rows(report.rows));
       } catch {
         setError(LOAD_ERROR);
