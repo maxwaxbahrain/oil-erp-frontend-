@@ -2,7 +2,7 @@ import { Routes, Route, Navigate, Link } from 'react-router-dom';
 import { Construction } from 'lucide-react';
 import ProtectedRoute from '../components/ProtectedRoute';
 import ProductionLockedRoute from './ProductionLockedRoute';
-import { FINANCE_ROLES, MANAGEMENT_ROLES, SALES_INTEL_ROLES, SPOD_AI_ROLES, SPOD_COMMON_ROLES, SALES_TOOL_ROLES, DRIVER_TOOL_ROLES, INTERNAL_WEB_ROLES, SALES_VOICE_ROLES } from '../utils/rbac';
+import { FINANCE_ROLES, MANAGEMENT_ROLES, SALES_INTEL_ROLES, SPOD_AI_ROLES, SPOD_COMMON_ROLES, SALES_TOOL_ROLES, DRIVER_TOOL_ROLES, INTERNAL_WEB_ROLES, SALES_VOICE_ROLES, ADMIN_ROLES } from '../utils/rbac';
 import { isStaging } from '../config/appEnv';
 import { MODULE_FLAGS } from '../config/moduleFlags';
 import AccountingSetupRequired from '../components/common/AccountingSetupRequired';
@@ -97,6 +97,7 @@ import ProfitabilityReports from '../pages/Reports/ProfitabilityReports';
 import CustomerPriceLists from '../pages/Sales/CustomerPriceLists';
 import RecurringInvoices from '../pages/Sales/RecurringInvoices';
 import AgedReceivable from '../pages/Reports/AgedReceivable';
+import ReceivablesCheck from '../pages/Finance/ReceivablesCheck';
 import AgedPayable from '../pages/Reports/AgedPayable';
 import OutstandingBills from '../pages/Reports/OutstandingBills';
 import DayBook from '../pages/Reports/DayBook';
@@ -399,6 +400,11 @@ export const AppRoutes = () => {
             <Route path="/inventory/adjustments" element={<InventoryAdjustment />} />
             <Route path="/reports/sales" element={<ProfitabilityReports />} />
             <Route path="/reports/aged-receivable" element={<AgedReceivable />} />
+            {isStaging && (
+            <Route element={<ProtectedRoute roles={ADMIN_ROLES} />}>
+            <Route path="/finance/receivables-check" element={<ReceivablesCheck />} />
+            </Route>
+            )}
             <Route path="/reports/aged-payable" element={<AgedPayable />} />
             <Route path="/reports/outstanding-bills" element={<OutstandingBills />} />
             <Route path="/reports/day-book" element={<DayBook />} />

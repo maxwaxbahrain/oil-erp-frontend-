@@ -3,9 +3,11 @@ import { useState, useEffect } from 'react';
 import { Clock, Download, AlertTriangle, CheckCircle , ArrowLeft, Printer } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { getInvoices, getCustomerPayments, type Invoice } from '../../services/api';
+import { getInvoices, getCustomerPayments, getReceivablesCheck, type Invoice } from '../../services/api';
+import { getCreditNotes } from '../../services/creditNoteService';
 import { formatCurrency } from '../../services/settingsService';
-import { calculateReceivables } from '../../utils/arMetrics';
+import { calculateReceivables, type ArCreditLine } from '../../utils/arMetrics';
+import { creditNoteInputs, importedCreditInputs } from '../../utils/receivablesCheck';
 
 interface AgedCustomer {
     customerId: string;
@@ -15,8 +17,10 @@ interface AgedCustomer {
     days60: number;       // 61-90 days
     days90: number;       // 90+ days
     total: number;
+    credits: number;
     invoices: Invoice[];
     invoiceBalances: Record<string, number>;
+    creditLines: ArCreditLine[];
 }
 
 export default function AgedReceivable() {
@@ -28,32 +32,57 @@ export default function AgedReceivable() {
     const [asOf] = useState(new Date().toISOString().split('T')[0]);
 
     useEffect(() => {
-        Promise.all([getInvoices(), getCustomerPayments()]).then(([invoices, payments]) => {
-            const receivables = calculateReceivables(invoices, payments, new Date(`${asOf}T12:00:00`));
+        Promise.all([
+            getInvoices(),
+            getCustomerPayments(),
+            getCreditNotes().catch(() => []),
+            getReceivablesCheck().catch(() => ({ imported_credits: [], unapplied_payments: [] })),
+        ]).then(([invoices, payments, notes, check]) => {
+            const receivables = calculateReceivables(
+                invoices,
+                payments,
+                new Date(`${asOf}T12:00:00`),
+                { credits: [...creditNoteInputs(notes), ...importedCreditInputs(check.imported_credits)] },
+            );
             const byCustomer = new Map<string, AgedCustomer>();
-
-            receivables.invoices.forEach(row => {
-                const inv = row.invoice as Invoice;
-                const cid = String(inv.customerId || 'unknown');
-                const existing = byCustomer.get(cid) || {
+            const ensure = (cid: string, name?: string): AgedCustomer => {
+                const existing = byCustomer.get(cid);
+                if (existing) {
+                    if (name && existing.customerName === 'Unknown') existing.customerName = name;
+                    return existing;
+                }
+                const row: AgedCustomer = {
                     customerId: cid,
-                    customerName: inv.customerName || 'Unknown',
+                    customerName: name || 'Unknown',
                     current: 0,
                     days30: 0,
                     days60: 0,
                     days90: 0,
                     total: 0,
+                    credits: 0,
                     invoices: [],
                     invoiceBalances: {},
+                    creditLines: [],
                 };
+                byCustomer.set(cid, row);
+                return row;
+            };
+
+            receivables.invoices.forEach(row => {
+                const inv = row.invoice as Invoice;
+                const existing = ensure(String(inv.customerId || 'unknown'), inv.customerName);
                 existing[row.bucket] += row.balance;
                 existing.total += row.balance;
                 existing.invoices.push(inv);
                 existing.invoiceBalances[inv.id] = row.balance;
-                byCustomer.set(cid, existing);
+            });
+            receivables.credits.forEach(credit => {
+                const existing = ensure(credit.customerId || 'unknown', credit.customerName);
+                existing.credits += credit.amount;
+                existing.creditLines.push(credit);
             });
 
-            setData([...byCustomer.values()].sort((a, b) => b.total - a.total));
+            setData([...byCustomer.values()].sort((a, b) => b.total - a.total || b.credits - a.credits));
             setLoading(false);
         }).catch(() => setLoading(false));
     }, []);
@@ -64,8 +93,9 @@ export default function AgedReceivable() {
         days30: acc.days30 + c.days30,
         days60: acc.days60 + c.days60,
         days90: acc.days90 + c.days90,
-        total: acc.total + c.total
-    }), { current: 0, days30: 0, days60: 0, days90: 0, total: 0 });
+        total: acc.total + c.total,
+        credits: acc.credits + c.credits,
+    }), { current: 0, days30: 0, days60: 0, days90: 0, total: 0, credits: 0 });
 
     const exportPDF = () => {
         const doc = new jsPDF({ orientation: 'landscape' });
@@ -73,10 +103,10 @@ export default function AgedReceivable() {
         doc.text('Aged Receivable Report', 14, 16);
         doc.setFontSize(10);
         doc.text(`As of ${asOf}`, 14, 22);
-        doc.text(`${filtered.length} customers · Total outstanding: ${formatCurrency(totals.total)}`, 14, 28);
+        doc.text(`${filtered.length} customers · Gross outstanding: ${formatCurrency(totals.total)} · Net: ${formatCurrency(totals.total - totals.credits)}`, 14, 28);
         autoTable(doc, {
             startY: 34,
-            head: [['Customer', 'Status', 'Current (0–30d)', '31–60 Days', '61–90 Days', '90+ Days', 'Total']],
+            head: [['Customer', 'Status', 'Current (0–30d)', '31–60 Days', '61–90 Days', '90+ Days', 'Unapplied credits', 'Gross']],
             body: filtered.map(c => [
                 c.customerName,
                 ageBadge(c).label,
@@ -84,6 +114,7 @@ export default function AgedReceivable() {
                 c.days30 > 0 ? formatCurrency(c.days30) : '—',
                 c.days60 > 0 ? formatCurrency(c.days60) : '—',
                 c.days90 > 0 ? formatCurrency(c.days90) : '—',
+                c.credits > 0 ? formatCurrency(c.credits) : '—',
                 formatCurrency(c.total),
             ]),
             foot: [[
@@ -93,6 +124,7 @@ export default function AgedReceivable() {
                 formatCurrency(totals.days30),
                 formatCurrency(totals.days60),
                 formatCurrency(totals.days90),
+                formatCurrency(totals.credits),
                 formatCurrency(totals.total),
             ]],
             styles: { fontSize: 9 },
@@ -122,7 +154,7 @@ export default function AgedReceivable() {
                     <div>
                         <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all print:hidden"><ArrowLeft size={14} /> Back</button>
                     <h1 className="text-xl font-black text-gray-900 uppercase tracking-tight">Aged Receivable</h1>
-                        <p className="text-xs text-gray-500 mt-0.5">As of {asOf} · Outstanding customer balances by age</p>
+                        <p className="text-xs text-gray-500 mt-0.5">As of {asOf} · Gross outstanding by age, with unapplied credits beside it</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-2 print:hidden">
@@ -144,13 +176,14 @@ export default function AgedReceivable() {
             </div>
 
             {/* KPI Summary */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
                 {[
                     { label: 'Current (0–30d)', value: totals.current, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200' },
                     { label: '31–60 Days', value: totals.days30, color: 'text-yellow-600', bg: 'bg-yellow-50', border: 'border-yellow-200' },
                     { label: '61–90 Days', value: totals.days60, color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200' },
                     { label: '90+ Days', value: totals.days90, color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-200' },
-                    { label: 'Total Outstanding', value: totals.total, color: 'text-gray-900', bg: 'bg-gray-50', border: 'border-gray-300' },
+                    { label: 'Gross outstanding', value: totals.total, color: 'text-gray-900', bg: 'bg-gray-50', border: 'border-gray-300' },
+                    { label: 'Net (gross − credits)', value: totals.total - totals.credits, color: 'text-gray-900', bg: 'bg-white', border: 'border-gray-300' },
                 ].map((b, i) => (
                     <div key={i} className={`${b.bg} border ${b.border} rounded-2xl p-4`}>
                         <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">{b.label}</p>
@@ -185,7 +218,7 @@ export default function AgedReceivable() {
                         <table className="w-full text-left">
                             <thead className="bg-gray-50 border-b border-gray-100">
                                 <tr>
-                                    {['Customer', 'Status', 'Current (0–30d)', '31–60 Days', '61–90 Days', '90+ Days', 'Total'].map(h => (
+                                    {['Customer', 'Status', 'Current (0–30d)', '31–60 Days', '61–90 Days', '90+ Days', 'Unapplied credits', 'Gross'].map(h => (
                                         <th key={h} className="px-5 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">{h}</th>
                                     ))}
                                 </tr>
@@ -211,11 +244,12 @@ export default function AgedReceivable() {
                                                 <td className="px-5 py-4 text-sm font-mono font-bold text-yellow-700">{c.days30 > 0 ? formatCurrency(c.days30) : '—'}</td>
                                                 <td className="px-5 py-4 text-sm font-mono font-bold text-orange-700">{c.days60 > 0 ? formatCurrency(c.days60) : '—'}</td>
                                                 <td className="px-5 py-4 text-sm font-mono font-bold text-red-700">{c.days90 > 0 ? <span className="flex items-center gap-1"><AlertTriangle size={12} />{formatCurrency(c.days90)}</span> : '—'}</td>
+                                                <td className="px-5 py-4 text-sm font-mono font-bold text-sky-800">{c.credits > 0 ? formatCurrency(c.credits) : '—'}</td>
                                                 <td className="px-5 py-4 text-sm font-black font-mono text-gray-900">{formatCurrency(c.total)}</td>
                                             </tr>
                                             {expanded === c.customerId && (
                                                 <tr key={`${c.customerId}-exp`} className="bg-gray-50">
-                                                    <td colSpan={7} className="px-5 py-3">
+                                                    <td colSpan={8} className="px-5 py-3">
                                                         <div className="space-y-2">
                                                             {c.invoices.map(inv => (
                                                                 <div key={inv.id} className="flex items-center justify-between text-xs bg-white rounded-lg px-4 py-2 border border-gray-100">
@@ -226,6 +260,13 @@ export default function AgedReceivable() {
                                                                     <span className="font-black font-mono text-gray-900">{formatCurrency(c.invoiceBalances[inv.id] ?? 0)}</span>
                                                                 </div>
                                                             ))}
+                                                            {c.creditLines.map(credit => (
+                                                                <div key={credit.id} className="flex items-center justify-between text-xs bg-sky-50 rounded-lg px-4 py-2 border border-sky-100">
+                                                                    <span className="font-black text-sky-900">{credit.label}</span>
+                                                                    <span className="text-sky-700">{credit.storedAs}</span>
+                                                                    <span className="font-black font-mono text-sky-900">{formatCurrency(credit.amount)}</span>
+                                                                </div>
+                                                            ))}
                                                         </div>
                                                     </td>
                                                 </tr>
@@ -234,12 +275,17 @@ export default function AgedReceivable() {
                                     );
                                 })}
                                 <tr className="bg-gray-900 text-white">
-                                    <td className="px-5 py-4 text-xs font-black uppercase tracking-wide" colSpan={2}>Total</td>
+                                    <td className="px-5 py-4 text-xs font-black uppercase tracking-wide" colSpan={2}>Gross</td>
                                     <td className="px-5 py-4 text-sm font-black font-mono">{formatCurrency(totals.current)}</td>
                                     <td className="px-5 py-4 text-sm font-black font-mono">{formatCurrency(totals.days30)}</td>
                                     <td className="px-5 py-4 text-sm font-black font-mono">{formatCurrency(totals.days60)}</td>
                                     <td className="px-5 py-4 text-sm font-black font-mono">{formatCurrency(totals.days90)}</td>
+                                    <td className="px-5 py-4 text-sm font-black font-mono">{formatCurrency(totals.credits)}</td>
                                     <td className="px-5 py-4 text-sm font-black font-mono">{formatCurrency(totals.total)}</td>
+                                </tr>
+                                <tr className="bg-gray-800 text-white">
+                                    <td className="px-5 py-4 text-xs font-black uppercase tracking-wide" colSpan={7}>Net balance (gross outstanding minus unapplied credits)</td>
+                                    <td className="px-5 py-4 text-sm font-black font-mono">{formatCurrency(totals.total - totals.credits)}</td>
                                 </tr>
                             </tbody>
                         </table>
