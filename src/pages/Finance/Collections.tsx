@@ -2,10 +2,12 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
+  ClipboardList,
   Copy,
   Download,
-  MessageSquare,
+  PhoneOff,
   Printer,
+  Receipt,
   RefreshCw,
   Settings,
   X,
@@ -31,7 +33,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { searchCustomers, type Customer } from '../../services/customerService';
 import { MANAGEMENT_ROLES } from '../../utils/rbac';
-import { formatCurrency, formatDateOnly, formatDateTime } from '../../utils/formatters';
+import { formatCurrency, formatDateOnly, formatDateTime, parseApiDateTime, parseDateOnlyLocal } from '../../utils/formatters';
 
 export type GroupFilter = 1 | 2 | 3 | null;
 
@@ -42,10 +44,103 @@ export const GROUP_CARD_META: Record<1 | 2 | 3, { title: string; subtitle: strin
 };
 
 export const GROUP_PILL_CLASS: Record<1 | 2 | 3, string> = {
-  1: 'bg-rose-100 text-rose-700',
-  2: 'bg-amber-100 text-amber-700',
-  3: 'bg-gray-100 text-gray-600',
+  1: 'collections-pill-green',
+  2: 'collections-pill-amber',
+  3: 'collections-pill-red',
 };
+
+const GROUP_COLOR: Record<1 | 2 | 3, string> = {
+  1: 'var(--color-brand-green)',
+  2: 'var(--color-brand-amber)',
+  3: 'var(--color-brand-red)',
+};
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
+
+export type DaysBand = 'neutral' | 'amber' | 'orange' | 'red';
+
+export function daysBand(days: number): DaysBand {
+  if (days <= 30) return 'neutral';
+  if (days <= 60) return 'amber';
+  if (days <= 90) return 'orange';
+  return 'red';
+}
+
+const DAYS_CHIP_STYLE: Record<DaysBand, { background: string; color: string }> = {
+  neutral: { background: 'rgba(255,255,255,0.08)', color: 'var(--color-redwood-text-muted)' },
+  amber: { background: 'rgba(245,158,11,0.16)', color: 'var(--color-brand-amber)' },
+  orange: {
+    background: 'color-mix(in srgb, var(--color-brand-amber) 22%, transparent)',
+    color: 'color-mix(in srgb, var(--color-brand-amber) 40%, var(--color-brand-red))',
+  },
+  red: { background: 'rgba(239,68,68,0.16)', color: 'var(--color-brand-red)' },
+};
+
+export function formatPhoneDisplay(stored: string | null | undefined): { text: string; href: string | null } {
+  const raw = stored ?? '';
+  const digits = raw.replace(/\D/g, '');
+  let national = '';
+  if (digits.length === 10) national = digits;
+  else if (digits.length === 11 && digits.startsWith('1')) national = digits.slice(1);
+  if (!national) {
+    const trimmed = raw.trim();
+    return { text: raw, href: trimmed ? `tel:${trimmed}` : null };
+  }
+  const text = `(${national.slice(0, 3)}) ${national.slice(3, 6)}-${national.slice(6)}`;
+  return { text, href: `tel:+1${national}` };
+}
+
+export function formatLastOrder(value: string | null | undefined, currentYear = new Date().getFullYear()): string {
+  const parsed = parseDateOnlyLocal(value);
+  if (!parsed) return value ?? '';
+  const label = `${MONTHS[parsed.getMonth()]} ${parsed.getDate()}`;
+  if (parsed.getFullYear() === currentYear) return label;
+  return `${label}, ${parsed.getFullYear()}`;
+}
+
+export function formatUpdatedLabel(iso: string | null | undefined): string {
+  const parsed = parseApiDateTime(iso);
+  if (!parsed) return '';
+  const formatted = parsed.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+  return `Updated ${formatted}`;
+}
+
+export type CollectionSortKey = 'customer' | 'group' | 'invoice' | 'days' | 'outstanding' | 'last_order' | 'action';
+
+export function sortCollectionRows(
+  rows: CollectionsRow[],
+  key: CollectionSortKey,
+  direction: 'asc' | 'desc',
+): CollectionsRow[] {
+  const factor = direction === 'asc' ? 1 : -1;
+  const valueOf = (row: CollectionsRow): string | number => {
+    if (key === 'customer') return row.customer_name.toLowerCase();
+    if (key === 'group') return row.group;
+    if (key === 'invoice') return row.invoice_number.toLowerCase();
+    if (key === 'days') return row.days_unpaid;
+    if (key === 'outstanding') return row.outstanding;
+    if (key === 'last_order') return row.last_order || '';
+    return row.action.toLowerCase();
+  };
+  return [...rows].sort((a, b) => {
+    const left = valueOf(a);
+    const right = valueOf(b);
+    if (left < right) return -1 * factor;
+    if (left > right) return 1 * factor;
+    return a.invoice_id - b.invoice_id;
+  });
+}
+
+const toolButtonClass =
+  'inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-redwood-border px-3 text-sm text-redwood-text-main hover:bg-white/5 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-brand-blue)]';
+
+const actionButtonClass =
+  'inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-redwood-border px-3 text-sm text-redwood-text-main hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-brand-blue)]';
 
 export function filterRowsByGroup<T extends { group: number }>(
   rows: T[],
@@ -90,13 +185,136 @@ const emptyLogDraft = (): LogDraft => ({
   status: 'Open',
 });
 
+function LogEditor({
+  draft,
+  busy,
+  onChange,
+  onSave,
+}: {
+  draft: LogDraft;
+  busy: boolean;
+  onChange: (next: LogDraft) => void;
+  onSave: () => void;
+}) {
+  return (
+    <div className="max-w-xl space-y-3">
+      <label className="block">
+        <span className="text-[10px] font-black uppercase tracking-wider text-gray-400">Note *</span>
+        <AutoGrowTextarea
+          value={draft.note}
+          onChange={(e) => onChange({ ...draft, note: e.target.value })}
+          className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
+        />
+      </label>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <label className="block">
+          <span className="text-[10px] font-black uppercase tracking-wider text-gray-400">Promised date</span>
+          <input
+            type="date"
+            value={draft.promised_date}
+            onChange={(e) => onChange({ ...draft, promised_date: e.target.value })}
+            className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
+          />
+        </label>
+        <label className="block">
+          <span className="text-[10px] font-black uppercase tracking-wider text-gray-400">Promised method</span>
+          <select
+            value={draft.promised_method}
+            onChange={(e) => onChange({ ...draft, promised_method: e.target.value })}
+            className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
+          >
+            <option value="">—</option>
+            {PROMISED_METHODS.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-[10px] font-black uppercase tracking-wider text-gray-400">Status</span>
+          <select
+            value={draft.status}
+            onChange={(e) => onChange({ ...draft, status: e.target.value })}
+            className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
+          >
+            {LOG_STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <button
+        type="button"
+        disabled={busy || !draft.note.trim()}
+        onClick={onSave}
+        className="rounded-xl bg-gray-900 px-4 py-2 text-xs font-bold text-white hover:opacity-90 disabled:opacity-50"
+      >
+        {busy ? 'Saving…' : 'Save log'}
+      </button>
+    </div>
+  );
+}
+
+function LogLines({ entries }: { entries: CollectionsLogEntry[] }) {
+  if (!entries.length) return null;
+  return (
+    <div className="ml-2 space-y-1 border-l-2 border-gray-100 pl-3">
+      {entries.map((entry) => (
+        <p key={entry.id} className="text-xs text-gray-500">
+          <span className="font-bold text-gray-700">{entry.note}</span>
+          {entry.status ? ` · ${entry.status}` : ''}
+          {entry.created_at ? ` · ${formatDateTime(entry.created_at)}` : ''}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 function GroupPill({ group }: { group: 1 | 2 | 3 }) {
   return (
     <span
-      className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide ${GROUP_PILL_CLASS[group]}`}
+      className={`inline-flex max-w-full items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs ${GROUP_PILL_CLASS[group]}`}
+      style={{
+        color: GROUP_COLOR[group],
+        background: `color-mix(in srgb, ${GROUP_COLOR[group]} 16%, transparent)`,
+      }}
     >
-      {group}
+      {GROUP_CARD_META[group].title}
     </span>
+  );
+}
+
+function DaysChip({ days }: { days: number }) {
+  const band = daysBand(days);
+  return (
+    <span
+      data-days-band={band}
+      className="inline-flex min-w-8 justify-end rounded-md px-1.5 py-0.5 text-sm tabular-nums"
+      style={DAYS_CHIP_STYLE[band]}
+    >
+      {days}
+    </span>
+  );
+}
+
+function PhoneLine({ row }: { row: CollectionsRow }) {
+  if (row.phone_missing) {
+    return (
+      <span className="mt-0.5 inline-flex items-center gap-1 text-xs text-redwood-text-muted">
+        <PhoneOff size={12} aria-hidden="true" />
+        No phone on file
+      </span>
+    );
+  }
+  const phone = formatPhoneDisplay(row.customer_phone);
+  if (!phone.href) return null;
+  return (
+    <a href={phone.href} className="mt-0.5 block text-xs text-redwood-text-muted underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-brand-blue)]">
+      {phone.text}
+    </a>
   );
 }
 
@@ -112,41 +330,25 @@ function SummaryCard({
   onClick: () => void;
 }) {
   const meta = GROUP_CARD_META[group];
+  const quiet = summary.customers === 0 && summary.invoices === 0 && summary.total === 0;
   return (
     <button
       type="button"
       aria-label={`Filter group ${group}`}
       aria-pressed={active}
       onClick={onClick}
-      className={`text-left bg-white p-5 rounded-2xl border shadow-sm transition-all ${
-        active
-          ? 'border-gray-900 ring-2 ring-gray-900/10'
-          : 'border-gray-100 hover:border-gray-200'
-      }`}
+      className={`rounded-2xl border border-redwood-border bg-redwood-bg-surface p-4 text-left shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-brand-blue)] ${
+        quiet ? 'opacity-60' : ''
+      } ${active ? 'ring-2 ring-white/20' : ''}`}
+      style={{ borderLeftWidth: 3, borderLeftColor: GROUP_COLOR[group] }}
     >
-      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-1">
-        Group {group}
+      <h3 className="text-sm font-semibold text-redwood-text-main">{meta.title}</h3>
+      <p className="mt-0.5 text-xs text-redwood-text-muted">{meta.subtitle}</p>
+      <p className="mt-3 text-2xl font-semibold tabular-nums text-redwood-text-main">{formatCurrency(summary.total)}</p>
+      <p className="mt-1 flex items-baseline gap-3 text-sm text-redwood-text-muted">
+        <span>{summary.customers} Customers</span>
+        <span>{summary.invoices} Invoices</span>
       </p>
-      <h3 className="text-sm font-black text-gray-900 leading-snug">
-        {meta.title}
-        <span className="block text-xs font-semibold text-gray-500 normal-case tracking-normal mt-0.5">
-          {meta.subtitle}
-        </span>
-      </h3>
-      <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-        <div>
-          <p className="text-lg font-black text-gray-900">{summary.customers}</p>
-          <p className="text-[9px] font-bold uppercase text-gray-400">Customers</p>
-        </div>
-        <div>
-          <p className="text-lg font-black text-gray-900">{summary.invoices}</p>
-          <p className="text-[9px] font-bold uppercase text-gray-400">Invoices</p>
-        </div>
-        <div>
-          <p className="text-sm font-black text-gray-900">{formatCurrency(summary.total)}</p>
-          <p className="text-[9px] font-bold uppercase text-gray-400">Total</p>
-        </div>
-      </div>
     </button>
   );
 }
@@ -555,6 +757,8 @@ export default function Collections() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [groupFilter, setGroupFilter] = useState<GroupFilter>(null);
+  const [sortKey, setSortKey] = useState<CollectionSortKey | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [copiedInvoiceId, setCopiedInvoiceId] = useState<number | null>(null);
   const [logOpenInvoiceId, setLogOpenInvoiceId] = useState<number | null>(null);
   const [logDraft, setLogDraft] = useState<LogDraft>(emptyLogDraft());
@@ -585,8 +789,19 @@ export default function Collections() {
 
   const visibleRows = useMemo(() => {
     if (!report) return [];
-    return filterRowsByGroup(report.rows, groupFilter);
-  }, [report, groupFilter]);
+    const filtered = filterRowsByGroup(report.rows, groupFilter);
+    if (!sortKey) return filtered;
+    return sortCollectionRows(filtered, sortKey, sortDirection);
+  }, [report, groupFilter, sortKey, sortDirection]);
+
+  const toggleSort = (key: CollectionSortKey) => {
+    if (sortKey === key) {
+      setSortDirection((current) => (current === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setSortKey(key);
+    setSortDirection('asc');
+  };
 
   const toggleGroupFilter = (group: 1 | 2 | 3) => {
     setGroupFilter((prev) => (prev === group ? null : group));
@@ -677,57 +892,59 @@ export default function Collections() {
   const emptyReport = !loading && report && report.rows.length === 0;
 
   return (
-    <div className="space-y-5 max-w-[1100px] mx-auto pb-10 animate-in fade-in duration-300">
-      <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-black text-gray-900 tracking-tight uppercase flex items-center gap-2">
-              <MessageSquare size={24} className="text-gray-700" />
-              Collections
-            </h1>
-            {report && (
-              <p className="text-sm text-gray-500 mt-1">
-                As of {formatDateTime(report.as_of)} ·{' '}
-                <span className="font-bold text-gray-900">{formatCurrency(report.total)}</span>{' '}
-                outstanding
-              </p>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-2 print:hidden">
-            <button
-              type="button"
-              disabled={csvBusy || loading}
-              onClick={() => void onDownloadCsv()}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-            >
-              <Download size={14} />
-              {csvBusy ? 'Downloading…' : 'Download CSV'}
-            </button>
-            <Link
-              to="/finance/collections/driver"
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 text-xs font-bold text-gray-700 hover:bg-gray-50"
-            >
-              <Printer size={14} />
-              Driver list
-            </Link>
-            <button
-              type="button"
-              onClick={() => void openSettings()}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-900 text-white text-xs font-bold hover:opacity-90"
-            >
-              <Settings size={14} />
-              Settings
-            </button>
-            <button
-              type="button"
-              onClick={() => void fetchReport()}
-              disabled={loading}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-            >
-              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-              Refresh
-            </button>
-          </div>
+    <div className="mx-auto max-w-[1200px] space-y-5 pb-10">
+      <div className="flex flex-col gap-4 rounded-2xl border border-redwood-border bg-redwood-bg-surface p-5 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 flex-1">
+          <h1 className="flex items-center gap-2 text-xl font-semibold text-redwood-text-main">
+            <Receipt size={22} aria-hidden="true" />
+            Collections
+          </h1>
+          {report && (
+            <>
+              <p className="mt-2 text-4xl font-semibold tabular-nums text-redwood-text-main">{formatCurrency(report.total)}</p>
+              <p className="mt-1 text-xs text-redwood-text-muted">{formatUpdatedLabel(report.as_of)}</p>
+              <div className="mt-3">
+                <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-white/10" aria-hidden="true">
+                  {([1, 2, 3] as const).map((group) => {
+                    const share = report.total > 0 ? (report.groups[group].total / report.total) * 100 : 0;
+                    if (share <= 0) return null;
+                    return <span key={group} style={{ width: `${share}%`, background: GROUP_COLOR[group] }} />;
+                  })}
+                </div>
+                <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-redwood-text-muted">
+                  {([1, 2, 3] as const).map((group) => (
+                    <li key={group} className="inline-flex items-center gap-1.5">
+                      <i className="inline-block h-2 w-2 rounded-full" style={{ background: GROUP_COLOR[group] }} />
+                      {GROUP_CARD_META[group].title}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2 print:hidden">
+          <button
+            type="button"
+            disabled={csvBusy || loading}
+            onClick={() => void onDownloadCsv()}
+            className={toolButtonClass}
+          >
+            <Download size={14} />
+            {csvBusy ? 'Downloading…' : 'Download CSV'}
+          </button>
+          <Link to="/finance/collections/driver" className={toolButtonClass}>
+            <Printer size={14} />
+            Print driver list
+          </Link>
+          <button type="button" onClick={() => void openSettings()} className={toolButtonClass}>
+            <Settings size={14} />
+            Settings
+          </button>
+          <button type="button" onClick={() => void fetchReport()} disabled={loading} className={toolButtonClass}>
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+            Refresh
+          </button>
         </div>
       </div>
 
@@ -739,7 +956,7 @@ export default function Collections() {
       )}
 
       {report && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           {([1, 2, 3] as const).map((g) => (
             <SummaryCard
               key={g}
@@ -752,14 +969,27 @@ export default function Collections() {
         </div>
       )}
 
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      {groupFilter && (
+        <p className="flex items-center gap-2 text-sm text-redwood-text-main">
+          Showing: {GROUP_CARD_META[groupFilter].title}
+          <button
+            type="button"
+            onClick={() => setGroupFilter(null)}
+            className="rounded-lg border border-redwood-border px-2 py-1 text-xs text-redwood-text-muted hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-brand-blue)]"
+          >
+            Clear filter
+          </button>
+        </p>
+      )}
+
+      <div className="rounded-2xl border border-redwood-border bg-redwood-bg-surface shadow-sm">
         {loading && (
-          <div className="p-10 text-center text-sm font-medium text-gray-400">Loading…</div>
+          <div className="p-10 text-center text-sm font-medium text-redwood-text-muted">Loading…</div>
         )}
 
         {emptyReport && (
           <div className="p-10 text-center">
-            <p className="text-sm text-gray-600 max-w-md mx-auto">
+            <p className="mx-auto max-w-md text-sm text-redwood-text-muted">
               No invoices past your late threshold. Adjust the threshold in Settings if that looks
               wrong.
             </p>
@@ -767,76 +997,90 @@ export default function Collections() {
         )}
 
         {!loading && report && report.rows.length > 0 && (
-          <div className="overflow-x-auto">
+          <>
+            <div className="hidden lg:block">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-100 bg-gray-50/80 text-left">
-                  <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider text-gray-400">
-                    Group
-                  </th>
-                  <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider text-gray-400">
-                    Customer
-                  </th>
-                  <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider text-gray-400">
-                    Invoice #
-                  </th>
-                  <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider text-gray-400">
-                    Days unpaid
-                  </th>
-                  <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider text-gray-400">
-                    Outstanding
-                  </th>
-                  <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider text-gray-400">
-                    Last order
-                  </th>
-                  <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider text-gray-400 min-w-[180px]">
-                    Action
-                  </th>
-                  <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider text-gray-400 print:hidden">
-                    &nbsp;
+                <tr className="border-b border-redwood-border bg-redwood-bg-light text-left">
+                  {(
+                    [
+                      ['customer', 'Customer', 'text-left'],
+                      ['group', 'Group', 'text-left'],
+                      ['invoice', 'Invoice', 'text-left'],
+                      ['days', 'Days unpaid', 'text-right'],
+                      ['outstanding', 'Outstanding', 'text-right'],
+                      ['last_order', 'Last order', 'text-left'],
+                      ['action', 'Next step', 'text-left'],
+                    ] as const
+                  ).map(([key, label, align]) => (
+                    <th key={key} className={`sticky top-0 bg-redwood-bg-light px-3 py-3 ${align}`}>
+                      <button
+                        type="button"
+                        onClick={() => toggleSort(key)}
+                        className="text-sm font-medium text-redwood-text-main focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-brand-blue)]"
+                        aria-sort={sortKey === key ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                      >
+                        {label}
+                      </button>
+                    </th>
+                  ))}
+                  <th className="sticky top-0 w-72 bg-redwood-bg-light px-3 py-3 text-sm font-medium text-redwood-text-main print:hidden">
+                    Actions
                   </th>
                 </tr>
               </thead>
               <tbody>
                 {visibleRows.map((row) => (
                   <Fragment key={row.invoice_id}>
-                    <tr className="border-b border-gray-50 hover:bg-gray-50/50">
-                      <td className="px-4 py-3">
+                    <tr data-customer={row.customer_name} className="border-b border-redwood-border hover:bg-white/5">
+                      <td className="px-3 py-3 align-top">
+                        <p className="line-clamp-2 font-medium text-redwood-text-main" title={row.customer_name}>
+                          {row.customer_name}
+                        </p>
+                        <PhoneLine row={row} />
+                      </td>
+                      <td className="px-3 py-3 align-top">
                         <GroupPill group={row.group} />
                       </td>
-                      <td className="px-4 py-3">
-                        <p className="font-bold text-gray-900">{row.customer_name}</p>
-                        {row.phone_missing ? (
-                          <span className="inline-flex mt-1 px-1.5 py-0.5 rounded text-[10px] font-black uppercase bg-rose-100 text-rose-700">
-                            No phone
-                          </span>
-                        ) : (
-                          <p className="text-xs text-gray-500">{row.customer_phone}</p>
-                        )}
+                      <td className="px-3 py-3 align-top">
+                        <Link
+                          to={`/sales/invoices/${row.invoice_id}`}
+                          className="text-redwood-text-main underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-brand-blue)]"
+                        >
+                          {row.invoice_number}
+                        </Link>
                       </td>
-                      <td className="px-4 py-3 font-medium text-gray-800">{row.invoice_number}</td>
-                      <td className="px-4 py-3 text-gray-700">{row.days_unpaid}</td>
-                      <td className="px-4 py-3 font-bold text-gray-900">
+                      <td className="px-3 py-3 text-right align-top">
+                        <DaysChip days={row.days_unpaid} />
+                      </td>
+                      <td className="px-3 py-3 text-right align-top font-medium tabular-nums text-redwood-text-main">
                         {formatCurrency(row.outstanding)}
                       </td>
-                      <td className="px-4 py-3 text-gray-600">{formatDateOnly(row.last_order)}</td>
-                      <td className="px-4 py-3 text-xs text-gray-600 leading-snug">{row.action}</td>
-                      <td className="px-4 py-3 print:hidden">
-                        <div className="flex flex-wrap gap-1.5">
+                      <td className="whitespace-nowrap px-3 py-3 align-top text-redwood-text-muted">
+                        {formatLastOrder(row.last_order)}
+                      </td>
+                      <td className="px-3 py-3 align-top">
+                        <p className="line-clamp-2 text-sm text-redwood-text-muted" title={row.action}>
+                          {row.action}
+                        </p>
+                      </td>
+                      <td className="w-72 px-3 py-3 align-top print:hidden">
+                        <div className="flex flex-nowrap gap-1.5">
                           <button
                             type="button"
                             onClick={() => void onCopyMessage(row)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] font-bold text-gray-700 hover:bg-gray-50"
+                            className={actionButtonClass}
                           >
-                            <Copy size={12} />
+                            <Copy size={14} />
                             {copiedInvoiceId === row.invoice_id ? 'Copied' : 'Copy message'}
                           </button>
                           <button
                             type="button"
                             onClick={() => openLog(row.invoice_id)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] font-bold text-gray-700 hover:bg-gray-50"
+                            className={actionButtonClass}
                           >
-                            Log
+                            <ClipboardList size={14} />
+                            Log follow-up
                           </button>
                         </div>
                       </td>
@@ -844,97 +1088,19 @@ export default function Collections() {
                     {logOpenInvoiceId === row.invoice_id && (
                       <tr className="bg-gray-50/80">
                         <td colSpan={8} className="px-4 py-4">
-                          <div className="max-w-xl space-y-3">
-                            <label className="block">
-                              <span className="text-[10px] font-black uppercase tracking-wider text-gray-400">
-                                Note *
-                              </span>
-                              <AutoGrowTextarea
-                                value={logDraft.note}
-                                onChange={(e) =>
-                                  setLogDraft((d) => ({ ...d, note: e.target.value }))
-                                }
-                                className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
-                              />
-                            </label>
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                              <label className="block">
-                                <span className="text-[10px] font-black uppercase tracking-wider text-gray-400">
-                                  Promised date
-                                </span>
-                                <input
-                                  type="date"
-                                  value={logDraft.promised_date}
-                                  onChange={(e) =>
-                                    setLogDraft((d) => ({ ...d, promised_date: e.target.value }))
-                                  }
-                                  className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
-                                />
-                              </label>
-                              <label className="block">
-                                <span className="text-[10px] font-black uppercase tracking-wider text-gray-400">
-                                  Promised method
-                                </span>
-                                <select
-                                  value={logDraft.promised_method}
-                                  onChange={(e) =>
-                                    setLogDraft((d) => ({ ...d, promised_method: e.target.value }))
-                                  }
-                                  className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
-                                >
-                                  <option value="">—</option>
-                                  {PROMISED_METHODS.map((m) => (
-                                    <option key={m} value={m}>
-                                      {m}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
-                              <label className="block">
-                                <span className="text-[10px] font-black uppercase tracking-wider text-gray-400">
-                                  Status
-                                </span>
-                                <select
-                                  value={logDraft.status}
-                                  onChange={(e) =>
-                                    setLogDraft((d) => ({ ...d, status: e.target.value }))
-                                  }
-                                  className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
-                                >
-                                  {LOG_STATUSES.map((s) => (
-                                    <option key={s} value={s}>
-                                      {s}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
-                            </div>
-                            <button
-                              type="button"
-                              disabled={logBusy || !logDraft.note.trim()}
-                              onClick={() => void submitLog(row)}
-                              className="px-4 py-2 rounded-xl bg-gray-900 text-white text-xs font-bold hover:opacity-90 disabled:opacity-50"
-                            >
-                              {logBusy ? 'Saving…' : 'Save log'}
-                            </button>
-                          </div>
+                          <LogEditor
+                            draft={logDraft}
+                            busy={logBusy}
+                            onChange={setLogDraft}
+                            onSave={() => void submitLog(row)}
+                          />
                         </td>
                       </tr>
                     )}
                     {(logsByInvoice[row.invoice_id]?.length ?? 0) > 0 && (
                       <tr className="bg-white">
                         <td colSpan={8} className="px-4 pb-3 pt-0">
-                          <div className="ml-2 pl-3 border-l-2 border-gray-100 space-y-1">
-                            {logsByInvoice[row.invoice_id].map((entry) => (
-                              <p key={entry.id} className="text-xs text-gray-500">
-                                <span className="font-bold text-gray-700">{entry.note}</span>
-                                {entry.status ? ` · ${entry.status}` : ''}
-                                {entry.created_at
-                                  ? ` · ${formatDateTime(entry.created_at)}`
-                                  : ''}
-                              </p>
-                            ))}
-                          </div>
+                          <LogLines entries={logsByInvoice[row.invoice_id]} />
                         </td>
                       </tr>
                     )}
@@ -942,7 +1108,52 @@ export default function Collections() {
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+            <ul className="space-y-3 p-3 lg:hidden">
+              {visibleRows.map((row) => (
+                <li key={row.invoice_id} className="rounded-xl border border-redwood-border p-3">
+                  <p className="font-medium text-redwood-text-main" title={row.customer_name}>{row.customer_name}</p>
+                  <PhoneLine row={row} />
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <GroupPill group={row.group} />
+                    <DaysChip days={row.days_unpaid} />
+                  </div>
+                  <p className="mt-2 text-lg font-semibold tabular-nums text-redwood-text-main">{formatCurrency(row.outstanding)}</p>
+                  <p className="text-xs text-redwood-text-muted">
+                    <Link to={`/sales/invoices/${row.invoice_id}`} className="underline-offset-2 hover:underline">{row.invoice_number}</Link>
+                    {' · '}
+                    {formatLastOrder(row.last_order)}
+                  </p>
+                  <p className="mt-1 line-clamp-2 text-sm text-redwood-text-muted" title={row.action}>{row.action}</p>
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    <button type="button" onClick={() => void onCopyMessage(row)} className={actionButtonClass}>
+                      <Copy size={14} />
+                      {copiedInvoiceId === row.invoice_id ? 'Copied' : 'Copy message'}
+                    </button>
+                    <button type="button" onClick={() => openLog(row.invoice_id)} className={actionButtonClass}>
+                      <ClipboardList size={14} />
+                      Log follow-up
+                    </button>
+                  </div>
+                  {logOpenInvoiceId === row.invoice_id && (
+                    <div className="mt-3">
+                      <LogEditor
+                        draft={logDraft}
+                        busy={logBusy}
+                        onChange={setLogDraft}
+                        onSave={() => void submitLog(row)}
+                      />
+                    </div>
+                  )}
+                  {(logsByInvoice[row.invoice_id]?.length ?? 0) > 0 && (
+                    <div className="mt-3">
+                      <LogLines entries={logsByInvoice[row.invoice_id]} />
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </div>
 
