@@ -2023,6 +2023,34 @@ export interface CollectionsLogCreate {
   status?: string | null;
 }
 
+export interface ImportedCreditRow {
+  id: string;
+  customer_id: string;
+  customer_name: string;
+  amount: number;
+  date?: string | null;
+  reference?: string | null;
+  stored_as: 'sales_return' | 'adjustment' | 'transaction' | 'other';
+}
+
+export interface UnappliedPaymentRow {
+  id: string;
+  customer_id: string;
+  customer_name: string;
+  amount: number;
+  date?: string | null;
+  reference?: string | null;
+}
+
+export interface ReceivablesCheckPayload {
+  imported_credits: ImportedCreditRow[];
+  unapplied_payments: UnappliedPaymentRow[];
+}
+
+/** Read-only. Lists imported credits and payments that are not allocated to an invoice. */
+export const getReceivablesCheck = (): Promise<ReceivablesCheckPayload> =>
+  apiRequest<ReceivablesCheckPayload>('/credit/receivables-check');
+
 export const getCollectionsReport = (
   asOf?: string,
   scope?: 'all' | 'late',

@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { calculateReceivables } from '../arMetrics';
+import { calculateReceivables, legacyCalculateReceivables } from '../arMetrics';
 
 describe('AR metrics honesty', () => {
   it('calculates outstanding AR and aging buckets from invoices and payments', () => {
@@ -60,7 +60,7 @@ describe('AR metrics honesty', () => {
     expect(summary.total).toBe(125);
   });
 
-  it('ignores backend remaining_balance 0 when payments still leave an open balance', () => {
+  it('excludes a fully paid invoice when the server balance is 0', () => {
     const asOf = new Date('2026-08-01T12:00:00');
     const invoices = [
       {
@@ -71,26 +71,139 @@ describe('AR metrics honesty', () => {
         grandTotal: 1000,
         amount_paid: 0,
         remaining_balance: 0,
+        status: 'Paid',
       },
     ];
     const payments = [{ customer_id: 'alpha', amount: 500, payment_date: '2026-08-01' }];
 
     const summary = calculateReceivables(invoices, payments, asOf);
 
-    expect(summary.total).toBe(500);
-    expect(summary.invoices).toHaveLength(1);
-    expect(summary.invoices[0].balance).toBe(500);
+    expect(summary.total).toBe(0);
+    expect(summary.invoices).toHaveLength(0);
+    expect(legacyCalculateReceivables(invoices, payments, asOf).total).toBe(500);
   });
 
-  it('does not FIFO-apply customer payments already reflected in invoice amount_paid (CLEANTEST)', () => {
+  it('uses the server balance for a partially paid invoice', () => {
     const asOf = new Date('2026-08-01T12:00:00');
     const invoices = [
-      { id: 't1', customerId: 'alpha', invoiceDate: '2026-08-01', dueDate: '2026-08-01', grandTotal: 1000, amount_paid: 1000, remaining_balance: 0 },
-      { id: 't2', customerId: 'bravo', invoiceDate: '2026-08-01', dueDate: '2026-08-01', grandTotal: 1000, amount_paid: 1000, remaining_balance: 0 },
-      { id: 't3', customerId: 'charlie', invoiceDate: '2026-08-01', dueDate: '2026-08-01', grandTotal: 800, amount_paid: 500, remaining_balance: 0 },
-      { id: 't4', customerId: 'alpha', invoiceDate: '2026-08-02', dueDate: '2026-08-02', grandTotal: 500, amount_paid: 0, remaining_balance: 0 },
-      { id: 't5', customerId: 'delta', invoiceDate: '2026-08-01', dueDate: '2026-08-01', grandTotal: 400, amount_paid: 400, remaining_balance: 0 },
-      { id: 't6', customerId: 'bravo', invoiceDate: '2026-08-02', dueDate: '2026-08-02', grandTotal: 600, amount_paid: 0, remaining_balance: 0 },
+      {
+        id: '1',
+        customerId: 'alpha',
+        invoiceDate: '2026-08-01',
+        dueDate: '2026-08-01',
+        grandTotal: 100,
+        amount_paid: 0,
+        remaining_balance: 40,
+        status: 'Partial',
+      },
+    ];
+    const payments = [{ customer_id: 'alpha', amount: 90, payment_date: '2026-08-01' }];
+
+    const summary = calculateReceivables(invoices, payments, asOf);
+
+    expect(summary.total).toBe(40);
+    expect(summary.invoices).toHaveLength(1);
+    expect(summary.invoices[0].balance).toBe(40);
+  });
+
+  it('excludes a void invoice', () => {
+    const asOf = new Date('2026-08-01T12:00:00');
+    const invoices = [
+      {
+        id: '1',
+        customerId: 'alpha',
+        invoiceDate: '2026-08-01',
+        dueDate: '2026-08-01',
+        grandTotal: 100,
+        remaining_balance: 100,
+        status: 'Void',
+      },
+    ];
+
+    expect(calculateReceivables(invoices, [], asOf).invoices).toHaveLength(0);
+    expect(calculateReceivables([{ ...invoices[0], status: 'Cancelled' }], [], asOf).total).toBe(0);
+  });
+
+  it('keeps a negative-total invoice as an unapplied credit', () => {
+    const asOf = new Date('2026-08-01T12:00:00');
+    const invoices = [
+      {
+        id: 'cr',
+        customerId: 'alpha',
+        customerName: 'Alpha',
+        invoiceNumber: 'INV-CR',
+        invoiceDate: '2026-08-01',
+        dueDate: '2026-08-01',
+        grandTotal: -80,
+        remaining_balance: -80,
+        status: 'Unpaid',
+      },
+    ];
+
+    const summary = calculateReceivables(invoices, [], asOf);
+
+    expect(summary.invoices).toHaveLength(0);
+    expect(summary.total).toBe(0);
+    expect(summary.unappliedCredits).toBe(80);
+    expect(summary.net).toBe(-80);
+    expect(summary.credits[0].kind).toBe('negative_invoice');
+    expect(summary.credits[0].storedAs).toBe('negative invoice');
+  });
+
+  it('gives the banner and Aged Receivable the same gross total', () => {
+    const asOf = new Date('2026-08-01T12:00:00');
+    const invoices = [
+      {
+        id: 'open',
+        customerId: 'alpha',
+        invoiceDate: '2026-08-01',
+        dueDate: '2026-08-01',
+        grandTotal: 100,
+        remaining_balance: 40,
+        status: 'Partial',
+      },
+      {
+        id: 'paid',
+        customerId: 'alpha',
+        invoiceDate: '2026-08-01',
+        dueDate: '2026-08-01',
+        grandTotal: 100,
+        remaining_balance: 0,
+        status: 'Paid',
+      },
+    ];
+    const payments = [{ customer_id: 'alpha', amount: 10 }];
+    const credits = [
+      {
+        id: 'cn-1',
+        customerId: 'alpha',
+        amount: 15,
+        label: 'CN-1',
+        kind: 'credit_note' as const,
+        href: '/sales/credit-notes/1',
+        storedAs: 'credit note',
+        reason: 'unused',
+      },
+    ];
+
+    const banner = calculateReceivables(invoices, payments, asOf);
+    const aged = calculateReceivables(invoices, payments, asOf, { credits });
+
+    expect(banner.total).toBe(aged.total);
+    expect(aged.total).toBe(40);
+    expect(aged.net).toBe(25);
+  });
+
+  it('falls back to payment math only when the server sends no balance', () => {
+    const asOf = new Date('2026-08-01T12:00:00');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const invoices = [
+      { id: 't1', customerId: 'alpha', invoiceDate: '2026-08-01', dueDate: '2026-08-01', grandTotal: 1000, amount_paid: 1000 },
+      { id: 't2', customerId: 'bravo', invoiceDate: '2026-08-01', dueDate: '2026-08-01', grandTotal: 1000, amount_paid: 1000 },
+      { id: 't3', customerId: 'charlie', invoiceDate: '2026-08-01', dueDate: '2026-08-01', grandTotal: 800, amount_paid: 500 },
+      { id: 't4', customerId: 'alpha', invoiceDate: '2026-08-02', dueDate: '2026-08-02', grandTotal: 500, amount_paid: 0 },
+      { id: 't5', customerId: 'delta', invoiceDate: '2026-08-01', dueDate: '2026-08-01', grandTotal: 400, amount_paid: 400 },
+      { id: 't6', customerId: 'bravo', invoiceDate: '2026-08-02', dueDate: '2026-08-02', grandTotal: 600, amount_paid: 0 },
     ];
     const payments = [
       { customer_id: 'alpha', amount: 1000 },
@@ -102,11 +215,13 @@ describe('AR metrics honesty', () => {
     const summary = calculateReceivables(invoices, payments, asOf);
 
     expect(summary.total).toBe(1400);
-    expect(summary.invoices).toHaveLength(3);
+    expect(summary.fallbackCount).toBe(6);
+    expect(warn).toHaveBeenCalled();
     const byId = Object.fromEntries(summary.invoices.map((r) => [r.invoice.id, r.balance]));
     expect(byId.t3).toBe(300);
     expect(byId.t4).toBe(500);
     expect(byId.t6).toBe(600);
+    warn.mockRestore();
   });
 
   it('ignores voided payments when allocating receivables', () => {

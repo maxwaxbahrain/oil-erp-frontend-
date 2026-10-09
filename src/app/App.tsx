@@ -40,7 +40,7 @@ import AdvisorDock from '../components/advisor/AdvisorDock';
 import { SubscriptionRequiredDialog } from '../components/common/SubscriptionRequired';
 import { isProduction, isStaging, appEnv } from '../config/appEnv';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { getInvoices, getCustomers, getProducts, getPayments } from '../services/api';
+import { getInvoices, getCustomers, getProducts, getPayments, isCustomerPayment } from '../services/api';
 import { getPurchaseOrders } from '../services/purchasesService';
 import { calculateReceivables } from '../utils/arMetrics';
 import api from '../api/axios';
@@ -154,7 +154,7 @@ function App() {
   const [trialBanner, setTrialBanner] = useState<{ daysLeft: number } | null>(null);
   const alertCounts = useMemo(() => {
     const invs = (aiCtx.invoices as any[]) || [];
-    const pays = (aiCtx.payments as any[]) || [];
+    const pays = ((aiCtx.payments as any[]) || []).filter(isCustomerPayment);
     const prods = (aiCtx.products as any[]) || [];
     const receivables = calculateReceivables(invs, pays, new Date());
     const unpaid = receivables.invoices.length;
