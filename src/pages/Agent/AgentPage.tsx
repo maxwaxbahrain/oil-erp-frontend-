@@ -4,6 +4,7 @@ import { AlertCircle, Clock, Copy, Package, Send, Users, X } from 'lucide-react'
 import api from '../../api/axios';
 import { useAuth } from '../../contexts/AuthContext';
 import { AnswerBody } from './formatAnswer';
+import { FollowUps, SpatialStyles, ZavaPanel, type SpatialBlock } from './spatial';
 import {
     ERRORS,
     INVALID_EMAIL,
@@ -26,6 +27,10 @@ type Turn = {
     id: number;
     role: 'user' | 'zava';
     text: string;
+    headline?: string;
+    note?: string | null;
+    blocks?: SpatialBlock[];
+    followUps?: string[];
     steps?: Step[];
     at?: Date;
     error?: boolean;
@@ -124,19 +129,32 @@ export default function AgentPage() {
         setSending(true);
         setAnnouncement('Zava is looking this up');
         try {
-            const response = await api.post<{ answer: string; steps: Step[] }>(
+            const response = await api.post<{
+                answer: string;
+                headline?: string;
+                note?: string | null;
+                blocks?: SpatialBlock[];
+                follow_ups?: string[];
+                steps: Step[];
+            }>(
                 '/api/agent/chat',
                 { message: question },
                 { timeout: 70_000 },
             );
             const answer = presentAnswer(response.data.answer || '');
+            const blocks = Array.isArray(response.data.blocks) ? response.data.blocks : [];
+            const failed = answer === ERRORS.timeout || answer === ERRORS.limit || answer === ERRORS.off;
             setTurns((current) => [...current, {
                 id: turnId++,
                 role: 'zava',
                 text: answer,
+                headline: response.data.headline || answer,
+                note: response.data.note,
+                blocks: failed ? [] : blocks,
+                followUps: failed ? [] : (response.data.follow_ups || []).slice(0, 3),
                 steps: response.data.steps || [],
                 at: new Date(),
-                error: answer === ERRORS.timeout || answer === ERRORS.limit || answer === ERRORS.off,
+                error: failed,
             }]);
             setAnnouncement(`Zava says ${answer}`);
         } catch (error) {
@@ -317,6 +335,7 @@ export default function AgentPage() {
                 }
             `}</style>
             <div aria-live="polite" className="sr-only">{announcement}</div>
+            <SpatialStyles />
             <header className="flex h-11 shrink-0 items-center justify-end gap-2">
                 {showNewConversation(turns.length) && (
                     <button type="button" className="zava-control h-9 rounded-lg border border-redwood-border px-3 text-sm text-redwood-text-main" onClick={() => { setTurns([]); setAnnouncement(''); }}>
@@ -372,45 +391,94 @@ export default function AgentPage() {
                 {!welcome && turns.map((turn) => (
                     turn.role === 'user' ? (
                         <div key={turn.id} className="flex justify-end">
-                            <p className="max-w-[85%] rounded-2xl bg-redwood-row-bg px-4 py-2 text-[15px] leading-6 text-redwood-text-main">{turn.text}</p>
+                            <p className="zava-user-pill">{turn.text}</p>
                         </div>
                     ) : (
                         <article key={turn.id} className="flex min-w-0 items-start gap-3">
                             <ZavaOrb size={28} />
                             <div className="min-w-0 flex-1">
-                                {turn.error ? <p className="text-[15px] leading-6 text-redwood-text-main">{turn.text}</p> : <AnswerBody source={turn.text} />}
-                                <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-redwood-text-muted">
-                                    <button
-                                        type="button"
-                                        className="zava-control inline-flex items-center gap-1"
-                                        onClick={() => {
-                                            void navigator.clipboard.writeText(turn.text).then(() => setCopiedId(turn.id));
-                                        }}
-                                    >
-                                        <Copy size={12} /> {copiedId === turn.id ? 'Copied' : 'Copy'}
-                                    </button>
-                                    {turn.at && <time dateTime={turn.at.toISOString()}>{turn.at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time>}
-                                </div>
-                                {turn.steps && turn.steps.length > 0 && (
-                                    <details className="mt-2">
-                                        <summary className="zava-control cursor-pointer text-sm text-redwood-text-muted">How I got this</summary>
-                                        <ul className="mt-2 space-y-1">
-                                            {turn.steps.map((step, index) => {
-                                                const view = stepView(step.name);
-                                                return (
-                                                    <li key={`${step.name}-${index}`} className="text-sm text-redwood-text-main">
-                                                        {view.label}
-                                                        {view.href && (
-                                                            <>
-                                                                {' · '}
-                                                                <Link className="zava-control underline" to={view.href}>Open the page</Link>
-                                                            </>
-                                                        )}
-                                                    </li>
-                                                );
-                                            })}
-                                        </ul>
-                                    </details>
+                                {turn.error ? <p className="text-[15px] leading-6 text-redwood-text-main">{turn.text}</p> : null}
+                                {!turn.error && turn.blocks?.length ? (
+                                    <>
+                                        <ZavaPanel
+                                            headline={turn.headline || turn.text}
+                                            note={turn.note}
+                                            blocks={turn.blocks}
+                                            onAsk={(question) => void ask(question)}
+                                        >
+                                            <div className="zava-footer">
+                                                <button
+                                                    type="button"
+                                                    className="zava-control inline-flex items-center gap-1"
+                                                    onClick={() => {
+                                                        void navigator.clipboard.writeText(turn.text).then(() => setCopiedId(turn.id));
+                                                    }}
+                                                >
+                                                    <Copy size={12} /> {copiedId === turn.id ? 'Copied' : 'Copy'}
+                                                </button>
+                                                {turn.at && <time dateTime={turn.at.toISOString()}>{turn.at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time>}
+                                                {turn.steps && turn.steps.length > 0 && (
+                                                    <details>
+                                                        <summary className="zava-control cursor-pointer">How I got this</summary>
+                                                        <ul className="mt-2 space-y-1">
+                                                            {turn.steps.map((step, index) => {
+                                                                const view = stepView(step.name);
+                                                                return (
+                                                                    <li key={`${step.name}-${index}`} className="text-sm text-redwood-text-main">
+                                                                        {view.label}
+                                                                        {view.href && (
+                                                                            <>
+                                                                                {' · '}
+                                                                                <Link className="zava-control underline" to={view.href}>Open the page</Link>
+                                                                            </>
+                                                                        )}
+                                                                    </li>
+                                                                );
+                                                            })}
+                                                        </ul>
+                                                    </details>
+                                                )}
+                                            </div>
+                                        </ZavaPanel>
+                                        <FollowUps questions={turn.followUps || []} onAsk={(question) => void ask(question)} />
+                                    </>
+                                ) : (
+                                    <>
+                                        {!turn.error && <AnswerBody source={turn.text} />}
+                                        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-redwood-text-muted">
+                                            <button
+                                                type="button"
+                                                className="zava-control inline-flex items-center gap-1"
+                                                onClick={() => {
+                                                    void navigator.clipboard.writeText(turn.text).then(() => setCopiedId(turn.id));
+                                                }}
+                                            >
+                                                <Copy size={12} /> {copiedId === turn.id ? 'Copied' : 'Copy'}
+                                            </button>
+                                            {turn.at && <time dateTime={turn.at.toISOString()}>{turn.at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time>}
+                                        </div>
+                                        {turn.steps && turn.steps.length > 0 && (
+                                            <details className="mt-2">
+                                                <summary className="zava-control cursor-pointer text-sm text-redwood-text-muted">How I got this</summary>
+                                                <ul className="mt-2 space-y-1">
+                                                    {turn.steps.map((step, index) => {
+                                                        const view = stepView(step.name);
+                                                        return (
+                                                            <li key={`${step.name}-${index}`} className="text-sm text-redwood-text-main">
+                                                                {view.label}
+                                                                {view.href && (
+                                                                    <>
+                                                                        {' · '}
+                                                                        <Link className="zava-control underline" to={view.href}>Open the page</Link>
+                                                                    </>
+                                                                )}
+                                                            </li>
+                                                        );
+                                                    })}
+                                                </ul>
+                                            </details>
+                                        )}
+                                    </>
                                 )}
                             </div>
                         </article>
