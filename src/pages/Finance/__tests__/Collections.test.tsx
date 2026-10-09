@@ -167,6 +167,35 @@ describe('Collections page', () => {
     expect(text()).toContain('Copied');
   });
 
+  it('shows a data problem warning and can switch to late only', async () => {
+    vi.mocked(api.getCollectionsReport).mockResolvedValue({
+      ...mockReport,
+      scope: 'all',
+      rows: [
+        {
+          ...mockReport.rows[0],
+          data_problem: true,
+          data_problem_reason: 'Missing invoice date',
+        },
+        mockReport.rows[1],
+      ],
+    });
+    await renderPage();
+
+    expect(text()).toContain('All outstanding');
+    expect(text()).toContain('Not late yet');
+    expect(text()).toContain('Missing invoice date');
+
+    const lateOnly = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Late only',
+    );
+    expect(lateOnly).toBeTruthy();
+    await act(async () => {
+      lateOnly!.click();
+    });
+    expect(api.getCollectionsReport).toHaveBeenCalledWith(undefined, 'late');
+  });
+
   it('shows No phone badge when phone_missing is true', async () => {
     await renderPage();
 

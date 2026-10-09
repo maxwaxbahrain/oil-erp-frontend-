@@ -35,6 +35,19 @@ describe('collections API', () => {
     expect(fetchMock.mock.calls[0][0]).toBe(`${API_BASE_URL}/credit/collections`);
   });
 
+  it('getCollectionsReport adds scope without dropping as_of', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(mockResp(true, 200, { rows: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await getCollectionsReport(undefined, 'all');
+    expect(fetchMock.mock.calls[0][0]).toBe(`${API_BASE_URL}/credit/collections?scope=all`);
+
+    await getCollectionsReport('2026-09-17T12:00:00', 'late');
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      `${API_BASE_URL}/credit/collections?as_of=2026-09-17T12%3A00%3A00&scope=late`,
+    );
+  });
+
   it('getCollectionsReport encodes as_of query param', async () => {
     const fetchMock = vi.fn().mockResolvedValue(mockResp(true, 200, { rows: [] }));
     vi.stubGlobal('fetch', fetchMock);

@@ -35,24 +35,28 @@ import { searchCustomers, type Customer } from '../../services/customerService';
 import { MANAGEMENT_ROLES } from '../../utils/rbac';
 import { formatCurrency, formatDateOnly, formatDateTime, parseApiDateTime, parseDateOnlyLocal } from '../../utils/formatters';
 
-export type GroupFilter = 1 | 2 | 3 | null;
+export type GroupFilter = 1 | 2 | 3 | 4 | null;
+export type CollectionsScope = 'all' | 'late';
 
-export const GROUP_CARD_META: Record<1 | 2 | 3, { title: string; subtitle: string }> = {
+export const GROUP_CARD_META: Record<1 | 2 | 3 | 4, { title: string; subtitle: string }> = {
   1: { title: 'Still ordering', subtitle: 'cash on delivery' },
   2: { title: 'Recently quiet', subtitle: 'call this week' },
   3: { title: 'Old', subtitle: 'one round, then decide' },
+  4: { title: 'Not late yet', subtitle: 'no action yet' },
 };
 
-export const GROUP_PILL_CLASS: Record<1 | 2 | 3, string> = {
+export const GROUP_PILL_CLASS: Record<1 | 2 | 3 | 4, string> = {
   1: 'collections-pill-green',
   2: 'collections-pill-amber',
   3: 'collections-pill-red',
+  4: 'collections-pill-neutral',
 };
 
-const GROUP_COLOR: Record<1 | 2 | 3, string> = {
+const GROUP_COLOR: Record<1 | 2 | 3 | 4, string> = {
   1: 'var(--color-brand-green)',
   2: 'var(--color-brand-amber)',
   3: 'var(--color-brand-red)',
+  4: 'var(--color-redwood-text-muted)',
 };
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
@@ -273,7 +277,17 @@ function LogLines({ entries }: { entries: CollectionsLogEntry[] }) {
   );
 }
 
-function GroupPill({ group }: { group: 1 | 2 | 3 }) {
+function DataProblemNote({ reason }: { reason?: string | null }) {
+  if (!reason) return null;
+  return (
+    <span className="mt-0.5 inline-flex items-center gap-1 text-xs text-[var(--color-brand-amber)]">
+      <AlertTriangle size={12} aria-hidden="true" />
+      {reason}
+    </span>
+  );
+}
+
+function GroupPill({ group }: { group: 1 | 2 | 3 | 4 }) {
   return (
     <span
       className={`inline-flex max-w-full items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs ${GROUP_PILL_CLASS[group]}`}
@@ -324,7 +338,7 @@ function SummaryCard({
   active,
   onClick,
 }: {
-  group: 1 | 2 | 3;
+  group: 1 | 2 | 3 | 4;
   summary: { customers: number; invoices: number; total: number };
   active: boolean;
   onClick: () => void;
@@ -756,6 +770,7 @@ export default function Collections() {
   const [report, setReport] = useState<CollectionsReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [scope, setScope] = useState<CollectionsScope>('all');
   const [groupFilter, setGroupFilter] = useState<GroupFilter>(null);
   const [sortKey, setSortKey] = useState<CollectionSortKey | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
@@ -773,7 +788,7 @@ export default function Collections() {
     setLoading(true);
     setError(null);
     try {
-      const data = await getCollectionsReport();
+      const data = await getCollectionsReport(undefined, scope);
       setReport(data);
     } catch {
       setError(LOAD_ERROR);
@@ -781,7 +796,7 @@ export default function Collections() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [scope]);
 
   useEffect(() => {
     void fetchReport();
@@ -803,7 +818,7 @@ export default function Collections() {
     setSortDirection('asc');
   };
 
-  const toggleGroupFilter = (group: 1 | 2 | 3) => {
+  const toggleGroupFilter = (group: 1 | 2 | 3 | 4) => {
     setGroupFilter((prev) => (prev === group ? null : group));
   };
 
@@ -891,8 +906,38 @@ export default function Collections() {
 
   const emptyReport = !loading && report && report.rows.length === 0;
 
+  const visibleGroups = scope === 'all' ? ([1, 2, 3, 4] as const) : ([1, 2, 3] as const);
+  const chooseScope = (next: CollectionsScope) => {
+    setScope(next);
+    setGroupFilter(null);
+    setSortKey(null);
+    setSortDirection('asc');
+  };
+
   return (
     <div className="mx-auto max-w-[1200px] space-y-5 pb-10">
+      <div className="inline-flex rounded-lg border border-redwood-border p-0.5" role="group" aria-label="Collections scope">
+        <button
+          type="button"
+          aria-pressed={scope === 'all'}
+          onClick={() => chooseScope('all')}
+          className={`h-9 rounded-md px-3 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-brand-blue)] ${
+            scope === 'all' ? 'bg-white/10 text-redwood-text-main' : 'text-redwood-text-muted hover:bg-white/5'
+          }`}
+        >
+          All outstanding
+        </button>
+        <button
+          type="button"
+          aria-pressed={scope === 'late'}
+          onClick={() => chooseScope('late')}
+          className={`h-9 rounded-md px-3 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-brand-blue)] ${
+            scope === 'late' ? 'bg-white/10 text-redwood-text-main' : 'text-redwood-text-muted hover:bg-white/5'
+          }`}
+        >
+          Late only
+        </button>
+      </div>
       <div className="flex flex-col gap-4 rounded-2xl border border-redwood-border bg-redwood-bg-surface p-5 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0 flex-1">
           <h1 className="flex items-center gap-2 text-xl font-semibold text-redwood-text-main">
@@ -905,14 +950,14 @@ export default function Collections() {
               <p className="mt-1 text-xs text-redwood-text-muted">{formatUpdatedLabel(report.as_of)}</p>
               <div className="mt-3">
                 <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-white/10" aria-hidden="true">
-                  {([1, 2, 3] as const).map((group) => {
-                    const share = report.total > 0 ? (report.groups[group].total / report.total) * 100 : 0;
+                  {visibleGroups.map((group) => {
+                    const share = report.total > 0 ? ((report.groups[group]?.total ?? 0) / report.total) * 100 : 0;
                     if (share <= 0) return null;
                     return <span key={group} style={{ width: `${share}%`, background: GROUP_COLOR[group] }} />;
                   })}
                 </div>
                 <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-redwood-text-muted">
-                  {([1, 2, 3] as const).map((group) => (
+                  {visibleGroups.map((group) => (
                     <li key={group} className="inline-flex items-center gap-1.5">
                       <i className="inline-block h-2 w-2 rounded-full" style={{ background: GROUP_COLOR[group] }} />
                       {GROUP_CARD_META[group].title}
@@ -956,12 +1001,12 @@ export default function Collections() {
       )}
 
       {report && (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          {([1, 2, 3] as const).map((g) => (
+        <div className={`grid grid-cols-1 gap-4 ${scope === 'all' ? 'md:grid-cols-2 xl:grid-cols-4' : 'md:grid-cols-3'}`}>
+          {visibleGroups.map((g) => (
             <SummaryCard
               key={g}
               group={g}
-              summary={report.groups[g]}
+              summary={report.groups[g] ?? { customers: 0, invoices: 0, total: 0 }}
               active={groupFilter === g}
               onClick={() => toggleGroupFilter(g)}
             />
@@ -1037,6 +1082,7 @@ export default function Collections() {
                         <p className="line-clamp-2 font-medium text-redwood-text-main" title={row.customer_name}>
                           {row.customer_name}
                         </p>
+                        <DataProblemNote reason={row.data_problem_reason} />
                         <PhoneLine row={row} />
                       </td>
                       <td className="px-3 py-3 align-top">
@@ -1113,6 +1159,7 @@ export default function Collections() {
               {visibleRows.map((row) => (
                 <li key={row.invoice_id} className="rounded-xl border border-redwood-border p-3">
                   <p className="font-medium text-redwood-text-main" title={row.customer_name}>{row.customer_name}</p>
+                  <DataProblemNote reason={row.data_problem_reason} />
                   <PhoneLine row={row} />
                   <div className="mt-2 flex items-center justify-between gap-2">
                     <GroupPill group={row.group} />
