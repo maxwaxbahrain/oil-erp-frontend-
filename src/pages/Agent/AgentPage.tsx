@@ -96,6 +96,13 @@ export default function AgentPage() {
     const [saved, setSaved] = useState(false);
     const [focused, setFocused] = useState(false);
     const threadRef = useRef<HTMLDivElement>(null);
+    const questionRef = useRef<HTMLTextAreaElement>(null);
+
+    function resizeQuestion(node: HTMLTextAreaElement | null = questionRef.current) {
+        if (!node) return;
+        node.style.height = '24px';
+        node.style.height = `${Math.min(node.scrollHeight, 120)}px`;
+    }
 
     useEffect(() => {
         if (!sending) return;
@@ -113,6 +120,7 @@ export default function AgentPage() {
         const question = text.trim();
         if (!question || sending) return;
         setDraft('');
+        if (questionRef.current) questionRef.current.style.height = '24px';
         setTurns((current) => [...current, { id: turnId++, role: 'user', text: question, at: new Date() }]);
         setSending(true);
         setAnnouncement('Zava is looking this up');
@@ -223,48 +231,90 @@ export default function AgentPage() {
 
     const welcome = turns.length === 0;
     const glow = focused
-        ? '0 0 0 2px #C4B5FD, 0 0 28px rgba(196,181,253,0.55)'
-        : '0 0 0 1px rgba(196,181,253,0.7), 0 0 22px rgba(196,181,253,0.28)';
+        ? '0 0 0 2px #C4B5FD, 0 0 28px rgba(196,181,253,0.45)'
+        : '0 0 0 1px rgba(196,181,253,0.65), 0 0 18px rgba(196,181,253,0.22)';
 
     return (
-        <div className="relative mx-auto flex min-h-[calc(100dvh-8rem)] w-full max-w-[760px] min-w-0 flex-col overflow-x-hidden">
+        <div className="zava-page">
             <style>{`
-                .zava-orb { display: inline-flex; filter: drop-shadow(0 0 10px rgba(196,181,253,0.55)); }
+                .zava-page {
+                    box-sizing: border-box;
+                    width: 100%;
+                    max-width: 760px;
+                    margin-left: auto;
+                    margin-right: auto;
+                    min-width: 0;
+                    height: calc(100dvh - 64px - 38px - 40px - 24px - 72px);
+                    padding: 0 16px 96px;
+                    display: flex;
+                    flex-direction: column;
+                    overflow: hidden;
+                }
+                @media (min-width: 640px) {
+                    .zava-page { height: calc(100dvh - 64px - 38px - 40px - 48px - 72px); }
+                }
+                @media (min-width: 768px) {
+                    .zava-page { padding-left: 24px; padding-right: 24px; }
+                }
+                @media (min-width: 1024px) {
+                    .zava-page { height: calc(100dvh - 64px - 38px - 40px - 80px); }
+                }
+                @media (min-width: 1328px) {
+                    .zava-page { padding-bottom: 24px; }
+                }
+                .zava-orb { display: inline-flex; position: relative; z-index: 1; filter: drop-shadow(0 0 10px rgba(196,181,253,0.55)); }
                 .zava-orb-thinking { animation: zava-glow 1.6s ease-in-out infinite; }
                 @keyframes zava-glow { 50% { filter: drop-shadow(0 0 16px rgba(196,181,253,0.95)); transform: scale(1.05); } }
-                @media (prefers-reduced-motion: reduce) { .zava-orb-thinking { animation: none; } }
+                .zava-spot {
+                    position: absolute;
+                    left: 50%;
+                    top: 28px;
+                    width: min(600px, 100%);
+                    aspect-ratio: 1;
+                    height: auto;
+                    transform: translate(-50%, -50%);
+                    background: radial-gradient(circle, rgba(196,181,253,0.45) 0%, rgba(196,181,253,0.14) 22%, rgba(196,181,253,0.03) 55%, transparent 100%);
+                    pointer-events: none;
+                }
                 .zava-control:focus-visible { outline: 2px solid #C4B5FD; outline-offset: 2px; }
+                .zava-card { transition: border-color 0.15s ease; }
+                .zava-card:hover { border-color: rgba(238,242,255,0.38); }
+                @media (prefers-reduced-motion: reduce) {
+                    .zava-orb-thinking { animation: none; }
+                    .zava-card { transition: none; }
+                }
             `}</style>
-            <div
-                className="pointer-events-none absolute left-1/2 top-0 h-56 w-[140%] -translate-x-1/2"
-                style={{ background: 'radial-gradient(ellipse at center, rgba(196,181,253,0.28), transparent 68%)' }}
-            />
             <div aria-live="polite" className="sr-only">{announcement}</div>
-            <header className="relative z-10 flex items-center justify-end gap-2">
+            <header className="flex h-11 shrink-0 items-center justify-end gap-2">
                 {showNewConversation(turns.length) && (
-                    <button type="button" className="zava-control rounded-full px-3 py-2 text-sm text-redwood-text-main" onClick={() => { setTurns([]); setAnnouncement(''); }}>
+                    <button type="button" className="zava-control h-9 rounded-lg border border-redwood-border px-3 text-sm text-redwood-text-main" onClick={() => { setTurns([]); setAnnouncement(''); }}>
                         New conversation
                     </button>
                 )}
                 {isAdmin && (
-                    <button type="button" className="zava-control rounded-full border border-redwood-border px-3 py-2 text-sm text-redwood-text-main" onClick={() => void openBriefing()}>
+                    <button type="button" className="zava-control inline-flex h-9 items-center gap-2 rounded-lg border border-redwood-border px-3 text-sm text-redwood-text-main" onClick={() => void openBriefing()}>
+                        <Clock size={16} />
                         Morning briefing
                     </button>
                 )}
             </header>
 
-            <div ref={threadRef} className="relative z-10 flex flex-1 flex-col gap-6 overflow-y-auto py-6">
+            <div ref={threadRef} className={`flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden ${welcome ? '' : 'gap-6 py-4'}`}>
                 {welcome && (
-                    <div className="flex flex-col items-center px-1 text-center">
-                        <ZavaOrb size={56} />
-                        <p className="mt-4 text-base text-redwood-text-main">Hi {firstName(user?.full_name)}, I'm Zava</p>
-                        <h1 className="mt-2 max-w-xl text-[28px] font-semibold leading-tight text-redwood-text-main sm:text-4xl" style={{ fontFamily: "'Syne', sans-serif" }}>
+                    <div className="flex min-h-full w-full items-center justify-center">
+                    <div className="relative flex w-full flex-col items-center text-center">
+                        <div className="zava-spot" aria-hidden="true" />
+                        <div className="relative z-[1] flex h-14 w-14 items-center justify-center">
+                            <ZavaOrb size={56} />
+                        </div>
+                        <p className="relative z-[1] mt-5 text-[15px] text-redwood-text-muted">Hi {firstName(user?.full_name)}, I'm Zava</p>
+                        <h1 className="relative z-[1] mt-2 text-[28px] font-semibold leading-tight text-redwood-text-main sm:text-4xl" style={{ fontFamily: "'Syne', sans-serif" }}>
                             How can I help you today?
                         </h1>
-                        <p className="mt-3 max-w-md text-[15px] leading-6 text-redwood-text-muted">
+                        <p className="relative z-[1] mx-auto mt-3 max-w-[520px] text-[15px] leading-6 text-redwood-text-muted" style={{ textWrap: 'balance' }}>
                             I look up your sales, cash, stock and deliveries. I never change your data.
                         </p>
-                        <div className="mt-8 grid w-full grid-cols-2 gap-3 text-left">
+                        <div className="relative z-[1] mt-10 grid w-full grid-cols-1 gap-3 min-[480px]:grid-cols-2 text-left">
                             {SUGGESTIONS.map((item) => {
                                 const Icon = ICONS[item.id];
                                 return (
@@ -273,14 +323,17 @@ export default function AgentPage() {
                                         type="button"
                                         disabled={sending}
                                         onClick={() => void ask(item.question)}
-                                        className="zava-control flex min-h-24 items-start gap-2 rounded-2xl border border-redwood-border bg-redwood-bg-surface p-3 text-left text-sm text-redwood-text-main disabled:opacity-60"
+                                        className="zava-control zava-card flex min-h-16 items-center gap-3 rounded-2xl border border-redwood-border bg-redwood-bg-surface p-4 text-left text-[15px] leading-5 text-redwood-text-main disabled:opacity-60"
                                     >
-                                        <Icon size={16} className="mt-0.5 shrink-0 text-redwood-text-muted" />
-                                        <span>{item.question}</span>
+                                        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg" style={{ background: 'rgba(196,181,253,0.16)' }}>
+                                            <Icon size={18} color={VIOLET} />
+                                        </span>
+                                        <span className="line-clamp-2">{item.question}</span>
                                     </button>
                                 );
                             })}
                         </div>
+                    </div>
                     </div>
                 )}
 
@@ -341,34 +394,38 @@ export default function AgentPage() {
             </div>
 
             <form
-                className="relative z-10 pb-2"
+                className="shrink-0 pt-3"
                 onSubmit={(event) => {
                     event.preventDefault();
                     void ask(draft);
                 }}
             >
-                <div className="flex items-end gap-2 rounded-3xl bg-redwood-bg-surface px-3 py-2" style={{ boxShadow: glow }}>
+                <div className="flex items-center gap-2 rounded-2xl bg-redwood-bg-surface p-4" style={{ boxShadow: glow }}>
                     <label className="sr-only" htmlFor="zava-question">Ask Zava</label>
                     <textarea
                         id="zava-question"
+                        ref={questionRef}
                         rows={1}
                         value={draft}
                         disabled={sending}
                         maxLength={4000}
                         placeholder="Ask Zava about your business..."
-                        onChange={(event) => setDraft(event.target.value)}
+                        onChange={(event) => {
+                            setDraft(event.target.value);
+                            resizeQuestion(event.target);
+                        }}
                         onKeyDown={onKeyDown}
                         onFocus={() => setFocused(true)}
                         onBlur={() => setFocused(false)}
-                        className="zava-control max-h-40 min-h-11 flex-1 resize-none bg-transparent py-2 text-[15px] text-redwood-text-main outline-none placeholder:text-redwood-text-muted disabled:opacity-60"
+                        className="zava-control h-6 max-h-[120px] flex-1 resize-none overflow-y-auto bg-transparent text-[15px] leading-6 text-redwood-text-main outline-none placeholder:text-redwood-text-muted disabled:opacity-60"
                     />
                     <button
                         type="submit"
                         disabled={sending || !draft.trim()}
                         aria-label="Send"
-                        className="zava-control mb-1 inline-flex h-10 w-10 items-center justify-center rounded-full bg-redwood-brand text-white disabled:opacity-40"
+                        className="zava-control inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-redwood-brand text-white disabled:opacity-40"
                     >
-                        <Send size={16} />
+                        <Send size={14} />
                     </button>
                 </div>
             </form>
