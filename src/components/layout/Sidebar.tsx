@@ -31,7 +31,7 @@ import {
 , CalendarDays , Tag , BookOpen , Scale , Clock , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 , Mail , LogOut , Sparkles , Lock , Activity , Inbox , MessageSquare , Key } from 'lucide-react';
 import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
-import { isProduction } from '../../config/appEnv';
+import { isProduction, isStaging } from '../../config/appEnv';
 import { isRouteLocked } from '../../config/lockedFeatures';
 import { MODULE_FLAGS } from '../../config/moduleFlags';
 import { LockedNavIcon } from '../common/SubscriptionRequired';
@@ -163,6 +163,10 @@ export default function Sidebar({
                 <NavItem to="/" icon={LayoutDashboard} label="Dashboard" />
                 <div className="h-px bg-white/5 my-3 mx-2" />
                 </>
+                )}
+
+                {isStaging && canSeeManagement && (
+                <NavItem to="/agent" icon={Bot} label="AI Agent" />
                 )}
 
                 {(showSalesSection || showSalesIntelExtras) && (
