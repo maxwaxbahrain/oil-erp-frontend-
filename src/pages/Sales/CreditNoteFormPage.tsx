@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Plus, Trash2 } from 'lucide-react';
-import { getCustomers, getCustomerInvoices, getInvoiceById, type Customer, type Invoice } from '../../services/api';
+import { customersOpenForNewDocument, getCustomers, getCustomerInvoices, getInvoiceById, type Customer, type Invoice } from '../../services/api';
 import {
   createCreditNote,
   updateCreditNote,
@@ -93,7 +93,7 @@ export default function CreditNoteFormPage() {
   // now gone. Backend is authoritative for balance.
 
   useEffect(() => {
-    void (async () => setCustomers(await getCustomers()))();
+    void (async () => setCustomers(customersOpenForNewDocument(await getCustomers())))();
   }, []);
 
   // FIX W8-1 — One-shot seed from sales-return prefill payload. Only

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Search, Trash2, Loader2, ShoppingCart, Copy, Plus, UserPlus, X, Truck } from 'lucide-react';
 import {
+  customersOpenForNewDocument,
   getCustomers,
   getProducts,
   getCustomerInvoices,
@@ -198,7 +199,7 @@ export default function SalesOrderFormPage() {
       try {
         const [c, p, v] = await Promise.all([getCustomers(), getProducts(), getVans()]);
         if (!cancelled) {
-          setCustomers(c);
+          setCustomers(customersOpenForNewDocument(c));
           setProducts(p);
           const active = (Array.isArray(v) ? v : []).filter(
             (van) => (van.status || 'active') === 'active'
