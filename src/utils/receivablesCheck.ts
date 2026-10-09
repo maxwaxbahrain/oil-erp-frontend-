@@ -45,7 +45,7 @@ export interface ImportedCreditRow {
   amount: number;
   date?: string | null;
   reference?: string | null;
-  stored_as: 'sales_return' | 'adjustment' | 'transaction' | 'other';
+  stored_as: 'sales_return' | 'return_credit' | 'adjustment' | 'transaction' | 'other';
 }
 
 export interface UnappliedPaymentRow {
@@ -138,6 +138,12 @@ const STORED_AS: Record<ImportedCreditRow['stored_as'], { label: string; kind: A
     kind: 'sales_return',
     reason:
       'Bookkeeper import saves this as a customer transaction of type sales_return. That row has no invoice field. The sales-return screen only creates a Sales Return that requires an original invoice, and there is no control that attaches this imported transaction to an invoice.',
+  },
+  return_credit: {
+    label: 'sales return',
+    kind: 'sales_return',
+    reason:
+      'This part of a sales return is above the invoice open balance, so it stays as unapplied customer credit.',
   },
   adjustment: {
     label: 'transaction',

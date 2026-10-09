@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { ArrowLeft, Plus, Save, FileText, UserPlus, X, Download } from 'lucide-react';
 import {
+    customersOpenForNewDocument,
     getCustomers,
     getInvoices,
     getProducts,
@@ -445,7 +446,7 @@ export default function InvoiceFormPage() {
                     getProducts(),
                     getSalesmen().catch(() => [] as SalesmanPickerOption[]),
                 ]);
-                setCustomers(customersData);
+                setCustomers(customersOpenForNewDocument(customersData));
                 setProducts(productsData);
                 setSalesmen(salesmenData);
                 // Populate form when editing - fetch from API if navigated directly by URL

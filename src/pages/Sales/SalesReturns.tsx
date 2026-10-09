@@ -113,6 +113,7 @@ export default function SalesReturns() {
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState<Tab>('all');
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -126,9 +127,10 @@ export default function SalesReturns() {
       setReturns(list);
       setStats(s);
       setCreditNotes(notes);
+      setPageError(null);
     } catch (e) {
       console.error(e);
-      alert(e instanceof Error ? e.message : 'Failed to load returns');
+      setPageError(e instanceof Error ? e.message : 'Failed to load returns');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -190,11 +192,12 @@ export default function SalesReturns() {
     )
       return;
     setBusyId(id);
+    setPageError(null);
     try {
       await patchSalesReturn(id, { status: 'approved' });
       await load(true);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Approve failed');
+      setPageError(err instanceof Error ? err.message : 'Approve failed');
     } finally {
       setBusyId(null);
     }
@@ -204,11 +207,12 @@ export default function SalesReturns() {
     e.stopPropagation();
     if (!confirm('Mark this return as completed?')) return;
     setBusyId(id);
+    setPageError(null);
     try {
       await patchSalesReturn(id, { status: 'completed' });
       await load(true);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Complete failed');
+      setPageError(err instanceof Error ? err.message : 'Complete failed');
     } finally {
       setBusyId(null);
     }
@@ -223,11 +227,12 @@ export default function SalesReturns() {
     )
       return;
     setBusyId(r.id);
+    setPageError(null);
     try {
       await cancelSalesReturn(r.id);
       await load(true);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Cancel failed');
+      setPageError(err instanceof Error ? err.message : 'Cancel failed');
     } finally {
       setBusyId(null);
     }
@@ -444,6 +449,11 @@ export default function SalesReturns() {
   return (
     <div style={{ paddingBottom: '40px' }}>
       <div className="space-y-3">
+        {pageError ? (
+          <p role="alert" style={{ color: '#9b2335', fontSize: 13, fontWeight: 600, margin: 0 }}>
+            {pageError}
+          </p>
+        ) : null}
         {/* Page header */}
         <div
           style={{

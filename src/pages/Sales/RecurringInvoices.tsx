@@ -3,7 +3,7 @@ import {
     RefreshCw, Plus, Trash2, Play, Pause, Edit2, Search, Bot, Sparkles,
     AlertTriangle, Calendar, Clock, CheckCircle2,
 } from 'lucide-react';
-import { getCustomers, getProducts, type Customer, type Product } from '../../services/api';
+import { customersOpenForNewDocument, getCustomers, getProducts, type Customer, type Product } from '../../services/api';
 import {
     getRecurringInvoices, saveRecurringInvoice, deleteRecurringInvoice,
     runDueRecurringInvoices, createInvoice, type RecurringInvoice,
@@ -187,7 +187,7 @@ export default function RecurringInvoices() {
     useEffect(() => {
         Promise.all([getCustomers(), getProducts()]).then(([c, p]) => {
             // GET /customers/ returns numeric ids. The <select> value is always a string.
-            setCustomers(c.map(row => ({ ...row, id: String(row.id) })));
+            setCustomers(customersOpenForNewDocument(c.map(row => ({ ...row, id: String(row.id) }))));
             setProducts(p);
             setRecurring(getRecurringInvoices());
         });

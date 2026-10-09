@@ -2,13 +2,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMatch, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader2, RotateCcw, Save } from 'lucide-react';
 import clsx from 'clsx';
-import { getCustomers, getInvoices, type Customer, type Invoice } from '../../services/api';
+import { customersOpenForNewDocument, getCustomers, getInvoices, type Customer, type Invoice } from '../../services/api';
 import {
   createSalesReturnApi,
-  getEligibleInvoicesForReturn,
+  eligibleInvoiceEmptyReason,
   getSalesReturn,
+  invoicesEligibleForReturn,
   patchSalesReturn,
   RETURN_REASON_OPTIONS,
+  returnInvoiceStatusLabel,
   type ReturnLineItem,
   type ReturnReasonCode,
   RETURN_POLICY_DAYS,
@@ -56,6 +58,8 @@ export default function SalesReturnFormPage() {
   const [notes, setNotes] = useState('');
   const [lineItems, setLineItems] = useState<ReturnLineItem[]>([]);
   const [serverId, setServerId] = useState<string | null>(null);
+  const [invoiceReason, setInvoiceReason] = useState('');
+  const [notice, setNotice] = useState<{ tone: 'error' | 'ok'; text: string } | null>(null);
 
   const effectiveId = editId || serverId;
 
@@ -67,15 +71,14 @@ export default function SalesReturnFormPage() {
 
   const loadCustomers = useCallback(async () => {
     const c = await getCustomers();
-    setCustomers(c);
+    setCustomers(customersOpenForNewDocument(c));
   }, []);
 
   const loadEdit = useCallback(async () => {
     if (!editId) return;
     const row = await getSalesReturn(editId);
     if (!row) {
-      alert('Return not found');
-      navigate('/sales/returns');
+      setNotice({ tone: 'error', text: 'Return not found' });
       return;
     }
     if (row.status !== 'draft') {
@@ -104,7 +107,7 @@ export default function SalesReturnFormPage() {
         if (editId) await loadEdit();
       } catch (e) {
         console.error(e);
-        alert(e instanceof Error ? e.message : 'Load failed');
+        setNotice({ tone: 'error', text: e instanceof Error ? e.message : 'Load failed' });
       } finally {
         setLoading(false);
       }
@@ -118,18 +121,18 @@ export default function SalesReturnFormPage() {
         return;
       }
       try {
-        if (editId) {
-          const all = await getInvoices();
-          setEligibleInvoices(all.filter((i) => String(i.customerId) === String(customerId)));
-        } else {
-          setEligibleInvoices(await getEligibleInvoicesForReturn(customerId));
-        }
+        const all = await getInvoices();
+        const eligible = invoicesEligibleForReturn(all, customerId);
+        setEligibleInvoices(eligible);
+        setInvoiceReason(eligible.length === 0 ? eligibleInvoiceEmptyReason(all, customerId) : '');
       } catch (e) {
         console.error(e);
+        setEligibleInvoices([]);
+        setInvoiceReason(e instanceof Error ? e.message : 'Could not load invoices');
       }
     };
     run();
-  }, [customerId, editId]);
+  }, [customerId]);
 
   useEffect(() => {
     if (!invoiceId || !eligibleInvoices.length) {
@@ -155,7 +158,7 @@ export default function SalesReturnFormPage() {
     setLineItems(
       inv.lineItems.map((item, index) => ({
         id: `ln-${index}-${Date.now()}`,
-        productId: '',
+        productId: item.productId || '',
         productName: item.product,
         sku: '',
         originalQuantity: item.quantity,
@@ -204,14 +207,14 @@ export default function SalesReturnFormPage() {
 
   const persistDraft = async (): Promise<string | null> => {
     if (!customerId || !invoiceId) {
-      alert('Select customer and invoice');
+      setNotice({ tone: 'error', text: 'Select customer and invoice' });
       return null;
     }
     const items = buildPayloadItems(lineItems);
     const cid = parseInt(customerId, 10);
     const iid = parseInt(invoiceId, 10);
     if (Number.isNaN(cid) || Number.isNaN(iid)) {
-      alert('Invalid customer or invoice');
+      setNotice({ tone: 'error', text: 'Invalid customer or invoice' });
       return null;
     }
 
@@ -247,32 +250,34 @@ export default function SalesReturnFormPage() {
 
   const saveDraft = async () => {
     setSaving(true);
+    setNotice(null);
     try {
-      await persistDraft();
-      alert('Draft saved');
+      const id = await persistDraft();
+      if (id) setNotice({ tone: 'ok', text: 'Draft saved' });
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Save failed');
+      setNotice({ tone: 'error', text: e instanceof Error ? e.message : 'Save failed' });
     } finally {
       setSaving(false);
     }
   };
 
   const submitReturn = async () => {
+    setNotice(null);
     if (!customerId || !invoiceId) {
-      alert('Select customer and invoice');
+      setNotice({ tone: 'error', text: 'Select customer and invoice' });
       return;
     }
     if (!headerReason) {
-      alert('Select return reason');
+      setNotice({ tone: 'error', text: 'Select return reason' });
       return;
     }
     const selected = lineItems.filter((l) => l.selected && l.quantityReturned > 0);
     if (selected.length === 0) {
-      alert('Select at least one line with quantity to return');
+      setNotice({ tone: 'error', text: 'Select at least one line with quantity to return' });
       return;
     }
     if (totalReturn <= 0) {
-      alert('Total credit must be greater than zero');
+      setNotice({ tone: 'error', text: 'Total credit must be greater than zero' });
       return;
     }
 
@@ -309,7 +314,7 @@ export default function SalesReturnFormPage() {
       }
       navigate('/sales/returns');
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Submit failed');
+      setNotice({ tone: 'error', text: e instanceof Error ? e.message : 'Submit failed' });
     } finally {
       setSaving(false);
     }
@@ -370,6 +375,19 @@ export default function SalesReturnFormPage() {
           </div>
         </div>
 
+        {notice && (
+          <p
+            role={notice.tone === 'error' ? 'alert' : 'status'}
+            className={
+              notice.tone === 'error'
+                ? 'text-sm font-semibold text-red-700 bg-red-50 border border-red-100 rounded-xl px-4 py-3'
+                : 'text-sm font-semibold text-green-800 bg-green-50 border border-green-100 rounded-xl px-4 py-3'
+            }
+          >
+            {notice.text}
+          </p>
+        )}
+
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 md:p-8 space-y-8">
           <section>
             <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.25em] mb-4">
@@ -398,15 +416,20 @@ export default function SalesReturnFormPage() {
                     {!customerId
                       ? '— Select customer —'
                       : eligibleInvoices.length === 0
-                        ? '— No eligible invoices (30-day) —'
+                        ? '— No eligible invoices —'
                         : '— Select invoice —'}
                   </option>
                   {eligibleInvoices.map((inv) => (
                     <option key={inv.id} value={inv.id}>
-                      {inv.invoiceNumber} · {inv.invoiceDate} · ${formatMoney(inv.grandTotal)}
+                      {inv.invoiceNumber} · {inv.invoiceDate} · ${formatMoney(inv.grandTotal)} · {returnInvoiceStatusLabel(inv.status)}
                     </option>
                   ))}
                 </select>
+                {customerId && eligibleInvoices.length === 0 && invoiceReason && (
+                  <p role="status" className="text-xs font-semibold text-gray-600 mt-2">
+                    {invoiceReason}
+                  </p>
+                )}
                 {selectedInvoice && (
                   <p className="text-xs text-gray-500 mt-2 font-semibold">Policy window: {daysUntilExpiry} days left</p>
                 )}

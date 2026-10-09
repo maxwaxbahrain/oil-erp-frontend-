@@ -11,6 +11,7 @@ interface Customer {
     credit_limit?: number;
     current_balance?: number;
     payment_terms?: string;
+    is_active?: boolean;
 }
 
 interface CustomerSelectProps {
@@ -33,7 +34,9 @@ export default function CustomerSelect({
     const dropdownRef = useRef<HTMLDivElement>(null);
 
     // Filter customers based on search
-    const filteredCustomers = customers.filter(customer =>
+    const filteredCustomers = customers
+        .filter((customer) => customer.is_active !== false)
+        .filter(customer =>
         customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         customer.code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         customer.phone?.includes(searchTerm)

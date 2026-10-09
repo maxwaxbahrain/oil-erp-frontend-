@@ -20,6 +20,12 @@ export interface Customer {
   notes?: string;
   created_at?: string;
   code?: string;
+  /** Absent means active. New documents hide customers with is_active false. */
+  is_active?: boolean;
+}
+
+export function customersOpenForNewDocument<T extends { is_active?: boolean }>(rows: T[]): T[] {
+  return rows.filter((row) => row.is_active !== false);
 }
 
 export interface LedgerEntry {
@@ -190,6 +196,7 @@ export interface Invoice {
     quantity: number;
     rate: number;
     amount: number;
+    productId?: string;
   }>;
   subtotal: number;
   taxRate: number;
@@ -1042,7 +1049,13 @@ function sliceDatePart(v: unknown): string {
   return s.length >= 10 ? s.slice(0, 10) : s;
 }
 
-function mapApiInvoiceToInvoice(inv: Record<string, unknown>): Invoice {
+export function invoiceLineProductId(it: Record<string, unknown>): string {
+  const raw = it.product_id ?? it.productId;
+  if (raw == null || raw === '') return '';
+  return String(raw);
+}
+
+export function mapApiInvoiceToInvoice(inv: Record<string, unknown>): Invoice {
   const items = inv.items;
   let lineItems: Invoice['lineItems'] = [];
   if (Array.isArray(items)) {
@@ -1052,6 +1065,7 @@ function mapApiInvoiceToInvoice(inv: Record<string, unknown>): Invoice {
       quantity: Number(it.quantity) || 0,
       rate: Number(it.rate) || 0,
       amount: Number(it.amount) || 0,
+      productId: invoiceLineProductId(it),
     }));
   }
   const grandTotal = Number(inv.total ?? inv.total_amount ?? inv.grand_total ?? inv.grandTotal ?? 0);
@@ -2030,7 +2044,7 @@ export interface ImportedCreditRow {
   amount: number;
   date?: string | null;
   reference?: string | null;
-  stored_as: 'sales_return' | 'adjustment' | 'transaction' | 'other';
+  stored_as: 'sales_return' | 'return_credit' | 'adjustment' | 'transaction' | 'other';
 }
 
 export interface UnappliedPaymentRow {
