@@ -94,7 +94,6 @@ export default function AgentPage() {
     const [briefingNote, setBriefingNote] = useState('');
     const [savingBriefing, setSavingBriefing] = useState(false);
     const [saved, setSaved] = useState(false);
-    const [focused, setFocused] = useState(false);
     const threadRef = useRef<HTMLDivElement>(null);
     const questionRef = useRef<HTMLTextAreaElement>(null);
 
@@ -230,9 +229,6 @@ export default function AgentPage() {
     }
 
     const welcome = turns.length === 0;
-    const glow = focused
-        ? '0 0 0 2px #C4B5FD, 0 0 28px rgba(196,181,253,0.45)'
-        : '0 0 0 1px rgba(196,181,253,0.65), 0 0 18px rgba(196,181,253,0.22)';
 
     return (
         <div className="zava-page">
@@ -276,7 +272,43 @@ export default function AgentPage() {
                     background: radial-gradient(circle, rgba(196,181,253,0.45) 0%, rgba(196,181,253,0.14) 22%, rgba(196,181,253,0.03) 55%, transparent 100%);
                     pointer-events: none;
                 }
-                .zava-control:focus-visible { outline: 2px solid #C4B5FD; outline-offset: 2px; }
+                .zava-control:focus-visible:not(#zava-question) { outline: 2px solid #C4B5FD; outline-offset: 2px; }
+                .zava-ask {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    border-radius: 16px;
+                    background: var(--color-redwood-bg-surface);
+                    padding: 16px 8px 16px 0;
+                    box-shadow: 0 0 0 1px rgba(196,181,253,0.65), 0 0 18px rgba(196,181,253,0.22);
+                }
+                .zava-ask:focus-within {
+                    box-shadow: 0 0 0 2px #C4B5FD, 0 0 28px rgba(196,181,253,0.45);
+                }
+                .zava-page textarea#zava-question,
+                .zava-page textarea#zava-question:hover,
+                .zava-page textarea#zava-question:focus,
+                .zava-page textarea#zava-question:focus-visible,
+                .zava-page textarea#zava-question:active {
+                    appearance: none !important;
+                    -webkit-appearance: none !important;
+                    resize: none !important;
+                    border-style: none !important;
+                    border-width: 0 !important;
+                    border-radius: 0 !important;
+                    outline: none !important;
+                    outline-style: none !important;
+                    outline-width: 0 !important;
+                    outline-offset: 0 !important;
+                    box-shadow: none !important;
+                    background: transparent !important;
+                    background-color: transparent !important;
+                    margin: 0 !important;
+                    padding: 0 0 0 16px !important;
+                    box-sizing: border-box !important;
+                    --tw-ring-shadow: 0 0 #0000;
+                    --tw-ring-offset-shadow: 0 0 #0000;
+                }
                 .zava-card { transition: border-color 0.15s ease; }
                 .zava-card:hover { border-color: rgba(238,242,255,0.38); }
                 @media (prefers-reduced-motion: reduce) {
@@ -400,7 +432,7 @@ export default function AgentPage() {
                     void ask(draft);
                 }}
             >
-                <div className="flex items-center gap-2 rounded-2xl bg-redwood-bg-surface p-4" style={{ boxShadow: glow }}>
+                <div className="zava-ask">
                     <label className="sr-only" htmlFor="zava-question">Ask Zava</label>
                     <textarea
                         id="zava-question"
@@ -415,9 +447,7 @@ export default function AgentPage() {
                             resizeQuestion(event.target);
                         }}
                         onKeyDown={onKeyDown}
-                        onFocus={() => setFocused(true)}
-                        onBlur={() => setFocused(false)}
-                        className="zava-control h-6 max-h-[120px] flex-1 resize-none overflow-y-auto bg-transparent text-[15px] leading-6 text-redwood-text-main outline-none placeholder:text-redwood-text-muted disabled:opacity-60"
+                        className="h-6 max-h-[120px] min-w-0 flex-1 overflow-y-auto text-[15px] leading-6 text-redwood-text-main placeholder:text-redwood-text-muted disabled:opacity-60"
                     />
                     <button
                         type="submit"
