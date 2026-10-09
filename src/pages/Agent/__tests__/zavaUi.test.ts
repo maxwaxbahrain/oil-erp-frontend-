@@ -74,6 +74,61 @@ describe('who sees the morning briefing', () => {
     });
 });
 
+describe('question box focus', () => {
+    it('keeps the textarea borderless when focused and brightens the rounded box', () => {
+        const agent = readFileSync(resolve(process.cwd(), 'src/pages/Agent/AgentPage.tsx'), 'utf8');
+        const style = agent.match(/<style>\{`([\s\S]*?)`\}<\/style>/)?.[1];
+        expect(style).toBeTruthy();
+
+        const global = document.createElement('style');
+        global.textContent = `
+            textarea:hover,
+            textarea:focus,
+            textarea:focus-visible,
+            textarea:active {
+                outline: 3px solid red;
+                outline-offset: 2px;
+                border: 2px solid red;
+                border-radius: 4px;
+                box-shadow: 0 0 0 3px red;
+                background: white;
+                background-color: white;
+                appearance: auto;
+                resize: both;
+            }
+        `;
+        document.head.appendChild(global);
+        const tag = document.createElement('style');
+        tag.textContent = style ?? '';
+        document.head.appendChild(tag);
+
+        document.body.innerHTML = `
+            <div class="zava-page">
+                <div class="zava-ask">
+                    <textarea id="zava-question" class="zava-control"></textarea>
+                </div>
+            </div>
+        `;
+        const field = document.getElementById('zava-question') as HTMLTextAreaElement;
+        field.focus();
+        const computed = getComputedStyle(field);
+        expect(computed.outlineStyle).toBe('none');
+        expect(computed.outlineWidth).toBe('0px');
+        expect(computed.borderTopStyle).toBe('none');
+        expect(computed.borderTopWidth).toBe('0px');
+        expect(computed.boxShadow).toBe('none');
+        expect(['transparent', 'rgba(0, 0, 0, 0)']).toContain(computed.backgroundColor);
+        expect(computed.borderRadius).toBe('0px');
+        expect(computed.resize).toBe('none');
+
+        const box = document.querySelector('.zava-ask') as HTMLElement;
+        const shadow = getComputedStyle(box).boxShadow;
+        expect(shadow).toContain('#c4b5fd');
+        expect(shadow).toContain('2px');
+        expect(shadow).toContain('28px');
+    });
+});
+
 describe('answers never render raw HTML', () => {
     it('keeps markup as text', () => {
         const source = 'Hello <script>alert(1)</script> **total**\n\n- one';
