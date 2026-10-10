@@ -1,76 +1,34 @@
-import { useState, useEffect, useRef, useCallback, type CSSProperties } from 'react';
+import { useState, useEffect, useCallback, type CSSProperties } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { parseNewExpenseParams } from './expenseQueryParams';
-import { getSystemSettings } from '../../services/settingsService';
 import {
     DollarSign, Upload, Plus,
     Edit2, Trash2, RefreshCw,
     Sparkles, Download, Send, Search, Paperclip, Bot, X
 } from 'lucide-react';
 import { getSalesOrders } from '../../services/salesService';
-import clsx from 'clsx';
 import {
     getExpensesSnapshot,
     getExpenseCategories,
     saveExpense,
-    uploadExpenseReceipt,
     deleteExpense,
     exportExpensesAsCSV,
     extractExpenseFromReceipt,
     suggestExpenseCategory,
     resolveCoaCategoryName,
-    checkExpenseDuplicate,
-    checkExpensePolicy,
     type Expense,
     type ExpenseCategory,
     type AIExtractedData,
-    type CategorySuggestion,
-    type DuplicateResult,
-    type PolicyFlag
 } from '../../services/expenseService';
+import { ExpenseManualForm } from './ExpenseManualForm';
+import type { CustomerComboboxOption } from '../../components/forms/CustomerCombobox';
 // STEP 11B — load customers for Bill-to dropdown.
 import { getCustomers as loadCustomerList } from '../../services/customerService';
 // ITEM 16 — Escape closes the manual entry modal and the category dropdown.
 import { useEscape } from '../../hooks/useEscape';
 import { useBankingAccounts } from '../../hooks/useBankingAccounts';
-import type { BankingAccount } from '../../services/glService';
-import { expenseMethodIsCash, expensePaymentAccountIdForSave } from '../../utils/bankingAccounts';
 
-export function PaidFromBankPicker({
-    method,
-    banks,
-    value,
-    onChange,
-    posted,
-}: {
-    method: string;
-    banks: BankingAccount[];
-    value: string;
-    onChange: (id: string) => void;
-    posted: boolean;
-}) {
-    if (expenseMethodIsCash(method) || banks.length === 0) return null;
-    return (
-        <div>
-            <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest block mb-3">Paid from bank</label>
-            <select
-                aria-label="Paid from bank"
-                value={value}
-                onChange={(e) => onChange(e.target.value)}
-                disabled={posted}
-                className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-2xl px-6 py-4 text-sm font-bold outline-none disabled:opacity-60"
-            >
-                <option value="">Select a bank</option>
-                {banks.map((bank) => (
-                    <option key={bank.id} value={String(bank.id)}>{bank.code} — {bank.name}</option>
-                ))}
-            </select>
-            {posted && (
-                <p className="text-xs font-bold text-gray-500 mt-2">Bank is locked after posting</p>
-            )}
-        </div>
-    );
-}
+export { PaidFromBankPicker } from './paidFromBankPicker';
 
 function pickDefaultExpenseAccountId(categories: ExpenseCategory[]): string {
     const general = categories.find(a => a.name.toLowerCase().includes('general expenses'));
@@ -222,87 +180,13 @@ export default function ExpenseManagement() {
     const [aiProcessing, setAiProcessing] = useState(false);
     const [aiExtractedData, setAiExtractedData] = useState<AIExtractedData | null>(null);
 
-    // Custom category creator removed — categories come from Chart of Accounts.
-    const [selectedCategory, setSelectedCategory] = useState<string>('');
     const [expDateFrom, setExpDateFrom] = useState('');
     const [expDateTo, setExpDateTo] = useState('');
     const [expSearch, setExpSearch] = useState('');
     const [categoryFilter, setCategoryFilter] = useState('all');
     const [statusFilter, setStatusFilter] = useState('all');
-    const [categorySearch, setCategorySearch] = useState<string>('');
-    const [categoryOpen, setCategoryOpen] = useState(false);
-    const categoryWrapRef = useRef<HTMLDivElement>(null);
-    const [selectedAccountId, setSelectedAccountId] = useState('');
-    const [receiptUrl, setReceiptUrl] = useState<string>('');
-    const [receiptFileName, setReceiptFileName] = useState<string>('');
-    const [receiptUploading, setReceiptUploading] = useState(false);
-    const [receiptError, setReceiptError] = useState<string>('');
-
-    // Close the category dropdown on outside click.
-    useEffect(() => {
-        const onDoc = (e: MouseEvent) => {
-            if (!categoryWrapRef.current) return;
-            if (!categoryWrapRef.current.contains(e.target as Node)) setCategoryOpen(false);
-        };
-        document.addEventListener('mousedown', onDoc);
-        return () => document.removeEventListener('mousedown', onDoc);
-    }, []);
-    // ITEM 16 — Escape closes the category dropdown (separately from the
-    // modal — that way Esc on the dropdown alone doesn't kill the modal).
-    useEscape(() => setCategoryOpen(false), categoryOpen);
-
-    const amountRef = useRef<HTMLInputElement>(null);
-    // STEP 3 — Smart Categorization state
-    const [suggestion, setSuggestion] = useState<CategorySuggestion | null>(null);
-    const [suggestionLoading, setSuggestionLoading] = useState(false);
-    const [suggestionError, setSuggestionError] = useState<string | null>(null);
-    // STEP 4 — Duplicate Detection
-    const [duplicateWarning, setDuplicateWarning] = useState<DuplicateResult | null>(null);
-    // STEP 5 — Policy Checker violations (yellow banner above duplicate banner).
-    const [policyViolations, setPolicyViolations] = useState<PolicyFlag[]>([]);
-    // TASK 8 — Hard-block acknowledgement state for high-confidence duplicates
-    // (≥90% confidence) and severity=error policy violations. User must
-    // explicitly tick each acknowledgement before Save unlocks. Both reset
-    // whenever the underlying warning list changes (so a fix that clears
-    // the warning also clears stale acks).
-    const [dupAcknowledged, setDupAcknowledged] = useState(false);
-    const [policyErrorAcks, setPolicyErrorAcks] = useState<Record<number, boolean>>({});
-    useEffect(() => { setDupAcknowledged(false); }, [duplicateWarning]);
-    useEffect(() => { setPolicyErrorAcks({}); }, [policyViolations]);
-    // STEP 11B — customers loaded once for the Bill-to dropdown.
-    const [customers, setCustomers] = useState<Array<{ id: string | number; name: string }>>([]);
-    const dateRef = useRef<HTMLInputElement>(null);
-    const vendorRef = useRef<HTMLInputElement>(null);
-    const descriptionRef = useRef<HTMLTextAreaElement>(null);
-    const [paymentMethod, setPaymentMethod] = useState<string>('Cash');
-    const [paymentAccountId, setPaymentAccountId] = useState('');
-    const [saveError, setSaveError] = useState<string | null>(null);
+    const [customers, setCustomers] = useState<CustomerComboboxOption[]>([]);
     const { banks, defaultBank } = useBankingAccounts();
-    const expensePosted = Boolean(editingExpense?.journal_voucher_number);
-    useEffect(() => {
-        if (!showManualForm) return;
-        const method = editingExpense?.paymentMethod || 'Cash';
-        setPaymentMethod(method);
-        const existing = editingExpense?.paymentAccountId;
-        const posted = Boolean(editingExpense?.journal_voucher_number);
-        if (expenseMethodIsCash(method)) {
-            setPaymentAccountId('');
-        } else if (existing != null) {
-            setPaymentAccountId(String(existing));
-        } else if (!posted && defaultBank) {
-            setPaymentAccountId(String(defaultBank.id));
-        } else {
-            setPaymentAccountId('');
-        }
-        setSaveError(null);
-    }, [showManualForm, editingExpense, defaultBank]);
-    const currencyRef = useRef<HTMLSelectElement>(null);
-    const taxAmountRef = useRef<HTMLInputElement>(null);
-    const recurringRef = useRef<HTMLInputElement>(null);
-    // STEPs 11B + 11C — billable + reimbursable refs
-    const isBillableRef = useRef<HTMLInputElement>(null);
-    const clientIdRef = useRef<HTMLSelectElement>(null);
-    const isReimbursableRef = useRef<HTMLInputElement>(null);
 
     const refreshCategories = useCallback(async () => {
         try {
@@ -318,72 +202,6 @@ export default function ExpenseManagement() {
         window.addEventListener('focus', onFocus);
         return () => window.removeEventListener('focus', onFocus);
     }, [refreshCategories]);
-
-    const syncSelectedAccountFromEditing = useCallback((
-        rows: ExpenseCategory[],
-        expense: Expense | null,
-    ) => {
-        const editAcct = expense?.account_id ?? expense?.accountId;
-        if (editAcct != null) {
-            const id = String(editAcct);
-            const match = rows.find(c => String(c.id) === id);
-            setSelectedAccountId(id);
-            setSelectedCategory(match?.name ?? expense?.category ?? '');
-            return;
-        }
-        const byName = rows.find(c => c.name === expense?.category);
-        if (byName) {
-            setSelectedAccountId(String(byName.id));
-            setSelectedCategory(byName.name);
-            return;
-        }
-        const fallbackId = pickDefaultExpenseAccountId(rows);
-        setSelectedAccountId(fallbackId);
-        setSelectedCategory(rows.find(c => String(c.id) === fallbackId)?.name ?? expense?.category ?? '');
-    }, []);
-
-    // Sync the selected category whenever the user opens the form for
-    // editing — keeps the new searchable input in lock-step with the
-    // editingExpense record. Resets on close.
-    useEffect(() => {
-        if (showManualForm) {
-            syncSelectedAccountFromEditing(categories, editingExpense);
-            setCategorySearch('');
-            if (editingExpense?.receiptUrl) {
-                setReceiptUrl(editingExpense.receiptUrl);
-                setReceiptFileName('Current receipt');
-            } else {
-                setReceiptUrl('');
-                setReceiptFileName('');
-            }
-            setReceiptUploading(false);
-            setReceiptError('');
-        } else {
-            setSelectedCategory('');
-            setCategorySearch('');
-            setCategoryOpen(false);
-            setSelectedAccountId('');
-            setReceiptUrl('');
-            setReceiptFileName('');
-            setReceiptUploading(false);
-            setReceiptError('');
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [editingExpense?.id, categories, syncSelectedAccountFromEditing]);
-    useEffect(() => {
-        if (showManualForm) {
-            syncSelectedAccountFromEditing(categories, editingExpense);
-            if (editingExpense?.receiptUrl) {
-                setReceiptUrl(editingExpense.receiptUrl);
-                setReceiptFileName('Current receipt');
-            } else {
-                setReceiptUrl('');
-                setReceiptFileName('');
-            }
-            setReceiptUploading(false);
-            setReceiptError('');
-        }
-    }, [showManualForm, editingExpense, categories, syncSelectedAccountFromEditing]);
 
     useEffect(() => {
         loadData();
@@ -412,7 +230,21 @@ export default function ExpenseManagement() {
             setCategories(categoriesData);
             try {
                 const list = await loadCustomerList();
-                setCustomers((list as any[]).map(c => ({ id: c.id, name: c.name })));
+                setCustomers(list.map((customer) => {
+                    const raw = customer as typeof customer & { is_active?: boolean };
+                    const address = [customer.address, customer.city, customer.state, customer.postal_code]
+                        .filter(Boolean)
+                        .join(', ');
+                    const inactiveStatus = customer.status === 'Inactive' || customer.status === 'Suspended';
+                    return {
+                        id: customer.id,
+                        name: customer.name,
+                        phone: customer.phone,
+                        code: customer.code,
+                        address,
+                        is_active: raw.is_active !== undefined ? raw.is_active : inactiveStatus ? false : undefined,
+                    };
+                }));
             } catch { /* customer list is optional for the form */ }
             try {
                 const orders = await getSalesOrders();
@@ -447,74 +279,6 @@ export default function ExpenseManagement() {
         }
     };
 
-    const handleManualSave = async () => {
-        const selectedAccount = categories.find(c => String(c.id) === selectedAccountId);
-        const category = selectedAccount?.name ?? selectedCategory;
-        const amount = parseFloat(amountRef.current?.value || '0');
-        const date = dateRef.current?.value;
-        const vendor = vendorRef.current?.value;
-        const description = descriptionRef.current?.value;
-        const paymentAccountIdToSend = expensePaymentAccountIdForSave(
-            paymentMethod,
-            paymentAccountId,
-            Boolean(editingExpense?.journal_voucher_number),
-        );
-        const currency = currencyRef.current?.value || 'USD';
-        const taxAmount = parseFloat(taxAmountRef.current?.value || '0');
-        const isRecurring = recurringRef.current?.checked || false;
-        const isBillable = isBillableRef.current?.checked || false;
-        const clientIdValue = clientIdRef.current?.value || '';
-        const isReimbursable = isReimbursableRef.current?.checked || false;
-
-        if (!selectedAccountId || !category || !amount || !date || !vendor) {
-            alert('Please fill in all required fields');
-            return;
-        }
-
-        setSaving(true);
-        setSaveError(null);
-        try {
-            const dupCheck = checkExpenseDuplicate({ vendor, amount, date, category, excludeId: editingExpense?.id });
-            const policy = checkExpensePolicy({ category, amount, date, hasReceipt: !!receiptUrl });
-            const nextStatus =
-                !editingExpense || !editingExpense.status || editingExpense.status === 'Draft'
-                    ? 'Submitted'
-                    : editingExpense.status;
-            await saveExpense({
-                id: editingExpense?.id,
-                category,
-                amount,
-                currency,
-                date,
-                vendor,
-                description: description || '',
-                paymentMethod: paymentMethod as Expense['paymentMethod'],
-                ...(paymentAccountIdToSend != null ? { paymentAccountId: paymentAccountIdToSend } : {}),
-                taxAmount,
-                isRecurring,
-                status: nextStatus,
-                receiptUrl: receiptUrl || undefined,
-                is_duplicate_flag: dupCheck.isDuplicate,
-                duplicate_of_id: dupCheck.matches[0]?.expenseId || null,
-                policy_flags: policy.length > 0 ? policy : undefined,
-                is_billable: isBillable,
-                client_id: isBillable && clientIdValue ? clientIdValue : null,
-                is_reimbursable: isReimbursable,
-                account_id: Number(selectedAccountId),
-            });
-            await loadData();
-            setShowManualForm(false);
-            setEditingExpense(null);
-            setPrefillClientId(null);
-            setSelectedAccountId('');
-        } catch (error) {
-            console.error('Failed to save expense:', error);
-            setSaveError(error instanceof Error ? error.message : 'Failed to save expense');
-        } finally {
-            setSaving(false);
-        }
-    };
-
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -543,88 +307,6 @@ export default function ExpenseManagement() {
             alert('Failed to process receipt');
         } finally {
             setAiProcessing(false);
-        }
-    };
-
-    // STEP 4 — On-blur duplicate check: runs against last 90 days of
-    // expenses from localStorage.  Pure-local, no API call.  Sets the
-    // yellow banner state below the submit button.  Re-evaluated every
-    // time the amount field loses focus (most reliable trigger since
-    // the form is uncontrolled / ref-based).
-    const handleCheckDuplicates = () => {
-        const vendor = vendorRef.current?.value?.trim() || '';
-        const amount = parseFloat(amountRef.current?.value || '0') || 0;
-        const date = dateRef.current?.value || '';
-        const category = selectedCategory;
-        if (!vendor || !amount || !date) {
-            setDuplicateWarning(null);
-            return;
-        }
-        const result = checkExpenseDuplicate({
-            vendor, amount, date, category,
-            excludeId: editingExpense?.id,
-        });
-        setDuplicateWarning(result.isDuplicate ? result : null);
-        // STEP 5 — Policy check uses the same trigger.
-        const violations = checkExpensePolicy({
-            category, amount, date,
-            hasReceipt: !!receiptUrl,
-        });
-        setPolicyViolations(violations);
-    };
-
-    const handleReceiptFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-        if (file.size > 10 * 1024 * 1024) {
-            setReceiptError('File too large (max 10MB)');
-            e.target.value = '';
-            return;
-        }
-        setReceiptError('');
-        setReceiptUploading(true);
-        try {
-            const url = await uploadExpenseReceipt(file);
-            setReceiptUrl(url);
-            setReceiptFileName(file.name);
-        } catch (err) {
-            setReceiptError(err instanceof Error ? err.message : 'Receipt upload failed');
-            setReceiptUrl('');
-            setReceiptFileName('');
-        } finally {
-            setReceiptUploading(false);
-            e.target.value = '';
-        }
-    };
-
-    const handleRemoveReceipt = () => {
-        setReceiptUrl('');
-        setReceiptFileName('');
-        setReceiptError('');
-    };
-
-    // STEP 3 — Smart Categorization: explicit "AI Suggest" button next
-    // to the Category field.  Reads current vendor/description/amount
-    // refs (form is uncontrolled) and calls the service.  Sets
-    // `suggestion` which renders the inline badge with a "Use" button.
-    const handleSuggestCategory = async () => {
-        const vendor = vendorRef.current?.value?.trim() || '';
-        const description = descriptionRef.current?.value?.trim() || '';
-        const amount = parseFloat(amountRef.current?.value || '0') || 0;
-        if (!vendor) {
-            setSuggestionError('Enter a vendor first.');
-            return;
-        }
-        setSuggestion(null);
-        setSuggestionError(null);
-        setSuggestionLoading(true);
-        try {
-            const s = await suggestExpenseCategory(vendor, description, amount);
-            setSuggestion(s);
-        } catch (e) {
-            setSuggestionError(e instanceof Error ? e.message : 'Could not categorize.');
-        } finally {
-            setSuggestionLoading(false);
         }
     };
 
@@ -658,23 +340,6 @@ export default function ExpenseManagement() {
         } finally {
             setSaving(false);
         }
-    };
-
-    const applyCategorySuggestion = (label: string) => {
-        const match = resolveCoaCategoryName(categories, label);
-        if (match) {
-            setSelectedAccountId(String(match.id));
-            setSelectedCategory(match.name);
-        } else {
-            setSelectedAccountId('');
-            setSelectedCategory(label);
-        }
-    };
-
-    const openCategoryDropdown = () => {
-        void refreshCategories();
-        setCategorySearch('');
-        setCategoryOpen(true);
     };
 
     // ITEM 10 — Draft actions: flip a Draft expense to Submitted in one click.
@@ -1384,428 +1049,28 @@ export default function ExpenseManagement() {
             </div>
         </div>
 
-                    {/* Manual Form Modal */}
                     {showManualForm && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 backdrop-blur-md bg-black/40">
-                            <div className="bg-white w-full max-w-3xl rounded-[40px] shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
-                                <div className="p-10 border-b border-gray-100 bg-gray-50/50 sticky top-0 z-10">
-                                    <h3 className="text-2xl font-black text-gray-900 uppercase tracking-tighter flex items-center gap-3">
-                                        <Plus size={24} />
-                                        {editingExpense ? 'Edit Expense' : 'Add Expense Manually'}
-                                    </h3>
-                                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">
-                                        Fill in the details below
-                                    </p>
-                                </div>
-
-                                <div className="p-12 space-y-6">
-                                    <div className="grid grid-cols-2 gap-6">
-                                        <div className="col-span-2">
-                                            <div className="flex items-center justify-between mb-3">
-                                                <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest">Category / Account *</label>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => navigate('/finance/chart-of-accounts')}
-                                                    className="text-[10px] font-black text-purple-600 hover:text-purple-800 uppercase tracking-widest flex items-center gap-1"
-                                                >
-                                                    <Plus size={12} /> Add in Chart of Accounts
-                                                </button>
-                                            </div>
-                                            <div ref={categoryWrapRef} className="relative">
-                                                <input
-                                                    type="text"
-                                                    value={
-                                                        categoryOpen
-                                                            ? categorySearch
-                                                            : (categories.find(c => String(c.id) === selectedAccountId)
-                                                                ? formatCoaCategoryLabel(categories.find(c => String(c.id) === selectedAccountId)!)
-                                                                : selectedCategory)
-                                                    }
-                                                    onChange={(e) => { setCategorySearch(e.target.value); setCategoryOpen(true); void refreshCategories(); }}
-                                                    onFocus={openCategoryDropdown}
-                                                    placeholder="Search expense account…"
-                                                    disabled={categories.length === 0}
-                                                    className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-2xl px-6 py-4 text-sm font-bold outline-none disabled:opacity-60"
-                                                />
-                                                {categories.length === 0 ? (
-                                                    <p className="mt-2 text-xs text-amber-700 font-bold">
-                                                        No expense accounts yet.{' '}
-                                                        <button type="button" onClick={() => navigate('/finance/chart-of-accounts')} className="underline">
-                                                            Open Chart of Accounts
-                                                        </button>{' '}
-                                                        to add an expense-type account.
-                                                    </p>
-                                                ) : categoryOpen && (
-                                                    <div className="absolute z-50 left-0 right-0 mt-1 max-h-64 overflow-y-auto bg-white border border-gray-200 rounded-2xl shadow-2xl">
-                                                        {categories
-                                                            .filter(c => {
-                                                                const q = categorySearch.toLowerCase();
-                                                                if (!q) return true;
-                                                                return c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q);
-                                                            })
-                                                            .map(cat => (
-                                                                <button
-                                                                    key={cat.id}
-                                                                    type="button"
-                                                                    onClick={() => {
-                                                                        setSelectedAccountId(String(cat.id));
-                                                                        setSelectedCategory(cat.name);
-                                                                        setCategorySearch('');
-                                                                        setCategoryOpen(false);
-                                                                    }}
-                                                                    className={clsx(
-                                                                        'w-full text-left px-5 py-3 text-sm font-bold hover:bg-gray-50',
-                                                                        String(cat.id) === selectedAccountId ? 'bg-gray-50 text-gray-900' : 'text-gray-700'
-                                                                    )}
-                                                                >
-                                                                    {formatCoaCategoryLabel(cat)}
-                                                                </button>
-                                                            ))}
-                                                        {categories.filter(c => {
-                                                            const q = categorySearch.toLowerCase();
-                                                            if (!q) return true;
-                                                            return c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q);
-                                                        }).length === 0 && (
-                                                            <div className="px-5 py-6 text-center text-xs text-gray-400 font-bold">
-                                                                No matching account.{' '}
-                                                                <button type="button" onClick={() => navigate('/finance/chart-of-accounts')} className="text-purple-700 underline">
-                                                                    Add in Chart of Accounts
-                                                                </button>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )}
-                                            </div>
-                                            <button
-                                                type="button"
-                                                onClick={handleSuggestCategory}
-                                                disabled={suggestionLoading}
-                                                className="mt-2 text-[10px] font-black uppercase tracking-widest text-purple-700 hover:text-purple-900 disabled:opacity-50 flex items-center gap-1"
-                                            >
-                                                {suggestionLoading ? '⏳ Asking AI…' : '✨ AI Suggest from Vendor'}
-                                            </button>
-                                            {suggestionError && (
-                                                <p className="mt-2 text-[10px] font-bold text-rose-600">{suggestionError}</p>
-                                            )}
-                                            {suggestion && (
-                                                <div className="mt-2 p-3 bg-purple-50 border border-purple-200 rounded-xl flex items-start gap-3">
-                                                    <div className="flex-1">
-                                                        <p className="text-[10px] font-black text-purple-700 uppercase tracking-widest">
-                                                            AI suggests: {suggestion.category} → <span className="text-purple-900">{suggestion.mappedCategory}</span>
-                                                        </p>
-                                                        <p className="text-[10px] text-purple-700 mt-0.5">{suggestion.confidence}% confident — {suggestion.reason}</p>
-                                                    </div>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            applyCategorySuggestion(suggestion.mappedCategory);
-                                                            setSuggestion(null);
-                                                        }}
-                                                        className="text-[10px] font-black uppercase tracking-widest px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg"
-                                                    >Use</button>
-                                                </div>
-                                            )}
-                                        </div>
-                                        <div>
-                                            <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest block mb-3">Amount *</label>
-                                            <div className="flex gap-2">
-                                                <select
-                                                    ref={currencyRef}
-                                                    defaultValue={editingExpense?.currency || 'USD'}
-                                                    className="w-24 bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-2xl px-4 py-4 text-sm font-bold outline-none"
-                                                >
-                                                    <option value="USD">USD</option>
-                                                    <option value="EUR">EUR</option>
-                                                    <option value="GBP">GBP</option>
-                                                    <option value={getSystemSettings().defaultCurrencyCode}>{getSystemSettings().defaultCurrencyCode}</option>
-                                                </select>
-                                                <input
-                                                    ref={amountRef}
-                                                    type="number"
-                                                    step="0.01"
-                                                    defaultValue={editingExpense?.amount}
-                                                    placeholder="0.00"
-                                                    onBlur={handleCheckDuplicates}
-                                                    className="flex-1 bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-2xl px-6 py-4 text-sm font-bold outline-none"
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-6">
-                                        <div>
-                                            <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest block mb-3">Date *</label>
-                                            <input
-                                                ref={dateRef}
-                                                type="date"
-                                                defaultValue={editingExpense?.date || new Date().toISOString().split('T')[0]}
-                                                className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-2xl px-6 py-4 text-sm font-bold outline-none"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest block mb-3">Vendor *</label>
-                                            <input
-                                                ref={vendorRef}
-                                                type="text"
-                                                defaultValue={editingExpense?.vendor}
-                                                placeholder="Vendor name"
-                                                className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-2xl px-6 py-4 text-sm font-bold outline-none"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest block mb-3">Description</label>
-                                        <textarea
-                                            ref={descriptionRef}
-                                            defaultValue={editingExpense?.description}
-                                            placeholder="Brief description"
-                                            className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-2xl px-6 py-4 text-sm font-bold outline-none h-24 resize-none"
-                                        />
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-6">
-                                        <div>
-                                            <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest block mb-3">Payment Method</label>
-                                            <select
-                                                aria-label="Payment Method"
-                                                value={paymentMethod}
-                                                onChange={(e) => {
-                                                    const next = e.target.value;
-                                                    setPaymentMethod(next);
-                                                    if (expenseMethodIsCash(next)) {
-                                                        setPaymentAccountId('');
-                                                    } else if (!expensePosted) {
-                                                        setPaymentAccountId((prev) => prev || (defaultBank ? String(defaultBank.id) : ''));
-                                                    }
-                                                }}
-                                                className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-2xl px-6 py-4 text-sm font-bold outline-none"
-                                            >
-                                                <option value="Cash">Cash</option>
-                                                <option value="Card">Card</option>
-                                                <option value="Bank Transfer">Bank Transfer</option>
-                                                <option value="Check">Check</option>
-                                                <option value="Other">Other</option>
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <PaidFromBankPicker
-                                                method={paymentMethod}
-                                                banks={banks}
-                                                value={paymentAccountId}
-                                                onChange={setPaymentAccountId}
-                                                posted={expensePosted}
-                                            />
-                                            {saveError && (
-                                                <p className="text-xs font-bold text-red-600 mt-2">{saveError}</p>
-                                            )}
-                                        </div>
-                                        <div>
-                                            <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest block mb-3">Tax Amount</label>
-                                            <input
-                                                ref={taxAmountRef}
-                                                type="number"
-                                                step="0.01"
-                                                defaultValue={editingExpense?.taxAmount}
-                                                placeholder="0.00"
-                                                className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-2xl px-6 py-4 text-sm font-bold outline-none"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest block mb-3">Receipt</label>
-                                        <input
-                                            type="file"
-                                            accept="image/png,image/jpeg,image/webp,application/pdf"
-                                            onChange={(e) => void handleReceiptFileChange(e)}
-                                            disabled={receiptUploading}
-                                            className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-2xl px-6 py-4 text-sm font-bold outline-none file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-black file:uppercase file:tracking-widest file:bg-gray-900 file:text-white hover:file:bg-gray-800 disabled:opacity-50"
-                                        />
-                                        <p className="text-[10px] text-gray-500 font-bold mt-2">
-                                            Required for expenses of $50 or more before they can be approved.
-                                        </p>
-                                        {receiptUploading && (
-                                            <p className="text-xs font-bold text-gray-500 mt-2">Uploading…</p>
-                                        )}
-                                        {receiptUrl && !receiptUploading && (
-                                            <div className="mt-2 flex flex-wrap items-center gap-3">
-                                                <span className="text-sm font-bold text-gray-700">{receiptFileName}</span>
-                                                <span className="text-xs font-black text-emerald-700 uppercase tracking-widest">✓ Attached</span>
-                                                <button
-                                                    type="button"
-                                                    onClick={handleRemoveReceipt}
-                                                    className="text-[10px] font-black uppercase tracking-widest text-red-600 hover:text-red-800"
-                                                >
-                                                    Remove
-                                                </button>
-                                            </div>
-                                        )}
-                                        {receiptError && (
-                                            <div className="mt-2 p-3 bg-red-50 border border-red-300 rounded-xl">
-                                                <p className="text-xs font-bold text-red-700">{receiptError}</p>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-2xl">
-                                        <input
-                                            ref={recurringRef}
-                                            type="checkbox"
-                                            defaultChecked={editingExpense?.isRecurring}
-                                            className="w-5 h-5"
-                                        />
-                                        <label className="text-sm font-bold text-gray-700">Recurring Expense</label>
-                                    </div>
-
-                                    {/* STEP 11B — Billable to client */}
-                                    <div className="p-4 bg-blue-50 rounded-2xl space-y-3">
-                                        <div className="flex items-center gap-3">
-                                            <input
-                                                ref={isBillableRef}
-                                                type="checkbox"
-                                                defaultChecked={editingExpense ? editingExpense.is_billable : prefillClientId != null}
-                                                className="w-5 h-5"
-                                            />
-                                            <label className="text-sm font-bold text-gray-700">Billable to client</label>
-                                        </div>
-                                        <select
-                                            ref={clientIdRef}
-                                            defaultValue={editingExpense ? (editingExpense.client_id || '') : (customers.some((c) => String(c.id) === prefillClientId) ? prefillClientId ?? '' : '')}
-                                            className="w-full bg-white border border-blue-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-blue-500"
-                                        >
-                                            <option value="">Select customer…</option>
-                                            {customers.map(c => (
-                                                <option key={c.id} value={String(c.id)}>{c.name}</option>
-                                            ))}
-                                        </select>
-                                        <p className="text-[10px] text-blue-700">When billable, this expense appears on the customer's Unbilled Expenses tab.</p>
-                                    </div>
-
-                                    {/* STEP 11C — Reimbursable to employee */}
-                                    <div className="flex items-center gap-3 p-4 bg-amber-50 rounded-2xl">
-                                        <input
-                                            ref={isReimbursableRef}
-                                            type="checkbox"
-                                            defaultChecked={editingExpense?.is_reimbursable}
-                                            className="w-5 h-5"
-                                        />
-                                        <label className="text-sm font-bold text-gray-700">Reimbursable to employee (out-of-pocket)</label>
-                                    </div>
-                                </div>
-
-                                {/* TASK 8 — Policy violations: split errors (red, blocking)
-                                    from warnings (amber, advisory). */}
-                                {policyViolations.filter(v => v.severity === 'error').length > 0 && (
-                                    <div className="mx-10 mt-2 mb-2 p-4 bg-red-50 border-2 border-red-400 rounded-2xl">
-                                        <p className="text-sm font-black text-red-800 uppercase tracking-widest mb-2">🚫 Policy errors — acknowledge each to enable Save</p>
-                                        <ul className="text-xs text-red-700 space-y-2">
-                                            {policyViolations
-                                                .map((v, i) => ({ v, i }))
-                                                .filter(({ v }) => v.severity === 'error')
-                                                .map(({ v, i }) => (
-                                                    <li key={i} className="flex items-start gap-2">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={!!policyErrorAcks[i]}
-                                                            onChange={(e) => setPolicyErrorAcks(prev => ({ ...prev, [i]: e.target.checked }))}
-                                                            className="mt-0.5 shrink-0"
-                                                        />
-                                                        <span><strong>{v.rule}:</strong> {v.message}</span>
-                                                    </li>
-                                                ))}
-                                        </ul>
-                                    </div>
-                                )}
-                                {policyViolations.filter(v => v.severity !== 'error').length > 0 && (
-                                    <div className="mx-10 mt-2 mb-2 p-4 bg-amber-50 border border-amber-300 rounded-2xl">
-                                        <p className="text-sm font-black text-amber-800 uppercase tracking-widest mb-1">⚠️ Policy warnings</p>
-                                        <ul className="text-xs text-amber-700 space-y-1">
-                                            {policyViolations.filter(v => v.severity !== 'error').map((v, i) => (
-                                                <li key={i}>· {v.message}</li>
-                                            ))}
-                                        </ul>
-                                        <p className="text-[10px] text-amber-600 font-bold mt-2 uppercase tracking-widest">You can still save — these are just warnings.</p>
-                                    </div>
-                                )}
-                                {/* TASK 8 — Duplicate banner: red + hard-block when confidence ≥ 90%,
-                                    amber + advisory below 90%. The high-confidence case requires a
-                                    single confirmation checkbox before Save unlocks. */}
-                                {duplicateWarning && duplicateWarning.maxConfidence >= 90 && (
-                                    <div className="mx-10 mt-2 mb-4 p-4 bg-red-50 border-2 border-red-400 rounded-2xl">
-                                        <p className="text-sm font-black text-red-800 uppercase tracking-widest mb-1">🚫 Possible duplicate — please review before saving</p>
-                                        <ul className="text-xs text-red-700 space-y-1 mb-3">
-                                            {duplicateWarning.matches.map((m, i) => (
-                                                <li key={i}>· {m.vendor} — {m.amount.toFixed(2)} on {m.date} <span className="opacity-75">({m.reason}, {m.confidence}% conf.)</span></li>
-                                            ))}
-                                        </ul>
-                                        <label className="flex items-start gap-2 text-xs font-bold text-red-800 cursor-pointer">
-                                            <input
-                                                type="checkbox"
-                                                checked={dupAcknowledged}
-                                                onChange={(e) => setDupAcknowledged(e.target.checked)}
-                                                className="mt-0.5 shrink-0"
-                                            />
-                                            <span>I confirm this is not a duplicate</span>
-                                        </label>
-                                    </div>
-                                )}
-                                {duplicateWarning && duplicateWarning.maxConfidence < 90 && (
-                                    <div className="mx-10 mt-2 mb-4 p-4 bg-amber-50 border border-amber-300 rounded-2xl">
-                                        <p className="text-sm font-black text-amber-800 uppercase tracking-widest mb-1">⚠️ Possible duplicate</p>
-                                        <ul className="text-xs text-amber-700 space-y-1">
-                                            {duplicateWarning.matches.map((m, i) => (
-                                                <li key={i}>· {m.vendor} — {m.amount.toFixed(2)} on {m.date} <span className="opacity-75">({m.reason})</span></li>
-                                            ))}
-                                        </ul>
-                                        <p className="text-[10px] text-amber-600 font-bold mt-2 uppercase tracking-widest">You can still save — this is just a warning.</p>
-                                    </div>
-                                )}
-                                <div className="p-10 bg-gray-50 border-t border-gray-100 flex gap-4 sticky bottom-0">
-                                    <button
-                                        onClick={() => {
-                                            setShowManualForm(false);
-                                            setEditingExpense(null);
-                                            setPrefillClientId(null);
-                                        }}
-                                        disabled={saving}
-                                        className="flex-1 py-5 bg-white border border-gray-200 text-[11px] font-black uppercase tracking-widest text-gray-600 rounded-2xl hover:bg-gray-100 transition-all"
-                                    >
-                                        Cancel
-                                    </button>
-                                    {/* TASK 8 — Save unlocks only when (a) no high-confidence
-                                        duplicate is unacknowledged AND (b) every error-severity
-                                        policy violation has been individually acknowledged. */}
-                                    {(() => {
-                                        const hasHighDup = !!duplicateWarning && duplicateWarning.maxConfidence >= 90;
-                                        const errorPolicyIdxs = policyViolations
-                                            .map((v, i) => v.severity === 'error' ? i : -1)
-                                            .filter(i => i >= 0);
-                                        const unackedErrors = errorPolicyIdxs.filter(i => !policyErrorAcks[i]);
-                                        const blockedByDup = hasHighDup && !dupAcknowledged;
-                                        const blockedByPolicy = unackedErrors.length > 0;
-                                        const isBlocked = saving || blockedByDup || blockedByPolicy;
-                                        const label = blockedByDup
-                                            ? '🚫 Confirm duplicate check above'
-                                            : blockedByPolicy
-                                                ? `🚫 Acknowledge ${unackedErrors.length} policy error${unackedErrors.length === 1 ? '' : 's'}`
-                                                : saving
-                                                    ? '⏳ Saving...'
-                                                    : '✅ Save Expense';
-                                        return (
-                                            <button
-                                                onClick={handleManualSave}
-                                                disabled={isBlocked}
-                                                className="flex-[2] py-5 bg-gray-900 text-white text-[11px] font-black uppercase tracking-widest rounded-2xl hover:bg-black transition-all shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
-                                                title={blockedByDup ? 'Tick the confirmation checkbox in the red duplicate banner' : blockedByPolicy ? 'Tick each policy error checkbox above' : undefined}
-                                            >
-                                                {label}
-                                            </button>
-                                        );
-                                    })()}
-                                </div>
-                            </div>
-                        </div>
+                        <ExpenseManualForm
+                            editingExpense={editingExpense}
+                            prefillClientId={prefillClientId}
+                            categories={categories}
+                            refreshCategories={refreshCategories}
+                            customers={customers}
+                            banks={banks}
+                            defaultBank={defaultBank}
+                            onClose={() => {
+                                setShowManualForm(false);
+                                setEditingExpense(null);
+                                setPrefillClientId(null);
+                            }}
+                            onSaved={async () => {
+                                await loadData();
+                                setShowManualForm(false);
+                                setEditingExpense(null);
+                                setPrefillClientId(null);
+                            }}
+                            onOpenChart={() => navigate('/finance/chart-of-accounts')}
+                        />
                     )}
 
     </>
