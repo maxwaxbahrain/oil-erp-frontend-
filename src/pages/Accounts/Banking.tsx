@@ -24,6 +24,8 @@ import { cashDepositToBankPayload, chequeBankAccountEditable, MANUAL_TX_SUSPENSE
 import { formatDateOnly } from '../../utils/formatters';
 import { localIsoDate } from '../../utils/localDate';
 import { getOilErpApiBase } from '../../config/apiBase';
+import { formatUsd } from '../../utils/money';
+import BankFeedsPanel from './BankFeedsPanel';
 import {
     bankTxHomeState,
     bankTxIdFromSourceId,
@@ -50,12 +52,6 @@ const panelStyle: CSSProperties = {
     borderRadius: '14px',
     padding: '14px 16px',
 };
-
-function formatUsd(n: number): string {
-    const abs = Math.abs(n);
-    const formatted = abs.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    return n < 0 ? `-$${formatted}` : `$${formatted}`;
-}
 
 interface PDCheque {
     id: string;
@@ -1385,6 +1381,13 @@ export default function Banking() {
                                 ))}
                             </div>
                         </div>
+
+                        <BankFeedsPanel
+                            accounts={cashAccounts}
+                            canManage={hasRole('admin')}
+                            canView={canManageBanks}
+                            onBookChanged={() => { void reloadAll(); }}
+                        />
 
                         <div style={{ ...panelStyle, padding: 6, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                             {[
