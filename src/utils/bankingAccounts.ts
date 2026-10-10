@@ -17,7 +17,31 @@ export function splitBankingAccounts(rows: BankingAccount[]): {
 }
 
 export function methodIsCashReceipt(method: string): boolean {
-  return method.trim().toLowerCase() === 'cash';
+  return expenseMethodIsCash(method);
+}
+
+export const MANUAL_TX_SUSPENSE_HINT =
+  'Leave empty to post to Suspense. That does not reduce Cash on Hand. Pick the other Bank or Cash account to record a transfer.';
+
+export function cashDepositToBankPayload(input: {
+  bankAccountId: number;
+  cashAccountId: number;
+  amount: number;
+  date: string;
+  memo?: string;
+  reference?: string;
+}): Record<string, unknown> {
+  const memo = (input.memo || '').trim();
+  return {
+    date: input.date,
+    description: memo || 'Cash deposited to bank',
+    type: 'Credit',
+    amount: input.amount,
+    reference: input.reference || '',
+    category: 'Cash deposit',
+    account_id: input.bankAccountId,
+    contra_account_id: input.cashAccountId,
+  };
 }
 
 export function expenseMethodIsCash(method: string): boolean {
@@ -34,7 +58,7 @@ export function depositPickerForMethod(
     return {
       options: cash,
       disabled: true,
-      helper: 'Cash receipts post to Cash on Hand',
+      helper: 'Cash and petty cash receipts post to Cash on Hand',
     };
   }
   return { options: banks, disabled: false, helper: null };
