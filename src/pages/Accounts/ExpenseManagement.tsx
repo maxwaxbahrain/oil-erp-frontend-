@@ -186,7 +186,7 @@ export default function ExpenseManagement() {
     const [categoryFilter, setCategoryFilter] = useState('all');
     const [statusFilter, setStatusFilter] = useState('all');
     const [customers, setCustomers] = useState<CustomerComboboxOption[]>([]);
-    const { banks, defaultBank } = useBankingAccounts();
+    const { banks, defaultBank, reload: reloadBanks } = useBankingAccounts();
 
     const refreshCategories = useCallback(async () => {
         try {
@@ -198,10 +198,13 @@ export default function ExpenseManagement() {
     }, []);
 
     useEffect(() => {
-        const onFocus = () => { void refreshCategories(); };
+        const onFocus = () => {
+            void refreshCategories();
+            void reloadBanks();
+        };
         window.addEventListener('focus', onFocus);
         return () => window.removeEventListener('focus', onFocus);
-    }, [refreshCategories]);
+    }, [refreshCategories, reloadBanks]);
 
     useEffect(() => {
         loadData();
