@@ -103,6 +103,7 @@ import OutstandingBills from '../pages/Reports/OutstandingBills';
 import DayBook from '../pages/Reports/DayBook';
 import TrialBalance from '../pages/Reports/TrialBalance';
 import Banking from '../pages/Accounts/Banking';
+import BankFeedsOAuthReturn from '../pages/Accounts/BankFeedsOAuthReturn';
 import ChartOfAccounts from '../pages/Accounts/ChartOfAccounts';
 import JournalVoucher from '../pages/Accounts/JournalVoucher';
 // ITEM 11 — Central ledger page.
@@ -377,6 +378,10 @@ export const AppRoutes = () => {
             <Route
                 path="/finance/banking"
                 element={MODULE_FLAGS.finance_banking ? <Banking /> : <FinanceBankingUnavailable />}
+            />
+            <Route
+                path="/finance/banking/oauth"
+                element={MODULE_FLAGS.finance_banking ? <BankFeedsOAuthReturn /> : <FinanceBankingUnavailable />}
             />
             <Route path="/finance/chart-of-accounts" element={<ChartOfAccounts />} />
             <Route path="/finance/journal-voucher" element={<JournalVoucher />} />
