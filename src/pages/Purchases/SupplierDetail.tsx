@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, type CSSProperties } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { Link, useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
     ArrowLeft,
     FileText,
@@ -1744,8 +1744,13 @@ export default function SupplierDetail() {
                                     </div>
                                 ) : accountsLoadError || bankAccounts.length === 0 ? (
                                     <div className="px-4 py-3 bg-amber-50 border-2 border-amber-200 rounded-lg text-xs text-amber-800">
-                                        {accountsLoadError ||
-                                            'No cash or bank accounts found. Add accounts with system keys cash_on_hand or bank in Finance → Chart of Accounts.'}
+                                        {accountsLoadError || (
+                                            <>
+                                                No cash or bank accounts found. Add a bank in{' '}
+                                                <Link to="/finance/banking" className="underline">Banking → Add bank</Link>
+                                                .
+                                            </>
+                                        )}
                                     </div>
                                 ) : (
                                     <select

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, type CSSProperties } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
     RefreshCw,
     Search,
@@ -813,6 +813,15 @@ export default function ChartOfAccounts() {
                                     style={{ ...selectStyle, display: 'block', width: '100%', marginTop: 4, fontSize: 11, opacity: 0.85, cursor: 'default' }}
                                 />
                             </label>
+                            {!editingAccount && (
+                                <p style={{ margin: '4px 0 0', fontSize: 11, lineHeight: 1.45, color: 'var(--color-redwood-text-muted)', fontWeight: 500 }}>
+                                    To pay expenses from a bank, add it in{' '}
+                                    <Link to="/finance/banking" style={{ color: 'var(--color-brand-blue)', fontWeight: 600 }}>
+                                        Banking → Add bank
+                                    </Link>
+                                    .
+                                </p>
+                            )}
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
                             <button type="button" onClick={closeModal} disabled={submitting} style={ghostBtn}>Cancel</button>
