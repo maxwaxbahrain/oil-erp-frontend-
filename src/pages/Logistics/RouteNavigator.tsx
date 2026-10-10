@@ -24,6 +24,7 @@ import {
 } from '../../services/routeService';
 import { getCustomers } from '../../services/customerService';
 import { getCurrentUser } from '../../store/authStore';
+import { localIsoDate } from '../../utils/localDate';
 
 const C = {
   bg: '#060f1c',
@@ -164,6 +165,8 @@ export default function RouteNavigator() {
     phone: '',
     neighborhood: 'General',
     opening_balance: 0,
+    opening_side: 'debit' as 'debit' | 'credit',
+    opening_as_of: localIsoDate(),
     credit_limit: 0,
     is_priority: false,
     notes: '',
@@ -388,9 +391,14 @@ export default function RouteNavigator() {
       setFormError('Customer / business name and service address are required.');
       return;
     }
+    if (newCustomer.opening_balance < 0) {
+      setFormError('Opening balance amount must be greater than zero. Choose Credit if the customer is in credit.');
+      return;
+    }
     try {
       setSubmitting(true);
       setFormError(null);
+      const openingAmount = Math.abs(Number(newCustomer.opening_balance) || 0);
       await createRouteStop(selectedDay, {
         ...newCustomer,
         name: newCustomer.name.trim(),
@@ -398,6 +406,9 @@ export default function RouteNavigator() {
         phone: newCustomer.phone.trim() || undefined,
         notes: newCustomer.notes.trim() || undefined,
         gps_location: newCustomer.gps_location.trim() || undefined,
+        opening_balance: openingAmount,
+        opening_side: openingAmount > 0 ? newCustomer.opening_side : undefined,
+        opening_as_of: openingAmount > 0 ? newCustomer.opening_as_of : undefined,
       });
       setNewCustomer({
         name: '',
@@ -406,6 +417,8 @@ export default function RouteNavigator() {
         phone: '',
         neighborhood: newCustomer.neighborhood || 'General',
         opening_balance: 0,
+        opening_side: 'debit',
+        opening_as_of: localIsoDate(),
         credit_limit: 0,
         is_priority: false,
         notes: '',
@@ -417,7 +430,7 @@ export default function RouteNavigator() {
       setStops(updatedStops);
     } catch (err) {
       console.error(err);
-      setFormError('Failed to save. Check the API and try again.');
+      setFormError(err instanceof Error ? err.message : 'Failed to save. Check the API and try again.');
     } finally {
       setSubmitting(false);
     }
@@ -1180,15 +1193,62 @@ export default function RouteNavigator() {
                     Customer ledger (synced to Sales &amp; Accounts)
                   </div>
                   <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                    <label style={{ fontSize: 10, fontWeight: 600, color: C.muted }}>
-                      Opening balance
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 280 }}>
+                      <span style={{ fontSize: 10, fontWeight: 600, color: C.muted }}>Opening balance</span>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button
+                          type="button"
+                          onClick={() => setNewCustomer((p) => ({ ...p, opening_side: 'debit' }))}
+                          style={{
+                            padding: '6px 10px',
+                            borderRadius: 8,
+                            border: '1px solid rgba(255,255,255,.12)',
+                            background: newCustomer.opening_side === 'debit' ? C.blue : C.bg2,
+                            color: '#fff',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Dr — customer owes us
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNewCustomer((p) => ({ ...p, opening_side: 'credit' }))}
+                          style={{
+                            padding: '6px 10px',
+                            borderRadius: 8,
+                            border: '1px solid rgba(255,255,255,.12)',
+                            background: newCustomer.opening_side === 'credit' ? C.blue : C.bg2,
+                            color: '#fff',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Cr — customer is in credit
+                        </button>
+                      </div>
                       <input
                         type="number"
+                        min="0"
+                        step="0.01"
+                        aria-label="Opening balance"
                         value={newCustomer.opening_balance}
                         onChange={(e) => setNewCustomer((p) => ({ ...p, opening_balance: Number(e.target.value) || 0 }))}
-                        style={{ ...darkInput, marginTop: 4, width: 180 }}
+                        style={{ ...darkInput, width: 180 }}
                       />
-                    </label>
+                      <label style={{ fontSize: 10, fontWeight: 600, color: C.muted }}>
+                        As of
+                        <input
+                          type="date"
+                          aria-label="Opening as of"
+                          value={newCustomer.opening_as_of}
+                          onChange={(e) => setNewCustomer((p) => ({ ...p, opening_as_of: e.target.value }))}
+                          style={{ ...darkInput, marginTop: 4, width: 180 }}
+                        />
+                      </label>
+                    </div>
                     <label style={{ fontSize: 10, fontWeight: 600, color: C.muted }}>
                       Credit limit
                       <input
