@@ -4,8 +4,10 @@ import {
   type Customer,
   createPayment,
   getUnpaidInvoices,
-  getCustomerAdvanceBalance,
-  type Invoice
+  getCustomerUnappliedAdvances,
+  applyAdvanceToInvoice,
+  type Invoice,
+  type UnappliedAdvance,
 } from '../../services/api';
 // ITEM 5E — SearchableSelect removed; replaced with multi-invoice checklist.
 // TASK 4 — Real downloadable payment receipt PDF.
@@ -88,13 +90,6 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
   const [notes, setNotes] = useState('');
   const [paymentDate, setPaymentDate] = useState(() => localIsoDate());
 
-  // Invoice linking
-  // FIX #2B — opening balance is now an allocable LINE that coexists with
-  // invoice selections (was: an "advance mode" toggle that wiped the invoice
-  // selection). When checked, `openingBalanceAmount` is sent as an allocation
-  // line with invoice_id=null (backend applies_to='opening_balance').
-  const [includeOpeningBalance, setIncludeOpeningBalance] = useState(false);
-  const [openingBalanceAmount, setOpeningBalanceAmount] = useState<number>(0);
   // ITEM 5E — Multi-invoice support. Was: single selectedInvoiceId.
   // Now: an array of selected ids. Single-invoice flow still works
   // (just one item in the array); multi-invoice auto-sums amounts.
@@ -102,7 +97,12 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
   const [allocationAmounts, setAllocationAmounts] = useState<Record<string, number>>({});
   const [allocationError, setAllocationError] = useState<string | null>(null);
   const [unpaidInvoices, setUnpaidInvoices] = useState<Invoice[]>([]);
-  const [advanceBalance, setAdvanceBalance] = useState<number>(0);
+  const [advances, setAdvances] = useState<UnappliedAdvance[]>([]);
+  const [applyPaymentId, setApplyPaymentId] = useState<number | ''>('');
+  const [applyInvoiceId, setApplyInvoiceId] = useState('');
+  const [applyAmount, setApplyAmount] = useState<number>(0);
+  const [applyError, setApplyError] = useState<string | null>(null);
+  const [amountFollowsAllocations, setAmountFollowsAllocations] = useState(true);
 
   const { cash, banks, defaultBank, loading: accountsLoading, error: accountsLoadError } = useBankingAccounts();
   const [depositAccountId, setDepositAccountId] = useState<string>('');
@@ -119,7 +119,7 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
 
   useEffect(() => {
     loadInvoices();
-    loadAdvanceBalance();
+    loadAdvances();
   }, [customer.id]);
 
   useEffect(() => {
@@ -162,21 +162,25 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
   const allocatedTotal = round2(
     selectedInvoiceIds.reduce((sum, id) => sum + Number(allocationAmounts[id] ?? 0), 0),
   );
-  const invoicesPortion = selectedInvoices.length === 1 ? amount : allocatedTotal;
-  const previewTotal = invoicesPortion + (includeOpeningBalance ? openingBalanceAmount : 0);
+  const invoicePortion = selectedInvoices.length === 1
+    ? Math.min(amount, Math.max(Number(selectedInvoice?.remaining_balance ?? 0), 0))
+    : selectedInvoices.length > 1
+      ? allocatedTotal
+      : 0;
+  const advanceRemainder = round2(Math.max(0, amount - invoicePortion));
+  const previewTotal = amount;
+  const advanceTotal = round2(advances.reduce((sum, row) => sum + Number(row.amount || 0), 0));
 
   useEffect(() => {
-    if (selectedInvoiceIds.length === 0) return;
+    if (!amountFollowsAllocations || selectedInvoiceIds.length === 0) return;
     if (selectedInvoiceIds.length === 1) {
-      // Single-invoice mode: pre-fill amount but leave it editable.
       const inv = openInvoices.find(i => String(i.id) === selectedInvoiceIds[0]);
       if (inv) setAmount(Number(inv.remaining_balance ?? inv.grandTotal ?? 0));
     } else {
-      // Multi-invoice mode: amount is the sum of Apply boxes (input stays read-only).
       setAmount(Number(allocatedTotal.toFixed(2)));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedInvoiceIds, unpaidInvoices.length, allocationAmounts]);
+  }, [selectedInvoiceIds, unpaidInvoices.length, allocationAmounts, amountFollowsAllocations]);
 
   async function loadInvoices() {
     try {
@@ -187,34 +191,33 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
     }
   }
 
-  async function loadAdvanceBalance() {
-    try {
-      const balance = await getCustomerAdvanceBalance(customer.id);
-      setAdvanceBalance(balance);
-    } catch (error) {
-      console.error('Failed to load advance balance:', error);
-    }
+  async function loadAdvances() {
+    const rows = await getCustomerUnappliedAdvances(customer.id);
+    setAdvances(rows);
   }
 
-  // ITEM 5G — Customers whose balance comes from an opening entry (no
-  // invoices) can't link a payment to any invoice. Auto-enable Advance
-  // mode in that case so the user lands on a working form immediately.
-  // Guard: only auto-enable AFTER the first load completes (we know
-  // openInvoices is genuinely empty, not just loading). The flag won't
-  // re-fire on subsequent loads because we check whether user already
-  // made a selection.
-  const [initialLoadDone, setInitialLoadDone] = useState(false);
-  useEffect(() => {
-    if (!initialLoadDone) {
-      setInitialLoadDone(true);
+  async function applyExistingAdvance() {
+    const paymentId = Number(applyPaymentId);
+    const invoiceId = Number(applyInvoiceId);
+    if (!paymentId || !invoiceId || applyAmount <= 0.005) {
+      setApplyError('Choose the advance, the invoice, and an amount.');
       return;
     }
-    if (openInvoices.length === 0 && selectedInvoiceIds.length === 0 && !includeOpeningBalance) {
-      // No open invoices → default to the opening-balance line so the form is usable.
-      setIncludeOpeningBalance(true);
+    try {
+      setLoading(true);
+      setApplyError(null);
+      await applyAdvanceToInvoice(paymentId, invoiceId, applyAmount);
+      await loadInvoices();
+      await loadAdvances();
+      setApplyPaymentId('');
+      setApplyInvoiceId('');
+      setApplyAmount(0);
+    } catch (error) {
+      setApplyError(error instanceof Error ? error.message : 'Could not apply the advance.');
+    } finally {
+      setLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openInvoices.length]);
+  }
 
   const depositReady =
     !accountsLoading && !accountsLoadError && depositOptions.length > 0 && depositAccountId !== '';
@@ -231,54 +234,24 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
       return;
     }
 
-    // FIX #2B — validate against the combined total (invoices + opening line).
-    const hasInvoices = selectedInvoiceIds.length > 0;
-    const hasOpening = includeOpeningBalance && openingBalanceAmount > 0.005;
-    if (!hasInvoices && !hasOpening) {
-      alert('Select at least one invoice, or enter an opening-balance amount.');
-      return;
-    }
-    if (previewTotal <= 0.005) {
+    if (amount <= 0.005) {
       alert('Please enter a valid payment amount');
       return;
     }
 
-    // Single-invoice overpay (with no explicit opening line): the excess is
-    // posted as an opening-balance advance instead of over-allocating the invoice.
-    if (selectedInvoices.length === 1 && selectedInvoice && !includeOpeningBalance) {
-      const remaining = Number(selectedInvoice.remaining_balance ?? 0);
-      if (amount - remaining > 0.005) {
-        const proceed = confirm(
-          `Payment amount (${amount.toFixed(2)}) exceeds the invoice balance (${remaining.toFixed(2)}).\n\n` +
-          `The excess ${(amount - remaining).toFixed(2)} will be recorded as an opening-balance (advance) line.\n\nContinue?`
-        );
-        if (!proceed) return;
-      }
-    }
-
-    // Convert a display amount to base currency for the ledger (backend has no
-    // currency column — same approach the rest of the form uses).
     const toBase = (v: number) =>
       isForeignCurrency ? Number((v * (exchangeRate || 1)).toFixed(2)) : Number(v);
 
-    // Build the allocation lines the 2A backend settles from. invoice_id=null is
-    // the opening-balance line. Settlement + derived status come back from the
-    // API afterwards — we never compute them here.
     const allocations: Array<{ invoice_id: number | null; amount: number }> = [];
+    let displayOnInvoices = 0;
     if (selectedInvoices.length === 1 && selectedInvoice) {
-      // Single invoice: honor the editable amount (partial pay), capped at the
-      // API remaining. Any excess becomes an explicit opening-balance line.
       const remaining = Number(selectedInvoice.remaining_balance ?? 0);
-      const toInvoice = Math.min(amount, remaining);
+      const toInvoice = Math.min(amount, Math.max(remaining, 0));
       if (toInvoice > 0.005) {
         allocations.push({ invoice_id: Number(selectedInvoice.id), amount: toBase(toInvoice) });
+        displayOnInvoices = toInvoice;
       }
-      const excess = amount - toInvoice;
-      if (!includeOpeningBalance && excess > 0.005) {
-        allocations.push({ invoice_id: null, amount: toBase(excess) });
-      }
-    } else {
-      // Multiple invoices: post each Apply amount (partial pay allowed).
+    } else if (selectedInvoices.length > 1) {
       for (const id of selectedInvoiceIds) {
         const amt = round2(allocationAmounts[id] ?? 0);
         const inv = selectedInvoices.find((row) => String(row.id) === id);
@@ -292,23 +265,26 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
         const amt = round2(allocationAmounts[String(inv.id)] ?? 0);
         if (amt > 0.005) {
           allocations.push({ invoice_id: Number(inv.id), amount: toBase(amt) });
+          displayOnInvoices = round2(displayOnInvoices + amt);
         }
       }
-      if (allocations.length === 0 && !hasOpening) {
-        setAllocationError('Enter an Apply amount on at least one invoice.');
+      if (displayOnInvoices - amount > 0.005) {
+        setAllocationError('Apply amounts are higher than the payment amount.');
         return;
       }
     }
-    // Opening balance is one more line ALONGSIDE the invoices (never a wipe).
-    if (hasOpening) {
-      allocations.push({ invoice_id: null, amount: toBase(openingBalanceAmount) });
+    const unapplied = round2(amount - displayOnInvoices);
+    if (unapplied > 0.005) {
+      allocations.push({ invoice_id: null, amount: toBase(unapplied) });
     }
     if (allocations.length === 0) {
-      alert('Nothing to allocate — check the amounts.');
+      alert('Please enter a valid payment amount');
       return;
     }
 
     const totalBase = Number(allocations.reduce((s, a) => s + a.amount, 0).toFixed(2));
+    const hasInvoices = allocations.some((line) => line.invoice_id != null);
+    const hasAdvance = unapplied > 0.005;
 
     try {
       setLoading(true);
@@ -326,6 +302,7 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
         currency, exchange_rate: exchangeRate, amount_in_base_currency: totalBase,
         // ITEM 5H — Bank/Cash COA account that received this payment.
         deposit_account_id: depositAccountId || undefined,
+        explicit_advance: hasAdvance,
       });
 
       // TASK 4/9 — Receipt snapshot. Shows the ORIGINAL currency + total the
@@ -343,7 +320,7 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
         reference,
         notes,
         invoiceNumber: recordedInvoiceNumbers || undefined,
-        isAdvance: hasOpening && !hasInvoices,
+        isAdvance: hasAdvance && !hasInvoices,
       });
 
       setSuccess(true);
@@ -503,70 +480,72 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
       </div>
 
       {/* Available advance balance — kept as separate row when present */}
-      {advanceBalance > 0 && (
-        <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 mb-4">
+      {advanceTotal > 0.005 && (
+        <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 mb-4 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-black text-blue-700 uppercase">Available Advance Balance</span>
-            <span className="text-2xl font-mono font-black text-blue-900">${advanceBalance.toLocaleString()}</span>
+            <span className="text-xs font-black text-blue-700 uppercase">Available advance</span>
+            <span className="text-2xl font-mono font-black text-blue-900">${advanceTotal.toLocaleString()}</span>
           </div>
+          <p className="text-xs text-blue-800">This is money already received and not yet applied to an invoice. Applying it does not record cash again.</p>
+          {advances.map((row) => (
+            <div key={row.payment_id} className="text-sm font-medium text-blue-900">
+              {row.reference || `Payment ${row.payment_id}`} · ${Number(row.amount).toFixed(2)}
+            </div>
+          ))}
+          {openInvoices.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+              <select
+                aria-label="Advance to apply"
+                value={applyPaymentId}
+                onChange={(e) => {
+                  const id = e.target.value ? Number(e.target.value) : '';
+                  setApplyPaymentId(id);
+                  const row = advances.find((item) => item.payment_id === Number(id));
+                  setApplyAmount(row ? Number(row.amount) : 0);
+                }}
+                className="px-3 py-2 border-2 border-blue-200 rounded-lg text-sm bg-white"
+              >
+                <option value="">Advance</option>
+                {advances.map((row) => (
+                  <option key={row.payment_id} value={row.payment_id}>
+                    {(row.reference || `Payment ${row.payment_id}`)} · {Number(row.amount).toFixed(2)}
+                  </option>
+                ))}
+              </select>
+              <select
+                aria-label="Invoice to apply"
+                value={applyInvoiceId}
+                onChange={(e) => setApplyInvoiceId(e.target.value)}
+                className="px-3 py-2 border-2 border-blue-200 rounded-lg text-sm bg-white"
+              >
+                <option value="">Invoice</option>
+                {openInvoices.map((inv) => (
+                  <option key={inv.id} value={String(inv.id)}>
+                    {inv.invoiceNumber} · {Number(inv.remaining_balance ?? 0).toFixed(2)}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={applyExistingAdvance}
+                className="px-3 py-2 bg-blue-700 text-white text-sm font-bold rounded-lg"
+              >
+                Apply to invoice
+              </button>
+            </div>
+          )}
+          {applyError && <p className="text-sm font-bold text-red-600">{applyError}</p>}
         </div>
       )}
 
       {/* Payment Form */}
       <form id="payment-form" onSubmit={handleSubmit} className="bg-white rounded-xl shadow-md border-2 border-gray-200 p-8 space-y-8">
-        {/* FIX #2B — Opening-balance line toggle. Does NOT wipe the invoice
-            selection: when on, an amount input appears and an opening-balance
-            allocation (invoice_id=null) is sent ALONGSIDE any selected invoices
-            in the same receipt. */}
-        <div className="bg-gray-50 border-2 border-gray-200 rounded-xl p-6 space-y-4">
-          <label className="flex items-center gap-3 cursor-pointer group">
-            <input
-              type="checkbox"
-              checked={includeOpeningBalance}
-              onChange={(e) => setIncludeOpeningBalance(e.target.checked)}
-              className="w-5 h-5 rounded border-2 border-gray-300 text-[#4F8EF7] focus:ring-2 focus:ring-[#4F8EF7] focus:ring-offset-2"
-            />
-            <div>
-              <span className="text-sm font-black text-gray-900 group-hover:text-[#4F8EF7] transition-colors">
-                Also allocate to Opening Balance / Advance
-              </span>
-              <p className="text-xs text-gray-500 font-medium mt-1">
-                Applies part of this payment to the customer's opening balance (no invoice link). Can be combined with the invoices selected below in the same receipt.
-              </p>
-              {openInvoices.length === 0 && (
-                <p className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 mt-2">
-                  ℹ️ This customer has no open invoices — record the payment against their opening balance below.
-                </p>
-              )}
-            </div>
-          </label>
-
-          {includeOpeningBalance && (
-            <div className="space-y-2">
-              <label className="block text-xs font-black text-gray-600">
-                Opening Balance Amount <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="number"
-                value={openingBalanceAmount || ''}
-                onChange={(e) => setOpeningBalanceAmount(parseFloat(e.target.value) || 0)}
-                min="0.01"
-                step="0.01"
-                placeholder="0.00"
-                className="w-full pl-4 pr-4 py-3 border-2 border-gray-300 rounded-lg text-base font-mono font-black outline-none focus:border-[#4F8EF7] focus:ring-4 focus:ring-[#4F8EF7]/10 transition-all"
-              />
-            </div>
-          )}
-        </div>
-
-        {/* FIX #2B — Multi-invoice checklist, always visible (opening balance no
-            longer hides it). Tick one or many invoices; each posts an allocation
-            line. The outstanding set is the API's allocation-derived list. */}
+        {/* Invoices are optional. Anything in Payment Amount that is not applied here is an unapplied advance. */}
         {(
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <label className="block text-xs font-black text-gray-600 ">
-                Select Invoice(s) <span className="text-red-500">*</span>
+                Select Invoice(s)
               </label>
               {openInvoices.length > 0 && (
                 <div className="flex items-center gap-3 text-[10px] font-black text-gray-500 ">
@@ -593,7 +572,7 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
               <div className="bg-gray-50 border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
                 <FileText size={24} className="mx-auto text-gray-300 mb-2" />
                 <p className="text-sm font-bold text-gray-500">No unpaid invoices for this customer</p>
-                <p className="text-xs text-gray-400 mt-1">Tick "Also allocate to Opening Balance / Advance" above to record an unallocated payment.</p>
+                <p className="text-xs text-gray-400 mt-1">Enter a payment amount. The whole receipt is saved as an unapplied advance.</p>
               </div>
             ) : (
               <div className="border-2 border-gray-200 rounded-lg max-h-72 overflow-y-auto divide-y divide-gray-100">
@@ -709,28 +688,23 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
               Payment Amount <span className="text-red-500">*</span>
             </label>
             <div className="relative">
-              {/* ITEM 5E — Amount goes read-only when multiple invoices
-                  are selected (auto-sum is authoritative). Single-invoice
-                  and advance flows keep the amount editable. */}
               <input
                 type="number"
                 value={amount || ''}
-                onChange={(e) => setAmount(parseFloat(e.target.value) || 0)}
+                onChange={(e) => {
+                  setAmountFollowsAllocations(false);
+                  setAmount(parseFloat(e.target.value) || 0);
+                }}
                 min="0.01"
                 step="0.01"
                 required
-                readOnly={selectedInvoiceIds.length > 1}
                 placeholder="0.00"
-                className={`w-full pl-4 pr-4 py-3 border-2 rounded-lg text-lg font-mono font-black outline-none transition-all ${
-                    selectedInvoiceIds.length > 1
-                        ? 'border-emerald-300 bg-emerald-50 text-emerald-900 cursor-not-allowed'
-                        : 'border-gray-300 focus:border-[#4F8EF7] focus:ring-4 focus:ring-[#4F8EF7]/10'
-                }`}
+                className="w-full pl-4 pr-4 py-3 border-2 border-gray-300 rounded-lg text-lg font-mono font-black outline-none focus:border-[#4F8EF7] focus:ring-4 focus:ring-[#4F8EF7]/10 transition-all"
               />
             </div>
-            {selectedInvoiceIds.length > 1 && (
-                <p className="text-[10px] text-emerald-700 font-bold mt-1 ">
-                    Sum of amounts applied to {selectedInvoiceIds.length} invoices · edit each invoice's Apply box to partial-pay
+            {advanceRemainder > 0.005 && (
+                <p className="text-[10px] text-blue-700 font-bold mt-1">
+                    ${advanceRemainder.toFixed(2)} is not applied to an invoice and will be saved as an unapplied advance.
                 </p>
             )}
           </div>
@@ -866,13 +840,13 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
 
         {/* Validation Warning — single-invoice overpay without an explicit
             opening line (the excess posts as an opening-balance advance). */}
-        {!includeOpeningBalance && selectedInvoice && amount > Number(selectedInvoice.remaining_balance ?? 0) && (
+        {selectedInvoice && amount > Number(selectedInvoice.remaining_balance ?? 0) + 0.005 && (
           <div className="bg-amber-50 border-2 border-amber-300 rounded-lg p-4 flex items-start gap-3">
             <AlertCircle size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
             <div>
               <p className="text-sm font-black text-amber-900">Payment exceeds invoice balance</p>
               <p className="text-xs text-amber-700 font-medium mt-1">
-                The excess amount of ${(amount - Number(selectedInvoice.remaining_balance ?? 0)).toLocaleString()} will be recorded as an opening-balance (advance) line.
+                The excess ${(amount - Number(selectedInvoice.remaining_balance ?? 0)).toFixed(2)} will be saved as an unapplied advance.
               </p>
             </div>
           </div>
@@ -961,14 +935,14 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
               </div>
             ))}
 
-          {includeOpeningBalance && openingBalanceAmount > 0.005 && (
+          {advanceRemainder > 0.005 && (
             <div style={{
                 display: 'flex', justifyContent: 'space-between',
                 padding: '5px 0', borderBottom: '1px solid rgba(255,255,255,.04)', fontSize: 11,
             }}>
-              <span style={{ color: 'var(--color-text-secondary)' }}>Opening balance (advance)</span>
+              <span style={{ color: 'var(--color-text-secondary)' }}>Unapplied advance</span>
               <span style={{ color: 'var(--color-text-danger)', fontWeight: 500 }}>
-                ${Number(openingBalanceAmount).toFixed(2)}
+                ${advanceRemainder.toFixed(2)}
               </span>
             </div>
           )}

@@ -716,6 +716,7 @@ export const createPayment = (data: any): Promise<any> => {
     date: data.payment_date ?? null,
   };
   if (data.notes) body.notes = data.notes;
+  if (data.explicit_advance === true) body.explicit_advance = true;
   const depositId = data.deposit_account_id ?? data.account_id;
   if (depositId != null && String(depositId) !== '') {
     body.deposit_account_id = parseInt(String(depositId), 10);
@@ -1295,6 +1296,27 @@ export async function getUnpaidInvoices(customerId: string): Promise<Invoice[]> 
 // re-reads GET /api/invoices/ (allocation-derived status/balance) instead.
 
 // Get customer's advance payment balance
+export async function getCustomerUnappliedAdvances(customerId: string): Promise<UnappliedAdvance[]> {
+  try {
+    const rows = await apiRequest<UnappliedAdvance[]>(`/customers/${customerId}/advances`);
+    return Array.isArray(rows) ? rows : [];
+  } catch (error) {
+    console.error('Failed to get unapplied advances:', error);
+    return [];
+  }
+}
+
+export async function applyAdvanceToInvoice(paymentId: number, invoiceId: number, amount: number): Promise<{
+  invoice_status?: string;
+  invoice_balance?: number;
+  new_balance?: number;
+}> {
+  return apiRequest(`/ledger/payment/${paymentId}/apply`, {
+    method: 'POST',
+    body: JSON.stringify({ invoice_id: invoiceId, amount }),
+  });
+}
+
 export async function getCustomerAdvanceBalance(customerId: string): Promise<number> {
   try {
     const payments = await getPaymentsForCustomer(customerId);
@@ -2056,9 +2078,27 @@ export interface UnappliedPaymentRow {
   reference?: string | null;
 }
 
+export interface CreditOpeningRow {
+  id: string;
+  customer_id: string;
+  customer_name: string;
+  amount: number;
+  date?: string | null;
+  reference?: string | null;
+}
+
 export interface ReceivablesCheckPayload {
   imported_credits: ImportedCreditRow[];
   unapplied_payments: UnappliedPaymentRow[];
+  credit_openings?: CreditOpeningRow[];
+}
+
+export interface UnappliedAdvance {
+  payment_id: number;
+  amount: number;
+  date?: string | null;
+  reference?: string | null;
+  payment_method?: string;
 }
 
 /** Read-only. Lists imported credits and payments that are not allocated to an invoice. */

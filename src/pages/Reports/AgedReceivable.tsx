@@ -7,7 +7,7 @@ import { getInvoices, getCustomerPayments, getReceivablesCheck, type Invoice } f
 import { getCreditNotes } from '../../services/creditNoteService';
 import { formatCurrency } from '../../services/settingsService';
 import { calculateReceivables, type ArCreditLine } from '../../utils/arMetrics';
-import { creditNoteInputs, importedCreditInputs } from '../../utils/receivablesCheck';
+import { advanceAndOpeningCreditInputs, creditNoteInputs, importedCreditInputs } from '../../utils/receivablesCheck';
 
 interface AgedCustomer {
     customerId: string;
@@ -36,13 +36,19 @@ export default function AgedReceivable() {
             getInvoices(),
             getCustomerPayments(),
             getCreditNotes().catch(() => []),
-            getReceivablesCheck().catch(() => ({ imported_credits: [], unapplied_payments: [] })),
+            getReceivablesCheck().catch(() => ({ imported_credits: [], unapplied_payments: [], credit_openings: [] })),
         ]).then(([invoices, payments, notes, check]) => {
             const receivables = calculateReceivables(
                 invoices,
                 payments,
                 new Date(`${asOf}T12:00:00`),
-                { credits: [...creditNoteInputs(notes), ...importedCreditInputs(check.imported_credits)] },
+                {
+                    credits: [
+                        ...creditNoteInputs(notes),
+                        ...importedCreditInputs(check.imported_credits),
+                        ...advanceAndOpeningCreditInputs(check.unapplied_payments, check.credit_openings ?? []),
+                    ],
+                },
             );
             const byCustomer = new Map<string, AgedCustomer>();
             const ensure = (cid: string, name?: string): AgedCustomer => {

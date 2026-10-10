@@ -105,6 +105,7 @@ describe('PaymentReceipt invoice deposit', () => {
       invoice('11', 'INV-B', 4),
     ]);
     vi.spyOn(api, 'getCustomerAdvanceBalance').mockResolvedValue(0);
+    vi.spyOn(api, 'getCustomerUnappliedAdvances').mockResolvedValue([]);
   });
 
   it('keeps Cash on Hand when a deposited invoice is ticked under Cash', async () => {
