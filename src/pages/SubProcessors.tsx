@@ -19,6 +19,7 @@ export default function SubProcessors() {
   return (
     <LegalDocumentLayout
       title="Sub-processors"
+      lastUpdated="October 10, 2026"
       intro={
         <>
           Soltol LLC uses the third-party service providers listed below (&quot;sub-processors&quot;) to operate the SOLTOL
@@ -123,6 +124,18 @@ export default function SubProcessors() {
               <td style={tdStyle}>
                 Billing contact details and payment metadata. Card details are collected and stored by Stripe directly;
                 Soltol LLC does not receive or store full card numbers
+              </td>
+              <td style={tdStyle}>United States</td>
+            </tr>
+            <tr>
+              <td style={tdStyle}>Plaid Inc.</td>
+              <td style={tdStyle}>
+                Bank account connectivity — retrieves account names, masks and balances for bank accounts a customer
+                chooses to connect
+              </td>
+              <td style={tdStyle}>
+                Institution name, account name and type, last four digits of account number, balances (transactions if
+                enabled)
               </td>
               <td style={tdStyle}>United States</td>
             </tr>
