@@ -108,9 +108,13 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Open lists only. Windows paints the popup from the select's own color
+   (#EEF2FF on these forms) and ignores a normal option color. !important
+   is the declaration that popup honors. Closed selects are not matched. */
 select option {
-  background-color: #ffffff;
-  color: #0a1726;
+  background-color: #ffffff !important;
+  color: #0a1726 !important;
+  transition: none;
 }
 
 /* ══════════════════════════════════════════════════════════════
