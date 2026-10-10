@@ -108,6 +108,11 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+select option {
+  background-color: #ffffff;
+  color: #0a1726;
+}
+
 /* ══════════════════════════════════════════════════════════════
    LIGHT MODE — toggled by body.light class
    ══════════════════════════════════════════════════════════════
