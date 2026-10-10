@@ -90,7 +90,7 @@ export interface GLAccount {
   updated_at: string | null;
 }
 
-async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+export async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem(ACCESS_TOKEN_KEY);
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -103,16 +103,18 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
     headers,
   });
   if (!response.ok) {
-    let detail = `HTTP ${response.status}`;
+    let rawDetail: unknown = `HTTP ${response.status}`;
     try {
       const error = await response.json();
-      if (error?.detail) {
-        detail = typeof error.detail === 'string' ? error.detail : JSON.stringify(error.detail);
-      }
+      if (error?.detail) rawDetail = error.detail;
     } catch {
       /* ignore malformed error payloads */
     }
-    throw new Error(detail);
+    const message = typeof rawDetail === 'string' ? rawDetail : JSON.stringify(rawDetail);
+    const err = new Error(message) as Error & { status?: number; detail?: unknown };
+    err.status = response.status;
+    err.detail = rawDetail;
+    throw err;
   }
   return response.json();
 }
