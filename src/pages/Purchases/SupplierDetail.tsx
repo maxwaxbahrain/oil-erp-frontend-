@@ -29,6 +29,9 @@ import {
     getCompanyProfile, getSystemSettings, formatCurrency} from '../../services/settingsService';
 import {
     createSupplierPayment,
+    isOpenPayablePurchase,
+    payablePurchaseTotal,
+    purchaseCountsAsPayable,
     updateSupplier,
     type Supplier,
     type PurchaseOrder,
@@ -528,7 +531,7 @@ export default function SupplierDetail() {
     }
 
     const outstandingBalance = ledgerClosingBalance ?? (ledger.length > 0 ? ledger[ledger.length - 1].balance : supplier.openingBalance ?? 0);
-    const totalPurchases = purchases.filter(p => p.status !== 'Draft' && p.status !== 'Pending').reduce((sum, p) => sum + p.grandTotal, 0);
+    const totalPurchases = payablePurchaseTotal(purchases);
     const _liabilityColor = outstandingBalance > 0 ? '#EF4444' : outstandingBalance < 0 ? '#22C55E' : '#4F8EF7';
     const _creditLimitDisplay = supplier.creditLimit && supplier.creditLimit > 0 ? supplier.creditLimit : 0;
     const _ratingLabel = supplier.rating ? `Tier ${supplier.rating}` : 'Tier A';
@@ -1500,8 +1503,9 @@ export default function SupplierDetail() {
                                         )}
                                     </tbody>
                                     {purchases.length > 0 && (() => {
-                                        const totalPurchases = purchases.reduce((s, p) => s + (Number((p as any).grandTotal) || 0), 0);
-                                        const totalOutstanding = purchases.reduce((s, p) => {
+                                        const payableRows = purchases.filter(p => purchaseCountsAsPayable(p.status));
+                                        const totalPurchases = payablePurchaseTotal(payableRows);
+                                        const totalOutstanding = payableRows.reduce((s, p) => {
                                             const grand = Number((p as any).grandTotal) || 0;
                                             const rb = Number((p as any).remaining_balance ?? grand);
                                             return s + Math.max(0, rb);
@@ -1643,11 +1647,7 @@ export default function SupplierDetail() {
                                         Apply To Purchase Order(s)
                                     </label>
                                     {(() => {
-                                        const open = purchases.filter(p => {
-                                            if (p.status === 'Draft') return false;
-                                            const bal = Number(p.remaining_balance ?? p.grandTotal) || 0;
-                                            return bal > 0.005;
-                                        });
+                                        const open = purchases.filter(p => isOpenPayablePurchase(p));
                                         return open.length > 0 && (
                                             <div className="flex items-center gap-2 text-[9px] font-black text-gray-400 uppercase tracking-widest">
                                                 <button type="button" onClick={() => {
@@ -1666,11 +1666,7 @@ export default function SupplierDetail() {
                                     })()}
                                 </div>
                                 {(() => {
-                                    const openPOs = purchases.filter(p => {
-                                        if (p.status === 'Draft') return false;
-                                        const bal = Number(p.remaining_balance ?? p.grandTotal) || 0;
-                                        return bal > 0.005;
-                                    });
+                                    const openPOs = purchases.filter(p => isOpenPayablePurchase(p));
                                     if (openPOs.length === 0) {
                                         return (
                                             <div className="bg-amber-50 border-2 border-dashed border-amber-200 rounded-lg p-4 text-xs text-amber-700">
