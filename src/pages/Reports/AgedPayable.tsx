@@ -3,7 +3,7 @@ import { useState, useEffect, Fragment } from 'react';
 import { Clock, Download, AlertTriangle, CheckCircle , ArrowLeft, Printer } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { getPurchaseOrders, type SupplierPayment, type PurchaseOrder } from '../../services/purchasesService';
+import { getPurchaseOrders, purchaseCountsAsPayable, type SupplierPayment, type PurchaseOrder } from '../../services/purchasesService';
 import { formatCurrency } from '../../services/settingsService';
 
 interface AgedSupplier {
@@ -61,6 +61,7 @@ export default function AgedPayable() {
             // Group POs by supplier (skip ones already flagged 'Paid').
             const bySupplier: Record<string, PurchaseOrder[]> = {};
             orders.forEach(po => {
+                if (!purchaseCountsAsPayable(po.status)) return;
                 if (po.payment_status === 'Paid') return;
                 const sid = po.supplierId || po.supplierName || 'Unknown';
                 (bySupplier[sid] = bySupplier[sid] || []).push(po);
