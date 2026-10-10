@@ -39,7 +39,7 @@ describe('PaymentReceipt deposit account', () => {
     const select = view.host.querySelector('select');
     expect(select?.disabled).toBe(true);
     expect(Array.from(select?.options ?? []).map((option) => option.textContent)).toEqual(['1000 — Cash on Hand']);
-    expect(view.host.textContent).toContain('Cash receipts post to Cash on Hand');
+    expect(view.host.textContent).toContain('Cash and petty cash receipts post to Cash on Hand');
     view.cleanup();
   });
 

@@ -20,7 +20,7 @@ import { createBankingAccount, getBankingAccounts, getCollectionsBankSettings, g
 import { authFetch } from '../../api/axios';
 import { useAuth } from '../../contexts/AuthContext';
 import { FINANCE_ROLES } from '../../utils/rbac';
-import { chequeBankAccountEditable, pdcCreateBody, pdcListUrl } from '../../utils/bankingAccounts';
+import { cashDepositToBankPayload, chequeBankAccountEditable, MANUAL_TX_SUSPENSE_HINT, pdcCreateBody, pdcListUrl } from '../../utils/bankingAccounts';
 import { formatDateOnly } from '../../utils/formatters';
 import { localIsoDate } from '../../utils/localDate';
 import { getOilErpApiBase } from '../../config/apiBase';
@@ -500,6 +500,8 @@ export default function Banking() {
     const [dateTo, setDateTo] = useState('');
     const [activeTab, setActiveTab] = useState<'ledger' | 'pdc'>('ledger');
     const [showAddTx, setShowAddTx] = useState(false);
+    const [showCashDeposit, setShowCashDeposit] = useState(false);
+    const [depositForm, setDepositForm] = useState({ date: localIsoDate(), amount: '', memo: '' });
     const [txForm, setTxForm] = useState({
         date: localIsoDate(),
         description: '',
@@ -870,6 +872,42 @@ export default function Banking() {
         );
     };
 
+    const saveCashDeposit = async () => {
+        clearMsg();
+        const cash = cashAccounts.find((account) => account.role === 'cash');
+        const selected = cashAccounts.find((account) => account.id === selectedAccountId);
+        const bank = selected?.role === 'bank'
+            ? selected
+            : cashAccounts.find((account) => account.role === 'bank' && account.is_default)
+                ?? cashAccounts.find((account) => account.role === 'bank');
+        const amount = parseFloat(depositForm.amount) || 0;
+        if (!cash || !bank) {
+            showMsg('error', 'Cash on Hand and a bank account are both required.');
+            return;
+        }
+        if (amount <= 0) {
+            showMsg('error', 'Enter an amount greater than zero.');
+            return;
+        }
+        const payload = cashDepositToBankPayload({
+            bankAccountId: bank.id,
+            cashAccountId: cash.id,
+            amount,
+            date: depositForm.date || localIsoDate(),
+            memo: depositForm.memo,
+            reference: `DEP-${Date.now().toString().slice(-6)}`,
+        });
+        const result = await createBankTxApi(payload);
+        if (!result.ok) {
+            showMsg('error', result.detail || 'Could not deposit cash to the bank.');
+            return;
+        }
+        setDepositForm({ date: localIsoDate(), amount: '', memo: '' });
+        setShowCashDeposit(false);
+        await refetchAfterAction();
+        showMsg('success', `Deposited ${formatUsd(amount)} from Cash on Hand to ${bank.code} ${bank.name}.`);
+    };
+
     const editManualTx = (row: LedgerRow) => {
         clearMsg();
         const txId = bankTxIdFromSourceId(row.source_id);
@@ -1152,6 +1190,19 @@ export default function Banking() {
                             type="button"
                             onClick={() => {
                                 clearMsg();
+                                setShowAddTx(false);
+                                setShowCashDeposit(true);
+                                setDepositForm({ date: localIsoDate(), amount: '', memo: '' });
+                            }}
+                            style={ghostBtn}
+                        >
+                            <DollarSign size={14} /> Deposit cash to bank
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                clearMsg();
+                                setShowCashDeposit(false);
                                 setEditingId(null);
                                 setEditingContraName(null);
                                 setTxForm({ date: localIsoDate(), description: '', type: 'Credit', amount: '', reference: '', memo: '', contraAccountId: '' });
@@ -1364,6 +1415,32 @@ export default function Banking() {
                                         onCancel={() => setPendingDelete(null)}
                                     />
                                 )}
+                                {showCashDeposit && (
+                                    <div style={{ ...panelStyle, borderColor: 'rgba(34,197,94,.4)' }}>
+                                        <p style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-redwood-text-muted)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '.4px' }}>Deposit cash to bank</p>
+                                        <p style={{ fontSize: 11, color: 'var(--color-redwood-text-subtle)', marginBottom: 10 }}>
+                                            Posts a debit to the selected bank and a credit to Cash on Hand.
+                                        </p>
+                                        <div className="grid grid-cols-2 md:grid-cols-3" style={{ gap: 10 }}>
+                                            <div>
+                                                <label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Date</label>
+                                                <input type="date" value={depositForm.date} onChange={(event) => setDepositForm((prev) => ({ ...prev, date: event.target.value }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }} />
+                                            </div>
+                                            <div>
+                                                <label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Amount ($)</label>
+                                                <input type="number" placeholder="0.00" value={depositForm.amount} onChange={(event) => setDepositForm((prev) => ({ ...prev, amount: event.target.value }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }} />
+                                            </div>
+                                            <div>
+                                                <label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)' }}>Memo (optional)</label>
+                                                <input value={depositForm.memo} onChange={(event) => setDepositForm((prev) => ({ ...prev, memo: event.target.value }))} style={{ width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }} />
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                                            <button type="button" onClick={() => void saveCashDeposit()} style={primaryBtn}>Deposit</button>
+                                            <button type="button" onClick={() => setShowCashDeposit(false)} style={ghostBtn}>Cancel</button>
+                                        </div>
+                                    </div>
+                                )}
                                 {showAddTx && (
                                     <div style={{ ...panelStyle, borderColor: 'rgba(251,146,60,.4)' }}>
                                         <p style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-redwood-text-muted)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '.4px' }}>{editingId ? 'Edit transaction' : 'Add manual transaction'}</p>
@@ -1386,7 +1463,7 @@ export default function Banking() {
                                                         </option>
                                                     ))}
                                                 </select>
-                                                <div style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)', marginTop: 4 }}>Leave empty to post to Suspense. Pick the other Bank/Cash account to record a transfer.</div>
+                                                <div style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)', marginTop: 4 }}>{MANUAL_TX_SUSPENSE_HINT}</div>
                                                 <div style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)', marginTop: 4 }}>Customer and supplier money is recorded through payments, so Accounts Receivable and Accounts Payable are not offered here.</div>
                                                 {editingContraName && !txForm.contraAccountId && (
                                                     <div style={{ fontSize: 9, color: 'var(--color-redwood-text-muted)', marginTop: 2 }}>Stored contra: {editingContraName}</div>
