@@ -1,0 +1,3530 @@
+{
+  "commit": "b493601a12b7f3c739b9d603dc6c6c4a3774b3c1",
+  "note": "Rendered Sidebar.tsx. Admin username is admin so the Super Admin footer link is included. Other roles use username user-<role>, so Super Admin is absent. Super Admin is gated by username === admin, not by role. Production means VITE_APP_ENV=production (not staging).",
+  "builds": {
+    "production": {
+      "admin": [
+        {
+          "kind": "head",
+          "head": "Dashboard",
+          "group": null,
+          "label": "Dashboard",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Dashboard",
+          "group": null,
+          "label": "Dashboard",
+          "route": "/"
+        },
+        {
+          "kind": "head",
+          "head": "Sales",
+          "group": null,
+          "label": "Sales",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Customers",
+          "route": "/customers"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Orders",
+          "route": "/sales/orders"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Quotations",
+          "route": "/sales/quotations"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Invoices",
+          "route": "/sales/invoices"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Credit Notes",
+          "route": "/sales/credit-notes"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Price Lists",
+          "route": "/sales/price-lists"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Recurring Invoices",
+          "route": "/sales/recurring"
+        },
+        {
+          "kind": "head",
+          "head": "Delivery",
+          "group": null,
+          "label": "Delivery",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "POD Driver App",
+          "route": "/logistics/pod"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Live Van Tracking",
+          "route": "/logistics/tracking"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Van Operations",
+          "route": "/logistics/operations"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Weekly Route Plan",
+          "route": "/logistics/route-planning"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Route Stops",
+          "route": "/logistics/routes"
+        },
+        {
+          "kind": "head",
+          "head": "Inventory",
+          "group": null,
+          "label": "Inventory",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Inventory",
+          "group": null,
+          "label": "Product Catalog",
+          "route": "/products"
+        },
+        {
+          "kind": "item",
+          "head": "Inventory",
+          "group": null,
+          "label": "Stock Adjustment",
+          "route": "/inventory/adjustments"
+        },
+        {
+          "kind": "item",
+          "head": "Inventory",
+          "group": null,
+          "label": "Inventory Reports",
+          "route": "/products/reports"
+        },
+        {
+          "kind": "head",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Purchasing",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Suppliers",
+          "route": "/purchases/suppliers"
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Material Receipt (GRN)",
+          "route": "/receiving"
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Purchase Returns",
+          "route": "/purchases/returns"
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Recent Orders",
+          "route": "/purchases"
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Create New PO",
+          "route": "/purchases/new"
+        },
+        {
+          "kind": "head",
+          "head": "Finance",
+          "group": null,
+          "label": "Finance",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Banking",
+          "route": "/finance/banking"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Chart of Accounts",
+          "route": "/finance/chart-of-accounts"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "All-Accounts Ledger",
+          "route": "/finance/all-ledger"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Financial Statement",
+          "route": "/finance/financial-statement"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Journal Voucher (JV)",
+          "route": "/finance/journal-voucher"
+        },
+        {
+          "kind": "group",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Expenses",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Expenses",
+          "route": "/finance/expenses"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Approvals",
+          "route": "/finance/expenses/approvals"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Bulk Upload",
+          "route": "/finance/expenses/bulk-upload"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Mileage",
+          "route": "/finance/expenses/mileage"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Reports",
+          "route": "/finance/expenses/reports"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Settings",
+          "route": "/finance/expenses/settings"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Day Book",
+          "route": "/reports/day-book"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Trial Balance",
+          "route": "/reports/trial-balance"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Aged Receivable",
+          "route": "/reports/aged-receivable"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Aged Payable",
+          "route": "/reports/aged-payable"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Outstanding Bills",
+          "route": "/reports/outstanding-bills"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Collections",
+          "route": "/finance/collections"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Profitability Analysis",
+          "route": "/reports/financial"
+        },
+        {
+          "kind": "head",
+          "head": "AI",
+          "group": null,
+          "label": "AI",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "AI Hub",
+          "route": "/ai/hub"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "ARIA — Customer Service",
+          "route": "/agents/customer-service"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Marcus — Advisor",
+          "route": "/agents/business-advisor"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Call History",
+          "route": "/voice/calls"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "PULSE — Team Chat",
+          "route": "/pulse"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Meeting Notes",
+          "route": "/pulse/notes"
+        },
+        {
+          "kind": "head",
+          "head": "Settings",
+          "group": null,
+          "label": "Settings",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Settings",
+          "group": null,
+          "label": "Settings",
+          "route": "/settings"
+        },
+        {
+          "kind": "item",
+          "head": "Settings",
+          "group": null,
+          "label": "Integrations",
+          "route": "/settings/integrations"
+        },
+        {
+          "kind": "item",
+          "head": "Settings",
+          "group": null,
+          "label": "User Management",
+          "route": "/settings/users"
+        },
+        {
+          "kind": "item",
+          "head": "Settings",
+          "group": null,
+          "label": "📥 Data Migration",
+          "route": "/migrate"
+        },
+        {
+          "kind": "item",
+          "head": "Settings",
+          "group": null,
+          "label": "Change Password",
+          "route": "/settings/password"
+        },
+        {
+          "kind": "item",
+          "head": "Settings",
+          "group": null,
+          "label": "Employee Portal",
+          "route": "/portal"
+        },
+        {
+          "kind": "footer",
+          "head": "Footer",
+          "group": null,
+          "label": "Change password",
+          "route": null
+        },
+        {
+          "kind": "footer",
+          "head": "Footer",
+          "group": null,
+          "label": "Logout",
+          "route": null
+        },
+        {
+          "kind": "footer",
+          "head": "Footer",
+          "group": null,
+          "label": "Super Admin",
+          "route": "/superadmin"
+        }
+      ],
+      "manager": [
+        {
+          "kind": "head",
+          "head": "Dashboard",
+          "group": null,
+          "label": "Dashboard",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Dashboard",
+          "group": null,
+          "label": "Dashboard",
+          "route": "/"
+        },
+        {
+          "kind": "head",
+          "head": "Sales",
+          "group": null,
+          "label": "Sales",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Customers",
+          "route": "/customers"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Orders",
+          "route": "/sales/orders"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Quotations",
+          "route": "/sales/quotations"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Invoices",
+          "route": "/sales/invoices"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Credit Notes",
+          "route": "/sales/credit-notes"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Price Lists",
+          "route": "/sales/price-lists"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Recurring Invoices",
+          "route": "/sales/recurring"
+        },
+        {
+          "kind": "head",
+          "head": "Delivery",
+          "group": null,
+          "label": "Delivery",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "POD Driver App",
+          "route": "/logistics/pod"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Live Van Tracking",
+          "route": "/logistics/tracking"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Van Operations",
+          "route": "/logistics/operations"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Weekly Route Plan",
+          "route": "/logistics/route-planning"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Route Stops",
+          "route": "/logistics/routes"
+        },
+        {
+          "kind": "head",
+          "head": "Inventory",
+          "group": null,
+          "label": "Inventory",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Inventory",
+          "group": null,
+          "label": "Product Catalog",
+          "route": "/products"
+        },
+        {
+          "kind": "item",
+          "head": "Inventory",
+          "group": null,
+          "label": "Stock Adjustment",
+          "route": "/inventory/adjustments"
+        },
+        {
+          "kind": "item",
+          "head": "Inventory",
+          "group": null,
+          "label": "Inventory Reports",
+          "route": "/products/reports"
+        },
+        {
+          "kind": "head",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Purchasing",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Suppliers",
+          "route": "/purchases/suppliers"
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Material Receipt (GRN)",
+          "route": "/receiving"
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Purchase Returns",
+          "route": "/purchases/returns"
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Recent Orders",
+          "route": "/purchases"
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Create New PO",
+          "route": "/purchases/new"
+        },
+        {
+          "kind": "head",
+          "head": "Finance",
+          "group": null,
+          "label": "Finance",
+          "route": null
+        },
+        {
+          "kind": "group",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Expenses",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Expenses",
+          "route": "/finance/expenses"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Approvals",
+          "route": "/finance/expenses/approvals"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Bulk Upload",
+          "route": "/finance/expenses/bulk-upload"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Mileage",
+          "route": "/finance/expenses/mileage"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Reports",
+          "route": "/finance/expenses/reports"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Settings",
+          "route": "/finance/expenses/settings"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Day Book",
+          "route": "/reports/day-book"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Trial Balance",
+          "route": "/reports/trial-balance"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Aged Receivable",
+          "route": "/reports/aged-receivable"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Aged Payable",
+          "route": "/reports/aged-payable"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Outstanding Bills",
+          "route": "/reports/outstanding-bills"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Collections",
+          "route": "/finance/collections"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Profitability Analysis",
+          "route": "/reports/financial"
+        },
+        {
+          "kind": "head",
+          "head": "AI",
+          "group": null,
+          "label": "AI",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "AI Hub",
+          "route": "/ai/hub"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "ARIA — Customer Service",
+          "route": "/agents/customer-service"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Marcus — Advisor",
+          "route": "/agents/business-advisor"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Call History",
+          "route": "/voice/calls"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "PULSE — Team Chat",
+          "route": "/pulse"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Meeting Notes",
+          "route": "/pulse/notes"
+        },
+        {
+          "kind": "head",
+          "head": "Settings",
+          "group": null,
+          "label": "Settings",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Settings",
+          "group": null,
+          "label": "Change Password",
+          "route": "/settings/password"
+        },
+        {
+          "kind": "item",
+          "head": "Settings",
+          "group": null,
+          "label": "Employee Portal",
+          "route": "/portal"
+        },
+        {
+          "kind": "footer",
+          "head": "Footer",
+          "group": null,
+          "label": "Change password",
+          "route": null
+        },
+        {
+          "kind": "footer",
+          "head": "Footer",
+          "group": null,
+          "label": "Logout",
+          "route": null
+        }
+      ],
+      "accountant": [
+        {
+          "kind": "head",
+          "head": "Dashboard",
+          "group": null,
+          "label": "Dashboard",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Dashboard",
+          "group": null,
+          "label": "Dashboard",
+          "route": "/"
+        },
+        {
+          "kind": "head",
+          "head": "Sales",
+          "group": null,
+          "label": "Sales",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Customers",
+          "route": "/customers"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Orders",
+          "route": "/sales/orders"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Quotations",
+          "route": "/sales/quotations"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Invoices",
+          "route": "/sales/invoices"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Credit Notes",
+          "route": "/sales/credit-notes"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Price Lists",
+          "route": "/sales/price-lists"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Recurring Invoices",
+          "route": "/sales/recurring"
+        },
+        {
+          "kind": "head",
+          "head": "Delivery",
+          "group": null,
+          "label": "Delivery",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "POD Driver App",
+          "route": "/logistics/pod"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Live Van Tracking",
+          "route": "/logistics/tracking"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Van Operations",
+          "route": "/logistics/operations"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Weekly Route Plan",
+          "route": "/logistics/route-planning"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Route Stops",
+          "route": "/logistics/routes"
+        },
+        {
+          "kind": "head",
+          "head": "Inventory",
+          "group": null,
+          "label": "Inventory",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Inventory",
+          "group": null,
+          "label": "Product Catalog",
+          "route": "/products"
+        },
+        {
+          "kind": "item",
+          "head": "Inventory",
+          "group": null,
+          "label": "Stock Adjustment",
+          "route": "/inventory/adjustments"
+        },
+        {
+          "kind": "item",
+          "head": "Inventory",
+          "group": null,
+          "label": "Inventory Reports",
+          "route": "/products/reports"
+        },
+        {
+          "kind": "head",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Purchasing",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Suppliers",
+          "route": "/purchases/suppliers"
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Material Receipt (GRN)",
+          "route": "/receiving"
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Purchase Returns",
+          "route": "/purchases/returns"
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Recent Orders",
+          "route": "/purchases"
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Create New PO",
+          "route": "/purchases/new"
+        },
+        {
+          "kind": "head",
+          "head": "Finance",
+          "group": null,
+          "label": "Finance",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Banking",
+          "route": "/finance/banking"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Chart of Accounts",
+          "route": "/finance/chart-of-accounts"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "All-Accounts Ledger",
+          "route": "/finance/all-ledger"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Financial Statement",
+          "route": "/finance/financial-statement"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Journal Voucher (JV)",
+          "route": "/finance/journal-voucher"
+        },
+        {
+          "kind": "group",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Expenses",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Expenses",
+          "route": "/finance/expenses"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Approvals",
+          "route": "/finance/expenses/approvals"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Bulk Upload",
+          "route": "/finance/expenses/bulk-upload"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Mileage",
+          "route": "/finance/expenses/mileage"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Reports",
+          "route": "/finance/expenses/reports"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Settings",
+          "route": "/finance/expenses/settings"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Day Book",
+          "route": "/reports/day-book"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Trial Balance",
+          "route": "/reports/trial-balance"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Aged Receivable",
+          "route": "/reports/aged-receivable"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Aged Payable",
+          "route": "/reports/aged-payable"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Outstanding Bills",
+          "route": "/reports/outstanding-bills"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Collections",
+          "route": "/finance/collections"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Profitability Analysis",
+          "route": "/reports/financial"
+        },
+        {
+          "kind": "head",
+          "head": "AI",
+          "group": null,
+          "label": "AI",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "AI Hub",
+          "route": "/ai/hub"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "ARIA — Customer Service",
+          "route": "/agents/customer-service"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Marcus — Advisor",
+          "route": "/agents/business-advisor"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Call History",
+          "route": "/voice/calls"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "PULSE — Team Chat",
+          "route": "/pulse"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Meeting Notes",
+          "route": "/pulse/notes"
+        },
+        {
+          "kind": "head",
+          "head": "Settings",
+          "group": null,
+          "label": "Settings",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Settings",
+          "group": null,
+          "label": "Change Password",
+          "route": "/settings/password"
+        },
+        {
+          "kind": "item",
+          "head": "Settings",
+          "group": null,
+          "label": "Employee Portal",
+          "route": "/portal"
+        },
+        {
+          "kind": "footer",
+          "head": "Footer",
+          "group": null,
+          "label": "Change password",
+          "route": null
+        },
+        {
+          "kind": "footer",
+          "head": "Footer",
+          "group": null,
+          "label": "Logout",
+          "route": null
+        }
+      ],
+      "sales": [
+        {
+          "kind": "head",
+          "head": "Dashboard",
+          "group": null,
+          "label": "Dashboard",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Dashboard",
+          "group": null,
+          "label": "Dashboard",
+          "route": "/"
+        },
+        {
+          "kind": "head",
+          "head": "Sales",
+          "group": null,
+          "label": "Sales",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Customers",
+          "route": "/customers"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Orders",
+          "route": "/sales/orders"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Quotations",
+          "route": "/sales/quotations"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Invoices",
+          "route": "/sales/invoices"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Credit Notes",
+          "route": "/sales/credit-notes"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Price Lists",
+          "route": "/sales/price-lists"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Recurring Invoices",
+          "route": "/sales/recurring"
+        },
+        {
+          "kind": "head",
+          "head": "Inventory",
+          "group": null,
+          "label": "Inventory",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Inventory",
+          "group": null,
+          "label": "Product Catalog",
+          "route": "/products"
+        },
+        {
+          "kind": "head",
+          "head": "AI",
+          "group": null,
+          "label": "AI",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "AI Hub",
+          "route": "/ai/hub"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "ARIA — Customer Service",
+          "route": "/agents/customer-service"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Marcus — Advisor",
+          "route": "/agents/business-advisor"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Call History",
+          "route": "/voice/calls"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "PULSE — Team Chat",
+          "route": "/pulse"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Meeting Notes",
+          "route": "/pulse/notes"
+        },
+        {
+          "kind": "head",
+          "head": "Settings",
+          "group": null,
+          "label": "Settings",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Settings",
+          "group": null,
+          "label": "Employee Portal",
+          "route": "/portal"
+        },
+        {
+          "kind": "footer",
+          "head": "Footer",
+          "group": null,
+          "label": "Change password",
+          "route": null
+        },
+        {
+          "kind": "footer",
+          "head": "Footer",
+          "group": null,
+          "label": "Logout",
+          "route": null
+        }
+      ],
+      "driver": [
+        {
+          "kind": "head",
+          "head": "Dashboard",
+          "group": null,
+          "label": "Dashboard",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Dashboard",
+          "group": null,
+          "label": "Dashboard",
+          "route": "/"
+        },
+        {
+          "kind": "head",
+          "head": "Delivery",
+          "group": null,
+          "label": "Delivery",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "POD Driver App",
+          "route": "/logistics/pod"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Van Operations",
+          "route": "/logistics/operations"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Route Stops",
+          "route": "/logistics/routes"
+        },
+        {
+          "kind": "head",
+          "head": "Inventory",
+          "group": null,
+          "label": "Inventory",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Inventory",
+          "group": null,
+          "label": "Product Catalog",
+          "route": "/products"
+        },
+        {
+          "kind": "head",
+          "head": "AI",
+          "group": null,
+          "label": "AI",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "AI Hub",
+          "route": "/ai/hub"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "ARIA — Customer Service",
+          "route": "/agents/customer-service"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Marcus — Advisor",
+          "route": "/agents/business-advisor"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "PULSE — Team Chat",
+          "route": "/pulse"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Meeting Notes",
+          "route": "/pulse/notes"
+        },
+        {
+          "kind": "head",
+          "head": "Settings",
+          "group": null,
+          "label": "Settings",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Settings",
+          "group": null,
+          "label": "Employee Portal",
+          "route": "/portal"
+        },
+        {
+          "kind": "footer",
+          "head": "Footer",
+          "group": null,
+          "label": "Change password",
+          "route": null
+        },
+        {
+          "kind": "footer",
+          "head": "Footer",
+          "group": null,
+          "label": "Logout",
+          "route": null
+        }
+      ]
+    },
+    "staging": {
+      "admin": [
+        {
+          "kind": "head",
+          "head": "Dashboard",
+          "group": null,
+          "label": "Dashboard",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Dashboard",
+          "group": null,
+          "label": "Dashboard",
+          "route": "/"
+        },
+        {
+          "kind": "item",
+          "head": "Dashboard",
+          "group": null,
+          "label": "Zava",
+          "route": "/agent"
+        },
+        {
+          "kind": "head",
+          "head": "Sales",
+          "group": null,
+          "label": "Sales",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Customers",
+          "route": "/customers"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Orders",
+          "route": "/sales/orders"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Quotations",
+          "route": "/sales/quotations"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Invoices",
+          "route": "/sales/invoices"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Sales Returns",
+          "route": "/sales/returns"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Credit Notes",
+          "route": "/sales/credit-notes"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Price Lists",
+          "route": "/sales/price-lists"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Recurring Invoices",
+          "route": "/sales/recurring"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "CRM Pipeline",
+          "route": "/crm"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Amazon",
+          "route": "/amazon"
+        },
+        {
+          "kind": "head",
+          "head": "Delivery",
+          "group": null,
+          "label": "Delivery",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "POD Driver App",
+          "route": "/logistics/pod"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Live Van Tracking",
+          "route": "/logistics/tracking"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Van Operations",
+          "route": "/logistics/operations"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Weekly Route Plan",
+          "route": "/logistics/route-planning"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Route Stops",
+          "route": "/logistics/routes"
+        },
+        {
+          "kind": "head",
+          "head": "Inventory",
+          "group": null,
+          "label": "Inventory",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Inventory",
+          "group": null,
+          "label": "Product Catalog",
+          "route": "/products"
+        },
+        {
+          "kind": "item",
+          "head": "Inventory",
+          "group": null,
+          "label": "Stock Adjustment",
+          "route": "/inventory/adjustments"
+        },
+        {
+          "kind": "item",
+          "head": "Inventory",
+          "group": null,
+          "label": "Inventory Reports",
+          "route": "/products/reports"
+        },
+        {
+          "kind": "head",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Purchasing",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Suppliers",
+          "route": "/purchases/suppliers"
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Material Receipt (GRN)",
+          "route": "/receiving"
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Purchase Returns",
+          "route": "/purchases/returns"
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Recent Orders",
+          "route": "/purchases"
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Create New PO",
+          "route": "/purchases/new"
+        },
+        {
+          "kind": "head",
+          "head": "Finance",
+          "group": null,
+          "label": "Finance",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Payroll",
+          "route": "/finance/payroll"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Banking",
+          "route": "/finance/banking"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Chart of Accounts",
+          "route": "/finance/chart-of-accounts"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "All-Accounts Ledger",
+          "route": "/finance/all-ledger"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Financial Statement",
+          "route": "/finance/financial-statement"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Journal Voucher (JV)",
+          "route": "/finance/journal-voucher"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Bad Debts Write-Off",
+          "route": "/finance/bad-debts"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Tax Management",
+          "route": "/tax"
+        },
+        {
+          "kind": "group",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Expenses",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Expenses",
+          "route": "/finance/expenses"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Approvals",
+          "route": "/finance/expenses/approvals"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Bulk Upload",
+          "route": "/finance/expenses/bulk-upload"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Mileage",
+          "route": "/finance/expenses/mileage"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Reports",
+          "route": "/finance/expenses/reports"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Settings",
+          "route": "/finance/expenses/settings"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Day Book",
+          "route": "/reports/day-book"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Trial Balance",
+          "route": "/reports/trial-balance"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Aged Receivable",
+          "route": "/reports/aged-receivable"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Receivables Check",
+          "route": "/finance/receivables-check"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Aged Payable",
+          "route": "/reports/aged-payable"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Outstanding Bills",
+          "route": "/reports/outstanding-bills"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Collections",
+          "route": "/finance/collections"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Profitability Analysis",
+          "route": "/reports/financial"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Demand Forecast",
+          "route": "/reports/demand-forecast"
+        },
+        {
+          "kind": "head",
+          "head": "AI",
+          "group": null,
+          "label": "AI",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "AI Hub",
+          "route": "/ai/hub"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "ARIA — Customer Service",
+          "route": "/agents/customer-service"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Marcus — Advisor",
+          "route": "/agents/business-advisor"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Call History",
+          "route": "/voice/calls"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "PULSE — Team Chat",
+          "route": "/pulse"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Meeting Notes",
+          "route": "/pulse/notes"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Agent Hub",
+          "route": "/agents"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Email Auto-Reply",
+          "route": "/agents/email-reply"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Business News",
+          "route": "/news"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Marketing Hub",
+          "route": "/marketing"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "AI Content Studio",
+          "route": "/marketing/studio"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Customer Segments",
+          "route": "/marketing/segments"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Queue",
+          "route": "/marketing/campaigns"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Voice Dashboard",
+          "route": "/voice/dashboard"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Voice Analytics",
+          "route": "/voice/analytics"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Coaching Rules",
+          "route": "/voice/coaching-rules"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "AI Intelligence",
+          "route": "/ai"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Auto PO Generation",
+          "route": "/ai/auto-po"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Anomaly Detection",
+          "route": "/ai/anomaly"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Customer Forecast",
+          "route": "/ai/customer-forecast"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Revenue Forecast",
+          "route": "/ai/revenue-forecast"
+        },
+        {
+          "kind": "head",
+          "head": "Settings",
+          "group": null,
+          "label": "Settings",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Settings",
+          "group": null,
+          "label": "Settings",
+          "route": "/settings"
+        },
+        {
+          "kind": "item",
+          "head": "Settings",
+          "group": null,
+          "label": "Integrations",
+          "route": "/settings/integrations"
+        },
+        {
+          "kind": "item",
+          "head": "Settings",
+          "group": null,
+          "label": "Credit data sources",
+          "route": "/settings/credit-sources"
+        },
+        {
+          "kind": "item",
+          "head": "Settings",
+          "group": null,
+          "label": "User Management",
+          "route": "/settings/users"
+        },
+        {
+          "kind": "item",
+          "head": "Settings",
+          "group": null,
+          "label": "📥 Data Migration",
+          "route": "/migrate"
+        },
+        {
+          "kind": "item",
+          "head": "Settings",
+          "group": null,
+          "label": "Change Password",
+          "route": "/settings/password"
+        },
+        {
+          "kind": "item",
+          "head": "Settings",
+          "group": null,
+          "label": "Employee Portal",
+          "route": "/portal"
+        },
+        {
+          "kind": "footer",
+          "head": "Footer",
+          "group": null,
+          "label": "Change password",
+          "route": null
+        },
+        {
+          "kind": "footer",
+          "head": "Footer",
+          "group": null,
+          "label": "Logout",
+          "route": null
+        },
+        {
+          "kind": "footer",
+          "head": "Footer",
+          "group": null,
+          "label": "Super Admin",
+          "route": "/superadmin"
+        }
+      ],
+      "manager": [
+        {
+          "kind": "head",
+          "head": "Dashboard",
+          "group": null,
+          "label": "Dashboard",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Dashboard",
+          "group": null,
+          "label": "Dashboard",
+          "route": "/"
+        },
+        {
+          "kind": "item",
+          "head": "Dashboard",
+          "group": null,
+          "label": "Zava",
+          "route": "/agent"
+        },
+        {
+          "kind": "head",
+          "head": "Sales",
+          "group": null,
+          "label": "Sales",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Customers",
+          "route": "/customers"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Orders",
+          "route": "/sales/orders"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Quotations",
+          "route": "/sales/quotations"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Invoices",
+          "route": "/sales/invoices"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Sales Returns",
+          "route": "/sales/returns"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Credit Notes",
+          "route": "/sales/credit-notes"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Price Lists",
+          "route": "/sales/price-lists"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Recurring Invoices",
+          "route": "/sales/recurring"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "CRM Pipeline",
+          "route": "/crm"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Amazon",
+          "route": "/amazon"
+        },
+        {
+          "kind": "head",
+          "head": "Delivery",
+          "group": null,
+          "label": "Delivery",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "POD Driver App",
+          "route": "/logistics/pod"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Live Van Tracking",
+          "route": "/logistics/tracking"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Van Operations",
+          "route": "/logistics/operations"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Weekly Route Plan",
+          "route": "/logistics/route-planning"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Route Stops",
+          "route": "/logistics/routes"
+        },
+        {
+          "kind": "head",
+          "head": "Inventory",
+          "group": null,
+          "label": "Inventory",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Inventory",
+          "group": null,
+          "label": "Product Catalog",
+          "route": "/products"
+        },
+        {
+          "kind": "item",
+          "head": "Inventory",
+          "group": null,
+          "label": "Stock Adjustment",
+          "route": "/inventory/adjustments"
+        },
+        {
+          "kind": "item",
+          "head": "Inventory",
+          "group": null,
+          "label": "Inventory Reports",
+          "route": "/products/reports"
+        },
+        {
+          "kind": "head",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Purchasing",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Suppliers",
+          "route": "/purchases/suppliers"
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Material Receipt (GRN)",
+          "route": "/receiving"
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Purchase Returns",
+          "route": "/purchases/returns"
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Recent Orders",
+          "route": "/purchases"
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Create New PO",
+          "route": "/purchases/new"
+        },
+        {
+          "kind": "head",
+          "head": "Finance",
+          "group": null,
+          "label": "Finance",
+          "route": null
+        },
+        {
+          "kind": "group",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Expenses",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Expenses",
+          "route": "/finance/expenses"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Approvals",
+          "route": "/finance/expenses/approvals"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Bulk Upload",
+          "route": "/finance/expenses/bulk-upload"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Mileage",
+          "route": "/finance/expenses/mileage"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Reports",
+          "route": "/finance/expenses/reports"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Settings",
+          "route": "/finance/expenses/settings"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Day Book",
+          "route": "/reports/day-book"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Trial Balance",
+          "route": "/reports/trial-balance"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Aged Receivable",
+          "route": "/reports/aged-receivable"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Aged Payable",
+          "route": "/reports/aged-payable"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Outstanding Bills",
+          "route": "/reports/outstanding-bills"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Collections",
+          "route": "/finance/collections"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Profitability Analysis",
+          "route": "/reports/financial"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Demand Forecast",
+          "route": "/reports/demand-forecast"
+        },
+        {
+          "kind": "head",
+          "head": "AI",
+          "group": null,
+          "label": "AI",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "AI Hub",
+          "route": "/ai/hub"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "ARIA — Customer Service",
+          "route": "/agents/customer-service"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Marcus — Advisor",
+          "route": "/agents/business-advisor"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Call History",
+          "route": "/voice/calls"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "PULSE — Team Chat",
+          "route": "/pulse"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Meeting Notes",
+          "route": "/pulse/notes"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Agent Hub",
+          "route": "/agents"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Email Auto-Reply",
+          "route": "/agents/email-reply"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Business News",
+          "route": "/news"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Marketing Hub",
+          "route": "/marketing"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "AI Content Studio",
+          "route": "/marketing/studio"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Customer Segments",
+          "route": "/marketing/segments"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Queue",
+          "route": "/marketing/campaigns"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Voice Dashboard",
+          "route": "/voice/dashboard"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Voice Analytics",
+          "route": "/voice/analytics"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Coaching Rules",
+          "route": "/voice/coaching-rules"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "AI Intelligence",
+          "route": "/ai"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Auto PO Generation",
+          "route": "/ai/auto-po"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Anomaly Detection",
+          "route": "/ai/anomaly"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Customer Forecast",
+          "route": "/ai/customer-forecast"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Revenue Forecast",
+          "route": "/ai/revenue-forecast"
+        },
+        {
+          "kind": "head",
+          "head": "Settings",
+          "group": null,
+          "label": "Settings",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Settings",
+          "group": null,
+          "label": "Change Password",
+          "route": "/settings/password"
+        },
+        {
+          "kind": "item",
+          "head": "Settings",
+          "group": null,
+          "label": "Employee Portal",
+          "route": "/portal"
+        },
+        {
+          "kind": "footer",
+          "head": "Footer",
+          "group": null,
+          "label": "Change password",
+          "route": null
+        },
+        {
+          "kind": "footer",
+          "head": "Footer",
+          "group": null,
+          "label": "Logout",
+          "route": null
+        }
+      ],
+      "accountant": [
+        {
+          "kind": "head",
+          "head": "Dashboard",
+          "group": null,
+          "label": "Dashboard",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Dashboard",
+          "group": null,
+          "label": "Dashboard",
+          "route": "/"
+        },
+        {
+          "kind": "item",
+          "head": "Dashboard",
+          "group": null,
+          "label": "Zava",
+          "route": "/agent"
+        },
+        {
+          "kind": "head",
+          "head": "Sales",
+          "group": null,
+          "label": "Sales",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Customers",
+          "route": "/customers"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Orders",
+          "route": "/sales/orders"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Quotations",
+          "route": "/sales/quotations"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Invoices",
+          "route": "/sales/invoices"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Sales Returns",
+          "route": "/sales/returns"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Credit Notes",
+          "route": "/sales/credit-notes"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Price Lists",
+          "route": "/sales/price-lists"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Recurring Invoices",
+          "route": "/sales/recurring"
+        },
+        {
+          "kind": "head",
+          "head": "Delivery",
+          "group": null,
+          "label": "Delivery",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "POD Driver App",
+          "route": "/logistics/pod"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Live Van Tracking",
+          "route": "/logistics/tracking"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Van Operations",
+          "route": "/logistics/operations"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Weekly Route Plan",
+          "route": "/logistics/route-planning"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Route Stops",
+          "route": "/logistics/routes"
+        },
+        {
+          "kind": "head",
+          "head": "Inventory",
+          "group": null,
+          "label": "Inventory",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Inventory",
+          "group": null,
+          "label": "Product Catalog",
+          "route": "/products"
+        },
+        {
+          "kind": "item",
+          "head": "Inventory",
+          "group": null,
+          "label": "Stock Adjustment",
+          "route": "/inventory/adjustments"
+        },
+        {
+          "kind": "item",
+          "head": "Inventory",
+          "group": null,
+          "label": "Inventory Reports",
+          "route": "/products/reports"
+        },
+        {
+          "kind": "head",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Purchasing",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Suppliers",
+          "route": "/purchases/suppliers"
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Material Receipt (GRN)",
+          "route": "/receiving"
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Purchase Returns",
+          "route": "/purchases/returns"
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Recent Orders",
+          "route": "/purchases"
+        },
+        {
+          "kind": "item",
+          "head": "Purchasing",
+          "group": null,
+          "label": "Create New PO",
+          "route": "/purchases/new"
+        },
+        {
+          "kind": "head",
+          "head": "Finance",
+          "group": null,
+          "label": "Finance",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Payroll",
+          "route": "/finance/payroll"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Banking",
+          "route": "/finance/banking"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Chart of Accounts",
+          "route": "/finance/chart-of-accounts"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "All-Accounts Ledger",
+          "route": "/finance/all-ledger"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Financial Statement",
+          "route": "/finance/financial-statement"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Journal Voucher (JV)",
+          "route": "/finance/journal-voucher"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Bad Debts Write-Off",
+          "route": "/finance/bad-debts"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Tax Management",
+          "route": "/tax"
+        },
+        {
+          "kind": "group",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Expenses",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Expenses",
+          "route": "/finance/expenses"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Approvals",
+          "route": "/finance/expenses/approvals"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Bulk Upload",
+          "route": "/finance/expenses/bulk-upload"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Mileage",
+          "route": "/finance/expenses/mileage"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Reports",
+          "route": "/finance/expenses/reports"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": "Expenses",
+          "label": "Settings",
+          "route": "/finance/expenses/settings"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Day Book",
+          "route": "/reports/day-book"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Trial Balance",
+          "route": "/reports/trial-balance"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Aged Receivable",
+          "route": "/reports/aged-receivable"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Aged Payable",
+          "route": "/reports/aged-payable"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Outstanding Bills",
+          "route": "/reports/outstanding-bills"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Collections",
+          "route": "/finance/collections"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Profitability Analysis",
+          "route": "/reports/financial"
+        },
+        {
+          "kind": "item",
+          "head": "Finance",
+          "group": null,
+          "label": "Demand Forecast",
+          "route": "/reports/demand-forecast"
+        },
+        {
+          "kind": "head",
+          "head": "AI",
+          "group": null,
+          "label": "AI",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "AI Hub",
+          "route": "/ai/hub"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "ARIA — Customer Service",
+          "route": "/agents/customer-service"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Marcus — Advisor",
+          "route": "/agents/business-advisor"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Call History",
+          "route": "/voice/calls"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "PULSE — Team Chat",
+          "route": "/pulse"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Meeting Notes",
+          "route": "/pulse/notes"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Agent Hub",
+          "route": "/agents"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Email Auto-Reply",
+          "route": "/agents/email-reply"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Business News",
+          "route": "/news"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Marketing Hub",
+          "route": "/marketing"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "AI Content Studio",
+          "route": "/marketing/studio"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Customer Segments",
+          "route": "/marketing/segments"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Queue",
+          "route": "/marketing/campaigns"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Voice Dashboard",
+          "route": "/voice/dashboard"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Voice Analytics",
+          "route": "/voice/analytics"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Coaching Rules",
+          "route": "/voice/coaching-rules"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "AI Intelligence",
+          "route": "/ai"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Auto PO Generation",
+          "route": "/ai/auto-po"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Anomaly Detection",
+          "route": "/ai/anomaly"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Customer Forecast",
+          "route": "/ai/customer-forecast"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Revenue Forecast",
+          "route": "/ai/revenue-forecast"
+        },
+        {
+          "kind": "head",
+          "head": "Settings",
+          "group": null,
+          "label": "Settings",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Settings",
+          "group": null,
+          "label": "Change Password",
+          "route": "/settings/password"
+        },
+        {
+          "kind": "item",
+          "head": "Settings",
+          "group": null,
+          "label": "Employee Portal",
+          "route": "/portal"
+        },
+        {
+          "kind": "footer",
+          "head": "Footer",
+          "group": null,
+          "label": "Change password",
+          "route": null
+        },
+        {
+          "kind": "footer",
+          "head": "Footer",
+          "group": null,
+          "label": "Logout",
+          "route": null
+        }
+      ],
+      "sales": [
+        {
+          "kind": "head",
+          "head": "Dashboard",
+          "group": null,
+          "label": "Dashboard",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Dashboard",
+          "group": null,
+          "label": "Dashboard",
+          "route": "/"
+        },
+        {
+          "kind": "head",
+          "head": "Sales",
+          "group": null,
+          "label": "Sales",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Customers",
+          "route": "/customers"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Orders",
+          "route": "/sales/orders"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Quotations",
+          "route": "/sales/quotations"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Invoices",
+          "route": "/sales/invoices"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Sales Returns",
+          "route": "/sales/returns"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Credit Notes",
+          "route": "/sales/credit-notes"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Price Lists",
+          "route": "/sales/price-lists"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Recurring Invoices",
+          "route": "/sales/recurring"
+        },
+        {
+          "kind": "head",
+          "head": "Inventory",
+          "group": null,
+          "label": "Inventory",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Inventory",
+          "group": null,
+          "label": "Product Catalog",
+          "route": "/products"
+        },
+        {
+          "kind": "head",
+          "head": "AI",
+          "group": null,
+          "label": "AI",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "AI Hub",
+          "route": "/ai/hub"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "ARIA — Customer Service",
+          "route": "/agents/customer-service"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Marcus — Advisor",
+          "route": "/agents/business-advisor"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Call History",
+          "route": "/voice/calls"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "PULSE — Team Chat",
+          "route": "/pulse"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Meeting Notes",
+          "route": "/pulse/notes"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Business News",
+          "route": "/news"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Voice Dashboard",
+          "route": "/voice/dashboard"
+        },
+        {
+          "kind": "head",
+          "head": "Settings",
+          "group": null,
+          "label": "Settings",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Settings",
+          "group": null,
+          "label": "Employee Portal",
+          "route": "/portal"
+        },
+        {
+          "kind": "footer",
+          "head": "Footer",
+          "group": null,
+          "label": "Change password",
+          "route": null
+        },
+        {
+          "kind": "footer",
+          "head": "Footer",
+          "group": null,
+          "label": "Logout",
+          "route": null
+        }
+      ],
+      "driver": [
+        {
+          "kind": "head",
+          "head": "Dashboard",
+          "group": null,
+          "label": "Dashboard",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Dashboard",
+          "group": null,
+          "label": "Dashboard",
+          "route": "/"
+        },
+        {
+          "kind": "head",
+          "head": "Delivery",
+          "group": null,
+          "label": "Delivery",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "POD Driver App",
+          "route": "/logistics/pod"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Van Operations",
+          "route": "/logistics/operations"
+        },
+        {
+          "kind": "item",
+          "head": "Delivery",
+          "group": null,
+          "label": "Route Stops",
+          "route": "/logistics/routes"
+        },
+        {
+          "kind": "head",
+          "head": "Inventory",
+          "group": null,
+          "label": "Inventory",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Inventory",
+          "group": null,
+          "label": "Product Catalog",
+          "route": "/products"
+        },
+        {
+          "kind": "head",
+          "head": "AI",
+          "group": null,
+          "label": "AI",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "AI Hub",
+          "route": "/ai/hub"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "ARIA — Customer Service",
+          "route": "/agents/customer-service"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Marcus — Advisor",
+          "route": "/agents/business-advisor"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "PULSE — Team Chat",
+          "route": "/pulse"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Meeting Notes",
+          "route": "/pulse/notes"
+        },
+        {
+          "kind": "item",
+          "head": "AI",
+          "group": null,
+          "label": "Business News",
+          "route": "/news"
+        },
+        {
+          "kind": "head",
+          "head": "Settings",
+          "group": null,
+          "label": "Settings",
+          "route": null
+        },
+        {
+          "kind": "item",
+          "head": "Settings",
+          "group": null,
+          "label": "Employee Portal",
+          "route": "/portal"
+        },
+        {
+          "kind": "footer",
+          "head": "Footer",
+          "group": null,
+          "label": "Change password",
+          "route": null
+        },
+        {
+          "kind": "footer",
+          "head": "Footer",
+          "group": null,
+          "label": "Logout",
+          "route": null
+        }
+      ]
+    }
+  }
+}

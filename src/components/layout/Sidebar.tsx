@@ -104,11 +104,60 @@ export default function Sidebar({
         </button>
     );
 
-    const showSalesSection = showNav('/customers') || showNav('/sales/orders');
+    // Section guards are the existing empty-head mechanism: a head renders only
+    // when at least one of its items would. Item role gates and flags are unchanged.
+    const showSalesIntelExtras = canSeeSalesIntel && (
+        (MODULE_FLAGS.crm_pipeline && showNav('/crm'))
+        || (MODULE_FLAGS.amazon && showNav('/amazon'))
+    );
+    const showSalesSection = showNav('/customers') || showNav('/sales/orders')
+        || showNav('/sales/quotations') || showNav('/sales/invoices')
+        || showNav('/sales/credit-notes') || showNav('/sales/price-lists')
+        || showNav('/sales/recurring')
+        || (MODULE_FLAGS.sales_returns && showNav('/sales/returns'))
+        || (canSeeManagement && (showNav('/finance/collections') || showNav('/reports/outstanding-bills')))
+        || showSalesIntelExtras;
     const showDeliverySection = (canSeeDeliveries && (showNav('/logistics/pod') || showNav('/logistics/operations') || showNav('/logistics/routes')))
         || (canSeeManagement && (showNav('/logistics/tracking') || showNav('/logistics/route-planning')));
-    const showProcurement = showNav('/purchases/suppliers') || showNav('/receiving');
-    const showFinanceSection = canSeeFinance || canSeeManagement;
+    const showInventorySection = showNav('/products')
+        || (canSeeManagement && showNav('/inventory/adjustments'));
+    const showProcurement = showNav('/purchases/suppliers') || showNav('/purchases')
+        || showNav('/purchases/new') || showNav('/receiving') || showNav('/purchases/returns');
+    const showFinanceSection =
+        (canSeeFinance && (
+            (MODULE_FLAGS.finance_banking && showNav('/finance/banking'))
+            || showNav('/finance/journal-voucher')
+            || showNav('/finance/chart-of-accounts')
+            || (MODULE_FLAGS.bad_debts_writeoff && showNav('/finance/bad-debts'))
+            || (MODULE_FLAGS.finance_accounting_dashboard && showNav('/finance/accounting'))
+        ))
+        || (canSeeManagement && (
+            showNav('/finance/expenses')
+            || showNav('/finance/expenses/approvals')
+            || showNav('/finance/expenses/bulk-upload')
+            || showNav('/finance/expenses/mileage')
+            || showNav('/finance/expenses/reports')
+            || showNav('/finance/expenses/settings')
+            || (MODULE_FLAGS.demand_forecast && showNav('/reports/demand-forecast'))
+            || (isStaging && canSeeAdmin && showNav('/finance/receivables-check'))
+        ));
+    const showReportsSection =
+        (canSeeManagement && (
+            showNav('/reports/day-book')
+            || showNav('/reports/trial-balance')
+            || showNav('/reports/aged-receivable')
+            || showNav('/reports/aged-payable')
+            || showNav('/reports/financial')
+            || showNav('/products/reports')
+            || (MODULE_FLAGS.reports_profitability_duplicate && showNav('/reports/sales'))
+        ))
+        || (canSeeFinance && (
+            showNav('/finance/all-ledger')
+            || showNav('/finance/financial-statement')
+            || (MODULE_FLAGS.tax_management && showNav('/tax'))
+        ));
+    const showEmployeeSection = showNav('/portal')
+        || (canSeeFinance && MODULE_FLAGS.payroll && showNav('/finance/payroll'));
     const showAgentsSection = (MODULE_FLAGS.agent_hub && showNav('/agents'))
         || showNav('/agents/customer-service')
         || showNav('/agents/business-advisor')
@@ -131,13 +180,14 @@ export default function Sidebar({
         || (MODULE_FLAGS.business_news && showNav('/news'))
         || (MODULE_FLAGS.pulse && showNav('/pulse'))
         || (MODULE_FLAGS.meeting_notes && showNav('/pulse/notes'));
-    const showSalesIntelExtras = canSeeSalesIntel && (
-        (MODULE_FLAGS.crm_pipeline && showNav('/crm'))
-        || (MODULE_FLAGS.amazon && showNav('/amazon'))
-    );
-    const showSettingsSection = showNav('/portal')
-        || showNav('/settings/password')
-        || (canSeeAdmin && (showNav('/settings') || showNav('/settings/users') || showNav('/settings/credit-sources') || showNav('/migrate')));
+    const showAdminSection = showNav('/settings/password')
+        || (canSeeAdmin && (
+            showNav('/settings')
+            || showNav('/settings/users')
+            || showNav('/settings/integrations')
+            || showNav('/migrate')
+            || (MODULE_FLAGS.credit_intelligence && showNav('/settings/credit-sources'))
+        ));
 
     return (
         <aside className="w-[260px] bg-redwood-midnight text-white flex flex-col z-40 border-r border-white/5 shadow-2xl h-full print:hidden">
@@ -169,21 +219,23 @@ export default function Sidebar({
                 <NavItem to="/agent" icon={Bot} label="Zava" />
                 )}
 
-                {(showSalesSection || showSalesIntelExtras) && (
+                {showSalesSection && (
                 <>
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
                     Sales
                 </div>
                 <NavItem to="/customers" icon={Users} label="Customers" />
-                <NavItem to="/sales/orders" icon={FileText} label="Orders" />
                 <NavItem to="/sales/quotations" icon={FileText} label="Quotations" />
+                <NavItem to="/sales/orders" icon={FileText} label="Sales Orders" />
                 <NavItem to="/sales/invoices" icon={FileText} label="Invoices" />
+                <NavItem to="/sales/recurring" icon={RefreshCw} label="Recurring Invoices" />
                 {MODULE_FLAGS.sales_returns && (
                 <NavItem to="/sales/returns" icon={RefreshCw} label="Sales Returns" />
                 )}
                 <NavItem to="/sales/credit-notes" icon={FileText} label="Credit Notes" />
                 <NavItem to="/sales/price-lists" icon={Tag} label="Price Lists" />
-                <NavItem to="/sales/recurring" icon={RefreshCw} label="Recurring Invoices" />
+                {canSeeManagement && <NavItem to="/finance/collections" icon={MessageSquare} label="Collections" />}
+                {canSeeManagement && <NavItem to="/reports/outstanding-bills" icon={FileText} label="Outstanding Bills" />}
                 {canSeeSalesIntel && (
                 <>
                 {MODULE_FLAGS.crm_pipeline && (
@@ -198,46 +250,43 @@ export default function Sidebar({
                 </>
                 )}
 
-                {showDeliverySection && (
+                {showProcurement && (
                 <>
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
-                    Delivery
+                    Purchase
                 </div>
-                <NavItem to="/logistics/pod" icon={BarChart2} label="POD Driver App" />
-                {canSeeManagement && <NavItem to="/logistics/tracking" icon={MapPin} label="Live Van Tracking" />}
-                <NavItem to="/logistics/operations" icon={Truck} label="Van Operations" />
-                {canSeeManagement && <NavItem to="/logistics/route-planning" icon={CalendarDays} label="Weekly Route Plan" />}
-                <NavItem to="/logistics/routes" icon={MapPin} label="Route Stops" />
+                <NavItem to="/purchases/suppliers" icon={Users} label="Suppliers" />
+                <NavItem to="/purchases" icon={FileText} label="Purchase Orders" />
+                <NavItem to="/purchases/new" icon={Package} label="New Purchase Order" />
+                <NavItem to="/receiving" icon={Inbox} label="Goods Received (GRN)" />
+                <NavItem to="/purchases/returns" icon={RotateCcw} label="Purchase Returns" />
                 <div className="h-px bg-white/5 my-3 mx-2" />
                 </>
                 )}
 
-                {showNav('/products') && (
+                {showInventorySection && (
                 <>
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
                     Inventory
                 </div>
                 <NavItem to="/products" icon={Package} label="Product Catalog" />
                 {canSeeManagement && (
-                    <>
-                        <NavItem to="/inventory/adjustments" icon={Package} label="Stock Adjustment" />
-                        <NavItem to="/products/reports" icon={PieChart} label="Inventory Reports" />
-                    </>
+                    <NavItem to="/inventory/adjustments" icon={Package} label="Stock Adjustment" />
                 )}
                 <div className="h-px bg-white/5 my-3 mx-2" />
                 </>
                 )}
 
-                {showProcurement && (
+                {showDeliverySection && (
                 <>
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
-                    Purchasing
+                    Delivery
                 </div>
-                <NavItem to="/purchases/suppliers" icon={Users} label="Suppliers" />
-                <NavItem to="/receiving" icon={Inbox} label="Material Receipt (GRN)" />
-                <NavItem to="/purchases/returns" icon={RotateCcw} label="Purchase Returns" />
-                <NavItem to="/purchases" icon={FileText} label="Recent Orders" />
-                <NavItem to="/purchases/new" icon={Package} label="Create New PO" />
+                <NavItem to="/logistics/pod" icon={BarChart2} label="POD Driver App" />
+                <NavItem to="/logistics/operations" icon={Truck} label="Van Operations" />
+                <NavItem to="/logistics/routes" icon={MapPin} label="Route Stops" />
+                {canSeeManagement && <NavItem to="/logistics/route-planning" icon={CalendarDays} label="Weekly Route Plan" />}
+                {canSeeManagement && <NavItem to="/logistics/tracking" icon={MapPin} label="Live Van Tracking" />}
                 <div className="h-px bg-white/5 my-3 mx-2" />
                 </>
                 )}
@@ -245,33 +294,15 @@ export default function Sidebar({
                 {showFinanceSection && (
                 <>
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
-                    Finance
+                    Finance & Accounting
                 </div>
-                {canSeeFinance && (
-                <>
-                {MODULE_FLAGS.payroll && (
-                <NavItem to="/finance/payroll" icon={Users} label="Payroll" />
-                )}
-                {MODULE_FLAGS.finance_accounting_dashboard && (
-                <NavItem to="/finance/accounting" icon={Briefcase} label="Accounting" />
-                )}
-                {MODULE_FLAGS.finance_banking && (
+                {canSeeFinance && MODULE_FLAGS.finance_banking && (
                 <NavItem to="/finance/banking" icon={Globe} label="Banking" />
                 )}
-                <NavItem to="/finance/chart-of-accounts" icon={BookOpen} label="Chart of Accounts" />
-                <NavItem to="/finance/all-ledger" icon={BookOpen} label="All-Accounts Ledger" />
-                <NavItem to="/finance/financial-statement" icon={FileText} label="Financial Statement" />
+                {canSeeFinance && (
                 <NavItem to="/finance/journal-voucher" icon={FileText} label="Journal Voucher (JV)" />
-                {MODULE_FLAGS.bad_debts_writeoff && (
-                <NavItem to="/finance/bad-debts" icon={AlertTriangle} label="Bad Debts Write-Off" />
-                )}
-                {MODULE_FLAGS.tax_management && (
-                <NavItem to="/tax" icon={Calculator} label="Tax Management" />
-                )}
-                </>
                 )}
                 {canSeeManagement && (
-                <>
                 <div>
                     <SectionHeader
                         label="Expenses"
@@ -289,23 +320,57 @@ export default function Sidebar({
                         </div>
                     )}
                 </div>
-                <NavItem to="/reports/day-book" icon={BookOpen} label="Day Book" />
-                <NavItem to="/reports/trial-balance" icon={Scale} label="Trial Balance" />
-                <NavItem to="/reports/aged-receivable" icon={Clock} label="Aged Receivable" />
-                {isStaging && canSeeAdmin && (
-                <NavItem to="/finance/receivables-check" icon={ClipboardCheck} label="Receivables Check" />
                 )}
-                <NavItem to="/reports/aged-payable" icon={Clock} label="Aged Payable" />
-                <NavItem to="/reports/outstanding-bills" icon={FileText} label="Outstanding Bills" />
-                <NavItem to="/finance/collections" icon={MessageSquare} label="Collections" />
-                <NavItem to="/reports/financial" icon={PieChart} label="Profitability Analysis" />
-                {MODULE_FLAGS.reports_profitability_duplicate && (
-                <NavItem to="/reports/sales" icon={TrendingUp} label="Profitability Reports" />
+                {canSeeFinance && (
+                <NavItem to="/finance/chart-of-accounts" icon={BookOpen} label="Chart of Accounts" />
                 )}
-                {MODULE_FLAGS.demand_forecast && (
+                {canSeeFinance && MODULE_FLAGS.bad_debts_writeoff && (
+                <NavItem to="/finance/bad-debts" icon={AlertTriangle} label="Bad Debts Write-Off" />
+                )}
+                {canSeeFinance && MODULE_FLAGS.finance_accounting_dashboard && (
+                <NavItem to="/finance/accounting" icon={Briefcase} label="Accounting" />
+                )}
+                {canSeeManagement && MODULE_FLAGS.demand_forecast && (
                 <NavItem to="/reports/demand-forecast" icon={TrendingUp} label="Demand Forecast" />
                 )}
+                {canSeeManagement && isStaging && canSeeAdmin && (
+                <NavItem to="/finance/receivables-check" icon={ClipboardCheck} label="Receivables Check" />
+                )}
+                <div className="h-px bg-white/5 my-3 mx-2" />
                 </>
+                )}
+
+                {showReportsSection && (
+                <>
+                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
+                    Reports
+                </div>
+                {canSeeManagement && <NavItem to="/reports/day-book" icon={BookOpen} label="Day Book" />}
+                {canSeeFinance && <NavItem to="/finance/all-ledger" icon={BookOpen} label="General Ledger" />}
+                {canSeeManagement && <NavItem to="/reports/trial-balance" icon={Scale} label="Trial Balance" />}
+                {canSeeFinance && <NavItem to="/finance/financial-statement" icon={FileText} label="Financial Statements" />}
+                {canSeeManagement && <NavItem to="/reports/aged-receivable" icon={Clock} label="Aged Receivable" />}
+                {canSeeManagement && <NavItem to="/reports/aged-payable" icon={Clock} label="Aged Payable" />}
+                {canSeeManagement && <NavItem to="/reports/financial" icon={PieChart} label="Profitability Analysis" />}
+                {canSeeManagement && <NavItem to="/products/reports" icon={PieChart} label="Inventory Reports" />}
+                {canSeeFinance && MODULE_FLAGS.tax_management && (
+                <NavItem to="/tax" icon={Calculator} label="Tax Management" />
+                )}
+                {canSeeManagement && MODULE_FLAGS.reports_profitability_duplicate && (
+                <NavItem to="/reports/sales" icon={TrendingUp} label="Profitability Reports" />
+                )}
+                <div className="h-px bg-white/5 my-3 mx-2" />
+                </>
+                )}
+
+                {showEmployeeSection && (
+                <>
+                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
+                    Employee Portal & Payroll
+                </div>
+                <NavItem to="/portal" icon={User} label="Employee Portal" />
+                {canSeeFinance && MODULE_FLAGS.payroll && (
+                <NavItem to="/finance/payroll" icon={Users} label="Payroll" />
                 )}
                 <div className="h-px bg-white/5 my-3 mx-2" />
                 </>
@@ -314,7 +379,7 @@ export default function Sidebar({
                 {showAiSection && (
                 <>
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
-                    AI
+                    AI & Team
                 </div>
                 {showNav('/ai/hub') && (
                 <NavItem to="/ai/hub" icon={Brain} label="AI Hub" />
@@ -325,14 +390,14 @@ export default function Sidebar({
                 <NavItem to="/agents/business-advisor" icon={Brain} label="Marcus — Advisor" />
                 </>
                 )}
-                {showVoiceSection && (
-                <NavItem to="/voice/calls" icon={Headphones} label="Call History" />
-                )}
                 {MODULE_FLAGS.pulse && (
                 <NavItem to="/pulse" icon={Send} label="PULSE — Team Chat" />
                 )}
                 {MODULE_FLAGS.meeting_notes && (
                 <NavItem to="/pulse/notes" icon={FileText} label="Meeting Notes" />
+                )}
+                {showVoiceSection && (
+                <NavItem to="/voice/calls" icon={Headphones} label="Call History" />
                 )}
                 {showAgentsSection && (
                 <>
@@ -394,14 +459,15 @@ export default function Sidebar({
                 </>
                 )}
 
-                {showSettingsSection && (
+                {showAdminSection && (
                 <>
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-3">
-                    Settings
+                    Admin
                 </div>
                 {canSeeAdmin && (
                 <>
-                <NavItem to="/settings" icon={Settings} label="Settings" />
+                <NavItem to="/settings" icon={Settings} label="Company Settings" />
+                <NavItem to="/settings/users" icon={UserCheck} label="User Management" />
                 {showNav('/settings/integrations') && (
                 <Link
                     to="/settings/integrations"
@@ -419,12 +485,10 @@ export default function Sidebar({
                 {MODULE_FLAGS.credit_intelligence && (
                 <NavItem to="/settings/credit-sources" icon={Shield} label="Credit data sources" />
                 )}
-                <NavItem to="/settings/users" icon={UserCheck} label="User Management" />
                 <NavItem to="/migrate" icon={Database} label="📥 Data Migration" />
                 </>
                 )}
                 <NavItem to="/settings/password" icon={Lock} label="Change Password" />
-                <NavItem to="/portal" icon={User} label="Employee Portal" />
                 <div className="h-px bg-white/5 my-3 mx-2" />
                 </>
                 )}

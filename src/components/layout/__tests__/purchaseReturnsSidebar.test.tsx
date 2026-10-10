@@ -45,14 +45,14 @@ describe('Purchase Returns sidebar', () => {
     });
   }
 
-  it('shows Purchase Returns for admin, manager, and accountant after Material Receipt', async () => {
+  it('shows Purchase Returns for admin, manager, and accountant after Goods Received (GRN)', async () => {
     for (const role of ['admin', 'manager', 'accountant'] as const) {
       authState.role = role;
       await renderSidebar();
       const link = container.querySelector('a[href="/purchases/returns"]');
       expect(link?.textContent).toContain('Purchase Returns');
       const html = container.innerHTML;
-      expect(html.indexOf('Purchase Returns')).toBeGreaterThan(html.indexOf('Material Receipt (GRN)'));
+      expect(html.indexOf('Purchase Returns')).toBeGreaterThan(html.indexOf('Goods Received (GRN)'));
     }
   });
 
