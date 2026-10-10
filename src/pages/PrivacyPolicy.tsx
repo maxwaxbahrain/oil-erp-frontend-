@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import LegalDocumentLayout, {
   LegalBulletList,
   LegalSection,
@@ -5,9 +6,18 @@ import LegalDocumentLayout, {
 } from './legal/LegalDocumentLayout';
 
 export default function PrivacyPolicy() {
+  useEffect(() => {
+    const previousTitle = document.title;
+    document.title = 'Privacy Policy — SOLTOL ONE';
+    return () => {
+      document.title = previousTitle;
+    };
+  }, []);
+
   return (
     <LegalDocumentLayout
       title="Privacy Policy"
+      lastUpdated="October 10, 2026"
       intro={
         <>
           This Privacy Policy explains how Soltol LLC (&quot;we,&quot; &quot;us,&quot; or &quot;our&quot;), operator of the
@@ -84,6 +94,43 @@ export default function PrivacyPolicy() {
         </LegalSubsection>
       </LegalSection>
 
+      <LegalSection title="Bank account data (Plaid)">
+        <p style={{ margin: '0 0 12px' }}>
+          If you choose to connect a bank account to SOLTOL ONE, we use Plaid Inc. (&quot;Plaid&quot;) to link your account.
+          When you connect an account, you authorize Plaid to retrieve information from your financial institution and share
+          it with us. We receive and store: the institution name, account name and type, the last four digits of the account
+          number (never the full number, login credentials or password), and account balances. If you later enable
+          transaction feeds, we will also receive transaction details for the accounts you select.
+        </p>
+        <p style={{ margin: '0 0 12px' }}>
+          We use this data only to display your bank balances inside SOLTOL ONE, to reconcile them against your books, and
+          to maintain the connection. We never sell bank data or use it for advertising. Access tokens issued by Plaid are
+          stored encrypted at rest. Balances are refreshed on a daily schedule and when you request a refresh.
+        </p>
+        <p style={{ margin: '0 0 12px' }}>
+          You can disconnect a linked bank account at any time from Finance › Banking in SOLTOL ONE. Disconnecting removes
+          the connection at Plaid and deletes the stored access token; previously synced balance records are retained in
+          your company&apos;s books for accounting and audit purposes until your company&apos;s account is deleted. You can
+          also manage or revoke Plaid connections at{' '}
+          <a href="https://my.plaid.com" target="_blank" rel="noopener noreferrer" style={{ color: '#85B7EB' }}>
+            my.plaid.com
+          </a>
+          .
+        </p>
+        <p style={{ margin: 0 }}>
+          Plaid&apos;s handling of your data is governed by the Plaid End User Privacy Policy at{' '}
+          <a
+            href="https://plaid.com/legal/#end-user-privacy-policy"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: '#85B7EB' }}
+          >
+            https://plaid.com/legal/#end-user-privacy-policy
+          </a>
+          . By connecting a bank account you agree to that policy.
+        </p>
+      </LegalSection>
+
       <LegalSection title="3. How we use information">
         <p style={{ margin: '0 0 12px' }}>We use the information we collect to:</p>
         <LegalBulletList
@@ -116,6 +163,7 @@ export default function PrivacyPolicy() {
             'Neon — managed PostgreSQL database hosting.',
             'Render — application hosting.',
             'Cloudflare — object storage (R2) for uploaded files and backups.',
+            'Plaid Inc. — bank account connectivity (account and balance data, United States).',
           ]}
         />
         <p style={{ margin: '12px 0 0' }}>
@@ -189,10 +237,6 @@ export default function PrivacyPolicy() {
           Soltol LLC
           <br />
           Email: info@soltol.com
-        </p>
-        <p style={{ margin: '16px 0 0', fontSize: 13, color: 'rgba(255,255,255,0.45)' }}>
-          This document is a general first draft provided for launch readiness and does not constitute legal advice. Have it
-          reviewed by qualified legal counsel in the State of New York, United States before relying on it.
         </p>
       </LegalSection>
     </LegalDocumentLayout>

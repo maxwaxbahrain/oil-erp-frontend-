@@ -65,9 +65,15 @@ interface LegalDocumentLayoutProps {
   title: string;
   intro: ReactNode;
   children: ReactNode;
+  lastUpdated?: string;
 }
 
-export default function LegalDocumentLayout({ title, intro, children }: LegalDocumentLayoutProps) {
+export default function LegalDocumentLayout({
+  title,
+  intro,
+  children,
+  lastUpdated = 'July 27, 2026',
+}: LegalDocumentLayoutProps) {
   const C = LEGAL_COLORS;
 
   return (
@@ -141,7 +147,7 @@ export default function LegalDocumentLayout({ title, intro, children }: LegalDoc
         >
           Effective date: July 27, 2026
           <br />
-          Last updated: July 27, 2026
+          Last updated: {lastUpdated}
         </p>
         <h1
           style={{
