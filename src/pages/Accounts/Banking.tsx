@@ -14,7 +14,7 @@ import {
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { getPayments, voidPayment, type Payment } from '../../services/api';
-import { getCompanyProfile } from '../../services/settingsService';
+import { getCompanyProfile, getSystemSettings } from '../../services/settingsService';
 import { getArSummary, getCustomers, type Customer } from '../../services/customerService';
 import { createBankingAccount, getBankingAccounts, getCollectionsBankSettings, getGLAccounts, patchCollectionsBankSettings, renameBankingAccount, type GLAccount } from '../../services/glService';
 import { authFetch } from '../../api/axios';
@@ -533,6 +533,9 @@ export default function Banking() {
     const [voidReason, setVoidReason] = useState('');
     const [showAddBank, setShowAddBank] = useState(false);
     const [newBankName, setNewBankName] = useState('');
+    const [newBankOpening, setNewBankOpening] = useState('');
+    const [newBankSide, setNewBankSide] = useState<'debit' | 'credit'>('debit');
+    const [newBankAsOf, setNewBankAsOf] = useState(localIsoDate);
     const [addBankError, setAddBankError] = useState<string | null>(null);
     const [addingBank, setAddingBank] = useState(false);
     const [renamingId, setRenamingId] = useState<number | null>(null);
@@ -749,11 +752,24 @@ export default function Banking() {
             setAddBankError('Enter a bank name.');
             return;
         }
+        const amountText = newBankOpening.trim();
+        let opening: { amount: number; side: 'debit' | 'credit'; asOf: string } | undefined;
+        if (amountText !== '') {
+            const amount = Number(amountText);
+            if (!Number.isFinite(amount) || amount <= 0) {
+                setAddBankError('Opening balance amount must be greater than zero');
+                return;
+            }
+            opening = { amount, side: newBankSide, asOf: newBankAsOf };
+        }
         setAddingBank(true);
         setAddBankError(null);
         try {
-            await createBankingAccount(name);
+            await createBankingAccount(name, opening);
             setNewBankName('');
+            setNewBankOpening('');
+            setNewBankSide('debit');
+            setNewBankAsOf(localIsoDate());
             setShowAddBank(false);
             await reloadAll(true);
         } catch (err) {
@@ -1170,6 +1186,38 @@ export default function Banking() {
                                 aria-label="New bank name"
                                 value={newBankName}
                                 onChange={(e) => setNewBankName(e.target.value)}
+                                style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }}
+                            />
+                        </label>
+                        <label style={{ display: 'block', marginTop: 8, fontSize: 11, color: 'var(--color-redwood-text-muted)' }}>
+                            {`Opening balance (${getSystemSettings().defaultCurrencyCode || 'USD'})`}
+                            <input
+                                aria-label="Opening balance amount"
+                                inputMode="decimal"
+                                value={newBankOpening}
+                                onChange={(e) => setNewBankOpening(e.target.value)}
+                                style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }}
+                            />
+                        </label>
+                        <label style={{ display: 'block', marginTop: 8, fontSize: 11, color: 'var(--color-redwood-text-muted)' }}>
+                            Dr/Cr
+                            <select
+                                aria-label="Opening balance side"
+                                value={newBankSide}
+                                onChange={(e) => setNewBankSide(e.target.value as 'debit' | 'credit')}
+                                style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }}
+                            >
+                                <option value="debit">Debit</option>
+                                <option value="credit">Credit</option>
+                            </select>
+                        </label>
+                        <label style={{ display: 'block', marginTop: 8, fontSize: 11, color: 'var(--color-redwood-text-muted)' }}>
+                            As of
+                            <input
+                                aria-label="Opening balance as of"
+                                type="date"
+                                value={newBankAsOf}
+                                onChange={(e) => setNewBankAsOf(e.target.value)}
                                 style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-redwood-border)', background: 'var(--color-redwood-row-bg)', color: 'var(--color-redwood-text-main)', fontSize: 12 }}
                             />
                         </label>

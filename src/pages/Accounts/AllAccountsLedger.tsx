@@ -4,6 +4,7 @@
 // Both use glService's apiRequest — the same helper as the trial-balance page.
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useAuth } from '../../contexts/AuthContext';
 import {
     BookOpen,
     Download,
@@ -19,6 +20,7 @@ import {
     getGLAccountLedger,
     getGLAccounts,
     monthStartISO,
+    reverseJournalEntry,
     type GLAccount,
     type GLAccountLedger,
     type GLLedgerContra,
@@ -133,7 +135,17 @@ function moneyCell(amount: number, color: string): { text: string; color: string
     return { text: formatUsd(amount), color };
 }
 
+function openingSide(row: GLLedgerRow): 'Debit' | 'Credit' {
+    return row.debit > 0 ? 'Debit' : 'Credit';
+}
+
+function openingAmount(row: GLLedgerRow): number {
+    return row.debit > 0 ? row.debit : row.credit;
+}
+
 export default function AllAccountsLedger() {
+    const { hasRole } = useAuth();
+    const canReverseOpening = hasRole('admin', 'accountant');
     const [accounts, setAccounts] = useState<GLAccount[]>([]);
     const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
     const [dateFrom, setDateFrom] = useState<string>(monthStartISO);
@@ -147,6 +159,9 @@ export default function AllAccountsLedger() {
     const [sourceFilter, setSourceFilter] = useState('all');
     const [showInsights, setShowInsights] = useState(false);
     const [aiQuestion, setAiQuestion] = useState('');
+    const [pendingReverse, setPendingReverse] = useState<GLLedgerRow | null>(null);
+    const [reversing, setReversing] = useState(false);
+    const [ledgerReload, setLedgerReload] = useState(0);
 
     const datesInvalid = Boolean(dateFrom && dateTo && dateFrom > dateTo);
     const loading = accountsLoading || ledgerLoading;
@@ -200,7 +215,7 @@ export default function AllAccountsLedger() {
                 setLedgerLoading(false);
             });
         return () => { cancelled = true; };
-    }, [selectedAccountId, dateFrom, dateTo, datesInvalid]);
+    }, [selectedAccountId, dateFrom, dateTo, datesInvalid, ledgerReload]);
 
     const selectedAccount = accounts.find(account => account.id === selectedAccountId) || null;
     const chips = CHIP_SYSTEM_KEYS
@@ -486,6 +501,41 @@ export default function AllAccountsLedger() {
                         </select>
                     </div>
 
+                    {pendingReverse && (
+                        <div role="dialog" aria-label="Reverse opening balance" style={{ ...panel, borderColor: 'rgba(79,142,247,.45)' }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-redwood-text-main)', marginBottom: 6 }}>
+                                Reverse this opening balance?
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--color-redwood-text-main)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <div>{`Amount ${formatUsd(openingAmount(pendingReverse))}`}</div>
+                                <div>{`Side ${openingSide(pendingReverse)}`}</div>
+                                <div>{`Date ${pendingReverse.entry_date || '—'}`}</div>
+                                <div>A reversing entry is posted. The original entry stays for audit.</div>
+                            </div>
+                            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                                <button
+                                    type="button"
+                                    disabled={reversing}
+                                    onClick={() => {
+                                        const entryId = pendingReverse.entry_id;
+                                        setReversing(true);
+                                        void reverseJournalEntry(entryId)
+                                            .then(() => {
+                                                setPendingReverse(null);
+                                                setLedgerReload(version => version + 1);
+                                            })
+                                            .catch(err => setError(errorMessage(err)))
+                                            .finally(() => setReversing(false));
+                                    }}
+                                    style={{ ...ghostBtn, color: '#93C5FD', borderColor: 'rgba(79,142,247,.45)' }}
+                                >
+                                    {reversing ? 'Reversing…' : 'Confirm'}
+                                </button>
+                                <button type="button" onClick={() => setPendingReverse(null)} style={ghostBtn}>Cancel</button>
+                            </div>
+                        </div>
+                    )}
+
                     <div style={{ ...panel, padding: 0, overflow: 'hidden' }}>
                         <div style={{ overflowX: 'auto' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -528,6 +578,15 @@ export default function AllAccountsLedger() {
                                                     >
                                                         {row.entry_number}
                                                     </span>
+                                                    {canReverseOpening && row.source_type === 'account_opening_balance' && row.status === 'posted' && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setPendingReverse(row)}
+                                                            style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: 'var(--color-brand-blue)', background: 'transparent', border: 0, cursor: 'pointer', fontFamily: 'inherit' }}
+                                                        >
+                                                            Reverse
+                                                        </button>
+                                                    )}
                                                     {row.status === 'reversed' && (
                                                         <span style={{ marginLeft: 6, fontSize: 8, fontWeight: 700, letterSpacing: '.3px', textTransform: 'uppercase', color: 'var(--color-redwood-text-subtle)' }}>
                                                             reversed
