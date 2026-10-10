@@ -52,6 +52,8 @@ export interface Customer {
     credit_limit?: number;
     category?: string;
     opening_balance?: number;
+    opening_side?: 'debit' | 'credit';
+    opening_as_of?: string;
     gps_location?: string;
     notes?: string;
     created_at?: string;
@@ -369,6 +371,8 @@ export async function createCustomer(data: Partial<Customer>): Promise<Customer>
         category: (data.category ?? 'retail').toLowerCase(),
         credit_limit: data.credit_limit ?? 0,
         opening_balance: data.opening_balance ?? 0,
+        opening_side: data.opening_side,
+        opening_as_of: data.opening_as_of,
         gps_location: data.gps_location?.trim() || undefined,
         notes: data.notes?.trim() || undefined,
     };
@@ -411,10 +415,13 @@ export async function updateCustomer(id: string, data: Partial<Customer>): Promi
         return updated;
     }
 
-    const { status, ...rest } = data;
-    const body: Record<string, unknown> = { ...rest };
-    if (status !== undefined) {
-        body.is_active = status === 'Active';
+    const body: Record<string, unknown> = { ...data };
+    delete body.opening_balance;
+    delete body.opening_side;
+    delete body.opening_as_of;
+    if (data.status !== undefined) {
+        body.is_active = data.status === 'Active';
+        delete body.status;
     }
 
     const response = await authFetch(apiUrl(`customers/${id}`), {

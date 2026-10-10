@@ -70,6 +70,7 @@ export interface CheckRecord {
   href: string;
   storedAs?: string;
   reason?: string;
+  customerId?: string;
 }
 
 export interface CustomerBalanceRow {
@@ -164,6 +165,39 @@ const STORED_AS: Record<ImportedCreditRow['stored_as'], { label: string; kind: A
   },
 };
 
+export function advanceAndOpeningCreditInputs(
+  payments: Array<{ id: string; customer_id?: string; customer_name?: string; amount: number; reference?: string | null }>,
+  openings: Array<{ id: string; customer_id?: string; customer_name?: string; amount: number; reference?: string | null }>,
+): ArCreditInput[] {
+  const paymentCredits: ArCreditInput[] = payments
+    .filter((row) => Number(row.amount) > 0.005)
+    .map((row) => ({
+      id: `adv-${row.id}`,
+      customerId: String(row.customer_id ?? ''),
+      customerName: row.customer_name,
+      amount: Number(row.amount) || 0,
+      label: row.reference || `Payment ${row.id}`,
+      kind: 'transaction' as ArCreditKind,
+      href: row.customer_id ? `/customers/${row.customer_id}` : '/customers',
+      storedAs: 'unapplied payment',
+      reason: 'This receipt is not allocated to an invoice, so it reduces what the customer owes.',
+    }));
+  const openingCredits: ArCreditInput[] = openings
+    .filter((row) => Number(row.amount) > 0.005)
+    .map((row) => ({
+      id: `open-${row.id}`,
+      customerId: String(row.customer_id ?? row.id),
+      customerName: row.customer_name,
+      amount: Number(row.amount) || 0,
+      label: row.reference || 'Opening credit',
+      kind: 'other' as ArCreditKind,
+      href: `/customers/${row.customer_id || row.id}`,
+      storedAs: 'credit opening',
+      reason: 'This customer was opened with a credit balance.',
+    }));
+  return [...paymentCredits, ...openingCredits];
+}
+
 export function importedCreditInputs(rows: ImportedCreditRow[]): ArCreditInput[] {
   return rows
     .filter((row) => Number(row.amount) > 0.005)
@@ -245,6 +279,7 @@ export function buildReceivablesCheck(input: {
       customerName: row.customer_name || 'Unknown',
       amount: money(row.amount),
       href: row.customer_id ? `/customers/${row.customer_id}` : '/customers',
+      customerId: row.customer_id ? String(row.customer_id) : undefined,
       storedAs: 'transaction',
       reason: 'This customer payment has no allocation to an invoice.',
     }));
