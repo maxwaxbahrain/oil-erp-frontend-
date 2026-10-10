@@ -5,7 +5,7 @@ import {
     AlertTriangle, Bot, Sparkles, Package2,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { type Supplier, type PurchaseOrder, deleteSupplier } from '../../services/purchasesService';
+import { type Supplier, type PurchaseOrder, deleteSupplier, purchaseCountsAsPayable } from '../../services/purchasesService';
 import { authFetch } from '../../api/axios';
 
 const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
@@ -147,6 +147,7 @@ function assessTerms(
     let oldestUnpaidDays = 0;
 
     purchases.forEach((po) => {
+        if (!purchaseCountsAsPayable(po.status)) return;
         const paid = po.status === 'Paid' || po.payment_status === 'Paid';
         if (paid) return;
         const poTime = new Date(po.date).getTime();

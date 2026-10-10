@@ -14,6 +14,32 @@ export interface PurchaseOrderItem {
 
 export type POStatus = 'Pending' | 'Approved' | 'GRN' | 'Paid' | 'Received' | 'Completed' | 'Draft' | 'Rejected';
 
+/** Workflow statuses that create a supplier payable. Matches the backend rule. */
+const PAYABLE_PO_STATUSES = new Set(['approved', 'grn', 'received', 'paid', 'completed']);
+
+export function purchaseCountsAsPayable(status: string | null | undefined): boolean {
+    return PAYABLE_PO_STATUSES.has(String(status || '').trim().toLowerCase());
+}
+
+export function payablePurchaseTotal(
+    orders: Array<{ status?: string | null; grandTotal?: number | null }>,
+): number {
+    return orders.reduce(
+        (sum, po) => (purchaseCountsAsPayable(po.status) ? sum + (Number(po.grandTotal) || 0) : sum),
+        0,
+    );
+}
+
+export function isOpenPayablePurchase(po: {
+    status?: string | null;
+    remaining_balance?: number | null;
+    grandTotal?: number | null;
+}): boolean {
+    if (!purchaseCountsAsPayable(po.status)) return false;
+    const bal = Number(po.remaining_balance ?? po.grandTotal) || 0;
+    return bal > 0.005;
+}
+
 export interface PurchaseOrder {
     id: string;
     poNumber: string;
@@ -471,7 +497,7 @@ export const getSupplierBalance = async (supplierId: string): Promise<number> =>
         const allPayments = await getSupplierPayments(supplierId);
         const supplier = await getSupplierById(supplierId);
         const openingBalance = supplier?.openingBalance || 0;
-        const totalPurchases = allPurchases.reduce((sum, p) => sum + (p.grandTotal || 0), 0);
+        const totalPurchases = payablePurchaseTotal(allPurchases);
         const totalPayments = allPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
         const totalReturns = supplier?.totalReturns != null ? Number(supplier.totalReturns) || 0 : 0;
         const totalRefunds = supplier?.totalRefunds != null ? Number(supplier.totalRefunds) || 0 : 0;
