@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, type CSSProperties } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
+import { getSystemSettings } from '../../services/settingsService';
 import {
     RefreshCw,
     Search,
@@ -225,6 +227,9 @@ function joinAccountsWithTb(accounts: GLAccount[], tbRows: GLTrialBalanceRow[]):
 
 export default function ChartOfAccounts() {
     const navigate = useNavigate();
+    const { hasRole } = useAuth();
+    const canPostOpening = hasRole('admin', 'accountant');
+    const currencyCode = getSystemSettings().defaultCurrencyCode || 'USD';
     const [glAccounts, setGlAccounts] = useState<GLAccount[]>([]);
     const [trialBalance, setTrialBalance] = useState<GLTrialBalance | null>(null);
     const [loading, setLoading] = useState(true);
@@ -238,6 +243,10 @@ export default function ChartOfAccounts() {
     const [formCode, setFormCode] = useState('');
     const [formName, setFormName] = useState('');
     const [formType, setFormType] = useState<GLAccountType>('expense');
+    const [formNormalBalance, setFormNormalBalance] = useState<'debit' | 'credit'>('debit');
+    const [formOpeningAmount, setFormOpeningAmount] = useState('');
+    const [formOpeningSide, setFormOpeningSide] = useState<'debit' | 'credit'>('debit');
+    const [formOpeningAsOf, setFormOpeningAsOf] = useState(todayISO);
     const [formParentId, setFormParentId] = useState<number | ''>('');
     const [formError, setFormError] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
@@ -272,6 +281,10 @@ export default function ChartOfAccounts() {
         setFormCode('');
         setFormName('');
         setFormType('expense');
+        setFormNormalBalance('debit');
+        setFormOpeningAmount('');
+        setFormOpeningSide('debit');
+        setFormOpeningAsOf(todayISO());
         setFormParentId('');
         setFormError(null);
         setModalOpen(true);
@@ -308,12 +321,26 @@ export default function ChartOfAccounts() {
                 await patchAccount(editingAccount.id, { code, name });
             } else {
                 const type = formType;
+                const amountText = formOpeningAmount.trim();
+                const openingAmount = amountText === '' ? null : Number(amountText);
+                if (canPostOpening && openingAmount !== null && (!Number.isFinite(openingAmount) || openingAmount <= 0)) {
+                    setFormError('Opening balance amount must be greater than zero');
+                    setSubmitting(false);
+                    return;
+                }
                 await createAccount({
                     code,
                     name,
                     type,
-                    normal_balance: normalBalanceForType(type),
+                    normal_balance: formNormalBalance,
                     parent_id: formParentId === '' ? null : formParentId,
+                    ...(canPostOpening && openingAmount !== null
+                        ? {
+                            opening_amount: openingAmount,
+                            opening_side: formOpeningSide,
+                            opening_as_of: formOpeningAsOf,
+                        }
+                        : {}),
                 });
             }
             setModalOpen(false);
@@ -782,7 +809,13 @@ export default function ChartOfAccounts() {
                                         Type
                                         <select
                                             value={formType}
-                                            onChange={e => setFormType(e.target.value as GLAccountType)}
+                                            onChange={e => {
+                                                const next = e.target.value as GLAccountType;
+                                                const normal = normalBalanceForType(next);
+                                                setFormType(next);
+                                                setFormNormalBalance(normal);
+                                                setFormOpeningSide(normal);
+                                            }}
                                             style={{ ...selectStyle, display: 'block', width: '100%', marginTop: 4, fontSize: 11 }}
                                         >
                                             {GL_ACCOUNT_TYPES.map(t => (
@@ -807,12 +840,64 @@ export default function ChartOfAccounts() {
                             )}
                             <label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)', fontWeight: 600 }}>
                                 Normal balance
-                                <input
-                                    readOnly
-                                    value={normalBalanceForType(editingAccount ? (editingAccount.type as GLAccountType) : formType)}
-                                    style={{ ...selectStyle, display: 'block', width: '100%', marginTop: 4, fontSize: 11, opacity: 0.85, cursor: 'default' }}
-                                />
+                                {editingAccount ? (
+                                    <input
+                                        readOnly
+                                        value={editingAccount.normal_balance}
+                                        style={{ ...selectStyle, display: 'block', width: '100%', marginTop: 4, fontSize: 11, opacity: 0.85, cursor: 'default' }}
+                                    />
+                                ) : (
+                                    <select
+                                        aria-label="Normal balance"
+                                        value={formNormalBalance}
+                                        onChange={e => {
+                                            const next = e.target.value as 'debit' | 'credit';
+                                            setFormNormalBalance(next);
+                                            setFormOpeningSide(next);
+                                        }}
+                                        style={{ ...selectStyle, display: 'block', width: '100%', marginTop: 4, fontSize: 11 }}
+                                    >
+                                        <option value="debit">debit</option>
+                                        <option value="credit">credit</option>
+                                    </select>
+                                )}
                             </label>
+                            {!editingAccount && canPostOpening && (
+                                <>
+                                    <label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)', fontWeight: 600 }}>
+                                        {`Opening balance (${currencyCode})`}
+                                        <input
+                                            aria-label="Opening balance amount"
+                                            inputMode="decimal"
+                                            value={formOpeningAmount}
+                                            onChange={e => setFormOpeningAmount(e.target.value)}
+                                            style={{ ...selectStyle, display: 'block', width: '100%', marginTop: 4, fontSize: 11 }}
+                                        />
+                                    </label>
+                                    <label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)', fontWeight: 600 }}>
+                                        Dr/Cr
+                                        <select
+                                            aria-label="Opening balance side"
+                                            value={formOpeningSide}
+                                            onChange={e => setFormOpeningSide(e.target.value as 'debit' | 'credit')}
+                                            style={{ ...selectStyle, display: 'block', width: '100%', marginTop: 4, fontSize: 11 }}
+                                        >
+                                            <option value="debit">Debit</option>
+                                            <option value="credit">Credit</option>
+                                        </select>
+                                    </label>
+                                    <label style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)', fontWeight: 600 }}>
+                                        As of
+                                        <input
+                                            aria-label="Opening balance as of"
+                                            type="date"
+                                            value={formOpeningAsOf}
+                                            onChange={e => setFormOpeningAsOf(e.target.value)}
+                                            style={{ ...selectStyle, display: 'block', width: '100%', marginTop: 4, fontSize: 11 }}
+                                        />
+                                    </label>
+                                </>
+                            )}
                             {!editingAccount && (
                                 <p style={{ margin: '4px 0 0', fontSize: 11, lineHeight: 1.45, color: 'var(--color-redwood-text-muted)', fontWeight: 500 }}>
                                     To pay expenses from a bank, add it in{' '}
