@@ -2,15 +2,19 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ClipboardCheck } from 'lucide-react';
 import {
+  applyAdvanceToInvoice,
   getCollectionsReport,
   getCustomerPayments,
   getInvoices,
   getReceivablesCheck,
+  getUnpaidInvoices,
+  type Invoice,
 } from '../../services/api';
 import { getCreditNotes } from '../../services/creditNoteService';
 import { formatCurrency } from '../../services/settingsService';
 import {
   buildReceivablesCheck,
+  type CheckRecord,
   type ReceivablesCheckReport,
 } from '../../utils/receivablesCheck';
 
@@ -46,9 +50,8 @@ export default function ReceivablesCheck() {
   const [report, setReport] = useState<ReceivablesCheckReport | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    Promise.all([
+  function reload() {
+    return Promise.all([
       getInvoices(),
       getCustomerPayments(),
       getCreditNotes(),
@@ -56,7 +59,6 @@ export default function ReceivablesCheck() {
       getCollectionsReport(undefined, 'all'),
     ])
       .then(([invoices, payments, notes, check, collections]) => {
-        if (cancelled) return;
         setReport(
           buildReceivablesCheck({
             invoices,
@@ -67,13 +69,15 @@ export default function ReceivablesCheck() {
             collections: { total: collections.total, rows: collections.rows },
           }),
         );
+        setError(null);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load receivables.');
+        setError(err instanceof Error ? err.message : 'Could not load receivables.');
       });
-    return () => {
-      cancelled = true;
-    };
+  }
+
+  useEffect(() => {
+    reload();
   }, []);
 
   return (
@@ -86,7 +90,7 @@ export default function ReceivablesCheck() {
           <div>
             <h1 className="text-xl font-black text-gray-900 uppercase tracking-tight">Receivables Check</h1>
             <p className="text-xs text-gray-500 mt-0.5">
-              Read only. This page does not change invoices, payments, or credits.
+              Apply to invoice uses an advance already received. It does not record cash again.
             </p>
           </div>
         </div>
@@ -106,7 +110,7 @@ export default function ReceivablesCheck() {
           </Section>
 
           <Section title="Customer payments not linked to an invoice" count={report.unappliedPayments.count} total={report.unappliedPayments.total}>
-            <RecordTable rows={report.unappliedPayments.rows} />
+            <UnappliedPaymentTable rows={report.unappliedPayments.rows} onApplied={reload} />
           </Section>
 
           <section className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
@@ -168,6 +172,100 @@ export default function ReceivablesCheck() {
         </>
       )}
     </div>
+  );
+}
+
+function UnappliedPaymentTable({ rows, onApplied }: { rows: CheckRecord[]; onApplied: () => void }) {
+  return (
+    <div className="divide-y divide-gray-50">
+      {rows.map((row) => (
+        <div key={row.id} className="px-5 py-3 flex flex-wrap items-center gap-3">
+          <div className="min-w-[180px]">
+            <Link className="text-sm font-bold text-blue-700 hover:underline" to={row.href}>{row.label}</Link>
+            <div className="text-xs text-gray-500">{row.customerName} · {formatCurrency(row.amount)}</div>
+          </div>
+          <ApplyAdvanceControl
+            paymentId={Number(row.id)}
+            customerId={row.customerId || ''}
+            available={row.amount}
+            onApplied={onApplied}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ApplyAdvanceControl({
+  paymentId,
+  customerId,
+  available,
+  onApplied,
+}: {
+  paymentId: number;
+  customerId: string;
+  available: number;
+  onApplied: () => void;
+}) {
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [invoiceId, setInvoiceId] = useState('');
+  const [amount, setAmount] = useState(available);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!customerId) return;
+    getUnpaidInvoices(customerId).then(setInvoices).catch(() => setInvoices([]));
+  }, [customerId]);
+
+  if (!customerId || invoices.length === 0) return null;
+
+  return (
+    <form
+      className="flex flex-wrap items-center gap-2"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        if (!invoiceId || amount <= 0) {
+          setError('Choose an invoice and an amount.');
+          return;
+        }
+        try {
+          setBusy(true);
+          setError(null);
+          await applyAdvanceToInvoice(paymentId, Number(invoiceId), amount);
+          onApplied();
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Could not apply the advance.');
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <select
+        aria-label={`Invoice for ${paymentId}`}
+        value={invoiceId}
+        onChange={(event) => setInvoiceId(event.target.value)}
+        className="px-2 py-1 border border-gray-200 rounded text-sm"
+      >
+        <option value="">Invoice</option>
+        {invoices.map((invoice) => (
+          <option key={invoice.id} value={String(invoice.id)}>{invoice.invoiceNumber}</option>
+        ))}
+      </select>
+      <input
+        aria-label={`Amount for ${paymentId}`}
+        type="number"
+        min="0.01"
+        step="0.01"
+        value={amount || ''}
+        onChange={(event) => setAmount(parseFloat(event.target.value) || 0)}
+        className="w-24 px-2 py-1 border border-gray-200 rounded text-sm"
+      />
+      <button type="submit" disabled={busy} className="px-3 py-1 bg-blue-700 text-white text-xs font-bold rounded">
+        Apply to invoice
+      </button>
+      {error && <span className="text-xs text-red-600">{error}</span>}
+    </form>
   );
 }
 

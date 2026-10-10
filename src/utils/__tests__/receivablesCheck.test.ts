@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { buildReceivablesCheck } from '../receivablesCheck';
+import { calculateReceivables } from '../arMetrics';
+import { advanceAndOpeningCreditInputs, buildReceivablesCheck } from '../receivablesCheck';
 
 describe('receivables check', () => {
   it('lists a paid invoice the old balance still counted, and adds the gap to the cent', () => {
@@ -98,6 +99,31 @@ describe('receivables check', () => {
     expect(difference.amount).toBe(
       Math.round((onlyAged.amount - onlyCollections.amount + same.amount) * 100) / 100,
     );
+  });
+
+  it('nets unapplied payments and credit openings to the customer ledger', () => {
+    const credits = advanceAndOpeningCreditInputs(
+      [{ id: '5', customer_id: '7', customer_name: 'Acme', amount: 20, reference: 'ADV' }],
+      [{ id: '7', customer_id: '7', customer_name: 'Acme', amount: 30, reference: 'OPENING' }],
+    );
+    const summary = calculateReceivables(
+      [{
+        id: '1',
+        customerId: '7',
+        customerName: 'Acme',
+        invoiceDate: '2026-10-01',
+        dueDate: '2026-10-01',
+        grandTotal: 100,
+        remaining_balance: 100,
+        status: 'Unpaid',
+      }],
+      [],
+      new Date('2026-10-10T12:00:00'),
+      { credits },
+    );
+    const ledgerClosing = -30 + 100 - 20;
+    expect(summary.unappliedCredits).toBe(50);
+    expect(summary.net).toBe(ledgerClosing);
   });
 
   it('shows the unapplied part of a sales return in the credits column', () => {

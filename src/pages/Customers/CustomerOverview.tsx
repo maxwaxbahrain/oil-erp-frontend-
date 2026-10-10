@@ -27,8 +27,12 @@ import {
     getCustomerSalesOrders,
     convertOrderToInvoice,
     voidPayment,
+    getUnpaidInvoices,
+    getCustomerUnappliedAdvances,
+    applyAdvanceToInvoice,
     type Invoice,
-    type SalesOrder
+    type SalesOrder,
+    type UnappliedAdvance,
 } from '../../services/api';
 import {
     getCustomers,
@@ -330,6 +334,91 @@ const _tableRowHoverEnter = (e: React.MouseEvent<HTMLTableRowElement>) => {
 const _tableRowHoverLeave = (e: React.MouseEvent<HTMLTableRowElement>) => {
   e.currentTarget.style.background = 'transparent';
 };
+
+function CustomerAdvanceApply({
+  customerId,
+  paymentId,
+  available,
+  reference,
+  onApplied,
+}: {
+  customerId: string;
+  paymentId: number;
+  available: number;
+  reference?: string | null;
+  onApplied: () => void;
+}) {
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [invoiceId, setInvoiceId] = useState('');
+  const [amount, setAmount] = useState(available);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    getUnpaidInvoices(customerId).then(setInvoices).catch(() => setInvoices([]));
+  }, [customerId]);
+
+  if (invoices.length === 0) return null;
+
+  return (
+    <form
+      className="flex flex-wrap items-center gap-2"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        const invoice = invoices.find((row) => String(row.id) === invoiceId);
+        const remaining = Number(invoice?.remaining_balance ?? 0);
+        if (!invoiceId || amount <= 0 || amount > available + 0.005 || amount > remaining + 0.005) {
+          setError('Choose an invoice and an amount within the advance and the invoice balance.');
+          return;
+        }
+        try {
+          setBusy(true);
+          setError(null);
+          await applyAdvanceToInvoice(paymentId, Number(invoiceId), amount);
+          onApplied();
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Could not apply the advance.');
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>
+        {reference || `Payment ${paymentId}`} · {available.toFixed(2)} unapplied
+      </span>
+      <select
+        aria-label={`Invoice for payment ${paymentId}`}
+        value={invoiceId}
+        onChange={(event) => setInvoiceId(event.target.value)}
+        style={{ padding: '4px 8px', borderRadius: 8, fontSize: 11 }}
+      >
+        <option value="">Invoice</option>
+        {invoices.map((invoice) => (
+          <option key={invoice.id} value={String(invoice.id)}>
+            {invoice.invoiceNumber || invoice.id} · {Number(invoice.remaining_balance ?? 0).toFixed(2)}
+          </option>
+        ))}
+      </select>
+      <input
+        aria-label={`Amount for payment ${paymentId}`}
+        type="number"
+        min="0.01"
+        step="0.01"
+        value={amount}
+        onChange={(event) => setAmount(parseFloat(event.target.value) || 0)}
+        style={{ width: 90, padding: '4px 8px', borderRadius: 8, fontSize: 11 }}
+      />
+      <button
+        type="submit"
+        disabled={busy}
+        style={{ padding: '4px 10px', borderRadius: 8, fontSize: 11, fontWeight: 700, background: '#4F8EF7', color: '#fff', border: 'none' }}
+      >
+        {busy ? 'Applying…' : 'Apply to invoice'}
+      </button>
+      {error && <span style={{ fontSize: 11, color: '#FCA5A5' }}>{error}</span>}
+    </form>
+  );
+}
 // ─────────────────────────────────────────────────────────────────────────
 
 export default function CustomerOverview() {
@@ -370,6 +459,7 @@ export default function CustomerOverview() {
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([]);
     const [payments, setPayments] = useState<Payment[]>([]);
+    const [advances, setAdvances] = useState<UnappliedAdvance[]>([]);
     // FIX W6-1 — track void-in-flight per payment id.
     const [voidingPaymentId, setVoidingPaymentId] = useState<string | null>(null);
     const [creditNotes, setCreditNotes] = useState<CreditNote[]>([]);
@@ -560,18 +650,20 @@ export default function CustomerOverview() {
             // Fetch everything in parallel. Full-history ledger (no dates) feeds
             // overview stats only; the ledger tab display is loaded separately via
             // loadLedger so date filters hit the backend with start/end params.
-            const [custInvoices, custOrders, custPayments, fullLedger, custCreditNotes] = await Promise.all([
+            const [custInvoices, custOrders, custPayments, fullLedger, custCreditNotes, custAdvances] = await Promise.all([
                 getCustomerInvoices(id),
                 getCustomerSalesOrders(id),
                 getCustomerPayments(id),
                 getCustomerLedger(id),
-                getCustomerCreditNotes(id)
+                getCustomerCreditNotes(id),
+                getCustomerUnappliedAdvances(id),
             ]);
 
             setInvoices(custInvoices);
             setSalesOrders(custOrders);
             setPayments(custPayments);
             setCreditNotes(custCreditNotes);
+            setAdvances(custAdvances);
 
             const ledgerEntries: LedgerEntry[] = fullLedger.rows.map(mapPartyRowToDisplay);
 
@@ -2248,6 +2340,26 @@ export default function CustomerOverview() {
                                     Receive New Payment
                                 </button>
                             </div>
+                            {advances.length > 0 && (
+                                <div style={{ marginBottom: 16, padding: 12, borderRadius: 10, border: '1px solid rgba(79,142,247,.35)', background: 'rgba(79,142,247,.08)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                    <div style={{ fontSize: 11, fontWeight: 700, color: '#93C5FD' }}>
+                                        Available advance. Applying it uses money already received and does not record cash again.
+                                    </div>
+                                    {advances.map((row) => (
+                                        <CustomerAdvanceApply
+                                            key={row.payment_id}
+                                            customerId={id || ''}
+                                            paymentId={row.payment_id}
+                                            available={Number(row.amount) || 0}
+                                            reference={row.reference}
+                                            onApplied={() => {
+                                                void loadAllData();
+                                                void loadLedger(ledgerDateFrom, ledgerDateTo);
+                                            }}
+                                        />
+                                    ))}
+                                </div>
+                            )}
                             <div style={{ background: 'var(--bg3,#0f1f33)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 10, overflow: 'hidden' }} className="overflow-x-auto">
                                 <table className="w-full text-left">
                                     <thead>

@@ -139,6 +139,7 @@ describe('PaymentReceipt multi allocation', () => {
       invoice('3', 'INV-3', 100),
     ]);
     vi.spyOn(api, 'getCustomerAdvanceBalance').mockResolvedValue(0);
+    vi.spyOn(api, 'getCustomerUnappliedAdvances').mockResolvedValue([]);
     createPayment = vi.spyOn(api, 'createPayment').mockResolvedValue({});
   });
 
@@ -215,6 +216,50 @@ describe('PaymentReceipt multi allocation', () => {
         allocations: [
           { invoice_id: 1, amount: 300 },
           { invoice_id: 2, amount: 200 },
+        ],
+      });
+    } finally {
+      view.cleanup();
+    }
+  });
+
+  it('no invoices: the payment amount is saved as an unapplied advance', async () => {
+    vi.spyOn(api, 'getUnpaidInvoices').mockResolvedValue([]);
+    const view = await mount();
+    try {
+      await act(async () => {
+        setValue(paymentAmountInput(view.host), '75');
+      });
+      await submit(view.host);
+      expect(createPayment).toHaveBeenCalledTimes(1);
+      const payload = createPayment.mock.calls[0][0] as {
+        amount: number;
+        explicit_advance?: boolean;
+        allocations: Array<{ invoice_id: number | null; amount: number }>;
+      };
+      expect(payload.amount).toBe(75);
+      expect(payload.explicit_advance).toBe(true);
+      expect(payload.allocations).toEqual([{ invoice_id: null, amount: 75 }]);
+      expect(view.host.textContent).not.toContain('Opening Balance Amount');
+      expect(view.host.textContent).not.toContain('Select Invoice(s) *');
+    } finally {
+      view.cleanup();
+    }
+  });
+
+  it('an amount above one invoice keeps the extra as an advance', async () => {
+    const view = await mount();
+    try {
+      await tick(view.host, 'INV-1');
+      await act(async () => {
+        setValue(paymentAmountInput(view.host), '350');
+      });
+      await submit(view.host);
+      expect(allocationsOf(createPayment)).toEqual({
+        amount: 350,
+        allocations: [
+          { invoice_id: null, amount: 50 },
+          { invoice_id: 1, amount: 300 },
         ],
       });
     } finally {
