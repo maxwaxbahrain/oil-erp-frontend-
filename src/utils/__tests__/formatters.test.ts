@@ -32,10 +32,17 @@ describe('parseApiDateTime', () => {
 
 describe('formatDateTime', () => {
     it('formats zoneless UTC as local wall time in America/New_York', () => {
-        const formatted = formatDateTime('2026-08-31T00:51:00');
-        expect(formatted).toContain('Aug');
-        expect(formatted).toMatch(/30|8\/30/);
-        expect(formatted).toMatch(/8:51/);
+        const previous = process.env.TZ;
+        process.env.TZ = 'America/New_York';
+        try {
+            const formatted = formatDateTime('2026-08-31T00:51:00');
+            expect(formatted).toContain('Aug');
+            expect(formatted).toMatch(/30|8\/30/);
+            expect(formatted).toMatch(/8:51/);
+        } finally {
+            if (previous === undefined) delete process.env.TZ;
+            else process.env.TZ = previous;
+        }
     });
 
     it('returns empty string for null or empty input', () => {
