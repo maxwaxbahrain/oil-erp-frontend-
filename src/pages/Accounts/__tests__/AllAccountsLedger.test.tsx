@@ -3,6 +3,10 @@ import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('../../../contexts/AuthContext', () => ({
+  useAuth: () => ({ hasRole: () => true }),
+}));
+
 import AllAccountsLedger from '../AllAccountsLedger';
 import { monthStartISO } from '../../../services/glService';
 
@@ -181,5 +185,47 @@ describe('AllAccountsLedger', () => {
     expect(body).toContain('4000 Sales Revenue · 2100 Tax Payable');
     expect(body).toContain('all-time');
     expect(body).toContain('$999.99');
+  });
+
+  it('asks for amount, side and date before reversing an opening balance', async () => {
+    const openingLedger = {
+      ...ledger,
+      rows: [
+        {
+          entry_id: 44,
+          entry_number: 'JE-00044',
+          entry_date: '2026-10-01',
+          memo: 'Opening balance — Furniture',
+          source_type: 'account_opening_balance',
+          source_id: '8',
+          status: 'posted',
+          debit: 15,
+          credit: 0,
+          running_balance: 15,
+          contra: [{ account_id: 30, code: '3200', name: 'Opening Balance Equity', debit: 0, credit: 15 }],
+        },
+      ],
+    };
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push(`${init?.method || 'GET'} ${url}`);
+      if (url.includes('/reverse')) return jsonResponse({ id: 45 });
+      if (url.includes('/gl/accounts/')) return jsonResponse(openingLedger);
+      if (url.includes('/accounts/')) return jsonResponse(accounts);
+      return jsonResponse({ detail: 'not found' }, 404);
+    }));
+    await renderPage();
+    const reverse = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Reverse');
+    expect(reverse).toBeTruthy();
+    act(() => reverse?.click());
+    expect(container.textContent).toContain('Amount $15.00');
+    expect(container.textContent).toContain('Side Debit');
+    expect(container.textContent).toContain('Date 2026-10-01');
+    const confirm = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Confirm');
+    await act(async () => {
+      confirm?.click();
+    });
+    expect(calls.some((call) => call.startsWith('POST') && call.includes('/gl/journal-entries/44/reverse'))).toBe(true);
   });
 });

@@ -171,6 +171,9 @@ export interface CreateAccountPayload {
   normal_balance: 'debit' | 'credit';
   parent_id?: number | null;
   is_active?: boolean;
+  opening_amount?: number;
+  opening_side?: 'debit' | 'credit';
+  opening_as_of?: string;
 }
 
 export interface PatchAccountPayload {
@@ -423,6 +426,10 @@ export function getGLJournalEntries(): Promise<GLJournalEntry[]> {
   return apiRequest<GLJournalEntry[]>('/gl/journal-entries');
 }
 
+export function reverseJournalEntry(entryId: number): Promise<GLJournalEntry> {
+  return apiRequest<GLJournalEntry>(`/gl/journal-entries/${entryId}/reverse`, { method: 'POST' });
+}
+
 export function postOpeningBalances(
   entries: OpeningBalancePayloadEntry[],
   asOfDate: string,
@@ -449,10 +456,18 @@ export function getBankingAccounts(): Promise<BankingAccount[]> {
   return apiRequest<BankingAccount[]>('/banking/accounts');
 }
 
-export function createBankingAccount(name: string): Promise<BankingAccount> {
+export function createBankingAccount(
+  name: string,
+  opening?: { amount: number; side: 'debit' | 'credit'; asOf: string },
+): Promise<BankingAccount> {
   return apiRequest<BankingAccount>('/banking/accounts', {
     method: 'POST',
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({
+      name,
+      ...(opening
+        ? { opening_amount: opening.amount, opening_side: opening.side, opening_as_of: opening.asOf }
+        : {}),
+    }),
   });
 }
 

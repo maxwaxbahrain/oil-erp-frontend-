@@ -22,6 +22,10 @@ vi.mock('../../../services/glService', () => ({
     todayISO: () => '2026-10-09',
 }));
 
+vi.mock('../../../contexts/AuthContext', () => ({
+    useAuth: () => ({ hasRole: () => true }),
+}));
+
 import ChartOfAccounts from '../ChartOfAccounts';
 
 function mount() {
