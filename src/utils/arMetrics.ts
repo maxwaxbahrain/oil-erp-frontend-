@@ -1,3 +1,5 @@
+import { invoiceCountsTowardCustomerBalance } from './invoiceBalance';
+
 type InvoiceLike = {
   id: string;
   customerId?: string;
@@ -79,8 +81,7 @@ function statusOf(inv: InvoiceLike): string {
 }
 
 function isVoidOrCancelled(inv: InvoiceLike): boolean {
-  const status = statusOf(inv);
-  return status === 'void' || status === 'cancelled' || status === 'canceled';
+  return !invoiceCountsTowardCustomerBalance(inv.status);
 }
 
 function isMarkedPaid(inv: InvoiceLike): boolean {

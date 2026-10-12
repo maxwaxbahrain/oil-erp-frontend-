@@ -44,7 +44,7 @@ export default function AgedReceivable() {
                 new Date(`${asOf}T12:00:00`),
                 {
                     credits: [
-                        ...creditNoteInputs(notes),
+                        ...creditNoteInputs(notes, invoices),
                         ...importedCreditInputs(check.imported_credits),
                         ...advanceAndOpeningCreditInputs(check.unapplied_payments, check.credit_openings ?? []),
                     ],
