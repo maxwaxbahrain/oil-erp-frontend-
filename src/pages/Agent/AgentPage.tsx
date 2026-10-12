@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { AlertCircle, Clock, Copy, Package, Send, Users, X } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../contexts/AuthContext';
+import { RECORD_LIMIT_SECONDS, permissionDenied, recorderMime, recordingCountdown, type VoiceState } from '../../services/zavaVoice';
 import { AnswerBody } from './formatAnswer';
 import { FollowUps, SpatialStyles, ZavaPanel, type SpatialBlock } from './spatial';
 import {
@@ -19,6 +20,7 @@ import {
     showMorningBriefing,
     showNewConversation,
     stepView,
+    VOICE,
 } from './zavaCopy';
 
 type Step = { kind: string; name: string; input?: string; output?: string };
@@ -115,7 +117,14 @@ export default function AgentPage() {
     const [saved, setSaved] = useState(false);
     const [signals, setSignals] = useState<SignalCard[] | null>(null);
     const [signalsError, setSignalsError] = useState('');
+    const [voiceState, setVoiceState] = useState<VoiceState>('idle');
+    const [voiceNotice, setVoiceNotice] = useState('');
+    const [countdown, setCountdown] = useState<number | null>(null);
     const threadRef = useRef<HTMLDivElement>(null);
+    const recorderRef = useRef<MediaRecorder | null>(null);
+    const listenTimers = useRef<{ tick: number; limit: number } | null>(null);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+    const voiceUrlRef = useRef('');
     const questionRef = useRef<HTMLTextAreaElement>(null);
 
     function resizeQuestion(node: HTMLTextAreaElement | null = questionRef.current) {
@@ -136,6 +145,22 @@ export default function AgentPage() {
         threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight });
     }, [turns, sending]);
 
+    useEffect(() => () => {
+        const timers = listenTimers.current;
+        if (timers) {
+            window.clearInterval(timers.tick);
+            window.clearTimeout(timers.limit);
+            listenTimers.current = null;
+        }
+        const recorder = recorderRef.current;
+        if (recorder && recorder.state === 'recording') {
+            recorder.onstop = () => {
+                recorder.stream.getTracks().forEach((track) => track.stop());
+            };
+            recorder.stop();
+        }
+    }, []);
+
     useEffect(() => {
         let cancelled = false;
         api.get<{ cards: SignalCard[] }>('/api/agent/signals')
@@ -150,13 +175,60 @@ export default function AgentPage() {
         };
     }, []);
 
-    async function ask(text: string) {
+    function clearListenTimers() {
+        const timers = listenTimers.current;
+        if (!timers) return;
+        window.clearInterval(timers.tick);
+        window.clearTimeout(timers.limit);
+        listenTimers.current = null;
+    }
+
+    function stopRecording() {
+        clearListenTimers();
+        setCountdown(null);
+        const recorder = recorderRef.current;
+        if (recorder && recorder.state === 'recording') recorder.stop();
+    }
+
+    function stopSpeaking() {
+        const playing = audioRef.current;
+        if (playing) {
+            playing.pause();
+            playing.src = '';
+        }
+        audioRef.current = null;
+        if (voiceUrlRef.current) {
+            URL.revokeObjectURL(voiceUrlRef.current);
+            voiceUrlRef.current = '';
+        }
+        setVoiceState('idle');
+    }
+
+    async function speakAnswer(headline: string, note?: string | null) {
+        setVoiceState('speaking');
+        const response = await api.post<Blob>(
+            '/api/agent/speak',
+            { headline, note: note || null },
+            { responseType: 'blob', timeout: 45_000 },
+        );
+        const url = URL.createObjectURL(response.data);
+        voiceUrlRef.current = url;
+        const audio = new Audio(url);
+        audioRef.current = audio;
+        audio.onended = () => stopSpeaking();
+        await audio.play();
+    }
+
+    async function ask(text: string, source: 'typed' | 'voice' = 'typed') {
         const question = text.trim();
         if (!question || sending) return;
-        setDraft('');
-        if (questionRef.current) questionRef.current.style.height = '24px';
-        setTurns((current) => [...current, { id: turnId++, role: 'user', text: question, at: new Date() }]);
+        if (source === 'typed') {
+            setDraft('');
+            if (questionRef.current) questionRef.current.style.height = '24px';
+            setTurns((current) => [...current, { id: turnId++, role: 'user', text: question, at: new Date() }]);
+        }
         setSending(true);
+        if (source === 'voice') setVoiceState('thinking');
         setAnnouncement('Zava is looking this up');
         try {
             const response = await api.post<{
@@ -168,7 +240,7 @@ export default function AgentPage() {
                 steps: Step[];
             }>(
                 '/api/agent/chat',
-                { message: question },
+                source === 'voice' ? { message: question, kind: 'voice' } : { message: question },
                 { timeout: 70_000 },
             );
             const answer = presentAnswer(response.data.answer || '');
@@ -187,13 +259,123 @@ export default function AgentPage() {
                 error: failed,
             }]);
             setAnnouncement(`Zava says ${answer}`);
+            if (source === 'voice') {
+                if (failed) {
+                    setVoiceState('idle');
+                    if (answer === ERRORS.limit) setVoiceNotice(VOICE.cap);
+                } else {
+                    try {
+                        await speakAnswer(response.data.headline || answer, response.data.note);
+                    } catch (speakError) {
+                        setVoiceState('idle');
+                        const message = await voiceFailure(speakError);
+                        setVoiceNotice(message === ERRORS.limit ? VOICE.cap : message);
+                    }
+                }
+            }
         } catch (error) {
             const message = failureFromError(error);
             setTurns((current) => [...current, { id: turnId++, role: 'zava', text: message, at: new Date(), error: true }]);
             setAnnouncement(message);
+            if (source === 'voice') {
+                setVoiceState('idle');
+                setVoiceNotice(message === ERRORS.limit ? VOICE.cap : message);
+            }
         } finally {
             setSending(false);
         }
+    }
+
+    async function voiceFailure(error: unknown): Promise<string> {
+        const err = error as { response?: { data?: Blob | { detail?: string } } };
+        const data = err.response?.data;
+        if (data instanceof Blob) {
+            try {
+                const parsed = JSON.parse(await data.text()) as { detail?: string };
+                return messageForFailure({ detail: parsed.detail, network: false });
+            } catch {
+                return ERRORS.network;
+            }
+        }
+        return failureFromError(error);
+    }
+
+    async function sendClip(blob: Blob) {
+        setVoiceState('thinking');
+        const form = new FormData();
+        form.append('audio', blob, blob.type.includes('mp4') ? 'clip.mp4' : 'clip.webm');
+        try {
+            const heard = await api.post<{ transcript: string }>('/api/agent/listen', form, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+                timeout: 45_000,
+            });
+            const transcript = (heard.data.transcript || '').trim();
+            if (!transcript) {
+                setVoiceState('idle');
+                setVoiceNotice(VOICE.unheard);
+                return;
+            }
+            setVoiceNotice('');
+            setTurns((current) => [...current, { id: turnId++, role: 'user', text: transcript, at: new Date() }]);
+            await ask(transcript, 'voice');
+        } catch (error) {
+            setVoiceState('idle');
+            const message = failureFromError(error);
+            setVoiceNotice(message === ERRORS.limit ? VOICE.cap : message);
+        }
+    }
+
+    async function startListening() {
+        setVoiceNotice('');
+        try {
+            await api.get('/api/agent/voice');
+        } catch (error) {
+            setVoiceNotice(failureFromError(error) === ERRORS.limit ? VOICE.cap : failureFromError(error));
+            setVoiceState('idle');
+            return;
+        }
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true } });
+            const mime = recorderMime();
+            const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+            const chunks: Blob[] = [];
+            recorder.ondataavailable = (event) => {
+                if (event.data.size > 0) chunks.push(event.data);
+            };
+            recorder.onstop = () => {
+                clearListenTimers();
+                setCountdown(null);
+                stream.getTracks().forEach((track) => track.stop());
+                const clip = new Blob(chunks, { type: recorder.mimeType || mime || 'audio/webm' });
+                void sendClip(clip);
+            };
+            recorderRef.current = recorder;
+            const started = Date.now();
+            listenTimers.current = {
+                tick: window.setInterval(() => {
+                    setCountdown(recordingCountdown(Date.now() - started));
+                }, 200),
+                limit: window.setTimeout(() => stopRecording(), RECORD_LIMIT_SECONDS * 1000),
+            };
+            recorder.start();
+            setVoiceState('listening');
+        } catch (error) {
+            setVoiceState('idle');
+            setVoiceNotice(permissionDenied(error) ? VOICE.denied : 'This browser cannot record a voice clip.');
+        }
+    }
+
+    function onOrb() {
+        if (voiceState === 'speaking') {
+            stopSpeaking();
+            return;
+        }
+        if (voiceState === 'thinking' || sending) return;
+        if (voiceState === 'listening') {
+            stopRecording();
+            return;
+        }
+        void startListening();
     }
 
     function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -521,6 +703,28 @@ export default function AgentPage() {
                         <p>Zava is looking this up{elapsed > 0 ? ` · ${elapsed} ${elapsed === 1 ? 'second' : 'seconds'}` : ''}</p>
                     </div>
                 )}
+            </div>
+
+            <div className="flex shrink-0 items-center gap-3 pt-3">
+                <button
+                    type="button"
+                    id="zava-orb"
+                    className="zava-control inline-flex items-center gap-2"
+                    aria-label={voiceState === 'listening' ? 'Send' : voiceState === 'speaking' ? 'Stop' : 'Start talking'}
+                    onClick={onOrb}
+                >
+                    <ZavaOrb thinking={voiceState === 'thinking' || voiceState === 'speaking'} size={40} />
+                    <span>{VOICE[voiceState]}</span>
+                    {voiceState === 'listening' && countdown !== null && (
+                        <span id="zava-voice-countdown">{countdown}</span>
+                    )}
+                </button>
+                {voiceState === 'speaking' && (
+                    <button type="button" id="zava-voice-stop" className="zava-control text-sm underline" onClick={stopSpeaking}>
+                        Stop
+                    </button>
+                )}
+                {voiceNotice && <p role="alert" className="text-sm text-redwood-text-muted">{voiceNotice}</p>}
             </div>
 
             <form

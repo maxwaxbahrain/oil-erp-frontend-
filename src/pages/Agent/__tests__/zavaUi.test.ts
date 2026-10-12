@@ -145,6 +145,31 @@ describe('signals under the question box', () => {
     });
 });
 
+describe('talk to zava', () => {
+    it('shows the orb states, the stop button, and the permission and cap messages', () => {
+        const agent = readFileSync(resolve(process.cwd(), 'src/pages/Agent/AgentPage.tsx'), 'utf8');
+        const copy = readFileSync(resolve(process.cwd(), 'src/pages/Agent/zavaCopy.ts'), 'utf8');
+        expect(copy).toContain("idle: 'Idle'");
+        expect(copy).toContain("listening: 'Listening'");
+        expect(copy).toContain("thinking: 'Thinking'");
+        expect(copy).toContain("speaking: 'Zava is speaking'");
+        expect(copy).toContain('The microphone is off. Allow the microphone for this site, then tap the orb again.');
+        expect(copy).toContain("cap: ERRORS.limit");
+        expect(agent).toContain('id="zava-orb"');
+        expect(agent).toContain('id="zava-voice-stop"');
+        expect(agent).toContain("api.get('/api/agent/voice')");
+        const ready = agent.indexOf("api.get('/api/agent/voice')");
+        const mic = agent.indexOf('getUserMedia');
+        expect(ready).toBeGreaterThan(0);
+        expect(mic).toBeGreaterThan(ready);
+        expect(agent).toContain("permissionDenied(error) ? VOICE.denied");
+        expect(agent).toContain('id="zava-voice-countdown"');
+        expect(agent).toContain('RECORD_LIMIT_SECONDS * 1000');
+        expect(agent).toContain('recordingCountdown');
+        expect(agent).toContain('id="zava-signals-title"');
+    });
+});
+
 describe('answers never render raw HTML', () => {
     it('keeps markup as text', () => {
         const source = 'Hello <script>alert(1)</script> **total**\n\n- one';
