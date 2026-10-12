@@ -129,6 +129,22 @@ describe('question box focus', () => {
     });
 });
 
+describe('signals under the question box', () => {
+    it('loads the feed on the page and shows the empty sentence', () => {
+        const agent = readFileSync(resolve(process.cwd(), 'src/pages/Agent/AgentPage.tsx'), 'utf8');
+        const question = agent.indexOf('id="zava-question"');
+        const signals = agent.indexOf('id="zava-signals-title"');
+        expect(question).toBeGreaterThan(0);
+        expect(signals).toBeGreaterThan(question);
+        expect(agent).toContain('Nothing needs your attention right now.');
+        expect(agent).toContain("api.get<{ cards: SignalCard[] }>('/api/agent/signals')");
+        const start = agent.indexOf("api.get<{ cards: SignalCard[] }>");
+        const load = agent.slice(start, agent.indexOf('}, []);', start));
+        expect(load).not.toContain('/api/agent/chat');
+        expect(load).not.toContain('complete(');
+    });
+});
+
 describe('answers never render raw HTML', () => {
     it('keeps markup as text', () => {
         const source = 'Hello <script>alert(1)</script> **total**\n\n- one';
