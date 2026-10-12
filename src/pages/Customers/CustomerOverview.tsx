@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 // ITEM 16 — Escape closes the payment / invoice preview modals.
 import { useEscape } from '../../hooks/useEscape';
+import { customerStatementTotals, invoiceCountsTowardCustomerBalance } from '../../utils/invoiceBalance';
 import {
     getCustomerInvoices,
     getCustomerSalesOrders,
@@ -687,6 +688,7 @@ export default function CustomerOverview() {
             const creditLimit = customer?.credit_limit || 0;
 
             const overdueInvoices = custInvoices.filter(inv => {
+                if (!invoiceCountsTowardCustomerBalance(inv.status)) return false;
                 const remaining = (Number(inv.grandTotal) || 0) - (Number(inv.amount_paid) || 0);
                 if (remaining <= 0) return false;
                 const ref = inv.dueDate || inv.invoiceDate || '';
@@ -1537,11 +1539,14 @@ export default function CustomerOverview() {
                                     </div>
                                     {(() => {
                                         const now = new Date();
+                                        const billable = (invoices ?? []).filter((inv: any) =>
+                                            invoiceCountsTowardCustomerBalance(inv.status),
+                                        );
                                         const months: Array<{ label: string; total: number }> = [];
                                         for (let i = 5; i >= 0; i--) {
                                             const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
                                             const label = d.toLocaleDateString('en-US', { month: 'short' });
-                                            const total = (invoices ?? []).filter((inv: any) => {
+                                            const total = billable.filter((inv: any) => {
                                                 const invDate = new Date(inv.invoiceDate ?? inv.date ?? inv.createdAt ?? 0);
                                                 return invDate.getMonth() === d.getMonth()
                                                     && invDate.getFullYear() === d.getFullYear();
@@ -1549,14 +1554,14 @@ export default function CustomerOverview() {
                                             months.push({ label, total });
                                         }
                                         const maxVal = Math.max(...months.map(m => m.total), 1);
-                                        const ytdSales = (invoices ?? [])
+                                        const ytdSales = billable
                                             .filter((inv: any) => {
                                                 const d = new Date(inv.invoiceDate ?? inv.date ?? inv.createdAt ?? 0);
                                                 return d.getFullYear() === now.getFullYear();
                                             })
                                             .reduce((s: number, inv: any) => s + (Number(inv.grandTotal ?? inv.amount ?? 0)), 0);
-                                        const invCount = (invoices ?? []).length;
-                                        const totalAmt = (invoices ?? []).reduce((s: number, inv: any) =>
+                                        const invCount = billable.length;
+                                        const totalAmt = billable.reduce((s: number, inv: any) =>
                                             s + (Number(inv.grandTotal ?? inv.amount ?? 0)), 0);
                                         const avgInv = invCount > 0 ? Math.round(totalAmt / invCount) : 0;
 
@@ -2294,12 +2299,9 @@ export default function CustomerOverview() {
                                     {/* ITEM 5D — Totals row. Invoices only (sales orders are
                                         pending and excluded from financial totals). */}
                                     {invoices.length > 0 && (() => {
-                                        const totalInvoiced = invoices.reduce((s, i) => s + (Number((i as any).grandTotal) || 0), 0);
-                                        const totalOutstanding = invoices.reduce((s, i) => {
-                                            const grand = Number((i as any).grandTotal) || 0;
-                                            const rb = Number((i as any).remaining_balance ?? grand);
-                                            return s + Math.max(0, rb);
-                                        }, 0);
+                                        const statement = customerStatementTotals(invoices);
+                                        const totalInvoiced = statement.invoiced;
+                                        const totalOutstanding = statement.outstanding;
                                         return (
                                             <tfoot>
                                                 <tr style={{ fontWeight: 700 }}>
