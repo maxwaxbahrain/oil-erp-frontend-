@@ -15,6 +15,16 @@ export const ERRORS = {
     network: 'The connection dropped. Check your network and send the question again.',
 } as const;
 
+export const VOICE = {
+    idle: 'Idle',
+    listening: 'Listening',
+    thinking: 'Thinking',
+    speaking: 'Zava is speaking',
+    denied: 'The microphone is off. Allow the microphone for this site, then tap the orb again.',
+    unheard: "I didn't hear a question. Tap the orb and try again.",
+    cap: ERRORS.limit,
+} as const;
+
 export const INVALID_EMAIL = 'Enter a valid email address.';
 export const MAILBOX_WARNING = 'This address cannot receive mail. Update the email on your profile.';
 
