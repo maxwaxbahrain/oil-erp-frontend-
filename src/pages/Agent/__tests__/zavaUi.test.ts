@@ -163,6 +163,9 @@ describe('talk to zava', () => {
         expect(ready).toBeGreaterThan(0);
         expect(mic).toBeGreaterThan(ready);
         expect(agent).toContain("permissionDenied(error) ? VOICE.denied");
+        expect(agent).toContain('id="zava-voice-countdown"');
+        expect(agent).toContain('RECORD_LIMIT_SECONDS * 1000');
+        expect(agent).toContain('recordingCountdown');
         expect(agent).toContain('id="zava-signals-title"');
     });
 });

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { AlertCircle, Clock, Copy, Package, Send, Users, X } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../contexts/AuthContext';
-import { permissionDenied, recorderMime, type VoiceState } from '../../services/zavaVoice';
+import { RECORD_LIMIT_SECONDS, permissionDenied, recorderMime, recordingCountdown, type VoiceState } from '../../services/zavaVoice';
 import { AnswerBody } from './formatAnswer';
 import { FollowUps, SpatialStyles, ZavaPanel, type SpatialBlock } from './spatial';
 import {
@@ -119,8 +119,10 @@ export default function AgentPage() {
     const [signalsError, setSignalsError] = useState('');
     const [voiceState, setVoiceState] = useState<VoiceState>('idle');
     const [voiceNotice, setVoiceNotice] = useState('');
+    const [countdown, setCountdown] = useState<number | null>(null);
     const threadRef = useRef<HTMLDivElement>(null);
     const recorderRef = useRef<MediaRecorder | null>(null);
+    const listenTimers = useRef<{ tick: number; limit: number } | null>(null);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const voiceUrlRef = useRef('');
     const questionRef = useRef<HTMLTextAreaElement>(null);
@@ -143,6 +145,22 @@ export default function AgentPage() {
         threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight });
     }, [turns, sending]);
 
+    useEffect(() => () => {
+        const timers = listenTimers.current;
+        if (timers) {
+            window.clearInterval(timers.tick);
+            window.clearTimeout(timers.limit);
+            listenTimers.current = null;
+        }
+        const recorder = recorderRef.current;
+        if (recorder && recorder.state === 'recording') {
+            recorder.onstop = () => {
+                recorder.stream.getTracks().forEach((track) => track.stop());
+            };
+            recorder.stop();
+        }
+    }, []);
+
     useEffect(() => {
         let cancelled = false;
         api.get<{ cards: SignalCard[] }>('/api/agent/signals')
@@ -156,6 +174,21 @@ export default function AgentPage() {
             cancelled = true;
         };
     }, []);
+
+    function clearListenTimers() {
+        const timers = listenTimers.current;
+        if (!timers) return;
+        window.clearInterval(timers.tick);
+        window.clearTimeout(timers.limit);
+        listenTimers.current = null;
+    }
+
+    function stopRecording() {
+        clearListenTimers();
+        setCountdown(null);
+        const recorder = recorderRef.current;
+        if (recorder && recorder.state === 'recording') recorder.stop();
+    }
 
     function stopSpeaking() {
         const playing = audioRef.current;
@@ -310,11 +343,20 @@ export default function AgentPage() {
                 if (event.data.size > 0) chunks.push(event.data);
             };
             recorder.onstop = () => {
+                clearListenTimers();
+                setCountdown(null);
                 stream.getTracks().forEach((track) => track.stop());
                 const clip = new Blob(chunks, { type: recorder.mimeType || mime || 'audio/webm' });
                 void sendClip(clip);
             };
             recorderRef.current = recorder;
+            const started = Date.now();
+            listenTimers.current = {
+                tick: window.setInterval(() => {
+                    setCountdown(recordingCountdown(Date.now() - started));
+                }, 200),
+                limit: window.setTimeout(() => stopRecording(), RECORD_LIMIT_SECONDS * 1000),
+            };
             recorder.start();
             setVoiceState('listening');
         } catch (error) {
@@ -330,7 +372,7 @@ export default function AgentPage() {
         }
         if (voiceState === 'thinking' || sending) return;
         if (voiceState === 'listening') {
-            recorderRef.current?.stop();
+            stopRecording();
             return;
         }
         void startListening();
@@ -673,6 +715,9 @@ export default function AgentPage() {
                 >
                     <ZavaOrb thinking={voiceState === 'thinking' || voiceState === 'speaking'} size={40} />
                     <span>{VOICE[voiceState]}</span>
+                    {voiceState === 'listening' && countdown !== null && (
+                        <span id="zava-voice-countdown">{countdown}</span>
+                    )}
                 </button>
                 {voiceState === 'speaking' && (
                     <button type="button" id="zava-voice-stop" className="zava-control text-sm underline" onClick={stopSpeaking}>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { permissionDenied, recorderMime } from '../../../services/zavaVoice';
+import { RECORD_LIMIT_SECONDS, permissionDenied, recorderMime, recordingCountdown } from '../../../services/zavaVoice';
 
 describe('microphone permission', () => {
     it('treats a denied prompt as a permission error', () => {
@@ -25,5 +25,15 @@ describe('microphone permission', () => {
         supported.add('audio/webm;codecs=opus');
         expect(recorderMime()).toBe('audio/webm;codecs=opus');
         Object.defineProperty(globalThis, 'MediaRecorder', { configurable: true, value: original });
+    });
+
+    it('counts down only in the last 5 seconds of a 30 second recording', () => {
+        expect(RECORD_LIMIT_SECONDS).toBe(30);
+        expect(recordingCountdown(0)).toBeNull();
+        expect(recordingCountdown(24_999)).toBeNull();
+        expect(recordingCountdown(25_000)).toBe(5);
+        expect(recordingCountdown(26_100)).toBe(4);
+        expect(recordingCountdown(29_200)).toBe(1);
+        expect(recordingCountdown(30_000)).toBeNull();
     });
 });
