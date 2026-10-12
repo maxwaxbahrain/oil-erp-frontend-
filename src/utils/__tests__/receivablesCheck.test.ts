@@ -126,6 +126,51 @@ describe('receivables check', () => {
     expect(summary.net).toBe(ledgerClosing);
   });
 
+  it('does not subtract a credit note that reverses a cancelled invoice', () => {
+    const report = buildReceivablesCheck({
+      asOf: new Date('2026-08-01T12:00:00'),
+      invoices: [
+        {
+          id: '1',
+          customerId: 'c1',
+          customerName: 'Alpha',
+          invoiceNumber: 'INV-1',
+          invoiceDate: '2026-08-01',
+          dueDate: '2026-08-01',
+          grandTotal: 100,
+          remaining_balance: 100,
+          status: 'Unpaid',
+        },
+        {
+          id: '2',
+          customerId: 'c1',
+          customerName: 'Alpha',
+          invoiceNumber: 'INV-2',
+          invoiceDate: '2026-08-01',
+          dueDate: '2026-08-01',
+          grandTotal: 40,
+          remaining_balance: 40,
+          status: 'cancelled',
+        },
+      ],
+      payments: [],
+      creditNotes: [
+        {
+          id: '8',
+          creditNoteNumber: 'CN-8',
+          customerId: 'c1',
+          customerName: 'Alpha',
+          remainingCredit: 40,
+          status: 'issued',
+          originalInvoiceId: '2',
+        },
+      ],
+    });
+    expect(report.gross).toBe(100);
+    expect(report.unappliedCredits.total).toBe(0);
+    expect(report.net).toBe(100);
+  });
+
   it('shows the unapplied part of a sales return in the credits column', () => {
     const report = buildReceivablesCheck({
       asOf: new Date('2026-08-01T12:00:00'),

@@ -6,6 +6,7 @@ import {
   type ArCreditKind,
   type ReceivablesSummary,
 } from './arMetrics';
+import { invoiceCountsTowardCustomerBalance } from './invoiceBalance';
 
 export interface CheckInvoice {
   id: string;
@@ -108,11 +109,21 @@ function money(n: number): number {
   return cents(n);
 }
 
-export function creditNoteInputs(notes: CheckCreditNote[]): ArCreditInput[] {
+export function creditNoteInputs(
+  notes: CheckCreditNote[],
+  invoices: Array<{ id?: string; status?: string | null }> = [],
+): ArCreditInput[] {
+  const closedInvoiceIds = new Set(
+    invoices
+      .filter((inv) => !invoiceCountsTowardCustomerBalance(inv.status))
+      .map((inv) => String(inv.id)),
+  );
   const out: ArCreditInput[] = [];
   for (const note of notes) {
     const status = String(note.status ?? '').toLowerCase();
     if (status === 'cancelled' || status === 'canceled' || status === 'fully_used') continue;
+    const originalId = String(note.originalInvoiceId ?? '');
+    if (originalId && closedInvoiceIds.has(originalId)) continue;
     const amount = Number(note.remainingCredit) || 0;
     if (amount <= 0.005) continue;
     const linked = String(note.originalInvoiceId ?? '').trim().length > 0;
@@ -237,7 +248,7 @@ export function buildReceivablesCheck(input: {
 }): ReceivablesCheckReport {
   const asOf = input.asOf ?? new Date();
   const creditInputs = [
-    ...creditNoteInputs(input.creditNotes ?? []),
+    ...creditNoteInputs(input.creditNotes ?? [], input.invoices),
     ...importedCreditInputs(input.importedCredits ?? []),
   ];
   const summary = calculateReceivables(input.invoices, input.payments, asOf, { credits: creditInputs });
