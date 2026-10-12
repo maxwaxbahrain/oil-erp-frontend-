@@ -44,6 +44,20 @@ type BriefingSettings = {
     timezone_label?: string;
 };
 
+type SignalCard = {
+    id: string;
+    title: string;
+    why: string;
+    action: string;
+    money: number;
+    priority: string;
+    href: string;
+};
+
+function signalMoney(value: number): string {
+    return Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 const ICONS = {
     attention: AlertCircle,
     overdue: Clock,
@@ -99,6 +113,8 @@ export default function AgentPage() {
     const [briefingNote, setBriefingNote] = useState('');
     const [savingBriefing, setSavingBriefing] = useState(false);
     const [saved, setSaved] = useState(false);
+    const [signals, setSignals] = useState<SignalCard[] | null>(null);
+    const [signalsError, setSignalsError] = useState('');
     const threadRef = useRef<HTMLDivElement>(null);
     const questionRef = useRef<HTMLTextAreaElement>(null);
 
@@ -119,6 +135,20 @@ export default function AgentPage() {
     useEffect(() => {
         threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight });
     }, [turns, sending]);
+
+    useEffect(() => {
+        let cancelled = false;
+        api.get<{ cards: SignalCard[] }>('/api/agent/signals')
+            .then((response) => {
+                if (!cancelled) setSignals(response.data.cards || []);
+            })
+            .catch(() => {
+                if (!cancelled) setSignalsError('Signals could not be loaded.');
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     async function ask(text: string) {
         const question = text.trim();
@@ -527,6 +557,29 @@ export default function AgentPage() {
                     </button>
                 </div>
             </form>
+
+            <section aria-labelledby="zava-signals-title" className="zava-signals shrink-0 max-h-48 overflow-y-auto pt-3">
+                <h2 id="zava-signals-title" className="text-sm font-semibold text-redwood-text-main">Signals</h2>
+                {signalsError && <p className="mt-2 text-sm text-redwood-text-muted">{signalsError}</p>}
+                {signals && signals.length === 0 && (
+                    <p className="mt-2 text-sm text-redwood-text-muted">Nothing needs your attention right now.</p>
+                )}
+                {signals && signals.length > 0 && (
+                    <ul className="mt-2 flex flex-col gap-2">
+                        {signals.map((card) => (
+                            <li key={card.id} className="zava-card rounded-xl border border-redwood-border px-3 py-2 text-sm">
+                                <div className="flex items-start justify-between gap-3">
+                                    <p className="font-medium text-redwood-text-main">{card.title}</p>
+                                    <Link className="zava-control shrink-0 underline" to={card.href}>Open</Link>
+                                </div>
+                                <p className="mt-1 text-xs uppercase tracking-wide text-redwood-text-muted">{card.priority}</p>
+                                <p className="mt-1 text-redwood-text-muted">{card.why}</p>
+                                <p className="mt-1 text-redwood-text-muted">{card.action}. Money at stake {signalMoney(card.money)}.</p>
+                            </li>
+                        ))}
+                    </ul>
+                )}
+            </section>
 
             {panelOpen && (
                 <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-labelledby="zava-briefing-title">
