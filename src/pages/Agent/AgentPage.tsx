@@ -69,6 +69,9 @@ const MODULE_ICONS = {
     collections: Wallet,
     sales: Users,
     inventory: Package,
+    cash: Wallet,
+    finance: Wallet,
+    customers: Users,
 } as const;
 
 const ICONS = {
@@ -127,7 +130,9 @@ export default function AgentPage() {
     const [savingBriefing, setSavingBriefing] = useState(false);
     const [saved, setSaved] = useState(false);
     const [signals, setSignals] = useState<SignalCard[] | null>(null);
+    const [health, setHealth] = useState<SignalCard[] | null>(null);
     const [signalsError, setSignalsError] = useState('');
+    const showDataHealth = user?.role === 'admin' || user?.role === 'accountant';
     const [voiceState, setVoiceState] = useState<VoiceState>('idle');
     const [voiceNotice, setVoiceNotice] = useState('');
     const [countdown, setCountdown] = useState<number | null>(null);
@@ -174,9 +179,12 @@ export default function AgentPage() {
 
     useEffect(() => {
         let cancelled = false;
-        api.get<{ cards: SignalCard[] }>('/api/agent/signals')
+        api.get<{ cards: SignalCard[]; data_health?: SignalCard[] }>('/api/agent/signals')
             .then((response) => {
-                if (!cancelled) setSignals(response.data.cards || []);
+                if (cancelled) return;
+                setSignals(response.data.cards || []);
+                if (showDataHealth) setHealth(response.data.data_health || []);
+                else setHealth(null);
             })
             .catch(() => {
                 if (!cancelled) setSignalsError('Signals could not be loaded.');
@@ -184,7 +192,7 @@ export default function AgentPage() {
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [showDataHealth]);
 
     function clearListenTimers() {
         const timers = listenTimers.current;
@@ -867,6 +875,43 @@ export default function AgentPage() {
                     </ul>
                 )}
             </section>
+
+            {showDataHealth && (
+                <section aria-labelledby="zava-data-health-title" className="zava-signals pt-3">
+                    <div className="flex items-center gap-2">
+                        <h2 id="zava-data-health-title" className="text-sm font-semibold text-redwood-text-main">Data health</h2>
+                        {health && health.length > 0 && (
+                            <span className="zava-signal-count">{attentionLabel(health.length)}</span>
+                        )}
+                    </div>
+                    {health && health.length === 0 && (
+                        <p className="mt-2 text-sm text-redwood-text-muted">No book problems found.</p>
+                    )}
+                    {health && health.length > 0 && (
+                        <ul className="zava-signal-grid">
+                            {health.map((card) => {
+                                const pill = priorityPill(card.priority);
+                                const ModuleIcon = MODULE_ICONS[card.module as keyof typeof MODULE_ICONS] || Bell;
+                                return (
+                                    <li key={card.id} className="zava-glass zava-signal-card">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg" style={{ background: 'rgba(196,181,253,0.16)' }}>
+                                                <ModuleIcon size={18} color={VIOLET} aria-hidden="true" />
+                                            </span>
+                                            <span className="zava-priority" style={{ background: pill.background, color: pill.color }}>{pill.label}</span>
+                                        </div>
+                                        <p className="zava-signal-title" title={card.title}>{card.title}</p>
+                                        <p className="zava-figure">{signalFigure(card)}</p>
+                                        <p className="zava-signal-muted">{signalWhy(card.why)}</p>
+                                        <p className="zava-signal-muted">{card.action}</p>
+                                        <Link className="zava-signal-open zava-control" to={card.href}>Open</Link>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    )}
+                </section>
+            )}
 
             {panelOpen && (
                 <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-labelledby="zava-briefing-title">
