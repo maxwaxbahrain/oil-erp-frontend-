@@ -132,6 +132,7 @@ export default function AgentPage() {
     const [signals, setSignals] = useState<SignalCard[] | null>(null);
     const [health, setHealth] = useState<SignalCard[] | null>(null);
     const [signalsError, setSignalsError] = useState('');
+    const [healthError, setHealthError] = useState('');
     const showDataHealth = user?.role === 'admin' || user?.role === 'accountant';
     const [voiceState, setVoiceState] = useState<VoiceState>('idle');
     const [voiceNotice, setVoiceNotice] = useState('');
@@ -179,15 +180,34 @@ export default function AgentPage() {
 
     useEffect(() => {
         let cancelled = false;
-        api.get<{ cards: SignalCard[]; data_health?: SignalCard[] }>('/api/agent/signals')
+        api.get<{ cards: SignalCard[] }>('/api/agent/signals')
             .then((response) => {
                 if (cancelled) return;
                 setSignals(response.data.cards || []);
-                if (showDataHealth) setHealth(response.data.data_health || []);
-                else setHealth(null);
             })
             .catch(() => {
                 if (!cancelled) setSignalsError('Signals could not be loaded.');
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!showDataHealth) {
+            setHealth(null);
+            setHealthError('');
+            return;
+        }
+        let cancelled = false;
+        api.get<{ data_health?: SignalCard[] }>('/api/agent/data-health')
+            .then((response) => {
+                if (cancelled) return;
+                setHealth(response.data.data_health || []);
+                setHealthError('');
+            })
+            .catch(() => {
+                if (!cancelled) setHealthError('Data health could not be loaded.');
             });
         return () => {
             cancelled = true;
@@ -884,6 +904,7 @@ export default function AgentPage() {
                             <span className="zava-signal-count">{attentionLabel(health.length)}</span>
                         )}
                     </div>
+                    {healthError && <p className="mt-2 text-sm text-redwood-text-muted">{healthError}</p>}
                     {health && health.length === 0 && (
                         <p className="mt-2 text-sm text-redwood-text-muted">No book problems found.</p>
                     )}
