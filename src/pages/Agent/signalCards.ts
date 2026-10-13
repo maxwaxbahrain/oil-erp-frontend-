@@ -57,3 +57,10 @@ export function signalFigure(card: { watcher_id?: string; money: number; why: st
 export function signalWhy(why: string): string {
     return why.replace(CREDIT_DETAIL, '').replace(/\s+/g, ' ').trim();
 }
+
+export function lastCheckedLabel(iso: string): string {
+    const when = new Date(iso);
+    if (Number.isNaN(when.getTime())) return `Last checked: ${iso}`;
+    const text = when.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+    return `Last checked: ${text}`;
+}

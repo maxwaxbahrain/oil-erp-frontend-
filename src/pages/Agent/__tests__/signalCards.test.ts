@@ -5,6 +5,7 @@ import {
     attentionLabel,
     companyAmount,
     priorityPill,
+    lastCheckedLabel,
     signalFigure,
     signalWhy,
 } from '../signalCards';
@@ -38,5 +39,7 @@ describe('signal cards', () => {
         expect(shown).toBe('Open balance is 110.00 and the limit is 100.00.');
         expect(shown).not.toContain('unpaid invoices');
         expect(CREDIT_DETAIL).toContain('unpaid invoices after allocations');
+        expect(lastCheckedLabel('not-a-date')).toBe('Last checked: not-a-date');
+        expect(lastCheckedLabel('2026-10-13T02:15:00.000Z')).toContain('Last checked:');
     });
 });
