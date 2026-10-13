@@ -168,6 +168,26 @@ describe('talk to zava', () => {
         expect(agent).toContain('recordingCountdown');
         expect(agent).toContain('id="zava-signals-title"');
     });
+
+    it('keeps the suggestion chips above the question box', () => {
+        const agent = readFileSync(resolve(process.cwd(), 'src/pages/Agent/AgentPage.tsx'), 'utf8');
+        const style = agent.match(/<style>\{`([\s\S]*?)`\}<\/style>/)?.[1] || '';
+        const pageRule = style.slice(style.indexOf('.zava-page {'), style.indexOf('}', style.indexOf('.zava-page {')));
+        expect(pageRule).toContain('overflow: visible');
+        expect(pageRule).toContain('height: auto');
+        expect(pageRule).not.toContain('overflow: hidden');
+        expect(pageRule).not.toContain('height: calc');
+        const chips = agent.indexOf('id="zava-suggestions"');
+        const orb = agent.indexOf('id="zava-orb"');
+        const question = agent.indexOf('id="zava-question"');
+        expect(chips).toBeGreaterThan(0);
+        expect(orb).toBeGreaterThan(chips);
+        expect(question).toBeGreaterThan(orb);
+        expect(agent).not.toContain('max-h-48');
+        expect(agent).toContain('zava-signal-grid');
+        expect(agent).toContain('grid-template-columns: 1fr');
+        expect(agent).toContain('.zava-signal-grid { grid-template-columns: 1fr 1fr; }');
+    });
 });
 
 describe('answers never render raw HTML', () => {

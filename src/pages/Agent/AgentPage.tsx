@@ -1,11 +1,18 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertCircle, Clock, Copy, Package, Send, Users, X } from 'lucide-react';
+import { AlertCircle, Bell, Clock, Copy, Package, Send, Users, Wallet, X } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../contexts/AuthContext';
 import { RECORD_LIMIT_SECONDS, permissionDenied, recorderMime, recordingCountdown, type VoiceState } from '../../services/zavaVoice';
 import { AnswerBody } from './formatAnswer';
 import { FollowUps, SpatialStyles, ZavaPanel, type SpatialBlock } from './spatial';
+import {
+    CREDIT_DETAIL,
+    attentionLabel,
+    priorityPill,
+    signalFigure,
+    signalWhy,
+} from './signalCards';
 import {
     ERRORS,
     INVALID_EMAIL,
@@ -48,6 +55,8 @@ type BriefingSettings = {
 
 type SignalCard = {
     id: string;
+    watcher_id?: string;
+    module?: string;
     title: string;
     why: string;
     action: string;
@@ -56,9 +65,11 @@ type SignalCard = {
     href: string;
 };
 
-function signalMoney(value: number): string {
-    return Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
+const MODULE_ICONS = {
+    collections: Wallet,
+    sales: Users,
+    inventory: Package,
+} as const;
 
 const ICONS = {
     attention: AlertCircle,
@@ -142,7 +153,7 @@ export default function AgentPage() {
     }, [sending]);
 
     useEffect(() => {
-        threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight });
+        threadRef.current?.lastElementChild?.scrollIntoView({ block: 'nearest' });
     }, [turns, sending]);
 
     useEffect(() => () => {
@@ -470,23 +481,75 @@ export default function AgentPage() {
                     margin-left: auto;
                     margin-right: auto;
                     min-width: 0;
-                    height: calc(100dvh - 64px - 38px - 40px - 24px - 72px);
-                    padding: 0 16px 96px;
+                    height: auto;
+                    padding: 0 16px 24px;
                     display: flex;
                     flex-direction: column;
-                    overflow: hidden;
-                }
-                @media (min-width: 640px) {
-                    .zava-page { height: calc(100dvh - 64px - 38px - 40px - 48px - 72px); }
+                    overflow: visible;
                 }
                 @media (min-width: 768px) {
                     .zava-page { padding-left: 24px; padding-right: 24px; }
                 }
-                @media (min-width: 1024px) {
-                    .zava-page { height: calc(100dvh - 64px - 38px - 40px - 80px); }
+                .zava-suggestions { position: relative; z-index: 1; width: 100%; }
+                .zava-signal-grid {
+                    display: grid;
+                    grid-template-columns: 1fr;
+                    gap: 12px;
+                    margin: 12px 0 0;
+                    padding: 0;
+                    list-style: none;
                 }
-                @media (min-width: 1328px) {
-                    .zava-page { padding-bottom: 24px; }
+                @media (min-width: 768px) {
+                    .zava-signal-grid { grid-template-columns: 1fr 1fr; }
+                }
+                .zava-signal-card { color: #EEF2FF; }
+                .zava-signal-card .zava-figure { margin: 0; color: #EEF2FF; }
+                .zava-signal-title {
+                    margin: 0;
+                    overflow-wrap: anywhere;
+                    display: -webkit-box;
+                    -webkit-line-clamp: 2;
+                    -webkit-box-orient: vertical;
+                    overflow: hidden;
+                    font-size: 16px;
+                    font-weight: 600;
+                    line-height: 1.35;
+                    color: #EEF2FF;
+                }
+                .zava-signal-muted { margin: 0; color: #C7D2FE; font-size: 14px; line-height: 1.45; }
+                .zava-signal-count, .zava-priority {
+                    display: inline-flex;
+                    align-items: center;
+                    border-radius: 999px;
+                    font-size: 12px;
+                    font-weight: 700;
+                    line-height: 1;
+                    padding: 4px 8px;
+                }
+                .zava-signal-count { background: rgba(255,255,255,0.14); color: #EEF2FF; }
+                .zava-signal-open {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    min-height: 36px;
+                    padding: 0 14px;
+                    border-radius: 999px;
+                    background: #C4B5FD;
+                    color: #1E1B4B;
+                    font-weight: 600;
+                    text-decoration: none;
+                }
+                .zava-info {
+                    margin-left: 6px;
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 999px;
+                    border: 1px solid #C7D2FE;
+                    background: transparent;
+                    color: #EEF2FF;
+                    font-size: 12px;
+                    line-height: 1;
+                    cursor: help;
                 }
                 .zava-orb { display: inline-flex; position: relative; z-index: 1; filter: drop-shadow(0 0 10px rgba(196,181,253,0.55)); }
                 .zava-orb-thinking { animation: zava-glow 1.6s ease-in-out infinite; }
@@ -562,9 +625,9 @@ export default function AgentPage() {
                 )}
             </header>
 
-            <div ref={threadRef} className={`flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden ${welcome ? '' : 'gap-6 py-4'}`}>
+            <div ref={threadRef} className={`flex w-full flex-col ${welcome ? '' : 'gap-6 py-4'}`}>
                 {welcome && (
-                    <div className="flex min-h-full w-full items-center justify-center">
+                    <div className="flex w-full flex-col items-center pt-6 text-center">
                     <div className="relative flex w-full flex-col items-center text-center">
                         <div className="zava-spot" aria-hidden="true" />
                         <div className="relative z-[1] flex h-14 w-14 items-center justify-center">
@@ -577,7 +640,7 @@ export default function AgentPage() {
                         <p className="relative z-[1] mx-auto mt-3 max-w-[520px] text-[15px] leading-6 text-redwood-text-muted" style={{ textWrap: 'balance' }}>
                             I look up your sales, cash, stock and deliveries. I never change your data.
                         </p>
-                        <div className="relative z-[1] mt-10 grid w-full grid-cols-1 gap-3 min-[480px]:grid-cols-2 text-left">
+                        <div id="zava-suggestions" className="zava-suggestions relative z-[1] mt-10 grid w-full grid-cols-1 gap-3 min-[480px]:grid-cols-2 text-left">
                             {SUGGESTIONS.map((item) => {
                                 const Icon = ICONS[item.id];
                                 return (
@@ -762,25 +825,45 @@ export default function AgentPage() {
                 </div>
             </form>
 
-            <section aria-labelledby="zava-signals-title" className="zava-signals shrink-0 max-h-48 overflow-y-auto pt-3">
-                <h2 id="zava-signals-title" className="text-sm font-semibold text-redwood-text-main">Signals</h2>
+            <section aria-labelledby="zava-signals-title" className="zava-signals pt-3">
+                <div className="flex items-center gap-2">
+                    <h2 id="zava-signals-title" className="text-sm font-semibold text-redwood-text-main">Signals</h2>
+                    {signals && signals.length > 0 && (
+                        <span className="zava-signal-count">{attentionLabel(signals.length)}</span>
+                    )}
+                </div>
                 {signalsError && <p className="mt-2 text-sm text-redwood-text-muted">{signalsError}</p>}
                 {signals && signals.length === 0 && (
                     <p className="mt-2 text-sm text-redwood-text-muted">Nothing needs your attention right now.</p>
                 )}
                 {signals && signals.length > 0 && (
-                    <ul className="mt-2 flex flex-col gap-2">
-                        {signals.map((card) => (
-                            <li key={card.id} className="zava-card rounded-xl border border-redwood-border px-3 py-2 text-sm">
-                                <div className="flex items-start justify-between gap-3">
-                                    <p className="font-medium text-redwood-text-main">{card.title}</p>
-                                    <Link className="zava-control shrink-0 underline" to={card.href}>Open</Link>
-                                </div>
-                                <p className="mt-1 text-xs uppercase tracking-wide text-redwood-text-muted">{card.priority}</p>
-                                <p className="mt-1 text-redwood-text-muted">{card.why}</p>
-                                <p className="mt-1 text-redwood-text-muted">{card.action}. Money at stake {signalMoney(card.money)}.</p>
-                            </li>
-                        ))}
+                    <ul className="zava-signal-grid">
+                        {signals.map((card) => {
+                            const pill = priorityPill(card.priority);
+                            const ModuleIcon = MODULE_ICONS[card.module as keyof typeof MODULE_ICONS] || Bell;
+                            const why = signalWhy(card.why);
+                            const detail = card.watcher_id === 'near_credit_limit' ? CREDIT_DETAIL : '';
+                            return (
+                                <li key={card.id} className="zava-glass zava-signal-card">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg" style={{ background: 'rgba(196,181,253,0.16)' }}>
+                                            <ModuleIcon size={18} color={VIOLET} aria-hidden="true" />
+                                        </span>
+                                        <span className="zava-priority" style={{ background: pill.background, color: pill.color }}>{pill.label}</span>
+                                    </div>
+                                    <p className="zava-signal-title" title={card.title}>{card.title}</p>
+                                    <p className="zava-figure">{signalFigure(card)}</p>
+                                    <p className="zava-signal-muted">
+                                        {why}
+                                        {detail && (
+                                            <button type="button" className="zava-info" title={detail} aria-label={detail}>i</button>
+                                        )}
+                                    </p>
+                                    <p className="zava-signal-muted">{card.action}</p>
+                                    <Link className="zava-signal-open zava-control" to={card.href}>Open</Link>
+                                </li>
+                            );
+                        })}
                     </ul>
                 )}
             </section>
