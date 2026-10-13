@@ -6,11 +6,11 @@ import { isStaging } from './appEnv';
 // Routes and components are untouched; only sidebar links are gated here
 // (except sales_returns, which is also gated at the route level).
 
-// sales_returns is on only when VITE_APP_ENV is staging.
+// sales_returns: enabled in all environments since Oct 3 2026 (GL fixes M6+M8 live).
 const PILOT_VISIBLE = isStaging;
 
 export const MODULE_FLAGS = {
-  sales_returns: PILOT_VISIBLE,
+  sales_returns: true,
 
   // Mock / invoice-math screens — not GL-aligned. Gated at route + sidebar (all envs).
   finance_accounting_dashboard: false,
