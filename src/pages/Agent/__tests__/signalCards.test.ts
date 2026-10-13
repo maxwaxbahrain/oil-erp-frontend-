@@ -25,6 +25,7 @@ describe('signal cards', () => {
             why: 'Open balance is 110.00 and the limit is 100.00.',
         })).toBe('BHD 110 / 100 limit');
         expect(signalFigure({ money: 40, why: 'Stock is below the minimum.' })).toBe('BHD 40');
+        expect(signalFigure({ watcher_id: 'unresolved_posting_failures', money: 2, why: 'Invoice 4 failed.' })).toBe('2 open');
     });
 
     it('uses the priority colors and hides the technical sentence', () => {

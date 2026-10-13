@@ -137,11 +137,16 @@ describe('signals under the question box', () => {
         expect(question).toBeGreaterThan(0);
         expect(signals).toBeGreaterThan(question);
         expect(agent).toContain('Nothing needs your attention right now.');
-        expect(agent).toContain("api.get<{ cards: SignalCard[] }>('/api/agent/signals')");
-        const start = agent.indexOf("api.get<{ cards: SignalCard[] }>");
-        const load = agent.slice(start, agent.indexOf('}, []);', start));
+        expect(agent).toContain("api.get<{ cards: SignalCard[]; data_health?: SignalCard[] }>('/api/agent/signals')");
+        const start = agent.indexOf("api.get<{ cards: SignalCard[]; data_health?: SignalCard[] }>");
+        const load = agent.slice(start, agent.indexOf('}, [showDataHealth]);', start));
         expect(load).not.toContain('/api/agent/chat');
         expect(load).not.toContain('complete(');
+        const health = agent.indexOf('id="zava-data-health-title"');
+        expect(health).toBeGreaterThan(signals);
+        expect(agent).toContain("user?.role === 'admin' || user?.role === 'accountant'");
+        expect(agent).toContain('{showDataHealth && (');
+        expect(agent).toContain('No book problems found.');
     });
 });
 

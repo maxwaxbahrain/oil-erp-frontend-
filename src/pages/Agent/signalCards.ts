@@ -40,6 +40,10 @@ export function companyAmount(value: number): string {
 }
 
 export function signalFigure(card: { watcher_id?: string; money: number; why: string }): string {
+    if (card.watcher_id === 'unresolved_posting_failures') {
+        const count = Math.round(Number(card.money) || 0);
+        return count === 1 ? '1 open' : `${count} open`;
+    }
     if (card.watcher_id === 'near_credit_limit') {
         const match = String(card.why || '').match(/limit is ([0-9,]+\.[0-9]{2})/);
         if (match) {
