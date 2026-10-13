@@ -137,6 +137,7 @@ export default function AgentPage() {
     const [runningChecks, setRunningChecks] = useState(false);
     const [healthNote, setHealthNote] = useState('');
     const [signalsError, setSignalsError] = useState('');
+    const [healthError, setHealthError] = useState('');
     const showDataHealth = user?.role === 'admin' || user?.role === 'accountant';
     const [voiceState, setVoiceState] = useState<VoiceState>('idle');
     const [voiceNotice, setVoiceNotice] = useState('');
@@ -184,20 +185,36 @@ export default function AgentPage() {
 
     useEffect(() => {
         let cancelled = false;
-        api.get<{ cards: SignalCard[]; data_health?: SignalCard[]; data_health_checked_at?: string | null }>('/api/agent/signals')
+        api.get<{ cards: SignalCard[] }>('/api/agent/signals')
             .then((response) => {
                 if (cancelled) return;
                 setSignals(response.data.cards || []);
-                if (showDataHealth) {
-                    setHealth(response.data.data_health || []);
-                    setCheckedAt(response.data.data_health_checked_at || null);
-                } else {
-                    setHealth(null);
-                    setCheckedAt(null);
-                }
             })
             .catch(() => {
                 if (!cancelled) setSignalsError('Signals could not be loaded.');
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!showDataHealth) {
+            setHealth(null);
+            setCheckedAt(null);
+            setHealthError('');
+            return;
+        }
+        let cancelled = false;
+        api.get<{ data_health?: SignalCard[]; data_health_checked_at?: string | null }>('/api/agent/data-health')
+            .then((response) => {
+                if (cancelled) return;
+                setHealth(response.data.data_health || []);
+                setCheckedAt(response.data.data_health_checked_at || null);
+                setHealthError('');
+            })
+            .catch(() => {
+                if (!cancelled) setHealthError('Data health could not be loaded.');
             });
         return () => {
             cancelled = true;
@@ -918,6 +935,7 @@ export default function AgentPage() {
                     {checkedAt && (
                         <p className="mt-1 text-xs text-redwood-text-muted">{lastCheckedLabel(checkedAt)}</p>
                     )}
+                    {healthError && <p className="mt-2 text-sm text-redwood-text-muted">{healthError}</p>}
                     {healthNote && <p className="mt-1 text-sm text-redwood-text-muted">{healthNote}</p>}
                     {health && health.length === 0 && (
                         <p className="mt-2 text-sm text-redwood-text-muted">No book problems found.</p>
