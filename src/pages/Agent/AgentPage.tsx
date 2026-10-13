@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertCircle, Bell, Clock, Copy, Package, Send, Users, Wallet, X } from 'lucide-react';
 import api from '../../api/axios';
+import { isStaging } from '../../config/appEnv';
 import { useAuth } from '../../contexts/AuthContext';
 import { RECORD_LIMIT_SECONDS, permissionDenied, recorderMime, recordingCountdown, type VoiceState } from '../../services/zavaVoice';
 import { AnswerBody } from './formatAnswer';
@@ -9,6 +10,7 @@ import { FollowUps, SpatialStyles, ZavaPanel, type SpatialBlock } from './spatia
 import {
     CREDIT_DETAIL,
     attentionLabel,
+    lastCheckedLabel,
     priorityPill,
     signalFigure,
     signalWhy,
@@ -131,6 +133,9 @@ export default function AgentPage() {
     const [saved, setSaved] = useState(false);
     const [signals, setSignals] = useState<SignalCard[] | null>(null);
     const [health, setHealth] = useState<SignalCard[] | null>(null);
+    const [checkedAt, setCheckedAt] = useState<string | null>(null);
+    const [runningChecks, setRunningChecks] = useState(false);
+    const [healthNote, setHealthNote] = useState('');
     const [signalsError, setSignalsError] = useState('');
     const showDataHealth = user?.role === 'admin' || user?.role === 'accountant';
     const [voiceState, setVoiceState] = useState<VoiceState>('idle');
@@ -179,12 +184,17 @@ export default function AgentPage() {
 
     useEffect(() => {
         let cancelled = false;
-        api.get<{ cards: SignalCard[]; data_health?: SignalCard[] }>('/api/agent/signals')
+        api.get<{ cards: SignalCard[]; data_health?: SignalCard[]; data_health_checked_at?: string | null }>('/api/agent/signals')
             .then((response) => {
                 if (cancelled) return;
                 setSignals(response.data.cards || []);
-                if (showDataHealth) setHealth(response.data.data_health || []);
-                else setHealth(null);
+                if (showDataHealth) {
+                    setHealth(response.data.data_health || []);
+                    setCheckedAt(response.data.data_health_checked_at || null);
+                } else {
+                    setHealth(null);
+                    setCheckedAt(null);
+                }
             })
             .catch(() => {
                 if (!cancelled) setSignalsError('Signals could not be loaded.');
@@ -193,6 +203,22 @@ export default function AgentPage() {
             cancelled = true;
         };
     }, [showDataHealth]);
+
+    async function runChecks() {
+        setRunningChecks(true);
+        setHealthNote('');
+        try {
+            const response = await api.post<{ data_health?: SignalCard[]; data_health_checked_at?: string | null }>(
+                '/api/agent/data-health/run',
+            );
+            setHealth(response.data.data_health || []);
+            setCheckedAt(response.data.data_health_checked_at || null);
+        } catch (error) {
+            setHealthNote(failureFromError(error));
+        } finally {
+            setRunningChecks(false);
+        }
+    }
 
     function clearListenTimers() {
         const timers = listenTimers.current;
@@ -883,7 +909,16 @@ export default function AgentPage() {
                         {health && health.length > 0 && (
                             <span className="zava-signal-count">{attentionLabel(health.length)}</span>
                         )}
+                        {isAdmin && isStaging && (
+                            <button type="button" className="zava-control" onClick={runChecks} disabled={runningChecks}>
+                                Run checks now
+                            </button>
+                        )}
                     </div>
+                    {checkedAt && (
+                        <p className="mt-1 text-xs text-redwood-text-muted">{lastCheckedLabel(checkedAt)}</p>
+                    )}
+                    {healthNote && <p className="mt-1 text-sm text-redwood-text-muted">{healthNote}</p>}
                     {health && health.length === 0 && (
                         <p className="mt-2 text-sm text-redwood-text-muted">No book problems found.</p>
                     )}
