@@ -17,6 +17,9 @@ export type POStatus = 'Pending' | 'Approved' | 'GRN' | 'Paid' | 'Received' | 'C
 /** Workflow statuses that create a supplier payable. Matches the backend rule. */
 const PAYABLE_PO_STATUSES = new Set(['approved', 'grn', 'received', 'paid', 'completed']);
 
+/** Named non-payable statuses in backend purchase_payable. Cancelled is not among them. */
+const EXCLUDED_PAYABLE_PO_STATUSES = new Set(['draft', 'pending', 'rejected']);
+
 export function purchaseCountsAsPayable(status: string | null | undefined): boolean {
     return PAYABLE_PO_STATUSES.has(String(status || '').trim().toLowerCase());
 }
@@ -24,10 +27,12 @@ export function purchaseCountsAsPayable(status: string | null | undefined): bool
 export function payablePurchaseTotal(
     orders: Array<{ status?: string | null; grandTotal?: number | null }>,
 ): number {
-    return orders.reduce(
-        (sum, po) => (purchaseCountsAsPayable(po.status) ? sum + (Number(po.grandTotal) || 0) : sum),
-        0,
-    );
+    // Mirrors backend purchase_payable: exclude-list, not allow-list.
+    return orders.reduce((sum, po) => {
+        const status = String(po.status ?? '').trim().toLowerCase();
+        if (EXCLUDED_PAYABLE_PO_STATUSES.has(status)) return sum;
+        return sum + (Number(po.grandTotal) || 0);
+    }, 0);
 }
 
 export function isOpenPayablePurchase(po: {
