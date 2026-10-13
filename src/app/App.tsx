@@ -39,6 +39,7 @@ import CommandBar from '../components/VoiceAssistant/CommandBar';
 import AdvisorDock from '../components/advisor/AdvisorDock';
 import { SubscriptionRequiredDialog } from '../components/common/SubscriptionRequired';
 import { isProduction, isStaging, appEnv } from '../config/appEnv';
+import { rolePillLabel } from '../utils/roleLabel';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { getInvoices, getCustomers, getProducts, getPayments, isCustomerPayment } from '../services/api';
 import { getPurchaseOrders } from '../services/purchasesService';
@@ -74,7 +75,7 @@ function roleIndexForPath(pathname: string): number {
 
 function App() {
   const location = useLocation();
-  const { hasRole } = useAuth();
+  const { user, hasRole } = useAuth();
   const canSeeFinance = hasRole(...FINANCE_ROLES);
   const canSeeDeliveries = hasRole(...DELIVERY_ROLES);
   const canSeeAdmin = hasRole(...ADMIN_ROLES);
@@ -473,6 +474,30 @@ function App() {
             </div>
             {/* Breadcrumb pill removed — nav goes logo → role pill →
                 search directly per latest mockup. */}
+            {location.pathname.startsWith('/agent') ? (
+              <span
+                aria-label={`Signed in as ${rolePillLabel(user?.role)}`}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  background: 'rgba(79,142,247,.12)',
+                  color: '#93C5FD',
+                  border: '1px solid rgba(79,142,247,.3)',
+                  borderRadius: '999px',
+                  padding: '0 11px',
+                  height: '38px',
+                  fontSize: '10.5px',
+                  fontWeight: 500,
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                  fontFamily: 'inherit',
+                }}
+              >
+                <User size={11} strokeWidth={2.5} />
+                {rolePillLabel(user?.role)}
+              </span>
+            ) : (
             <button
               type="button"
               onClick={cycleRole}
@@ -502,6 +527,7 @@ function App() {
               {ROLES[roleIndex]}
               <ChevronDown size={10} strokeWidth={2.5} />
             </button>
+            )}
           </div>
 
           {/* Header-center command bar — search + voice (mic desktop only). */}

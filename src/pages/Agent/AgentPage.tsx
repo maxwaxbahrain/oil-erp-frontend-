@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertCircle, Bell, Clock, Copy, Package, Send, Users, Wallet, X } from 'lucide-react';
+import ZavaRail, { focusZavaQuestion, railCounts, scrollToZava, type ZavaRailSection } from './zavaRail';
 import api from '../../api/axios';
 import { isStaging } from '../../config/appEnv';
 import { useAuth } from '../../contexts/AuthContext';
@@ -139,6 +140,7 @@ export default function AgentPage() {
     const [signalsError, setSignalsError] = useState('');
     const [healthError, setHealthError] = useState('');
     const showDataHealth = user?.role === 'admin' || user?.role === 'accountant';
+    const [railSection, setRailSection] = useState<ZavaRailSection>('ask');
     const [voiceState, setVoiceState] = useState<VoiceState>('idle');
     const [voiceNotice, setVoiceNotice] = useState('');
     const [countdown, setCountdown] = useState<number | null>(null);
@@ -220,6 +222,28 @@ export default function AgentPage() {
             cancelled = true;
         };
     }, [showDataHealth]);
+
+    useEffect(() => {
+        const ids = ['zava-question', 'zava-signals', ...(showDataHealth ? ['zava-data-health'] : [])];
+        const nodes = ids
+            .map((id) => document.getElementById(id))
+            .filter((node): node is HTMLElement => node !== null);
+        if (nodes.length === 0) return;
+        const seen = new Map<string, number>();
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach((entry) => {
+                seen.set(entry.target.id, entry.isIntersecting ? entry.intersectionRatio : 0);
+            });
+            const best = [...seen.entries()].sort((left, right) => right[1] - left[1])[0];
+            if (!best || best[1] <= 0) return;
+            setRailSection(best[0] === 'zava-signals' ? 'signals' : best[0] === 'zava-data-health' ? 'health' : 'ask');
+        }, { threshold: [0.15, 0.4, 0.7] });
+        nodes.forEach((node) => observer.observe(node));
+        return () => observer.disconnect();
+    }, [showDataHealth, signals, health, turns.length]);
+
+    const signalRail = railCounts(signals);
+    const healthRail = railCounts(health);
 
     async function runChecks() {
         setRunningChecks(true);
@@ -539,7 +563,79 @@ export default function AgentPage() {
                     overflow: visible;
                 }
                 @media (min-width: 768px) {
-                    .zava-page { padding-left: 24px; padding-right: 24px; }
+                    .zava-page { max-width: 980px; padding-left: 24px; padding-right: 24px; }
+                    .zava-shell { display: flex; align-items: flex-start; gap: 16px; }
+                    .zava-main { flex: 1; min-width: 0; }
+                    .zava-rail { position: sticky; top: 16px; width: 200px; flex: 0 0 200px; }
+                }
+                .zava-rail.zava-glass { padding: 12px; gap: 6px; }
+                .zava-rail-btn {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    width: 100%;
+                    min-height: 40px;
+                    border: 0;
+                    border-radius: 12px;
+                    background: transparent;
+                    color: #EEF2FF;
+                    text-align: left;
+                    padding: 8px 10px;
+                    cursor: pointer;
+                }
+                .zava-rail-btn.is-active { background: rgba(196,181,253,0.24); box-shadow: inset 0 0 0 1px #C4B5FD; }
+                .zava-rail-btn:disabled { opacity: 0.6; cursor: default; }
+                .zava-rail-count {
+                    margin-left: auto;
+                    min-width: 22px;
+                    height: 22px;
+                    padding: 0 6px;
+                    border-radius: 999px;
+                    background: rgba(238,242,255,0.16);
+                    color: #EEF2FF;
+                    font-size: 12px;
+                    font-weight: 700;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                .zava-rail-dot { width: 8px; height: 8px; border-radius: 999px; background: #F87171; flex: 0 0 auto; }
+                .zava-rail-checked { margin: 0 10px 4px; color: #C7D2FE; font-size: 12px; line-height: 1.35; }
+                .zava-rail-spin {
+                    width: 14px;
+                    height: 14px;
+                    border: 2px solid rgba(238,242,255,0.35);
+                    border-top-color: #EEF2FF;
+                    border-radius: 999px;
+                    animation: zava-spin 0.8s linear infinite;
+                }
+                @keyframes zava-spin { to { transform: rotate(360deg); } }
+                @media (max-width: 767px) {
+                    .zava-page { padding-bottom: 88px; }
+                    .zava-rail.zava-glass {
+                        position: fixed;
+                        left: 12px;
+                        right: 12px;
+                        bottom: 12px;
+                        top: auto;
+                        width: auto;
+                        flex-direction: row;
+                        z-index: 30;
+                        padding: 8px;
+                    }
+                    .zava-rail-label, .zava-rail-checked {
+                        position: absolute;
+                        width: 1px;
+                        height: 1px;
+                        padding: 0;
+                        margin: -1px;
+                        overflow: hidden;
+                        clip: rect(0, 0, 0, 0);
+                        white-space: nowrap;
+                        border: 0;
+                    }
+                    .zava-rail-btn { width: auto; flex: 1; justify-content: center; }
+                    .zava-rail-count { margin-left: 6px; }
                 }
                 .zava-suggestions { position: relative; z-index: 1; width: 100%; }
                 .zava-signal-grid {
@@ -658,10 +754,13 @@ export default function AgentPage() {
                 @media (prefers-reduced-motion: reduce) {
                     .zava-orb-thinking { animation: none; }
                     .zava-card { transition: none; }
+                    .zava-rail-spin { animation: none; }
                 }
             `}</style>
             <div aria-live="polite" className="sr-only">{announcement}</div>
             <SpatialStyles />
+            <div className="zava-shell">
+            <div className="zava-main">
             <header className="flex h-11 shrink-0 items-center justify-end gap-2">
                 {showNewConversation(turns.length) && (
                     <button type="button" className="zava-control h-9 rounded-lg border border-redwood-border px-3 text-sm text-redwood-text-main" onClick={() => { setTurns([]); setAnnouncement(''); }}>
@@ -876,7 +975,7 @@ export default function AgentPage() {
                 </div>
             </form>
 
-            <section aria-labelledby="zava-signals-title" className="zava-signals pt-3">
+            <section id="zava-signals" aria-labelledby="zava-signals-title" className="zava-signals pt-3">
                 <div className="flex items-center gap-2">
                     <h2 id="zava-signals-title" className="text-sm font-semibold text-redwood-text-main">Signals</h2>
                     {signals && signals.length > 0 && (
@@ -920,7 +1019,7 @@ export default function AgentPage() {
             </section>
 
             {showDataHealth && (
-                <section aria-labelledby="zava-data-health-title" className="zava-signals pt-3">
+                <section id="zava-data-health" aria-labelledby="zava-data-health-title" className="zava-signals pt-3">
                     <div className="flex items-center gap-2">
                         <h2 id="zava-data-health-title" className="text-sm font-semibold text-redwood-text-main">Data health</h2>
                         {health && health.length > 0 && (
@@ -1034,6 +1133,22 @@ export default function AgentPage() {
                     </div>
                 </div>
             )}
+            </div>
+            <ZavaRail
+                signalCount={signalRail.count}
+                healthCount={healthRail.count}
+                healthUrgent={healthRail.urgent}
+                showDataHealth={showDataHealth}
+                showRunChecks={isAdmin && isStaging}
+                runningChecks={runningChecks}
+                checkedAt={checkedAt}
+                active={railSection}
+                onSignals={() => scrollToZava('zava-signals')}
+                onHealth={() => scrollToZava('zava-data-health')}
+                onRunChecks={() => { void runChecks(); }}
+                onAsk={focusZavaQuestion}
+            />
+            </div>
         </div>
     );
 }
