@@ -31,7 +31,7 @@ import {
 , CalendarDays , Tag , BookOpen , Scale , Clock , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 , Mail , LogOut , Sparkles , Lock , Activity , Inbox , MessageSquare , Key , ClipboardCheck } from 'lucide-react';
 import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
-import { isProduction } from '../../config/appEnv';
+import { isProduction, isStaging } from '../../config/appEnv';
 import { isRouteLocked } from '../../config/lockedFeatures';
 import { MODULE_FLAGS } from '../../config/moduleFlags';
 import { LockedNavIcon } from '../common/SubscriptionRequired';
