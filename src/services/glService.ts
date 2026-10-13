@@ -90,7 +90,7 @@ export interface GLAccount {
   updated_at: string | null;
 }
 
-async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+export async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem(ACCESS_TOKEN_KEY);
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -103,16 +103,18 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
     headers,
   });
   if (!response.ok) {
-    let detail = `HTTP ${response.status}`;
+    let rawDetail: unknown = `HTTP ${response.status}`;
     try {
       const error = await response.json();
-      if (error?.detail) {
-        detail = typeof error.detail === 'string' ? error.detail : JSON.stringify(error.detail);
-      }
+      if (error?.detail) rawDetail = error.detail;
     } catch {
       /* ignore malformed error payloads */
     }
-    throw new Error(detail);
+    const message = typeof rawDetail === 'string' ? rawDetail : JSON.stringify(rawDetail);
+    const err = new Error(message) as Error & { status?: number; detail?: unknown };
+    err.status = response.status;
+    err.detail = rawDetail;
+    throw err;
   }
   return response.json();
 }
@@ -171,6 +173,9 @@ export interface CreateAccountPayload {
   normal_balance: 'debit' | 'credit';
   parent_id?: number | null;
   is_active?: boolean;
+  opening_amount?: number;
+  opening_side?: 'debit' | 'credit';
+  opening_as_of?: string;
 }
 
 export interface PatchAccountPayload {
@@ -423,6 +428,10 @@ export function getGLJournalEntries(): Promise<GLJournalEntry[]> {
   return apiRequest<GLJournalEntry[]>('/gl/journal-entries');
 }
 
+export function reverseJournalEntry(entryId: number): Promise<GLJournalEntry> {
+  return apiRequest<GLJournalEntry>(`/gl/journal-entries/${entryId}/reverse`, { method: 'POST' });
+}
+
 export function postOpeningBalances(
   entries: OpeningBalancePayloadEntry[],
   asOfDate: string,
@@ -449,10 +458,18 @@ export function getBankingAccounts(): Promise<BankingAccount[]> {
   return apiRequest<BankingAccount[]>('/banking/accounts');
 }
 
-export function createBankingAccount(name: string): Promise<BankingAccount> {
+export function createBankingAccount(
+  name: string,
+  opening?: { amount: number; side: 'debit' | 'credit'; asOf: string },
+): Promise<BankingAccount> {
   return apiRequest<BankingAccount>('/banking/accounts', {
     method: 'POST',
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({
+      name,
+      ...(opening
+        ? { opening_amount: opening.amount, opening_side: opening.side, opening_as_of: opening.asOf }
+        : {}),
+    }),
   });
 }
 

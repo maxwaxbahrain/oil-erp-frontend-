@@ -46,6 +46,7 @@ export default function SalesReturnDetailPage() {
   const [data, setData] = useState<SalesReturn | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [pageError, setPageError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -53,9 +54,10 @@ export default function SalesReturnDetailPage() {
     try {
       const r = await getSalesReturn(id);
       setData(r);
+      setPageError(null);
     } catch (e) {
       console.error(e);
-      alert(e instanceof Error ? e.message : 'Failed to load return');
+      setPageError(e instanceof Error ? e.message : 'Failed to load return');
       setData(null);
     } finally {
       setLoading(false);
@@ -70,6 +72,7 @@ export default function SalesReturnDetailPage() {
     if (!id || !data) return;
     if (!confirm('Approve this return? Ledger credit will be posted, the invoice balance updated and returned stock put back.')) return;
     setBusy(true);
+    setPageError(null);
     try {
       const u = await patchSalesReturn(id, { status: 'approved' });
       setData(u);
@@ -99,7 +102,7 @@ export default function SalesReturnDetailPage() {
         });
       }
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Approve failed');
+      setPageError(e instanceof Error ? e.message : 'Approve failed');
     } finally {
       setBusy(false);
     }
@@ -114,11 +117,12 @@ export default function SalesReturnDetailPage() {
     )
       return;
     setBusy(true);
+    setPageError(null);
     try {
       const u = await cancelSalesReturn(id);
       setData(u);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Cancel failed');
+      setPageError(e instanceof Error ? e.message : 'Cancel failed');
     } finally {
       setBusy(false);
     }
@@ -128,11 +132,12 @@ export default function SalesReturnDetailPage() {
     if (!id || !data) return;
     if (!confirm('Mark return as completed?')) return;
     setBusy(true);
+    setPageError(null);
     try {
       const u = await patchSalesReturn(id, { status: 'completed' });
       setData(u);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Complete failed');
+      setPageError(e instanceof Error ? e.message : 'Complete failed');
     } finally {
       setBusy(false);
     }
@@ -149,6 +154,11 @@ export default function SalesReturnDetailPage() {
   if (!data) {
     return (
       <div className="max-w-lg mx-auto mt-20 text-center p-6">
+        {pageError ? (
+          <p role="alert" className="text-sm font-semibold text-red-700 mb-3">
+            {pageError}
+          </p>
+        ) : null}
         <p className="font-black text-gray-800">Return not found</p>
         <button
           type="button"
@@ -167,6 +177,11 @@ export default function SalesReturnDetailPage() {
   return (
     <div className="min-h-screen bg-[#F8F9FA] pb-24 print:bg-white">
       <div className="max-w-3xl mx-auto px-4 md:px-6 pt-6 space-y-6 print:max-w-none">
+        {pageError ? (
+          <p role="alert" className="text-sm font-semibold text-red-700 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+            {pageError}
+          </p>
+        ) : null}
         <div className="flex flex-wrap items-center gap-3 print:hidden">
           <button
             type="button"

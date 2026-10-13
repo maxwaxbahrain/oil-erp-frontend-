@@ -40,6 +40,8 @@ export interface CreateRouteStopInput {
   neighborhood?: string;
   is_priority?: boolean;
   opening_balance?: number;
+  opening_side?: 'debit' | 'credit';
+  opening_as_of?: string;
   credit_limit?: number;
   category?: string;
   notes?: string;
@@ -101,7 +103,14 @@ export const createRouteStop = async (dayId: number, data: CreateRouteStopInput)
     body: JSON.stringify(data),
   });
   if (!response.ok) {
-    throw new Error(`Failed to create route stop: ${response.status}`);
+    let message = `Failed to create route stop: ${response.status}`;
+    try {
+      const err = await response.json();
+      if (typeof err?.detail === 'string') message = err.detail;
+    } catch {
+      /* keep the status message */
+    }
+    throw new Error(message);
   }
   return response.json();
 };

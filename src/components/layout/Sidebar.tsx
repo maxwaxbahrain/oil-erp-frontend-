@@ -28,10 +28,10 @@ import {
     TrendingUp,
     User,
     MapPin
-, CalendarDays , Tag , BookOpen , Scale , Clock , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 , Mail , LogOut , Sparkles , Lock , Activity , Inbox , MessageSquare , Key } from 'lucide-react';
+, CalendarDays , Tag , BookOpen , Scale , Clock , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 , Mail , LogOut , Sparkles , Lock , Activity , Inbox , MessageSquare , Key , ClipboardCheck } from 'lucide-react';
 import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
-import { isProduction } from '../../config/appEnv';
+import { isProduction, isStaging } from '../../config/appEnv';
 import { isRouteLocked } from '../../config/lockedFeatures';
 import { MODULE_FLAGS } from '../../config/moduleFlags';
 import { LockedNavIcon } from '../common/SubscriptionRequired';
@@ -288,6 +288,9 @@ export default function Sidebar({
                 <NavItem to="/reports/day-book" icon={BookOpen} label="Day Book" />
                 <NavItem to="/reports/trial-balance" icon={Scale} label="Trial Balance" />
                 <NavItem to="/reports/aged-receivable" icon={Clock} label="Aged Receivable" />
+                {isStaging && canSeeAdmin && (
+                <NavItem to="/finance/receivables-check" icon={ClipboardCheck} label="Receivables Check" />
+                )}
                 <NavItem to="/reports/aged-payable" icon={Clock} label="Aged Payable" />
                 <NavItem to="/reports/outstanding-bills" icon={FileText} label="Outstanding Bills" />
                 <NavItem to="/finance/collections" icon={MessageSquare} label="Collections" />

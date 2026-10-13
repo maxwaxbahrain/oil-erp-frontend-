@@ -20,6 +20,12 @@ export interface Customer {
   notes?: string;
   created_at?: string;
   code?: string;
+  /** Absent means active. New documents hide customers with is_active false. */
+  is_active?: boolean;
+}
+
+export function customersOpenForNewDocument<T extends { is_active?: boolean }>(rows: T[]): T[] {
+  return rows.filter((row) => row.is_active !== false);
 }
 
 export interface LedgerEntry {
@@ -190,6 +196,7 @@ export interface Invoice {
     quantity: number;
     rate: number;
     amount: number;
+    productId?: string;
   }>;
   subtotal: number;
   taxRate: number;
@@ -709,6 +716,7 @@ export const createPayment = (data: any): Promise<any> => {
     date: data.payment_date ?? null,
   };
   if (data.notes) body.notes = data.notes;
+  if (data.explicit_advance === true) body.explicit_advance = true;
   const depositId = data.deposit_account_id ?? data.account_id;
   if (depositId != null && String(depositId) !== '') {
     body.deposit_account_id = parseInt(String(depositId), 10);
@@ -1042,7 +1050,13 @@ function sliceDatePart(v: unknown): string {
   return s.length >= 10 ? s.slice(0, 10) : s;
 }
 
-function mapApiInvoiceToInvoice(inv: Record<string, unknown>): Invoice {
+export function invoiceLineProductId(it: Record<string, unknown>): string {
+  const raw = it.product_id ?? it.productId;
+  if (raw == null || raw === '') return '';
+  return String(raw);
+}
+
+export function mapApiInvoiceToInvoice(inv: Record<string, unknown>): Invoice {
   const items = inv.items;
   let lineItems: Invoice['lineItems'] = [];
   if (Array.isArray(items)) {
@@ -1052,6 +1066,7 @@ function mapApiInvoiceToInvoice(inv: Record<string, unknown>): Invoice {
       quantity: Number(it.quantity) || 0,
       rate: Number(it.rate) || 0,
       amount: Number(it.amount) || 0,
+      productId: invoiceLineProductId(it),
     }));
   }
   const grandTotal = Number(inv.total ?? inv.total_amount ?? inv.grand_total ?? inv.grandTotal ?? 0);
@@ -1281,6 +1296,27 @@ export async function getUnpaidInvoices(customerId: string): Promise<Invoice[]> 
 // re-reads GET /api/invoices/ (allocation-derived status/balance) instead.
 
 // Get customer's advance payment balance
+export async function getCustomerUnappliedAdvances(customerId: string): Promise<UnappliedAdvance[]> {
+  try {
+    const rows = await apiRequest<UnappliedAdvance[]>(`/customers/${customerId}/advances`);
+    return Array.isArray(rows) ? rows : [];
+  } catch (error) {
+    console.error('Failed to get unapplied advances:', error);
+    return [];
+  }
+}
+
+export async function applyAdvanceToInvoice(paymentId: number, invoiceId: number, amount: number): Promise<{
+  invoice_status?: string;
+  invoice_balance?: number;
+  new_balance?: number;
+}> {
+  return apiRequest(`/ledger/payment/${paymentId}/apply`, {
+    method: 'POST',
+    body: JSON.stringify({ invoice_id: invoiceId, amount }),
+  });
+}
+
 export async function getCustomerAdvanceBalance(customerId: string): Promise<number> {
   try {
     const payments = await getPaymentsForCustomer(customerId);
@@ -1956,6 +1992,7 @@ export interface CollectionsGroups {
   1: CollectionsGroupSummary;
   2: CollectionsGroupSummary;
   3: CollectionsGroupSummary;
+  4?: CollectionsGroupSummary;
 }
 
 export interface CollectionsRow {
@@ -1968,16 +2005,19 @@ export interface CollectionsRow {
   outstanding: number;
   days_unpaid: number;
   last_order: string;
-  group: 1 | 2 | 3;
+  group: 1 | 2 | 3 | 4;
   action: string;
   statement_message: string;
   driver_line: string | null;
   phone_missing: boolean;
+  data_problem?: boolean;
+  data_problem_reason?: string | null;
 }
 
 export interface CollectionsReport {
   as_of: string;
   settings_used: CollectionsSettings;
+  scope?: 'all' | 'late';
   groups: CollectionsGroups;
   total: number;
   rows: CollectionsRow[];
@@ -2019,9 +2059,61 @@ export interface CollectionsLogCreate {
   status?: string | null;
 }
 
-export const getCollectionsReport = (asOf?: string): Promise<CollectionsReport> => {
-  const qs = asOf ? `?as_of=${encodeURIComponent(asOf)}` : '';
-  return apiRequest<CollectionsReport>(`/credit/collections${qs}`);
+export interface ImportedCreditRow {
+  id: string;
+  customer_id: string;
+  customer_name: string;
+  amount: number;
+  date?: string | null;
+  reference?: string | null;
+  stored_as: 'sales_return' | 'return_credit' | 'adjustment' | 'transaction' | 'other';
+}
+
+export interface UnappliedPaymentRow {
+  id: string;
+  customer_id: string;
+  customer_name: string;
+  amount: number;
+  date?: string | null;
+  reference?: string | null;
+}
+
+export interface CreditOpeningRow {
+  id: string;
+  customer_id: string;
+  customer_name: string;
+  amount: number;
+  date?: string | null;
+  reference?: string | null;
+}
+
+export interface ReceivablesCheckPayload {
+  imported_credits: ImportedCreditRow[];
+  unapplied_payments: UnappliedPaymentRow[];
+  credit_openings?: CreditOpeningRow[];
+}
+
+export interface UnappliedAdvance {
+  payment_id: number;
+  amount: number;
+  date?: string | null;
+  reference?: string | null;
+  payment_method?: string;
+}
+
+/** Read-only. Lists imported credits and payments that are not allocated to an invoice. */
+export const getReceivablesCheck = (): Promise<ReceivablesCheckPayload> =>
+  apiRequest<ReceivablesCheckPayload>('/credit/receivables-check');
+
+export const getCollectionsReport = (
+  asOf?: string,
+  scope?: 'all' | 'late',
+): Promise<CollectionsReport> => {
+  const params = new URLSearchParams();
+  if (asOf) params.set('as_of', asOf);
+  if (scope) params.set('scope', scope);
+  const qs = params.toString();
+  return apiRequest<CollectionsReport>(`/credit/collections${qs ? `?${qs}` : ''}`);
 };
 
 export function getCollectionsCsvUrl(asOf?: string): string {

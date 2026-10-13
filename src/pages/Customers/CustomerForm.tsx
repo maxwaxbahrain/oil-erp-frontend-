@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Save, X, Info } from 'lucide-react';
 import { createCustomer, updateCustomer, type Customer } from '../../services/customerService';
+import { localIsoDate } from '../../utils/localDate';
 
 interface CustomerFormProps {
   editingCustomer: Customer | null;
@@ -20,6 +21,8 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
     gps_location: '',
     notes: '',
   });
+  const [openingSide, setOpeningSide] = useState<'debit' | 'credit'>('debit');
+  const [openingAsOf, setOpeningAsOf] = useState(localIsoDate);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,15 +55,27 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
 
     try {
       setSaving(true);
-      const payload = {
+      const typedOpening = Number(formData.opening_balance);
+      if (!editingCustomer && Number.isFinite(typedOpening) && typedOpening < 0) {
+        setError('Opening balance amount must be greater than zero. Choose Credit if the customer is in credit.');
+        setSaving(false);
+        return;
+      }
+      const openingAmount = Number.isFinite(typedOpening) ? Math.abs(typedOpening) : 0;
+      const payload: Partial<Customer> = {
         ...formData,
         credit_limit: formData.credit_limit || 0,
-        opening_balance: formData.opening_balance || 0,
       };
 
       if (editingCustomer && editingCustomer.id) {
+        delete payload.opening_balance;
+        delete payload.opening_side;
+        delete payload.opening_as_of;
         await updateCustomer(editingCustomer.id, payload);
       } else {
+        payload.opening_balance = openingAmount;
+        payload.opening_side = openingSide;
+        payload.opening_as_of = openingAmount > 0 ? openingAsOf : undefined;
         await createCustomer(payload);
       }
 
@@ -182,14 +197,54 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
           </div>
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1">Opening Balance</label>
-            <input
-              type="number"
-              name="opening_balance"
-              value={formData.opening_balance === undefined ? '' : formData.opening_balance}
-              onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-              placeholder="Amount"
-            />
+            {editingCustomer ? (
+              <div className="space-y-2">
+                <div className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm bg-gray-50 text-gray-700">
+                  {Math.abs(Number(editingCustomer.opening_balance) || 0) <= 0.005
+                    ? 'None'
+                    : `${(Number(editingCustomer.opening_balance) || 0) < 0 ? 'Cr' : 'Dr'} ${Math.abs(Number(editingCustomer.opening_balance) || 0).toFixed(2)}`}
+                </div>
+                <p className="text-xs text-gray-500">
+                  Opening balance cannot be edited. To correct it, reverse the opening journal, then post a journal voucher.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex rounded-md border border-gray-300 overflow-hidden text-sm font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setOpeningSide('debit')}
+                    className={`flex-1 px-3 py-2 ${openingSide === 'debit' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'}`}
+                  >
+                    Dr — customer owes us
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOpeningSide('credit')}
+                    className={`flex-1 px-3 py-2 ${openingSide === 'credit' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'}`}
+                  >
+                    Cr — customer is in credit
+                  </button>
+                </div>
+                <input
+                  type="number"
+                  name="opening_balance"
+                  min="0"
+                  step="0.01"
+                  value={formData.opening_balance === undefined ? '' : formData.opening_balance}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                  placeholder="Amount"
+                />
+                <label className="block text-xs font-semibold text-gray-600">As of</label>
+                <input
+                  type="date"
+                  value={openingAsOf}
+                  onChange={(e) => setOpeningAsOf(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                />
+              </div>
+            )}
           </div>
         </div>
 
