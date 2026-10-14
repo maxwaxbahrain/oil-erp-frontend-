@@ -18,7 +18,7 @@ import {
 import { getPurchaseOrders } from '../../services/purchasesService';
 import { getArSummary, getCustomerStats, type ArSummary, type CustomerStats } from '../../services/customerService';
 import { useEscape } from '../../hooks/useEscape';
-import { calculateReceivables } from '../../utils/arMetrics';
+import { calculateReceivables, capReceivablesByLedger } from '../../utils/arMetrics';
 import { livePayments } from '../../utils/paymentVoid';
 import {
     getGLProfitLoss, getGLBalanceSheet, isGLEmpty,
@@ -257,13 +257,19 @@ export default function Dashboard() {
         () => calculateReceivables(invoices, livePaymentsData, _now),
         [invoices, livePaymentsData],
     );
+    // Invoice rows can sum above the ledger. Cap per customer so counts and
+    // overdue buckets cannot exceed GET /customers/ar-summary.
+    const ledgerByCustomer = arSummary
+        ? new Map(arSummary.per_customer.map(c => [String(c.id), c.balance]))
+        : null;
+    const cappedReceivables = capReceivablesByLedger(receivables, ledgerByCustomer);
     // DASH-3 — the "Outstanding AR" headline uses the authoritative,
     // ledger-consistent endpoint total when available; falls back to the
-    // client-side receivables total if the endpoint failed to load.
-    const totalOutstanding = arSummary ? arSummary.total_outstanding : receivables.total;
-    const unpaidInvoiceCount = receivables.invoices.length;
-    const overdueTotal = receivables.days30 + receivables.days60 + receivables.days90;
-    const overdueCount = receivables.invoices.filter(r => r.bucket !== 'current').length;
+    // capped client-side total if the endpoint failed to load.
+    const totalOutstanding = arSummary ? arSummary.total_outstanding : cappedReceivables.total;
+    const unpaidInvoiceCount = cappedReceivables.invoices.length;
+    const overdueTotal = cappedReceivables.days30 + cappedReceivables.days60 + cappedReceivables.days90;
+    const overdueCount = cappedReceivables.invoices.filter(r => r.bucket !== 'current').length;
 
     const customerNameById = useMemo(() => {
         const map = new Map<string, string>();

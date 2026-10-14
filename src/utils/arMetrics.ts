@@ -332,3 +332,80 @@ export function calculateReceivables(
   }
   return summary;
 }
+
+function dueMillis(inv: InvoiceLike): number {
+  return (parseDate(inv.dueDate) ?? parseDate(inv.invoiceDate))?.getTime() ?? 0;
+}
+
+/**
+ * Cap each customer's open invoices at that customer's ledger balance.
+ * Newest invoices absorb the difference: credit on account is treated as
+ * paying the oldest debt first. The input summary is not mutated.
+ */
+export function capReceivablesByLedger(
+  summary: ReceivablesSummary,
+  ledgerByCustomer: ReadonlyMap<string, number> | null | undefined,
+): ReceivablesSummary {
+  if (!ledgerByCustomer || ledgerByCustomer.size === 0) return summary;
+
+  const groups = new Map<string, ReceivableInvoice[]>();
+  for (const row of summary.invoices) {
+    const customerId = String(row.invoice.customerId);
+    const group = groups.get(customerId);
+    if (group) group.push(row);
+    else groups.set(customerId, [row]);
+  }
+
+  const nextBalance = new Map<ReceivableInvoice, number>();
+  let capped = false;
+
+  for (const [customerId, rows] of groups) {
+    const raw = ledgerByCustomer.get(customerId);
+    const cap = Math.max(0, typeof raw === 'number' && Number.isFinite(raw) ? raw : 0);
+    const invoiceSum = rows.reduce((sum, row) => sum + row.balance, 0);
+    if (invoiceSum <= cap + 0.005) continue;
+
+    capped = true;
+    const ordered = [...rows].sort((a, b) => dueMillis(a.invoice) - dueMillis(b.invoice));
+    let running = 0;
+    for (const row of ordered) {
+      const room = cap - running;
+      if (room <= 0.005 || row.balance <= 0.005) {
+        nextBalance.set(row, 0);
+        continue;
+      }
+      if (row.balance <= room + 0.005) {
+        nextBalance.set(row, row.balance);
+        running += row.balance;
+        continue;
+      }
+      nextBalance.set(row, room);
+      running = cap;
+    }
+  }
+
+  if (!capped) return summary;
+
+  const invoices: ReceivableInvoice[] = [];
+  for (const row of summary.invoices) {
+    if (!nextBalance.has(row)) {
+      invoices.push(row);
+      continue;
+    }
+    const balance = nextBalance.get(row) ?? 0;
+    if (balance <= 0.005) continue;
+    invoices.push(balance === row.balance ? row : { ...row, balance });
+  }
+
+  const next = emptySummary();
+  next.unappliedCredits = summary.unappliedCredits;
+  next.fallbackCount = summary.fallbackCount;
+  next.credits = summary.credits;
+  for (const row of invoices) {
+    next[row.bucket] += row.balance;
+    next.total += row.balance;
+  }
+  next.invoices = invoices;
+  next.net = next.total - next.unappliedCredits;
+  return next;
+}
