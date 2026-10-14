@@ -57,6 +57,13 @@
           "kind": "item",
           "head": "Sales",
           "group": null,
+          "label": "Sales Returns",
+          "route": "/sales/returns"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
           "label": "Credit Notes",
           "route": "/sales/credit-notes"
         },
@@ -500,6 +507,13 @@
           "kind": "item",
           "head": "Sales",
           "group": null,
+          "label": "Sales Returns",
+          "route": "/sales/returns"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
           "label": "Credit Notes",
           "route": "/sales/credit-notes"
         },
@@ -868,6 +882,13 @@
           "group": null,
           "label": "Invoices",
           "route": "/sales/invoices"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Sales Returns",
+          "route": "/sales/returns"
         },
         {
           "kind": "item",
@@ -1276,6 +1297,13 @@
           "group": null,
           "label": "Invoices",
           "route": "/sales/invoices"
+        },
+        {
+          "kind": "item",
+          "head": "Sales",
+          "group": null,
+          "label": "Sales Returns",
+          "route": "/sales/returns"
         },
         {
           "kind": "item",
