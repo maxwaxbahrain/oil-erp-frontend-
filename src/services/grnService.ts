@@ -1,4 +1,4 @@
-import { getPurchaseOrders, updatePurchaseOrder, type PurchaseOrder } from './purchasesService';
+import { getPurchaseOrders, receiptFailureReason, updatePurchaseOrder, type PurchaseOrder } from './purchasesService';
 import { getOilErpApiBase } from '../config/apiBase';
 import { authFetch } from '../api/axios';
 
@@ -271,7 +271,7 @@ export const postGRN = async (grnId: string): Promise<PostGRNResult> => {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                grnSourceId: grn.id,
+                grnSourceId: `${linkedPO?.poNumber || grn.poId || grn.id}:${grn.id}`,
                 supplierId,
                 receiptDate: grn.receivedDate,
                 reference: `${grn.grnNumber} @ ${grn.warehouse}`,
@@ -286,7 +286,7 @@ export const postGRN = async (grnId: string): Promise<PostGRNResult> => {
             succeeded = attempted;
         } else {
             const text = await res.text().catch(() => '');
-            const reason = `HTTP ${res.status} ${text}`.trim();
+            const reason = receiptFailureReason(res.status, text);
             for (const line of receiptLines) {
                 failures.push({
                     productId: String(line.productId),

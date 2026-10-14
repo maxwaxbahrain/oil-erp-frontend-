@@ -37,33 +37,32 @@ const po: PurchaseOrder = {
   grandTotal: 500,
 };
 
-function findAddStockUrl(fetchMock: ReturnType<typeof vi.fn>): string {
-  const urls = fetchMock.mock.calls.map(([url]) => String(url));
-  const addStockUrl = urls.find((url) => url.includes('/add-stock'));
-  expect(addStockUrl).toBeTruthy();
-  return addStockUrl as string;
-}
-
 describe('receive stock API URLs', () => {
   beforeEach(() => {
     localStorage.clear();
     vi.restoreAllMocks();
   });
 
-  it('confirmGRN uses the /api products add-stock URL', async () => {
+  it('confirmGRN posts one receipt journal for the received quantity', async () => {
     localStorage.setItem('purchase_orders', JSON.stringify([po]));
     const fetchMock = vi
       .fn()
       .mockRejectedValueOnce(new Error('use local purchase_orders fallback'))
-      .mockResolvedValueOnce(okResponse())
+      .mockResolvedValueOnce(okResponse({ total_amount: 500 }))
       .mockResolvedValueOnce(okResponse({ ...po, status: 'GRN' }));
     vi.stubGlobal('fetch', fetchMock);
 
     await confirmGRN(po.id);
 
-    const addStockUrl = findAddStockUrl(fetchMock);
-    expect(addStockUrl).toContain('/api/products/');
-    expect(addStockUrl).toMatch(/\/add-stock$/);
+    const grnReceiveCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/grn-receive'));
+    expect(grnReceiveCall).toBeTruthy();
+    const [, init] = grnReceiveCall!;
+    expect(init?.method).toBe('POST');
+    const body = JSON.parse(String(init?.body));
+    expect(body.grnSourceId).toBe('PO-URL-1');
+    expect(body.supplierId).toBe(42);
+    expect(body.lines).toEqual([{ productId: 123, quantity: 50, unitCost: 10 }]);
+    expect(fetchMock.mock.calls.find(([url]) => String(url).includes('/add-stock'))).toBeUndefined();
   });
 
   it('postGRN uses the batch /api/products/grn-receive endpoint with cost + source', async () => {
@@ -115,7 +114,7 @@ describe('receive stock API URLs', () => {
     const [, init] = grnReceiveCall!;
     expect(init?.method).toBe('POST');
     const body = JSON.parse(String(init?.body));
-    expect(body.grnSourceId).toBe('GRN-URL-1');
+    expect(body.grnSourceId).toBe('PO-URL-1:GRN-URL-1');
     expect(body.supplierId).toBe(42);
     expect(body.lines).toHaveLength(1);
     expect(body.lines[0]).toMatchObject({ productId: 123, quantity: 30, unitCost: 10 });
