@@ -68,6 +68,12 @@ type SignalCard = {
     href: string;
 };
 
+type HealthBody = {
+    data_health?: SignalCard[];
+    data_health_checked_at?: string | null;
+    data_health_running?: boolean;
+};
+
 const MODULE_ICONS = {
     collections: Wallet,
     sales: Users,
@@ -208,7 +214,7 @@ export default function AgentPage() {
             return;
         }
         let cancelled = false;
-        api.get<{ data_health?: SignalCard[]; data_health_checked_at?: string | null }>('/api/agent/data-health')
+        api.get<HealthBody>('/api/agent/data-health')
             .then((response) => {
                 if (cancelled) return;
                 setHealth(response.data.data_health || []);
@@ -249,11 +255,16 @@ export default function AgentPage() {
         setRunningChecks(true);
         setHealthNote('');
         try {
-            const response = await api.post<{ data_health?: SignalCard[]; data_health_checked_at?: string | null }>(
-                '/api/agent/data-health/run',
-            );
-            setHealth(response.data.data_health || []);
-            setCheckedAt(response.data.data_health_checked_at || null);
+            await api.post<HealthBody>('/api/agent/data-health/run');
+            const started = Date.now();
+            while (Date.now() - started < 180000) {
+                const response = await api.get<HealthBody>('/api/agent/data-health');
+                setHealth(response.data.data_health || []);
+                setCheckedAt(response.data.data_health_checked_at || null);
+                if (!response.data.data_health_running) return;
+                await new Promise((resolve) => window.setTimeout(resolve, 2000));
+            }
+            setHealthNote('Checks are still running. Open the page again in a little while.');
         } catch (error) {
             setHealthNote(failureFromError(error));
         } finally {
@@ -1027,7 +1038,7 @@ export default function AgentPage() {
                         )}
                         {isAdmin && isStaging && (
                             <button type="button" className="zava-control" onClick={runChecks} disabled={runningChecks}>
-                                Run checks now
+                                {runningChecks ? 'Running…' : 'Run checks now'}
                             </button>
                         )}
                     </div>
@@ -1044,6 +1055,7 @@ export default function AgentPage() {
                             {health.map((card) => {
                                 const pill = priorityPill(card.priority);
                                 const ModuleIcon = MODULE_ICONS[card.module as keyof typeof MODULE_ICONS] || Bell;
+                                const note = card.watcher_id === 'check_failed';
                                 return (
                                     <li key={card.id} className="zava-glass zava-signal-card">
                                         <div className="flex items-center justify-between gap-3">
@@ -1053,10 +1065,18 @@ export default function AgentPage() {
                                             <span className="zava-priority" style={{ background: pill.background, color: pill.color }}>{pill.label}</span>
                                         </div>
                                         <p className="zava-signal-title" title={card.title}>{card.title}</p>
-                                        <p className="zava-figure">{signalFigure(card)}</p>
+                                        {!note && <p className="zava-figure">{signalFigure(card)}</p>}
                                         <p className="zava-signal-muted">{signalWhy(card.why)}</p>
                                         <p className="zava-signal-muted">{card.action}</p>
-                                        <Link className="zava-signal-open zava-control" to={card.href}>Open</Link>
+                                        {note ? (
+                                            isAdmin ? (
+                                                <button type="button" className="zava-signal-open zava-control" onClick={runChecks} disabled={runningChecks}>
+                                                    Try again
+                                                </button>
+                                            ) : null
+                                        ) : (
+                                            <Link className="zava-signal-open zava-control" to={card.href}>Open</Link>
+                                        )}
                                     </li>
                                 );
                             })}

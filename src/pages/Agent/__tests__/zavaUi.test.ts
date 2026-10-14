@@ -138,9 +138,13 @@ describe('signals under the question box', () => {
         expect(signals).toBeGreaterThan(question);
         expect(agent).toContain('Nothing needs your attention right now.');
         expect(agent).toContain("api.get<{ cards: SignalCard[] }>('/api/agent/signals')");
-        expect(agent).toContain("api.get<{ data_health?: SignalCard[]; data_health_checked_at?: string | null }>('/api/agent/data-health')");
+        expect(agent).toContain("api.get<HealthBody>('/api/agent/data-health')");
+        expect(agent).toContain('data_health_running');
+        expect(agent).toContain('Running…');
+        expect(agent).toContain("card.watcher_id === 'check_failed'");
+        expect(agent).toContain('Try again');
         const start = agent.indexOf("api.get<{ cards: SignalCard[] }>('/api/agent/signals')");
-        const healthCall = agent.indexOf("api.get<{ data_health?: SignalCard[]; data_health_checked_at?: string | null }>('/api/agent/data-health')");
+        const healthCall = agent.indexOf("api.get<HealthBody>('/api/agent/data-health')");
         const load = agent.slice(start, healthCall);
         expect(load).not.toContain('/api/agent/data-health');
         expect(load).not.toContain('/api/agent/chat');
