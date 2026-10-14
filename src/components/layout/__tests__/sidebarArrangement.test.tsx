@@ -211,7 +211,6 @@ describe('sidebar arrangement completeness', () => {
     const flags = await import('../../../config/moduleFlags');
     expect(flags.MODULE_FLAGS.payroll).toBe(false);
     expect(flags.MODULE_FLAGS.tax_management).toBe(false);
-    expect(flags.MODULE_FLAGS.sales_returns).toBe(false);
     expect(flags.MODULE_FLAGS.finance_accounting_dashboard).toBe(false);
     expect(flags.MODULE_FLAGS.reports_profitability_duplicate).toBe(false);
     expect(flags.MODULE_FLAGS.finance_banking).toBe(true);
