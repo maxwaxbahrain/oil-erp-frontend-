@@ -43,7 +43,8 @@ import { rolePillLabel } from '../utils/roleLabel';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { getInvoices, getCustomers, getProducts, getPayments, isCustomerPayment } from '../services/api';
 import { getPurchaseOrders } from '../services/purchasesService';
-import { calculateReceivables } from '../utils/arMetrics';
+import { getArSummary, type ArSummary } from '../services/customerService';
+import { calculateReceivables, capReceivablesByLedger } from '../utils/arMetrics';
 import api from '../api/axios';
 
 // Six role dashboards — pill cycles through these; each route must exist.
@@ -79,7 +80,7 @@ function App() {
   const canSeeFinance = hasRole(...FINANCE_ROLES);
   const canSeeDeliveries = hasRole(...DELIVERY_ROLES);
   const canSeeAdmin = hasRole(...ADMIN_ROLES);
-  const [aiCtx, setAiCtx] = useState<any>({ invoices: [], customers: [], products: [], payments: [], purchaseOrders: [] });
+  const [aiCtx, setAiCtx] = useState<any>({ invoices: [], customers: [], products: [], payments: [], purchaseOrders: [], arSummary: null });
   // sidebarOpen drives the full drawer overlay. A separate 54px icon
   // rail (rendered below) is ALWAYS visible on lg+ and isn't affected
   // by this state. Default closed on all viewports.
@@ -158,9 +159,15 @@ function App() {
     const pays = ((aiCtx.payments as any[]) || []).filter(isCustomerPayment);
     const prods = (aiCtx.products as any[]) || [];
     const receivables = calculateReceivables(invs, pays, new Date());
-    const unpaid = receivables.invoices.length;
-    const unpaidTotal = receivables.total;
-    const overdue = receivables.invoices.filter((r) => r.bucket !== 'current').length;
+    const ar = aiCtx.arSummary as ArSummary | null | undefined;
+    const ledgerByCustomer =
+      ar && Array.isArray(ar.per_customer)
+        ? new Map(ar.per_customer.map((c) => [String(c.id), c.balance]))
+        : null;
+    const capped = capReceivablesByLedger(receivables, ledgerByCustomer);
+    const unpaid = capped.invoices.length;
+    const unpaidTotal = capped.total;
+    const overdue = capped.invoices.filter((r) => r.bucket !== 'current').length;
     const lowStock = prods.filter((p) => Number(p.current_stock || 0) < 10).length;
     return { unpaid, unpaidTotal, overdue, lowStock };
   }, [aiCtx]);
@@ -219,9 +226,10 @@ function App() {
       getCustomers().catch(() => []),
       getProducts().catch(() => []),
       getPayments().catch(() => []),
-      getPurchaseOrders().catch(() => [])
-    ]).then(([inv, cust, prod, pays, pos]) => {
-      setAiCtx({ invoices: inv, customers: cust, products: prod, payments: pays, purchaseOrders: pos });
+      getPurchaseOrders().catch(() => []),
+      getArSummary().catch(() => null),
+    ]).then(([inv, cust, prod, pays, pos, ar]) => {
+      setAiCtx({ invoices: inv, customers: cust, products: prod, payments: pays, purchaseOrders: pos, arSummary: ar });
     });
   }, []);
 
