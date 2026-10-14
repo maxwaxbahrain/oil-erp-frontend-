@@ -158,6 +158,10 @@ describe('signals under the question box', () => {
         expect(agent).toContain('No book problems found.');
         expect(agent).toContain('lastCheckedLabel');
         expect(agent).toContain('Run checks now');
+        expect(agent).toContain('Show details');
+        expect(agent).toContain("api.get<DetailBody>('/api/agent/data-health/details'");
+        expect(agent).toContain('Copy list');
+        expect(agent).toContain('Demo customer');
         expect(agent).toContain('isAdmin && isStaging');
         expect(load).not.toContain('/api/agent/data-health/run');
     });

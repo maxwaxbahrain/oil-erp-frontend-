@@ -74,6 +74,24 @@ type HealthBody = {
     data_health_running?: boolean;
 };
 
+type DetailRow = {
+    date: string;
+    document_number: string;
+    party: string;
+    amount: number;
+    href: string;
+    note: string;
+    demo?: boolean;
+};
+
+type DetailBody = {
+    watcher_id: string;
+    total: number;
+    rows: DetailRow[];
+    remainder: number;
+    truncated: boolean;
+};
+
 const MODULE_ICONS = {
     collections: Wallet,
     sales: Users,
@@ -145,6 +163,10 @@ export default function AgentPage() {
     const [healthNote, setHealthNote] = useState('');
     const [signalsError, setSignalsError] = useState('');
     const [healthError, setHealthError] = useState('');
+    const [openDetail, setOpenDetail] = useState<string | null>(null);
+    const [detail, setDetail] = useState<DetailBody | null>(null);
+    const [detailError, setDetailError] = useState('');
+    const [detailCopied, setDetailCopied] = useState(false);
     const showDataHealth = user?.role === 'admin' || user?.role === 'accountant';
     const [railSection, setRailSection] = useState<ZavaRailSection>('ask');
     const [voiceState, setVoiceState] = useState<VoiceState>('idle');
@@ -156,6 +178,43 @@ export default function AgentPage() {
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const voiceUrlRef = useRef('');
     const questionRef = useRef<HTMLTextAreaElement>(null);
+
+    async function showDetails(watcherId: string) {
+        if (openDetail === watcherId) {
+            setOpenDetail(null);
+            return;
+        }
+        setOpenDetail(watcherId);
+        setDetail(null);
+        setDetailError('');
+        setDetailCopied(false);
+        try {
+            const response = await api.get<DetailBody>('/api/agent/data-health/details', {
+                params: { watcher_id: watcherId },
+            });
+            setDetail(response.data);
+        } catch {
+            setDetailError('Details could not be loaded.');
+        }
+    }
+
+    async function copyDetailList() {
+        if (!detail?.rows.length) return;
+        const lines = detail.rows.map((row) => [
+            row.date,
+            row.document_number,
+            row.party,
+            row.amount.toFixed(2),
+            row.demo ? 'demo customer' : '',
+            row.note,
+        ].filter((part) => part !== '').join('\t'));
+        try {
+            await navigator.clipboard.writeText(lines.join('\n'));
+            setDetailCopied(true);
+        } catch {
+            setDetailError('The list could not be copied.');
+        }
+    }
 
     function resizeQuestion(node: HTMLTextAreaElement | null = questionRef.current) {
         if (!node) return;
@@ -1076,6 +1135,38 @@ export default function AgentPage() {
                                             ) : null
                                         ) : (
                                             <Link className="zava-signal-open zava-control" to={card.href}>Open</Link>
+                                        )}
+                                        {card.watcher_id && (
+                                            <button type="button" className="zava-control" onClick={() => showDetails(card.watcher_id || '')}>
+                                                {openDetail === card.watcher_id ? 'Hide details' : 'Show details'}
+                                            </button>
+                                        )}
+                                        {openDetail === card.watcher_id && (
+                                            <div className="mt-2 text-sm text-redwood-text-muted">
+                                                {detailError && <p>{detailError}</p>}
+                                                {!detail && !detailError && <p>Loading details…</p>}
+                                                {detail && (
+                                                    <>
+                                                        <button type="button" className="zava-control" onClick={copyDetailList}>
+                                                            {detailCopied ? 'Copied' : 'Copy list'}
+                                                        </button>
+                                                        <ul className="mt-2 space-y-2">
+                                                            {detail.rows.map((row, index) => (
+                                                                <li key={`${row.document_number}-${index}`}>
+                                                                    <span>{row.date} </span>
+                                                                    <span>{row.document_number} </span>
+                                                                    <span>{row.party} </span>
+                                                                    <span>{row.amount.toFixed(2)} </span>
+                                                                    {row.demo && <span>Demo customer </span>}
+                                                                    {row.href && <Link to={row.href}>Open</Link>}
+                                                                    {row.note && <span> {row.note}</span>}
+                                                                </li>
+                                                            ))}
+                                                        </ul>
+                                                        {detail.truncated && <p className="mt-2">Showing 50 rows.</p>}
+                                                    </>
+                                                )}
+                                            </div>
                                         )}
                                     </li>
                                 );
