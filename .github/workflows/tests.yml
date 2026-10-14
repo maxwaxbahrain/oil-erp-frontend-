@@ -1,0 +1,34 @@
+# No .nvmrc or engines.node. Node LTS. TZ is Eastern because formatters.test.ts expects that wall clock.
+name: Tests
+
+on:
+  pull_request:
+    branches: [staging, main]
+  push:
+    branches: [staging]
+
+jobs:
+  vitest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc -b
+
+      - name: Run tests
+        env:
+          TZ: America/New_York
+        run: npx vitest run
