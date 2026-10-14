@@ -546,6 +546,18 @@ export interface GRNResult {
     }>;
 }
 
+export function receiptFailureReason(status: number, text: string): string {
+    try {
+        const parsed = JSON.parse(text) as { detail?: unknown };
+        if (typeof parsed?.detail === 'string' && parsed.detail.trim()) {
+            return parsed.detail.trim();
+        }
+    } catch {
+        /* The body is not JSON. */
+    }
+    return `HTTP ${status} ${text}`.trim();
+}
+
 export const confirmGRN = async (id: string): Promise<GRNResult> => {
     const orders = await getPurchaseOrders();
     const po = orders.find(o => o.id === id);
@@ -563,43 +575,80 @@ export const confirmGRN = async (id: string): Promise<GRNResult> => {
         );
     }
 
-    // FIX W3-2 — Per-item attempt/success/failure tracking.
     let attempted = 0;
     let succeeded = 0;
     const failures: GRNResult['failures'] = [];
     const skipped: GRNResult['skipped'] = [];
+    const receiptLines: Array<{ productId: number; productName?: string; quantity: number; unitCost: number }> = [];
 
     for (const item of po.items) {
         if (!item.productId) {
             skipped.push({ productName: item.productName, reason: 'no-productId' });
             continue;
         }
-        attempted++;
-        try {
-            const res = await authFetch(apiUrl(`products/${item.productId}/add-stock`), {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    quantity: item.quantity,
-                    reference: po.poNumber,
-                }),
-            });
-            if (res.ok) {
-                succeeded++;
-            } else {
-                const text = await res.text().catch(() => '');
-                failures.push({
-                    productId: String(item.productId),
-                    productName: item.productName,
-                    reason: `HTTP ${res.status} ${text}`.trim(),
-                });
-            }
-        } catch (e) {
+        const productId = parseInt(String(item.productId), 10);
+        const unitCost = Number(item.unitPrice);
+        if (!Number.isFinite(productId) || !Number.isFinite(unitCost) || unitCost <= 0) {
             failures.push({
                 productId: String(item.productId),
                 productName: item.productName,
-                reason: e instanceof Error ? e.message : String(e),
+                reason: 'unit cost must be greater than zero for GL receipt posting',
             });
+            continue;
+        }
+        receiptLines.push({
+            productId,
+            productName: item.productName,
+            quantity: item.quantity,
+            unitCost,
+        });
+    }
+
+    attempted = receiptLines.length;
+    const supplierRaw = po.supplierId;
+    const supplierId = supplierRaw != null && /^\d+$/.test(String(supplierRaw))
+        ? parseInt(String(supplierRaw), 10)
+        : undefined;
+
+    if (attempted > 0) {
+        try {
+            const res = await authFetch(apiUrl('products/grn-receive'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    grnSourceId: String(po.poNumber || po.id),
+                    supplierId,
+                    receiptDate: po.date,
+                    reference: po.poNumber,
+                    lines: receiptLines.map((line) => ({
+                        productId: line.productId,
+                        quantity: line.quantity,
+                        unitCost: line.unitCost,
+                    })),
+                }),
+            });
+            if (res.ok) {
+                succeeded = attempted;
+            } else {
+                const text = await res.text().catch(() => '');
+                const reason = receiptFailureReason(res.status, text);
+                for (const line of receiptLines) {
+                    failures.push({
+                        productId: String(line.productId),
+                        productName: line.productName,
+                        reason,
+                    });
+                }
+            }
+        } catch (e) {
+            const reason = e instanceof Error ? e.message : String(e);
+            for (const line of receiptLines) {
+                failures.push({
+                    productId: String(line.productId),
+                    productName: line.productName,
+                    reason,
+                });
+            }
         }
     }
 
