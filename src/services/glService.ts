@@ -176,6 +176,7 @@ export interface CreateAccountPayload {
   opening_amount?: number;
   opening_side?: 'debit' | 'credit';
   opening_as_of?: string;
+  is_bank?: boolean;
 }
 
 export interface PatchAccountPayload {

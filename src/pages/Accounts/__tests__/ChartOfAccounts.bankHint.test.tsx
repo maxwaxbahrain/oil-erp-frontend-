@@ -69,4 +69,29 @@ describe('Chart of Accounts add-account hint', () => {
         expect(link?.textContent).toBe('Banking → Add bank');
         view.cleanup();
     });
+
+    it('shows the bank option only for a new asset account and leaves it off', async () => {
+        const view = mount();
+        await act(async () => {
+            await Promise.resolve();
+        });
+        const add = Array.from(view.host.querySelectorAll('button')).find((button) =>
+            button.textContent?.includes('Add account'),
+        ) as HTMLButtonElement;
+        act(() => add.click());
+        expect(view.host.querySelector('[aria-label="This is a bank account (use for payments)"]')).toBeNull();
+        const type = Array.from(view.host.querySelectorAll('select')).find((select) =>
+            Array.from(select.options).some((option) => option.value === 'asset'),
+        ) as HTMLSelectElement;
+        act(() => {
+            type.value = 'asset';
+            type.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+        const box = view.host.querySelector(
+            '[aria-label="This is a bank account (use for payments)"]',
+        ) as HTMLInputElement;
+        expect(box).toBeTruthy();
+        expect(box.checked).toBe(false);
+        view.cleanup();
+    });
 });

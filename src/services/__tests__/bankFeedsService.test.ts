@@ -38,7 +38,7 @@ describe('bankFeedsService', () => {
     await exchangePublicToken('public-sandbox-token');
     expect(apiRequest).toHaveBeenCalledWith('/banking/feeds/exchange', {
       method: 'POST',
-      body: JSON.stringify({ public_token: 'public-sandbox-token' }),
+      body: JSON.stringify({ public_token: 'public-sandbox-token', create_books_accounts: true }),
     });
   });
 

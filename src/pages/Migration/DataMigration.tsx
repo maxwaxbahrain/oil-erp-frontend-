@@ -530,6 +530,16 @@ export default function DataMigration() {
             }))
             .filter((e: any) => e.amount > 0);
 
+        const bankAccountRows = q(
+            `SELECT aname, a_type FROM account_detail WHERE a_type LIKE '%Bank%' AND a_type NOT LIKE '%OD%' AND (status = 1 OR status IS NULL)`,
+        );
+        const bank_accounts = bankAccountRows
+            .map((r: any) => ({
+                name: String(r.aname || '').trim(),
+                source_type: String(r.a_type || '').trim(),
+            }))
+            .filter((r: { name: string }) => r.name);
+
         let paymentSupplierCount = 0;
         let paymentExpenseCount = 0;
         let paymentUnclassifiedCount = 0;
@@ -773,6 +783,7 @@ export default function DataMigration() {
             purchase_orders,
             supplier_payments,
             expenses,
+            bank_accounts,
             __preview: preview,
         };
     };

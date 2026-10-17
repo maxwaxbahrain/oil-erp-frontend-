@@ -248,6 +248,7 @@ export default function ChartOfAccounts() {
     const [formOpeningSide, setFormOpeningSide] = useState<'debit' | 'credit'>('debit');
     const [formOpeningAsOf, setFormOpeningAsOf] = useState(todayISO);
     const [formParentId, setFormParentId] = useState<number | ''>('');
+    const [formIsBank, setFormIsBank] = useState(false);
     const [formError, setFormError] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
     const [actionError, setActionError] = useState<string | null>(null);
@@ -286,6 +287,7 @@ export default function ChartOfAccounts() {
         setFormOpeningSide('debit');
         setFormOpeningAsOf(todayISO());
         setFormParentId('');
+        setFormIsBank(false);
         setFormError(null);
         setModalOpen(true);
     }, []);
@@ -334,6 +336,7 @@ export default function ChartOfAccounts() {
                     type,
                     normal_balance: formNormalBalance,
                     parent_id: formParentId === '' ? null : formParentId,
+                    is_bank: type === 'asset' && formIsBank,
                     ...(canPostOpening && openingAmount !== null
                         ? {
                             opening_amount: openingAmount,
@@ -815,6 +818,7 @@ export default function ChartOfAccounts() {
                                                 setFormType(next);
                                                 setFormNormalBalance(normal);
                                                 setFormOpeningSide(normal);
+                                                if (next !== 'asset') setFormIsBank(false);
                                             }}
                                             style={{ ...selectStyle, display: 'block', width: '100%', marginTop: 4, fontSize: 11 }}
                                         >
@@ -897,6 +901,18 @@ export default function ChartOfAccounts() {
                                         />
                                     </label>
                                 </>
+                            )}
+                            {!editingAccount && formType === 'asset' && (
+                                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 11, lineHeight: 1.45, color: 'var(--color-redwood-text-main)', fontWeight: 500 }}>
+                                    <input
+                                        type="checkbox"
+                                        aria-label="This is a bank account (use for payments)"
+                                        checked={formIsBank}
+                                        onChange={e => setFormIsBank(e.target.checked)}
+                                        style={{ marginTop: 2 }}
+                                    />
+                                    <span>This is a bank account (use for payments)</span>
+                                </label>
                             )}
                             {!editingAccount && (
                                 <p style={{ margin: '4px 0 0', fontSize: 11, lineHeight: 1.45, color: 'var(--color-redwood-text-muted)', fontWeight: 500 }}>

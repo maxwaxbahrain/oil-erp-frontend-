@@ -75,7 +75,7 @@ export function createLinkToken(): Promise<{ link_token: string }> {
 export function exchangePublicToken(publicToken: string): Promise<BankFeedItem> {
   return apiRequest<BankFeedItem>('/banking/feeds/exchange', {
     method: 'POST',
-    body: JSON.stringify({ public_token: publicToken }),
+      body: JSON.stringify({ public_token: publicToken, create_books_accounts: true }),
   });
 }
 
