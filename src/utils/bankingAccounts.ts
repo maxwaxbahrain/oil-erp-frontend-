@@ -1,4 +1,4 @@
-import type { BankingAccount } from '../services/glService';
+import type { BankingAccount, GLAccount } from '../services/glService';
 
 export function splitBankingAccounts(rows: BankingAccount[]): {
   cash: BankingAccount[];
@@ -62,6 +62,43 @@ export function depositPickerForMethod(
     };
   }
   return { options: banks, disabled: false, helper: null };
+}
+
+function chartAccountIsPaidFromBank(account: GLAccount): boolean {
+  if (!account.is_active) return false;
+  const type = (account.type || '').trim().toLowerCase();
+  const systemKey = (account.system_key || '').trim().toLowerCase();
+  return type === 'asset' || systemKey === 'bank';
+}
+
+function chartAccountAsPaidFrom(account: GLAccount): BankingAccount {
+  const systemKey = (account.system_key || '').trim().toLowerCase();
+  return {
+    id: account.id,
+    code: account.code,
+    name: account.name,
+    type: account.type,
+    system_key: account.system_key,
+    role: systemKey === 'bank' ? 'bank' : 'asset',
+    is_active: account.is_active,
+    is_default: systemKey === 'bank',
+    balance: 0,
+  };
+}
+
+/** Banks and every asset on this company's chart. Marked banks fill any gap. */
+export function expensePaidFromAccounts(
+  chartAccounts: GLAccount[],
+  markedBanks: BankingAccount[] = [],
+): BankingAccount[] {
+  const byId = new Map<number, BankingAccount>();
+  for (const account of chartAccounts) {
+    if (chartAccountIsPaidFromBank(account)) byId.set(account.id, chartAccountAsPaidFrom(account));
+  }
+  for (const bank of markedBanks) {
+    if (!byId.has(bank.id)) byId.set(bank.id, bank);
+  }
+  return [...byId.values()].sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
 }
 
 /** Omit the field when posted, cash, or unset. Cash must not send a bank id. */

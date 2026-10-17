@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, type CSSProperties } from 'react';
+import { useState, useEffect, useCallback, useMemo, type CSSProperties } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { parseNewExpenseParams } from './expenseQueryParams';
 import {
@@ -27,6 +27,8 @@ import { getCustomers as loadCustomerList } from '../../services/customerService
 // ITEM 16 — Escape closes the manual entry modal and the category dropdown.
 import { useEscape } from '../../hooks/useEscape';
 import { useBankingAccounts } from '../../hooks/useBankingAccounts';
+import { getGLAccounts, type GLAccount } from '../../services/glService';
+import { expensePaidFromAccounts } from '../../utils/bankingAccounts';
 
 export { PaidFromBankPicker } from './paidFromBankPicker';
 
@@ -187,6 +189,20 @@ export default function ExpenseManagement() {
     const [statusFilter, setStatusFilter] = useState('all');
     const [customers, setCustomers] = useState<CustomerComboboxOption[]>([]);
     const { banks, defaultBank, reload: reloadBanks } = useBankingAccounts();
+    const [chartAccounts, setChartAccounts] = useState<GLAccount[]>([]);
+    const reloadChartAccounts = useCallback(async () => {
+        try {
+            const rows = await getGLAccounts();
+            setChartAccounts(Array.isArray(rows) ? rows : []);
+        } catch (error) {
+            console.warn('Could not load chart accounts for paid-from bank', error);
+            setChartAccounts([]);
+        }
+    }, []);
+    const paidFromAccounts = useMemo(
+        () => expensePaidFromAccounts(chartAccounts, banks),
+        [chartAccounts, banks],
+    );
 
     const refreshCategories = useCallback(async () => {
         try {
@@ -201,10 +217,15 @@ export default function ExpenseManagement() {
         const onFocus = () => {
             void refreshCategories();
             void reloadBanks();
+            void reloadChartAccounts();
         };
         window.addEventListener('focus', onFocus);
         return () => window.removeEventListener('focus', onFocus);
-    }, [refreshCategories, reloadBanks]);
+    }, [refreshCategories, reloadBanks, reloadChartAccounts]);
+
+    useEffect(() => {
+        void reloadChartAccounts();
+    }, [reloadChartAccounts]);
 
     useEffect(() => {
         loadData();
@@ -1059,7 +1080,7 @@ export default function ExpenseManagement() {
                             categories={categories}
                             refreshCategories={refreshCategories}
                             customers={customers}
-                            banks={banks}
+                            banks={paidFromAccounts}
                             defaultBank={defaultBank}
                             onClose={() => {
                                 setShowManualForm(false);
