@@ -44,6 +44,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { getInvoices, getCustomers, getProducts, getPayments, isCustomerPayment } from '../services/api';
 import { getPurchaseOrders } from '../services/purchasesService';
 import { getArSummary, type ArSummary } from '../services/customerService';
+import { outstandingTotals } from '../utils/outstandingTotals';
 import { calculateReceivables, capReceivablesByLedger } from '../utils/arMetrics';
 import api from '../api/axios';
 
@@ -165,11 +166,14 @@ function App() {
         ? new Map(ar.per_customer.map((c) => [String(c.id), c.balance]))
         : null;
     const capped = capReceivablesByLedger(receivables, ledgerByCustomer);
+    const headline = outstandingTotals(ar);
     const unpaid = capped.invoices.length;
-    const unpaidTotal = capped.total;
+    const unpaidTotal = headline ? headline.owedToUs : capped.total;
+    const creditTotal = headline ? Math.abs(headline.customerCredits) : 0;
+    const netTotal = headline ? headline.netReceivable : unpaidTotal;
     const overdue = capped.invoices.filter((r) => r.bucket !== 'current').length;
     const lowStock = prods.filter((p) => Number(p.current_stock || 0) < 10).length;
-    return { unpaid, unpaidTotal, overdue, lowStock };
+    return { unpaid, unpaidTotal, creditTotal, netTotal, overdue, lowStock };
   }, [aiCtx]);
 
   // Trial banner — fetch once on mount (not per navigation). Change guards
@@ -764,7 +768,8 @@ function App() {
                 {alertCounts.unpaid > 0 && (
                   <>
                     <strong style={{ color: '#FCD34D', fontWeight: 600 }}>{alertCounts.unpaid} unpaid invoice{alertCounts.unpaid === 1 ? '' : 's'}</strong>
-                    {alertCounts.unpaidTotal > 0 && ` totalling $${alertCounts.unpaidTotal.toLocaleString()}`}
+                    {alertCounts.unpaidTotal > 0 && ` · Owed to us $${alertCounts.unpaidTotal.toLocaleString()}`}
+                    {alertCounts.creditTotal > 0 && ` · credits $${alertCounts.creditTotal.toLocaleString()} · net $${alertCounts.netTotal.toLocaleString()}`}
                   </>
                 )}
                 {alertCounts.unpaid > 0 && (alertCounts.overdue > 0 || alertCounts.lowStock > 0) && ' · '}

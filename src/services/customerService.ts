@@ -135,6 +135,10 @@ export interface ArCustomerBalance {
 export interface ArSummary {
     as_of: string;
     total_outstanding: number;
+    owed_to_us: number;
+    /** Sum of negative ledger closings. Zero or negative. */
+    customer_credits: number;
+    net_receivable: number;
     customer_count: number;
     per_customer: ArCustomerBalance[];
 }

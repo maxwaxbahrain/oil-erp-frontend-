@@ -23,6 +23,7 @@ import {
 // ITEM 16 — Escape closes the payment / invoice preview modals.
 import { useEscape } from '../../hooks/useEscape';
 import { customerStatementTotals, invoiceCountsTowardCustomerBalance } from '../../utils/invoiceBalance';
+import { signedOutstanding } from '../../utils/outstandingTotals';
 import {
     getCustomerInvoices,
     getCustomerSalesOrders,
@@ -982,18 +983,20 @@ export default function CustomerOverview() {
       })
       .reduce((sum: number, inv: any) => sum + (Number(inv.amount ?? (inv as any).grandTotal) || 0), 0);
 
-    const _balanceDisplay: number = Math.max(0, Number(stats.outstandingBalance) || 0);
+    const _balanceDisplay: number = signedOutstanding(Number(stats.outstandingBalance) || 0);
     const _creditLimitDisplay: number = Number(stats.creditLimit) || 0;
 
     const _creditUsedPct: number = _creditLimitDisplay > 0
-      ? Math.min(100, (_balanceDisplay / _creditLimitDisplay) * 100)
+      ? Math.min(100, (Math.max(0, _balanceDisplay) / _creditLimitDisplay) * 100)
       : 0;
 
-    const _balanceColor: string = _overdueAmount > 0
-      ? '#EF4444'
-      : _creditUsedPct > 80
-        ? '#F59E0B'
-        : '#4F8EF7';
+    const _balanceColor: string = _balanceDisplay < 0
+      ? '#22C55E'
+      : _overdueAmount > 0
+        ? '#EF4444'
+        : _creditUsedPct > 80
+          ? '#F59E0B'
+          : '#4F8EF7';
 
     const liveCustomerPayments = livePayments(payments ?? []);
 
@@ -2322,7 +2325,7 @@ export default function CustomerOverview() {
                                                     <td colSpan={4} style={ledgerTfootStyle}></td>
                                                     <td style={{ ...ledgerTfootStyle, textAlign: 'right', fontSize: 10, textTransform: 'uppercase', letterSpacing: '.6px' }}>
                                                         <span style={{ display: 'block', color: 'var(--t2,#8BA3C7)' }}>Total Invoiced</span>
-                                                        <span style={{ display: 'block', color: '#F59E0B', marginTop: 4 }}>Total Outstanding</span>
+                                                        <span style={{ display: 'block', color: '#F59E0B', marginTop: 4 }}>Open invoices</span>
                                                     </td>
                                                     <td style={{ ...ledgerTfootStyle, textAlign: 'right', fontFamily: 'monospace' }}>
                                                         <span style={{ display: 'block', color: 'var(--t,#EEF2FF)' }}>{totalInvoiced.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
