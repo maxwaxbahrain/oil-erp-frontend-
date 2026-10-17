@@ -15,6 +15,10 @@ vi.mock('../../../hooks/useBankingAccounts', () => ({
     useBankingAccounts: () => ({ banks: [], defaultBank: null, reload: reloadBanks }),
 }));
 
+vi.mock('../../../services/glService', () => ({
+    getGLAccounts: vi.fn(async () => []),
+}));
+
 vi.mock('../../../services/expenseService', () => ({
     getExpensesSnapshot,
     getExpenseCategories,
