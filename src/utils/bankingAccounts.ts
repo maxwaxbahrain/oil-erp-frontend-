@@ -64,11 +64,36 @@ export function depositPickerForMethod(
   return { options: banks, disabled: false, helper: null };
 }
 
-function chartAccountIsPaidFromBank(account: GLAccount): boolean {
-  if (!account.is_active) return false;
-  const type = (account.type || '').trim().toLowerCase();
+const CONTROL_SYSTEM_KEYS = new Set([
+  'accounts_receivable',
+  'inventory',
+  'accounts_payable',
+  'tax_payable',
+  'owner_capital',
+  'retained_earnings',
+  'opening_balance_equity',
+  'sales_revenue',
+  'sales_returns',
+  'cogs',
+  'operating_expenses',
+  'general_expenses',
+  'inventory_adjustment_gain',
+  'inventory_adjustment_loss',
+  'bad_debt_expense',
+  'suspense',
+]);
+
+/** Bank or asset account, excluding system control accounts such as AR and Inventory. */
+export function isCompanyPaymentAccount(account: { is_active?: boolean; type?: string | null; system_key?: string | null }): boolean {
+  if (account.is_active === false) return false;
   const systemKey = (account.system_key || '').trim().toLowerCase();
+  if (CONTROL_SYSTEM_KEYS.has(systemKey)) return false;
+  const type = (account.type || '').trim().toLowerCase();
   return type === 'asset' || systemKey === 'bank';
+}
+
+function chartAccountIsPaidFromBank(account: GLAccount): boolean {
+  return isCompanyPaymentAccount(account);
 }
 
 function chartAccountAsPaidFrom(account: GLAccount): BankingAccount {

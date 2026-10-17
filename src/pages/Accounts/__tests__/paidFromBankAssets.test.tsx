@@ -36,7 +36,7 @@ function mount(node: ReactElement) {
 }
 
 describe('expense paid-from asset accounts', () => {
-  it('lists every bank and asset, and leaves out other account types', () => {
+  it('lists every bank and asset, and leaves out system control accounts', () => {
     const marked: BankingAccount = {
       id: 2,
       code: '1011',
@@ -52,7 +52,8 @@ describe('expense paid-from asset accounts', () => {
       [
         chart({ id: 1, code: '1010', name: 'Bank', type: 'asset', system_key: 'bank' }),
         chart({ id: 8, code: '1020', name: 'MCB Bank', type: 'asset' }),
-        chart({ id: 4, code: '1200', name: 'Accounts Receivable', type: 'asset' }),
+        chart({ id: 4, code: '1100', name: 'Accounts Receivable', type: 'asset', system_key: 'accounts_receivable' }),
+        chart({ id: 7, code: '1200', name: 'Inventory', type: 'asset', system_key: 'inventory' }),
         chart({ id: 5, code: '6100', name: 'General expenses', type: 'expense' }),
         chart({ id: 6, code: '2000', name: 'Closed asset', type: 'asset', is_active: false }),
       ],
@@ -65,7 +66,8 @@ describe('expense paid-from asset accounts', () => {
     expect(labels).toContain('1010 — Bank');
     expect(labels).toContain('1011 — Chase Bank 6833');
     expect(labels).toContain('1020 — MCB Bank');
-    expect(labels).toContain('1200 — Accounts Receivable');
+    expect(labels.join(' ')).not.toContain('Accounts Receivable');
+    expect(labels.join(' ')).not.toContain('Inventory');
     expect(labels.join(' ')).not.toContain('General expenses');
     expect(labels.join(' ')).not.toContain('Closed asset');
     view.cleanup();
