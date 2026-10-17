@@ -62,6 +62,11 @@ import { saveExpense, type Expense } from '../../services/expenseService';
 import { getCompanySettings , getSystemSettings } from '../../services/settingsService';
 import { formatDateOnly } from '../../utils/formatters';
 import {
+    customerLedgerRowLabel,
+    customerLedgerStatementCsv,
+    customerLedgerStatementType,
+} from '../../utils/customerLedgerStatement';
+import {
     isLegacyReversalRow,
     isVoidedPayment,
     lastLivePayment,
@@ -95,7 +100,7 @@ interface CustomerStats {
 interface LedgerEntry {
     id: string;
     date: string;
-    type: 'Invoice' | 'Payment' | 'Credit Note' | 'Debit Note' | 'Van Sale' | 'Reversal' | 'Adjustment';
+    type: 'Invoice' | 'Payment' | 'Credit Note' | 'Debit Note' | 'Van Sale' | 'Reversal' | 'Adjustment' | 'Opening Balance' | 'Balance brought forward';
     referenceNumber: string;
     description: string;
     debit: number;
@@ -223,6 +228,7 @@ const generateCustomerLedgerPDF = (customer: Customer, ledger: LedgerEntry[]) =>
                         <th>Date</th>
                         <th>Type</th>
                         <th>Reference</th>
+                        <th>Description</th>
                         <th>Debit</th>
                         <th>Credit</th>
                         <th>Balance</th>
@@ -232,8 +238,9 @@ const generateCustomerLedgerPDF = (customer: Customer, ledger: LedgerEntry[]) =>
                     ${ledger.map(entry => `
                         <tr>
                             <td>${formatDateOnly(entry.date)}</td>
-                            <td>${entry.voided && entry.type === 'Payment' ? 'Payment (Voided)' : entry.type}</td>
+                            <td>${customerLedgerStatementType(entry)}</td>
                             <td>${entry.referenceNumber}</td>
+                            <td>${entry.description}</td>
                             <td>${entry.debit > 0 ? '' + entry.debit.toLocaleString() : '-'}</td>
                             <td>${entry.credit > 0 ? '' + entry.credit.toLocaleString() : '-'}</td>
                             <td>${entry.balance.toLocaleString()}</td>
@@ -257,13 +264,10 @@ const generateCustomerLedgerPDF = (customer: Customer, ledger: LedgerEntry[]) =>
 const generateCustomerLedgerExcel = (customer: Customer, ledger: LedgerEntry[]) => {
     let csvContent = "data:text/csv;charset=utf-8,";
     csvContent += `Customer Ledger - ${customer.name}\n\n`;
-    csvContent += "Date,Type,Reference,Debit,Credit,Balance\n";
-
-    ledger.forEach(entry => {
-        csvContent += `${formatDateOnly(entry.date)},`;
-        csvContent += `${entry.voided && entry.type === 'Payment' ? 'Payment (Voided)' : entry.type},${entry.referenceNumber},`;
-        csvContent += `${entry.debit},${entry.credit},${entry.balance}\n`;
-    });
+    csvContent += customerLedgerStatementCsv(ledger.map((entry) => ({
+        ...entry,
+        date: formatDateOnly(entry.date),
+    })));
 
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
@@ -278,11 +282,12 @@ const generateCustomerLedgerExcel = (customer: Customer, ledger: LedgerEntry[]) 
  *  from the API; the UI never recomputes it. */
 function mapPartyRowToDisplay(row: PartyLedgerRow): LedgerEntry {
     const rawType = (row.type || '').toLowerCase();
+    const openingLabel = customerLedgerRowLabel(rawType);
     const adjustmentLabel = ledgerTypeLabel(rawType, row);
-    const displayType: LedgerEntry['type'] = adjustmentLabel ?? (
+    const displayType: LedgerEntry['type'] = openingLabel ?? adjustmentLabel ?? (
         rawType === 'van_sale' ? 'Van Sale' :
         rawType === 'credit' || rawType === 'credit_note' || rawType === 'return_credit' ||
-            rawType === 'credit_adjustment' || rawType === 'opening_balance'
+            rawType === 'credit_adjustment'
             ? 'Credit Note' :
         rawType === 'debit' ? 'Debit Note' :
         rawType === 'payment' ? 'Payment' :
@@ -293,8 +298,16 @@ function mapPartyRowToDisplay(row: PartyLedgerRow): LedgerEntry {
         id: String(row.id),
         date: row.date ?? '',
         type: displayType,
-        referenceNumber: row.reference || `${rawType.toUpperCase()}-${String(row.id).slice(-4)}`,
-        description: row.description || `${row.type} transaction`,
+        referenceNumber: openingLabel === 'Opening Balance'
+            ? 'OPENING'
+            : openingLabel === 'Balance brought forward'
+                ? (row.reference || '')
+                : (row.reference || `${rawType.toUpperCase()}-${String(row.id).slice(-4)}`),
+        description: openingLabel === 'Opening Balance'
+            ? 'Opening balance'
+            : openingLabel === 'Balance brought forward'
+                ? 'Balance brought forward'
+                : (row.description || `${row.type} transaction`),
         debit: Number(row.debit) || 0,
         credit: Number(row.credit) || 0,
         balance: Number(row.running_balance) || 0,
@@ -1115,9 +1128,10 @@ export default function CustomerOverview() {
                         ✏ Edit customer
                     </button>
 
-                    {/* Send statement + Credit hold — new visual buttons, no handler */}
+                    {/* Send statement uses the same ledger rows as Download PDF. */}
                     <button
                         type="button"
+                        onClick={() => { if (customer) generateCustomerLedgerPDF(customer, ledger); }}
                         style={{
                             background: 'rgba(245,158,11,.12)', color: '#B45309',
                             border: '1px solid rgba(245,158,11,.3)', borderRadius: 8, padding: '7px 13px',
@@ -2113,7 +2127,7 @@ export default function CustomerOverview() {
                                                     </td>
                                                 </tr>
                                             ))}
-                                            {ledgerOpeningBalance !== null && (
+                                            {ledgerOpeningBalance !== null && !ledger.some((entry) => entry.type === 'Opening Balance' || entry.type === 'Balance brought forward') && (
                                                 <tr style={{ background: 'rgba(79,142,247,.08)' }}>
                                                     <td colSpan={6} style={{ ...ledgerTdStyle, fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>
                                                         Opening balance
