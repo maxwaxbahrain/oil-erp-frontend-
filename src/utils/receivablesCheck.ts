@@ -99,6 +99,10 @@ export interface ReceivablesCheckReport {
   gapLines: GapLine[];
   gapAddsUp: boolean;
   summary: ReceivablesSummary;
+  ledgerNet: number;
+  trialBalanceAr: number;
+  ledgerDifference: number;
+  residuals: Array<{ kind: string; amount: number; label: string; party?: string; note: string }>;
 }
 
 function cents(n: number): number {
@@ -384,5 +388,9 @@ export function buildReceivablesCheck(input: {
     gapLines,
     gapAddsUp: Math.abs(difference - explained) < 0.001,
     summary,
+    ledgerNet: 0,
+    trialBalanceAr: 0,
+    ledgerDifference: 0,
+    residuals: [],
   };
 }

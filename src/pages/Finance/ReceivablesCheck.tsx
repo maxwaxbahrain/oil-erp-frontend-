@@ -59,16 +59,21 @@ export default function ReceivablesCheck() {
       getCollectionsReport(undefined, 'all'),
     ])
       .then(([invoices, payments, notes, check, collections]) => {
-        setReport(
-          buildReceivablesCheck({
-            invoices,
-            payments,
-            creditNotes: notes,
-            importedCredits: check.imported_credits,
-            unappliedPayments: check.unapplied_payments,
-            collections: { total: collections.total, rows: collections.rows },
-          }),
-        );
+        const built = buildReceivablesCheck({
+          invoices,
+          payments,
+          creditNotes: notes,
+          importedCredits: check.imported_credits,
+          unappliedPayments: check.unapplied_payments,
+          collections: { total: collections.total, rows: collections.rows },
+        });
+        setReport({
+          ...built,
+          ledgerNet: Number(check.net_receivable) || 0,
+          trialBalanceAr: Number(check.trial_balance_ar) || 0,
+          ledgerDifference: Number(check.difference) || 0,
+          residuals: check.residuals ?? [],
+        });
         setError(null);
       })
       .catch((err: unknown) => {
@@ -145,29 +150,28 @@ export default function ReceivablesCheck() {
           </section>
 
           <section className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-100 flex items-baseline justify-between gap-4">
-              <h2 className="text-sm font-black uppercase tracking-wide text-gray-900">Why the totals differ</h2>
-              <p className="text-xs font-bold text-gray-500">
-                {report.gapAddsUp ? 'The parts add up to the cent.' : 'The parts do not add up. Reload and check again.'}
-              </p>
+            <div className="px-5 py-4 border-b border-gray-100">
+              <h2 className="text-sm font-black uppercase tracking-wide text-gray-900">Ledger and Trial Balance</h2>
             </div>
             <p className="px-5 pt-4 text-sm text-gray-600">
-              Aged Receivable gross is {formatCurrency(report.gross)}. Collections “All outstanding” is {formatCurrency(report.collectionsTotal)}.
-              Net balance is {formatCurrency(report.net)}, which is the gross minus unapplied credits.
-              {report.fallbackCount > 0
-                ? ` ${report.fallbackCount} invoice(s) had no server balance, so the payment fallback was used for those.`
-                : ' Every loaded invoice had a server balance.'}
+              Net receivable is {formatCurrency(report.ledgerNet)}. Trial Balance Accounts Receivable is {formatCurrency(report.trialBalanceAr)}.
+              The difference is {formatCurrency(report.ledgerDifference)}.
             </p>
-            <table className="w-full text-left mt-2">
-              <tbody>
-                {report.gapLines.map((line) => (
-                  <tr key={line.label} className="border-t border-gray-50">
-                    <td className="px-5 py-3 text-sm text-gray-700">{line.label}</td>
-                    <td className="px-5 py-3 text-sm font-mono font-bold text-right">{formatCurrency(line.amount)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            {report.residuals.length === 0 ? (
+              <p className="px-5 py-4 text-sm text-gray-400">No manual journals, unassigned journals, or missing journals.</p>
+            ) : (
+              <table className="w-full text-left mt-2">
+                <tbody>
+                  {report.residuals.map((row) => (
+                    <tr key={`${row.kind}-${row.label}-${row.party}`} className="border-t border-gray-50">
+                      <td className="px-5 py-3 text-sm text-gray-700">{row.note}</td>
+                      <td className="px-5 py-3 text-sm text-gray-500">{row.party || row.label}</td>
+                      <td className="px-5 py-3 text-sm font-mono font-bold text-right">{formatCurrency(row.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </section>
         </>
       )}

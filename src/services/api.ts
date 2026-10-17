@@ -2020,6 +2020,7 @@ export interface CollectionsReport {
   scope?: 'all' | 'late';
   groups: CollectionsGroups;
   total: number;
+  list_note?: string;
   rows: CollectionsRow[];
 }
 
@@ -2087,10 +2088,22 @@ export interface CreditOpeningRow {
   reference?: string | null;
 }
 
+export interface ArResidual {
+  kind: 'manual' | 'no_customer' | 'missing' | string;
+  amount: number;
+  label: string;
+  party?: string;
+  note: string;
+}
+
 export interface ReceivablesCheckPayload {
   imported_credits: ImportedCreditRow[];
   unapplied_payments: UnappliedPaymentRow[];
   credit_openings?: CreditOpeningRow[];
+  net_receivable?: number;
+  trial_balance_ar?: number;
+  difference?: number;
+  residuals?: ArResidual[];
 }
 
 export interface UnappliedAdvance {

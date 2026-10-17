@@ -948,6 +948,9 @@ export default function Collections() {
             <>
               <p className="mt-2 text-4xl font-semibold tabular-nums text-redwood-text-main">{formatCurrency(report.total)}</p>
               <p className="mt-1 text-xs text-redwood-text-muted">{formatUpdatedLabel(report.as_of)}</p>
+              {report.list_note && (
+                <p className="mt-1 text-xs text-redwood-text-muted">{report.list_note}</p>
+              )}
               <div className="mt-3">
                 <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-white/10" aria-hidden="true">
                   {visibleGroups.map((group) => {
