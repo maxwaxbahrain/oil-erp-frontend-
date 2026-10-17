@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Loader2, Users } from 'lucide-react';
 import { type Customer, type ArSummary, type CustomerStats, getCustomers, getArSummary, getCustomerStats, deleteCustomer } from '../../services/customerService';
+import { outstandingTotals } from '../../utils/outstandingTotals';
 
 /* Visual tokens only (layout/CSS) — mockup exact */
 const ROW_GRID =
@@ -415,15 +416,19 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
 
   const stats = useMemo(() => {
     const total = customers.length;
-    // Header total is the authoritative endpoint value when available.
-    const outstandingTotal = arSummary
-      ? arSummary.total_outstanding
+    const headline = outstandingTotals(arSummary);
+    const owed = headline
+      ? headline.owedToUs
       : customers.reduce((sum, c) => sum + Math.max(0, balanceOf(c)), 0);
+    const credits = headline
+      ? headline.customerCredits
+      : customers.reduce((sum, c) => sum + Math.min(0, balanceOf(c)), 0);
+    const net = headline
+      ? headline.netReceivable
+      : customers.reduce((sum, c) => sum + balanceOf(c), 0);
     const owingCount = customers.filter((c) => balanceOf(c) > 0).length;
     const creditCount = customers.filter((c) => balanceOf(c) < 0).length;
-    // "Active" no longer derived here — comes from the backend stats endpoint
-    // (see customerStats.active_customers below).
-    return { total, outstandingTotal, owingCount, creditCount };
+    return { total, outstandingTotal: owed, credits, net, owingCount, creditCount };
   }, [customers, arSummary, balanceOf]);
 
   const q = searchTerm.toLowerCase().trim();
@@ -532,7 +537,7 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
             <p style={STAT_SUB}>in database</p>
           </div>
           <div style={STAT_CARD_STYLE}>
-            <p style={STAT_LABEL}>Outstanding AR</p>
+            <p style={STAT_LABEL}>Owed to us</p>
             <p
               style={{
                 margin: '6px 0 0',
@@ -549,11 +554,14 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
             </p>
           </div>
           <div style={STAT_CARD_STYLE}>
-            <p style={STAT_LABEL}>Credit Balances</p>
+            <p style={STAT_LABEL}>Credits</p>
             <p style={{ margin: '6px 0 0', fontSize: 22, fontWeight: 600, color: '#94a3b8', fontVariantNumeric: 'tabular-nums' }}>
-              {stats.creditCount}
+              ${Math.abs(stats.credits).toLocaleString(undefined, { maximumFractionDigits: 0 })}
             </p>
-            <p style={STAT_SUB}>overpaid (CR)</p>
+            <p style={STAT_SUB}>
+              net ${stats.net.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              {stats.creditCount ? ` · ${stats.creditCount} customer${stats.creditCount === 1 ? '' : 's'}` : ''}
+            </p>
           </div>
           <div style={STAT_CARD_STYLE}>
             <p style={STAT_LABEL}>Active Customers</p>

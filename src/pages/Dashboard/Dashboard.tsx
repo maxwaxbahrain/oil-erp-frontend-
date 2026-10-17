@@ -19,6 +19,7 @@ import { getPurchaseOrders } from '../../services/purchasesService';
 import { getArSummary, getCustomerStats, type ArSummary, type CustomerStats } from '../../services/customerService';
 import { useEscape } from '../../hooks/useEscape';
 import { calculateReceivables, capReceivablesByLedger } from '../../utils/arMetrics';
+import { outstandingTotals } from '../../utils/outstandingTotals';
 import { livePayments } from '../../utils/paymentVoid';
 import {
     getGLProfitLoss, getGLBalanceSheet, isGLEmpty,
@@ -266,9 +267,11 @@ export default function Dashboard() {
     // DASH-3 — the "Outstanding AR" headline uses the authoritative,
     // ledger-consistent endpoint total when available; falls back to the
     // capped client-side total if the endpoint failed to load.
-    const totalOutstanding = arSummary ? arSummary.total_outstanding : cappedReceivables.total;
+    const headline = outstandingTotals(arSummary);
+    const totalOutstanding = headline ? headline.owedToUs : cappedReceivables.total;
+    const creditOutstanding = headline ? Math.abs(headline.customerCredits) : 0;
+    const netReceivable = headline ? headline.netReceivable : totalOutstanding;
     const unpaidInvoiceCount = cappedReceivables.invoices.length;
-    const overdueTotal = cappedReceivables.days30 + cappedReceivables.days60 + cappedReceivables.days90;
     const overdueCount = cappedReceivables.invoices.filter(r => r.bucket !== 'current').length;
 
     const customerNameById = useMemo(() => {
@@ -333,8 +336,26 @@ export default function Dashboard() {
         return sum;
     }, 0);
 
-    // Top outstanding customers — grouped from payment-aware receivables
+    const overdueCustomerIds = useMemo(() => {
+        const ids = new Set<string>();
+        cappedReceivables.invoices.forEach((row) => {
+            if (row.bucket !== 'current' && row.invoice.customerId) ids.add(String(row.invoice.customerId));
+        });
+        return ids;
+    }, [cappedReceivables]);
+
+    // Top outstanding and overdue dollars are ledger closings, not invoice remainders.
     const topOutstandingCustomers = useMemo(() => {
+        if (arSummary) {
+            return arSummary.per_customer
+                .filter((customer) => customer.balance > 0)
+                .slice(0, 5)
+                .map((customer) => ({
+                    name: customer.name || `Customer #${customer.id}`,
+                    balance: customer.balance,
+                    overdue: overdueCustomerIds.has(String(customer.id)),
+                }));
+        }
         const map = new Map<string, { name: string; balance: number; overdue: boolean }>();
         receivables.invoices.forEach(({ invoice: inv, balance, bucket }) => {
             const cid = inv.customerId ? String(inv.customerId) : resolveCustomerName(inv as Invoice);
@@ -346,7 +367,16 @@ export default function Dashboard() {
             map.set(key, prev);
         });
         return [...map.values()].sort((a, b) => b.balance - a.balance).slice(0, 5);
-    }, [receivables, customerNameById]);
+    }, [arSummary, overdueCustomerIds, receivables, customerNameById]);
+
+    const overdueFromClosings = arSummary
+        ? arSummary.per_customer.reduce((sum, customer) => (
+            overdueCustomerIds.has(String(customer.id)) && customer.balance > 0
+                ? sum + customer.balance
+                : sum
+        ), 0)
+        : null;
+    const overdueTotal = overdueFromClosings ?? (cappedReceivables.days30 + cappedReceivables.days60 + cappedReceivables.days90);
 
     // Top products — aggregate revenue from sales orders / invoice line items
     const topProducts = (() => {
@@ -396,10 +426,10 @@ export default function Dashboard() {
             sub: 'gross invoiced',
         },
         {
-            label: 'Outstanding AR',
+            label: 'Owed to us',
             value: `$${totalOutstanding.toLocaleString()}`,
             color: totalOutstanding > 0 ? C.amber : C.green,
-            sub: `${unpaidInvoiceCount} unpaid invoices`,
+            sub: `credits $${creditOutstanding.toLocaleString()} · net $${netReceivable.toLocaleString()}`,
         },
         {
             label: 'Overdue Amount',
@@ -601,7 +631,9 @@ export default function Dashboard() {
                             { label: 'Invoiced this month',  value: `$${totalRevenueMTD.toLocaleString()}`,    color: C.green },
                             { label: 'Revenue MTD (GL)',     value: glRevMtdStr,                               color: C.green },
                             { label: 'Revenue YTD (GL)',     value: glRevYtdStr,                               color: C.green },
-                            { label: 'Total outstanding AR', value: `$${totalOutstanding.toLocaleString()}`,   color: C.amber },
+                            { label: 'Owed to us',           value: `$${totalOutstanding.toLocaleString()}`,   color: C.amber },
+                            { label: 'Customer credits',     value: `$${creditOutstanding.toLocaleString()}`, color: C.blue },
+                            { label: 'Net receivable',       value: `$${netReceivable.toLocaleString()}`,     color: C.amber },
                             { label: 'Cash collected today', value: `$${cashCollectedToday.toLocaleString()}`, color: C.green },
                             { label: 'Pending orders',       value: String(pendingOrderCount),                  color: C.blue  },
                             { label: 'Active customers',     value: customerStats ? customerStats.active_customers.toLocaleString() : '—', color: C.blue  },
