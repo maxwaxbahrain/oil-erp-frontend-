@@ -2105,6 +2105,46 @@ export interface UnappliedAdvance {
 export const getReceivablesCheck = (): Promise<ReceivablesCheckPayload> =>
   apiRequest<ReceivablesCheckPayload>('/credit/receivables-check');
 
+export interface AgedReceivableLine {
+  kind: 'opening' | 'opening_credit' | 'invoice' | 'credit' | 'debit';
+  label: string;
+  date?: string | null;
+  amount: number;
+  bucket?: string | null;
+  status?: string | null;
+  stored_as?: string | null;
+}
+
+export interface AgedReceivableCustomer {
+  customer_id: string;
+  customer_name: string;
+  current: number;
+  days30: number;
+  days60: number;
+  days90: number;
+  gross: number;
+  credits: number;
+  net: number;
+  ledger_closing: number;
+  lines: AgedReceivableLine[];
+}
+
+export interface AgedReceivableReport {
+  as_of: string;
+  gross: number;
+  credits: number;
+  net: number;
+  customers: AgedReceivableCustomer[];
+}
+
+/** Per-customer net is the ledger closing. Openings are their own rows. */
+export const getAgedReceivable = (asOf?: string): Promise<AgedReceivableReport> => {
+  const params = new URLSearchParams();
+  if (asOf) params.set('as_of', asOf);
+  const qs = params.toString();
+  return apiRequest<AgedReceivableReport>(`/credit/aged-receivable${qs ? `?${qs}` : ''}`);
+};
+
 export const getCollectionsReport = (
   asOf?: string,
   scope?: 'all' | 'late',
