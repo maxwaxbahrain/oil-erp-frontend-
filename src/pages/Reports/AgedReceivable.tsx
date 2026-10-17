@@ -1,107 +1,38 @@
 import { useNavigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { Clock, Download, AlertTriangle, CheckCircle , ArrowLeft, Printer } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { getInvoices, getCustomerPayments, getReceivablesCheck, type Invoice } from '../../services/api';
-import { getCreditNotes } from '../../services/creditNoteService';
+import { getAgedReceivable, type AgedReceivableCustomer } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
-import { calculateReceivables, type ArCreditLine } from '../../utils/arMetrics';
-import { advanceAndOpeningCreditInputs, creditNoteInputs, importedCreditInputs } from '../../utils/receivablesCheck';
-
-interface AgedCustomer {
-    customerId: string;
-    customerName: string;
-    current: number;      // 0-30 days
-    days30: number;       // 31-60 days
-    days60: number;       // 61-90 days
-    days90: number;       // 90+ days
-    total: number;
-    credits: number;
-    invoices: Invoice[];
-    invoiceBalances: Record<string, number>;
-    creditLines: ArCreditLine[];
-}
 
 export default function AgedReceivable() {
     const navigate = useNavigate();
-    const [data, setData] = useState<AgedCustomer[]>([]);
+    const [data, setData] = useState<AgedReceivableCustomer[]>([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
     const [expanded, setExpanded] = useState<string | null>(null);
     const [asOf] = useState(new Date().toISOString().split('T')[0]);
 
     useEffect(() => {
-        Promise.all([
-            getInvoices(),
-            getCustomerPayments(),
-            getCreditNotes().catch(() => []),
-            getReceivablesCheck().catch(() => ({ imported_credits: [], unapplied_payments: [], credit_openings: [] })),
-        ]).then(([invoices, payments, notes, check]) => {
-            const receivables = calculateReceivables(
-                invoices,
-                payments,
-                new Date(`${asOf}T12:00:00`),
-                {
-                    credits: [
-                        ...creditNoteInputs(notes, invoices),
-                        ...importedCreditInputs(check.imported_credits),
-                        ...advanceAndOpeningCreditInputs(check.unapplied_payments, check.credit_openings ?? []),
-                    ],
-                },
-            );
-            const byCustomer = new Map<string, AgedCustomer>();
-            const ensure = (cid: string, name?: string): AgedCustomer => {
-                const existing = byCustomer.get(cid);
-                if (existing) {
-                    if (name && existing.customerName === 'Unknown') existing.customerName = name;
-                    return existing;
-                }
-                const row: AgedCustomer = {
-                    customerId: cid,
-                    customerName: name || 'Unknown',
-                    current: 0,
-                    days30: 0,
-                    days60: 0,
-                    days90: 0,
-                    total: 0,
-                    credits: 0,
-                    invoices: [],
-                    invoiceBalances: {},
-                    creditLines: [],
-                };
-                byCustomer.set(cid, row);
-                return row;
-            };
+        getAgedReceivable(asOf)
+            .then((report) => {
+                setData(report.customers);
+                setLoading(false);
+            })
+            .catch(() => setLoading(false));
+    }, [asOf]);
 
-            receivables.invoices.forEach(row => {
-                const inv = row.invoice as Invoice;
-                const existing = ensure(String(inv.customerId || 'unknown'), inv.customerName);
-                existing[row.bucket] += row.balance;
-                existing.total += row.balance;
-                existing.invoices.push(inv);
-                existing.invoiceBalances[inv.id] = row.balance;
-            });
-            receivables.credits.forEach(credit => {
-                const existing = ensure(credit.customerId || 'unknown', credit.customerName);
-                existing.credits += credit.amount;
-                existing.creditLines.push(credit);
-            });
-
-            setData([...byCustomer.values()].sort((a, b) => b.total - a.total || b.credits - a.credits));
-            setLoading(false);
-        }).catch(() => setLoading(false));
-    }, []);
-
-    const filtered = data.filter(c => c.customerName.toLowerCase().includes(search.toLowerCase()));
+    const filtered = data.filter(c => c.customer_name.toLowerCase().includes(search.toLowerCase()));
     const totals = filtered.reduce((acc, c) => ({
         current: acc.current + c.current,
         days30: acc.days30 + c.days30,
         days60: acc.days60 + c.days60,
         days90: acc.days90 + c.days90,
-        total: acc.total + c.total,
+        gross: acc.gross + c.gross,
         credits: acc.credits + c.credits,
-    }), { current: 0, days30: 0, days60: 0, days90: 0, total: 0, credits: 0 });
+        net: acc.net + c.net,
+    }), { current: 0, days30: 0, days60: 0, days90: 0, gross: 0, credits: 0, net: 0 });
 
     const exportPDF = () => {
         const doc = new jsPDF({ orientation: 'landscape' });
@@ -109,19 +40,19 @@ export default function AgedReceivable() {
         doc.text('Aged Receivable Report', 14, 16);
         doc.setFontSize(10);
         doc.text(`As of ${asOf}`, 14, 22);
-        doc.text(`${filtered.length} customers · Gross outstanding: ${formatCurrency(totals.total)} · Net: ${formatCurrency(totals.total - totals.credits)}`, 14, 28);
+        doc.text(`${filtered.length} customers · Gross: ${formatCurrency(totals.gross)} · Net: ${formatCurrency(totals.net)}`, 14, 28);
         autoTable(doc, {
             startY: 34,
-            head: [['Customer', 'Status', 'Current (0–30d)', '31–60 Days', '61–90 Days', '90+ Days', 'Unapplied credits', 'Gross']],
+            head: [['Customer', 'Status', 'Current (0–30d)', '31–60 Days', '61–90 Days', '90+ Days', 'Credits', 'Net']],
             body: filtered.map(c => [
-                c.customerName,
+                c.customer_name,
                 ageBadge(c).label,
                 c.current > 0 ? formatCurrency(c.current) : '—',
                 c.days30 > 0 ? formatCurrency(c.days30) : '—',
                 c.days60 > 0 ? formatCurrency(c.days60) : '—',
                 c.days90 > 0 ? formatCurrency(c.days90) : '—',
                 c.credits > 0 ? formatCurrency(c.credits) : '—',
-                formatCurrency(c.total),
+                formatCurrency(c.net),
             ]),
             foot: [[
                 'TOTAL',
@@ -131,7 +62,7 @@ export default function AgedReceivable() {
                 formatCurrency(totals.days60),
                 formatCurrency(totals.days90),
                 formatCurrency(totals.credits),
-                formatCurrency(totals.total),
+                formatCurrency(totals.net),
             ]],
             styles: { fontSize: 9 },
             headStyles: { fillColor: [33, 33, 33] },
@@ -142,7 +73,7 @@ export default function AgedReceivable() {
 
     const handlePrint = () => window.print();
 
-    const ageBadge = (c: AgedCustomer) => {
+    const ageBadge = (c: AgedReceivableCustomer) => {
         if (c.days90 > 0) return { label: '90+ days', color: 'bg-red-100 text-red-700' };
         if (c.days60 > 0) return { label: '60+ days', color: 'bg-orange-100 text-orange-700' };
         if (c.days30 > 0) return { label: '30+ days', color: 'bg-yellow-100 text-yellow-700' };
@@ -151,7 +82,6 @@ export default function AgedReceivable() {
 
     return (
         <div className="space-y-6 max-w-[1400px] mx-auto pb-10 animate-in fade-in duration-500">
-            {/* Header */}
             <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm flex items-center justify-between flex-wrap gap-4">
                 <div className="flex items-center gap-4">
                     <div className="w-12 h-12 bg-red-50 rounded-xl flex items-center justify-center">
@@ -160,7 +90,7 @@ export default function AgedReceivable() {
                     <div>
                         <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all print:hidden"><ArrowLeft size={14} /> Back</button>
                     <h1 className="text-xl font-black text-gray-900 uppercase tracking-tight">Aged Receivable</h1>
-                        <p className="text-xs text-gray-500 mt-0.5">As of {asOf} · Gross outstanding by age, with unapplied credits beside it</p>
+                        <p className="text-xs text-gray-500 mt-0.5">As of {asOf} · Opening balance is its own row. Net is the customer ledger closing.</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-2 print:hidden">
@@ -181,24 +111,22 @@ export default function AgedReceivable() {
                 </div>
             </div>
 
-            {/* KPI Summary */}
             <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
                 {[
                     { label: 'Current (0–30d)', value: totals.current, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200' },
                     { label: '31–60 Days', value: totals.days30, color: 'text-yellow-600', bg: 'bg-yellow-50', border: 'border-yellow-200' },
                     { label: '61–90 Days', value: totals.days60, color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200' },
                     { label: '90+ Days', value: totals.days90, color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-200' },
-                    { label: 'Gross outstanding', value: totals.total, color: 'text-gray-900', bg: 'bg-gray-50', border: 'border-gray-300' },
-                    { label: 'Net (gross − credits)', value: totals.total - totals.credits, color: 'text-gray-900', bg: 'bg-white', border: 'border-gray-300' },
-                ].map((b, i) => (
-                    <div key={i} className={`${b.bg} border ${b.border} rounded-2xl p-4`}>
+                    { label: 'Gross outstanding', value: totals.gross, color: 'text-gray-900', bg: 'bg-gray-50', border: 'border-gray-300' },
+                    { label: 'Net (ledger closing)', value: totals.net, color: 'text-gray-900', bg: 'bg-white', border: 'border-gray-300' },
+                ].map((b) => (
+                    <div key={b.label} className={`${b.bg} border ${b.border} rounded-2xl p-4`}>
                         <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">{b.label}</p>
                         <p className={`text-lg font-black font-mono ${b.color}`}>{loading ? '...' : formatCurrency(b.value)}</p>
                     </div>
                 ))}
             </div>
 
-            {/* Table */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                 <div className="p-5 border-b border-gray-100 flex items-center justify-between gap-4">
                     <p className="text-sm font-black text-gray-700 uppercase tracking-wide">{filtered.length} Customers with Outstanding Balances</p>
@@ -224,7 +152,7 @@ export default function AgedReceivable() {
                         <table className="w-full text-left">
                             <thead className="bg-gray-50 border-b border-gray-100">
                                 <tr>
-                                    {['Customer', 'Status', 'Current (0–30d)', '31–60 Days', '61–90 Days', '90+ Days', 'Unapplied credits', 'Gross'].map(h => (
+                                    {['Customer', 'Status', 'Current (0–30d)', '31–60 Days', '61–90 Days', '90+ Days', 'Credits', 'Net'].map(h => (
                                         <th key={h} className="px-5 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">{h}</th>
                                     ))}
                                 </tr>
@@ -232,16 +160,16 @@ export default function AgedReceivable() {
                             <tbody className="divide-y divide-gray-50">
                                 {filtered.map(c => {
                                     const badge = ageBadge(c);
+                                    const invoiceCount = c.lines.filter(line => line.kind === 'invoice').length;
                                     return (
-                                        <>
+                                        <Fragment key={c.customer_id}>
                                             <tr
-                                                key={c.customerId}
                                                 className="hover:bg-gray-50 cursor-pointer transition-all"
-                                                onClick={() => setExpanded(expanded === c.customerId ? null : c.customerId)}
+                                                onClick={() => setExpanded(expanded === c.customer_id ? null : c.customer_id)}
                                             >
                                                 <td className="px-5 py-4">
-                                                    <p className="text-sm font-black text-gray-900">{c.customerName}</p>
-                                                    <p className="text-xs text-gray-400">{c.invoices.length} invoice{c.invoices.length !== 1 ? 's' : ''}</p>
+                                                    <p className="text-sm font-black text-gray-900">{c.customer_name}</p>
+                                                    <p className="text-xs text-gray-400">{invoiceCount} invoice{invoiceCount !== 1 ? 's' : ''}</p>
                                                 </td>
                                                 <td className="px-5 py-4">
                                                     <span className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase ${badge.color}`}>{badge.label}</span>
@@ -251,33 +179,25 @@ export default function AgedReceivable() {
                                                 <td className="px-5 py-4 text-sm font-mono font-bold text-orange-700">{c.days60 > 0 ? formatCurrency(c.days60) : '—'}</td>
                                                 <td className="px-5 py-4 text-sm font-mono font-bold text-red-700">{c.days90 > 0 ? <span className="flex items-center gap-1"><AlertTriangle size={12} />{formatCurrency(c.days90)}</span> : '—'}</td>
                                                 <td className="px-5 py-4 text-sm font-mono font-bold text-sky-800">{c.credits > 0 ? formatCurrency(c.credits) : '—'}</td>
-                                                <td className="px-5 py-4 text-sm font-black font-mono text-gray-900">{formatCurrency(c.total)}</td>
+                                                <td className="px-5 py-4 text-sm font-black font-mono text-gray-900">{formatCurrency(c.net)}</td>
                                             </tr>
-                                            {expanded === c.customerId && (
-                                                <tr key={`${c.customerId}-exp`} className="bg-gray-50">
+                                            {expanded === c.customer_id && (
+                                                <tr className="bg-gray-50">
                                                     <td colSpan={8} className="px-5 py-3">
                                                         <div className="space-y-2">
-                                                            {c.invoices.map(inv => (
-                                                                <div key={inv.id} className="flex items-center justify-between text-xs bg-white rounded-lg px-4 py-2 border border-gray-100">
-                                                                    <span className="font-black text-gray-700">{inv.invoiceNumber}</span>
-                                                                    <span className="text-gray-500">{inv.invoiceDate}</span>
-                                                                    <span className="text-gray-500">Due: {inv.dueDate || 'N/A'}</span>
-                                                                    <span className={`font-black ${inv.status === 'Overdue' ? 'text-red-600' : 'text-orange-600'}`}>{inv.status}</span>
-                                                                    <span className="font-black font-mono text-gray-900">{formatCurrency(c.invoiceBalances[inv.id] ?? 0)}</span>
-                                                                </div>
-                                                            ))}
-                                                            {c.creditLines.map(credit => (
-                                                                <div key={credit.id} className="flex items-center justify-between text-xs bg-sky-50 rounded-lg px-4 py-2 border border-sky-100">
-                                                                    <span className="font-black text-sky-900">{credit.label}</span>
-                                                                    <span className="text-sky-700">{credit.storedAs}</span>
-                                                                    <span className="font-black font-mono text-sky-900">{formatCurrency(credit.amount)}</span>
+                                                            {c.lines.map(line => (
+                                                                <div key={`${line.kind}-${line.label}-${line.date}`} className={`flex items-center justify-between text-xs rounded-lg px-4 py-2 border ${line.bucket ? 'bg-white border-gray-100' : 'bg-sky-50 border-sky-100'}`}>
+                                                                    <span className="font-black text-gray-700">{line.label}</span>
+                                                                    <span className="text-gray-500">{line.date || '—'}</span>
+                                                                    <span className="text-gray-500">{line.kind === 'opening' ? 'Opening balance' : line.kind === 'opening_credit' ? 'Opening credit' : line.stored_as || line.status || ''}</span>
+                                                                    <span className="font-black font-mono text-gray-900">{formatCurrency(line.amount)}</span>
                                                                 </div>
                                                             ))}
                                                         </div>
                                                     </td>
                                                 </tr>
                                             )}
-                                        </>
+                                        </Fragment>
                                     );
                                 })}
                                 <tr className="bg-gray-900 text-white">
@@ -287,18 +207,18 @@ export default function AgedReceivable() {
                                     <td className="px-5 py-4 text-sm font-black font-mono">{formatCurrency(totals.days60)}</td>
                                     <td className="px-5 py-4 text-sm font-black font-mono">{formatCurrency(totals.days90)}</td>
                                     <td className="px-5 py-4 text-sm font-black font-mono">{formatCurrency(totals.credits)}</td>
-                                    <td className="px-5 py-4 text-sm font-black font-mono">{formatCurrency(totals.total)}</td>
+                                    <td className="px-5 py-4 text-sm font-black font-mono">{formatCurrency(totals.gross)}</td>
                                 </tr>
                                 <tr className="bg-gray-800 text-white">
-                                    <td className="px-5 py-4 text-xs font-black uppercase tracking-wide" colSpan={7}>Net balance (gross outstanding minus unapplied credits)</td>
-                                    <td className="px-5 py-4 text-sm font-black font-mono">{formatCurrency(totals.total - totals.credits)}</td>
+                                    <td className="px-5 py-4 text-xs font-black uppercase tracking-wide" colSpan={7}>Net (ledger closing)</td>
+                                    <td className="px-5 py-4 text-sm font-black font-mono">{formatCurrency(totals.net)}</td>
                                 </tr>
                             </tbody>
                         </table>
                     </div>
                 )}
             </div>
-            <p className="text-xs text-gray-400 text-center">Click any row to expand invoice details · Sorted by total outstanding (highest first)</p>
+            <p className="text-xs text-gray-400 text-center">Click any row to expand the opening, invoices, and credits · Net matches the customer statement</p>
         </div>
     );
 }

@@ -66,6 +66,26 @@ describe('AR metrics honesty', () => {
     expect(summary.total).toBe(125);
   });
 
+  it('keeps an invoice open when money remains even if the status says paid', () => {
+    const summary = calculateReceivables(
+      [
+        {
+          id: 'still-open',
+          customerId: 'c1',
+          invoiceDate: '2026-03-01',
+          dueDate: '2026-03-15',
+          grandTotal: 100,
+          remaining_balance: 25,
+          status: 'Paid',
+        },
+      ],
+      [],
+      new Date('2026-03-20T12:00:00'),
+    );
+    expect(summary.invoices).toHaveLength(1);
+    expect(summary.total).toBe(25);
+  });
+
   it('excludes a fully paid invoice when the server balance is 0', () => {
     const asOf = new Date('2026-08-01T12:00:00');
     const invoices = [

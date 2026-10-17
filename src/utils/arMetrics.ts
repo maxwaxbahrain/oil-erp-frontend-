@@ -76,16 +76,8 @@ function invoiceTotal(inv: InvoiceLike): number {
   return Number(inv.grandTotal ?? inv.subtotal ?? 0) || 0;
 }
 
-function statusOf(inv: InvoiceLike): string {
-  return String(inv.status ?? '').trim().toLowerCase();
-}
-
 function isVoidOrCancelled(inv: InvoiceLike): boolean {
   return !invoiceCountsTowardCustomerBalance(inv.status);
-}
-
-function isMarkedPaid(inv: InvoiceLike): boolean {
-  return statusOf(inv) === 'paid';
 }
 
 /** null when the server did not send a balance. 0 is a real balance. */
@@ -268,7 +260,6 @@ export function calculateReceivables(
 
   for (const inv of ordered) {
     if (isVoidOrCancelled(inv)) continue;
-    if (isMarkedPaid(inv)) continue;
 
     const total = invoiceTotal(inv);
     const customerId = inv.customerId ? String(inv.customerId) : '';
