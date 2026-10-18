@@ -17,15 +17,21 @@ import {
     ShieldAlert,
 } from 'lucide-react';
 import { getGLAccounts, type GLAccount } from '../../services/glService';
+import { getCustomers, type Customer } from '../../services/customerService';
 import { authFetch } from '../../api/axios';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+export type JVLineType = 'account' | 'customer';
+
 export interface JVLine {
     id: string;
+    lineType: JVLineType;
     accountId: string;
     accountCode: string;
     accountName: string;
+    customerId?: string | null;
+    customerName?: string | null;
     description: string;
     debit: number;
     credit: number;
@@ -58,7 +64,11 @@ export const getJournalVouchers = async (): Promise<JournalVoucher[]> => {
         const r = await authFetch(`${JV_API}/`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const rows = await r.json();
-        return Array.isArray(rows) ? rows : [];
+        if (!Array.isArray(rows)) return [];
+        return rows.map((jv: JournalVoucher) => ({
+            ...jv,
+            lines: (jv.lines || []).map((line) => normalizeLine(line)),
+        }));
     } catch (e) {
         console.error('[JournalVoucher] Failed to load vouchers:', e);
         return [];
@@ -76,9 +86,11 @@ const createJV = async (jv: JournalVoucher): Promise<JournalVoucher> => {
             type: jv.type,
             status: jv.status,
             lines: jv.lines.map(l => ({
+                lineType: l.lineType || (l.customerId ? 'customer' : 'account'),
                 accountId: l.accountId,
                 accountCode: l.accountCode,
                 accountName: l.accountName,
+                customerId: l.customerId || null,
                 description: l.description,
                 debit: l.debit,
                 credit: l.credit,
@@ -230,7 +242,7 @@ function detectIssues(jv: JournalVoucher, all: JournalVoucher[], accountCodes: S
         issues.push('vague_narration');
     }
     if (jv.status === 'Draft' && jv.totalDebit >= 10000) issues.push('large_draft');
-    if ((jv.lines || []).some(l => l.accountCode && !accountCodes.has(l.accountCode))) {
+    if ((jv.lines || []).some(l => l.lineType !== 'customer' && l.accountCode && !accountCodes.has(l.accountCode))) {
         issues.push('unknown_mapping');
     }
     const dup = all.some(
@@ -264,7 +276,7 @@ function jvMatchesSearch(jv: JournalVoucher, q: string): boolean {
         jv.jvNumber,
         jv.narration,
         jv.reference,
-        ...(jv.lines || []).flatMap(l => [l.accountCode, l.accountName, l.description]),
+        ...(jv.lines || []).flatMap(l => [l.accountCode, l.accountName, l.customerName, l.description]),
     ]
         .join(' ')
         .toLowerCase();
@@ -275,9 +287,27 @@ function jvMatchesSearch(jv: JournalVoucher, q: string): boolean {
 
 const emptyLine = (): JVLine => ({
     id: Date.now().toString() + Math.random().toString(36).slice(2),
+    lineType: 'account',
     accountId: '', accountCode: '', accountName: '',
+    customerId: null, customerName: null,
     description: '', debit: 0, credit: 0
 });
+
+export function normalizeLine(raw: Partial<JVLine> & { id?: string }): JVLine {
+    const customerId = raw.customerId ? String(raw.customerId) : null;
+    return {
+        id: raw.id || Date.now().toString() + Math.random().toString(36).slice(2),
+        lineType: raw.lineType === 'customer' || customerId ? 'customer' : 'account',
+        accountId: raw.accountId || '',
+        accountCode: raw.accountCode || '',
+        accountName: raw.accountName || '',
+        customerId,
+        customerName: raw.customerName || null,
+        description: raw.description || '',
+        debit: Number(raw.debit) || 0,
+        credit: Number(raw.credit) || 0,
+    };
+}
 
 const PLACEHOLDER_JV_NUMBER = 'Auto-assigned on save';
 
@@ -298,9 +328,16 @@ function JVForm({ accounts, accountsLoading, accountsLoadError, editJV, onSave, 
     const [reference, setReference] = useState(editJV?.reference || '');
     const [narration, setNarration] = useState(editJV?.narration || '');
     const [type, setType] = useState<JournalVoucher['type']>(editJV?.type || 'General');
-    const [lines, setLines] = useState<JVLine[]>(editJV?.lines || [emptyLine(), emptyLine()]);
+    const [lines, setLines] = useState<JVLine[]>(
+        (editJV?.lines || [emptyLine(), emptyLine()]).map((line) => normalizeLine(line)),
+    );
+    const [customers, setCustomers] = useState<Customer[]>([]);
     const [acSearch, setAcSearch] = useState<Record<string, string>>({});
     const [showAcDrop, setShowAcDrop] = useState<string | null>(null);
+
+    useEffect(() => {
+        getCustomers().then(setCustomers).catch(() => setCustomers([]));
+    }, []);
 
     useEffect(() => {
         const handleClick = (e: MouseEvent) => {
@@ -317,6 +354,10 @@ function JVForm({ accounts, accountsLoading, accountsLoadError, editJV, onSave, 
     const totalCredit = lines.reduce((s, l) => s + (l.credit || 0), 0);
     const isBalanced = Math.abs(totalDebit - totalCredit) < 0.001 && totalDebit > 0;
     const difference = totalDebit - totalCredit;
+    const arAccount = accounts.find((a) => a.system_key === 'accounts_receivable');
+    const bareArLines = lines.filter(
+        (l) => l.lineType === 'account' && arAccount && String(l.accountId) === String(arAccount.id),
+    );
 
     const updateLine = (id: string, field: keyof JVLine, value: any) => {
         setLines(prev => prev.map(l => {
@@ -328,12 +369,58 @@ function JVForm({ accounts, accountsLoading, accountsLoadError, editJV, onSave, 
         }));
     };
 
+    const setLineType = (lineId: string, lineType: JVLineType) => {
+        setLines(prev => prev.map(l => {
+            if (l.id !== lineId) return l;
+            if (lineType === 'customer') {
+                return {
+                    ...l,
+                    lineType,
+                    accountId: '',
+                    accountCode: '',
+                    accountName: '',
+                };
+            }
+            return {
+                ...l,
+                lineType,
+                customerId: null,
+                customerName: null,
+            };
+        }));
+        setShowAcDrop(null);
+        setAcSearch(prev => {
+            const { [lineId]: _omit, ...rest } = prev;
+            return rest;
+        });
+    };
+
     const selectAccount = (lineId: string, account: GLAccount) => {
         setLines(prev => prev.map(l => l.id !== lineId ? l : {
             ...l,
+            lineType: 'account',
             accountId: String(account.id),
             accountCode: account.code,
             accountName: account.name,
+            customerId: null,
+            customerName: null,
+        }));
+        setShowAcDrop(null);
+        setAcSearch(prev => {
+            const { [lineId]: _omit, ...rest } = prev;
+            return rest;
+        });
+    };
+
+    const selectCustomer = (lineId: string, customer: Customer) => {
+        setLines(prev => prev.map(l => l.id !== lineId ? l : {
+            ...l,
+            lineType: 'customer',
+            customerId: String(customer.id),
+            customerName: customer.name,
+            accountId: arAccount ? String(arAccount.id) : '',
+            accountCode: arAccount?.code || '',
+            accountName: customer.name,
         }));
         setShowAcDrop(null);
         setAcSearch(prev => {
@@ -355,7 +442,18 @@ function JVForm({ accounts, accountsLoading, accountsLoadError, editJV, onSave, 
             return;
         }
         if (!narration.trim()) { alert('Narration is required.'); return; }
-        if (lines.some(l => !l.accountId)) { alert('All lines must have an account selected.'); return; }
+        if (lines.some(l => l.lineType === 'account' && !l.accountId)) {
+            alert('Every Account line needs an account selected.');
+            return;
+        }
+        if (lines.some(l => l.lineType === 'customer' && !l.customerId)) {
+            alert('Every Customer line needs a customer selected.');
+            return;
+        }
+        if (post && bareArLines.length > 0) {
+            alert('Choose Line type Customer to post to a customer\'s account.');
+            return;
+        }
         if (lines.some(l => l.debit === 0 && l.credit === 0)) { alert('All lines must have a debit or credit amount.'); return; }
         if (!isBalanced) { alert(`Journal is not balanced. Difference: ${formatUsd(Math.abs(difference))}`); return; }
 
@@ -373,6 +471,16 @@ function JVForm({ accounts, accountsLoading, accountsLoadError, editJV, onSave, 
         const q = search.toLowerCase();
         return accounts
             .filter(a => a.name.toLowerCase().includes(q) || a.code.includes(q))
+            .slice(0, 100);
+    };
+
+    const getFilteredCustomers = (search: string) => {
+        const q = search.trim().toLowerCase();
+        return customers
+            .filter((c) => {
+                const code = (c.code || c.id || '').toLowerCase();
+                return !q || c.name.toLowerCase().includes(q) || code.includes(q);
+            })
             .slice(0, 100);
     };
 
@@ -418,27 +526,44 @@ function JVForm({ accounts, accountsLoading, accountsLoadError, editJV, onSave, 
             {accountsLoadError && (
                 <p style={{ fontSize: 10, color: 'var(--color-brand-red-tint)' }}>{accountsLoadError}</p>
             )}
+            {bareArLines.length > 0 && (
+                <p style={{ fontSize: 10, color: 'var(--color-brand-amber-tint)' }}>
+                    Choose Line type Customer to post to a customer&apos;s account.
+                </p>
+            )}
 
             <div style={{ ...panel, padding: 0, overflow: 'hidden' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr style={{ background: 'rgba(255,255,255,.03)' }}>
-                            {['Account', 'Description', 'Debit', 'Credit', ''].map((h, i) => (
-                                <th key={h || i} style={{ ...thStyle, textAlign: i >= 2 && i <= 3 ? 'right' : 'left', width: i === 4 ? 40 : undefined }}>{h}</th>
+                            {['Line type', 'Account / Customer', 'Description', 'Debit', 'Credit', ''].map((h, i) => (
+                                <th key={h || i} style={{ ...thStyle, textAlign: i >= 3 && i <= 4 ? 'right' : 'left', width: i === 5 ? 40 : undefined }}>{h}</th>
                             ))}
                         </tr>
                     </thead>
                     <tbody>
                         {lines.map((line) => (
                             <tr key={line.id}>
+                                <td style={tdStyle}>
+                                    <select
+                                        value={line.lineType}
+                                        onChange={(e) => setLineType(line.id, e.target.value as JVLineType)}
+                                        style={{ ...selectStyle, fontSize: 10, minWidth: 110 }}
+                                    >
+                                        <option value="account">Account</option>
+                                        <option value="customer">Customer</option>
+                                    </select>
+                                </td>
                                 <td style={{ ...tdStyle, position: 'relative' }} className="ac-dropdown-container">
                                     <input
                                         value={
                                             acSearch[line.id] !== undefined
                                                 ? acSearch[line.id]
-                                                : (line.accountCode && line.accountName
-                                                    ? `${line.accountCode} — ${line.accountName}`
-                                                    : (line.accountName || line.accountCode || ''))
+                                                : line.lineType === 'customer'
+                                                    ? (line.customerName || '')
+                                                    : (line.accountCode && line.accountName
+                                                        ? `${line.accountCode} — ${line.accountName}`
+                                                        : (line.accountName || line.accountCode || ''))
                                         }
                                         onChange={e => {
                                             setAcSearch(prev => ({ ...prev, [line.id]: e.target.value }));
@@ -448,24 +573,47 @@ function JVForm({ accounts, accountsLoading, accountsLoadError, editJV, onSave, 
                                             setAcSearch(prev => ({ ...prev, [line.id]: '' }));
                                             setShowAcDrop(line.id);
                                         }}
-                                        placeholder="Search account..."
+                                        placeholder={line.lineType === 'customer' ? 'Search customer...' : 'Search account...'}
                                         style={{ ...inputStyle, fontSize: 10 }}
                                     />
+                                    {line.lineType === 'customer' && (
+                                        <p style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)', marginTop: 4 }}>
+                                            Posts to Accounts Receivable
+                                        </p>
+                                    )}
                                     {showAcDrop === line.id && (
                                         <div style={{
                                             position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
                                             background: 'var(--color-redwood-bg-surface)', border: '1px solid var(--color-redwood-border)',
                                             borderRadius: 8, boxShadow: '0 8px 32px rgba(0,0,0,.45)', maxHeight: 192, overflowY: 'auto',
                                         }}>
-                                            {getFilteredAccounts(acSearch[line.id] || '').map(ac => (
-                                                <button key={ac.id} type="button" onClick={() => selectAccount(line.id, ac)}
-                                                    style={{ width: '100%', textAlign: 'left', padding: '8px 12px', fontSize: 10, background: 'transparent', border: 'none', borderBottom: '1px solid rgba(255,255,255,.04)', cursor: 'pointer', color: 'var(--color-redwood-text-main)', fontFamily: 'inherit' }}>
-                                                    {ac.code} — {ac.name}
-                                                </button>
-                                            ))}
-                                            {getFilteredAccounts(acSearch[line.id] || '').length === 0 && (
-                                                <div style={{ padding: 12, fontSize: 10, color: 'var(--color-redwood-text-subtle)' }}>No accounts found</div>
-                                            )}
+                                            {line.lineType === 'customer'
+                                                ? (
+                                                    <>
+                                                        {getFilteredCustomers(acSearch[line.id] || '').map(customer => (
+                                                            <button key={customer.id} type="button" onClick={() => selectCustomer(line.id, customer)}
+                                                                style={{ width: '100%', textAlign: 'left', padding: '8px 12px', fontSize: 10, background: 'transparent', border: 'none', borderBottom: '1px solid rgba(255,255,255,.04)', cursor: 'pointer', color: 'var(--color-redwood-text-main)', fontFamily: 'inherit' }}>
+                                                                {customer.name}{customer.code || customer.id ? ` · ${customer.code || customer.id}` : ''}
+                                                            </button>
+                                                        ))}
+                                                        {getFilteredCustomers(acSearch[line.id] || '').length === 0 && (
+                                                            <div style={{ padding: 12, fontSize: 10, color: 'var(--color-redwood-text-subtle)' }}>No customers found</div>
+                                                        )}
+                                                    </>
+                                                )
+                                                : (
+                                                    <>
+                                                        {getFilteredAccounts(acSearch[line.id] || '').map(ac => (
+                                                            <button key={ac.id} type="button" onClick={() => selectAccount(line.id, ac)}
+                                                                style={{ width: '100%', textAlign: 'left', padding: '8px 12px', fontSize: 10, background: 'transparent', border: 'none', borderBottom: '1px solid rgba(255,255,255,.04)', cursor: 'pointer', color: 'var(--color-redwood-text-main)', fontFamily: 'inherit' }}>
+                                                                {ac.code} — {ac.name}
+                                                            </button>
+                                                        ))}
+                                                        {getFilteredAccounts(acSearch[line.id] || '').length === 0 && (
+                                                            <div style={{ padding: 12, fontSize: 10, color: 'var(--color-redwood-text-subtle)' }}>No accounts found</div>
+                                                        )}
+                                                    </>
+                                                )}
                                         </div>
                                     )}
                                 </td>
@@ -488,7 +636,7 @@ function JVForm({ accounts, accountsLoading, accountsLoadError, editJV, onSave, 
                     </tbody>
                     <tfoot>
                         <tr style={{ background: isBalanced ? 'rgba(34,197,94,.08)' : 'rgba(239,68,68,.08)' }}>
-                            <td colSpan={2} style={tdStyle}>
+                            <td colSpan={3} style={tdStyle}>
                                 <button type="button" onClick={() => setLines(prev => [...prev, emptyLine()])} style={{ ...ghostBtn, color: 'var(--color-brand-blue-tint)', border: 'none', background: 'transparent', padding: 0 }}>
                                     <Plus size={13} /> Add Line
                                 </button>
@@ -505,14 +653,14 @@ function JVForm({ accounts, accountsLoading, accountsLoadError, editJV, onSave, 
                         </tr>
                         {!isBalanced && totalDebit > 0 && (
                             <tr style={{ background: 'rgba(239,68,68,.12)' }}>
-                                <td colSpan={5} style={{ ...tdStyle, textAlign: 'center', color: 'var(--color-brand-red-tint)', fontWeight: 600, fontSize: 10 }}>
+                                <td colSpan={6} style={{ ...tdStyle, textAlign: 'center', color: 'var(--color-brand-red-tint)', fontWeight: 600, fontSize: 10 }}>
                                     Out of balance by {formatUsd(Math.abs(difference))}
                                 </td>
                             </tr>
                         )}
                         {isBalanced && (
                             <tr style={{ background: 'rgba(34,197,94,.12)' }}>
-                                <td colSpan={5} style={{ ...tdStyle, textAlign: 'center', color: 'var(--color-brand-green-tint)', fontWeight: 600, fontSize: 10 }}>
+                                <td colSpan={6} style={{ ...tdStyle, textAlign: 'center', color: 'var(--color-brand-green-tint)', fontWeight: 600, fontSize: 10 }}>
                                     Balanced — Debit = Credit = {formatUsd(totalDebit)}
                                 </td>
                             </tr>
@@ -525,7 +673,7 @@ function JVForm({ accounts, accountsLoading, accountsLoadError, editJV, onSave, 
                 <button type="button" onClick={() => handleSave(false)} disabled={!accountsReady} style={{ ...ghostBtn, opacity: accountsReady ? 1 : 0.45 }}>
                     <FileText size={14} /> Save as Draft
                 </button>
-                <button type="button" onClick={() => handleSave(true)} disabled={!isBalanced || !accountsReady} style={{ ...primaryBtn, opacity: isBalanced && accountsReady ? 1 : 0.45 }}>
+                <button type="button" onClick={() => handleSave(true)} disabled={!isBalanced || !accountsReady || bareArLines.length > 0} style={{ ...primaryBtn, opacity: isBalanced && accountsReady && bareArLines.length === 0 ? 1 : 0.45 }}>
                     <Check size={14} /> Post Journal Entry
                 </button>
                 <button type="button" onClick={onCancel} style={{ ...ghostBtn, border: 'none', background: 'transparent' }}>Cancel</button>
@@ -590,16 +738,17 @@ ${jv.lines.map(l => `<tr><td>${l.accountCode}</td><td>${l.accountName}</td><td>$
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr style={{ background: 'rgba(255,255,255,.03)' }}>
-                            {['Code', 'Account', 'Description', 'Debit', 'Credit'].map((h, i) => (
-                                <th key={h} style={{ ...thStyle, textAlign: i >= 3 ? 'right' : 'left' }}>{h}</th>
+                            {['Type', 'Code', 'Account / Customer', 'Description', 'Debit', 'Credit'].map((h, i) => (
+                                <th key={h} style={{ ...thStyle, textAlign: i >= 4 ? 'right' : 'left' }}>{h}</th>
                             ))}
                         </tr>
                     </thead>
                     <tbody>
                         {jv.lines.map(line => (
                             <tr key={line.id}>
-                                <td style={{ ...tdStyle, fontFamily: 'ui-monospace,monospace', fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>{line.accountCode}</td>
-                                <td style={{ ...tdStyle, fontWeight: 600 }}>{line.accountName}</td>
+                                <td style={{ ...tdStyle, fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>{line.lineType === 'customer' ? 'Customer' : 'Account'}</td>
+                                <td style={{ ...tdStyle, fontFamily: 'ui-monospace,monospace', fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>{line.lineType === 'customer' ? 'AR' : line.accountCode}</td>
+                                <td style={{ ...tdStyle, fontWeight: 600 }}>{line.lineType === 'customer' ? (line.customerName || line.accountName) : line.accountName}</td>
                                 <td style={{ ...tdStyle, fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>{line.description || '—'}</td>
                                 <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'ui-monospace,monospace', fontWeight: 600, color: 'var(--color-brand-blue-tint)' }}>{line.debit > 0 ? formatUsd(line.debit) : '—'}</td>
                                 <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'ui-monospace,monospace', fontWeight: 600, color: 'var(--color-brand-green-tint)' }}>{line.credit > 0 ? formatUsd(line.credit) : '—'}</td>
@@ -608,7 +757,7 @@ ${jv.lines.map(l => `<tr><td>${l.accountCode}</td><td>${l.accountName}</td><td>$
                     </tbody>
                     <tfoot>
                         <tr style={{ background: 'rgba(255,255,255,.04)' }}>
-                            <td colSpan={3} style={{ ...tdStyle, fontWeight: 700, fontSize: 10, textTransform: 'uppercase' }}>Total</td>
+                            <td colSpan={4} style={{ ...tdStyle, fontWeight: 700, fontSize: 10, textTransform: 'uppercase' }}>Total</td>
                             <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'ui-monospace,monospace', fontWeight: 700 }}>{formatUsd(jv.totalDebit)}</td>
                             <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'ui-monospace,monospace', fontWeight: 700 }}>{formatUsd(jv.totalCredit)}</td>
                         </tr>
@@ -785,7 +934,7 @@ export default function JournalVoucher() {
     }, [criticalIssues, largeDrafts, periodVouchers, issueMap]);
 
     const handleCreateReversal = (jv: JournalVoucher) => {
-        const reversedLines = (jv.lines || []).map(l => ({
+        const reversedLines = (jv.lines || []).map(l => normalizeLine({
             ...l,
             id: Date.now().toString() + Math.random().toString(36).slice(2),
             debit: l.credit,
