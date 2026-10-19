@@ -84,12 +84,21 @@ const CONTROL_SYSTEM_KEYS = new Set([
 ]);
 
 /** Bank or asset account, excluding system control accounts such as AR and Inventory. */
-export function isCompanyPaymentAccount(account: { is_active?: boolean; type?: string | null; system_key?: string | null }): boolean {
+export function isCompanyPaymentAccount(account: {
+  is_active?: boolean;
+  type?: string | null;
+  system_key?: string | null;
+  role?: string | null;
+  account_role?: string | null;
+}): boolean {
   if (account.is_active === false) return false;
   const systemKey = (account.system_key || '').trim().toLowerCase();
   if (CONTROL_SYSTEM_KEYS.has(systemKey)) return false;
+  if (systemKey === 'bank' || systemKey === 'cash_on_hand') return true;
+  const role = (account.account_role || account.role || '').trim().toLowerCase();
+  if (role === 'bank' || role === 'cash') return true;
   const type = (account.type || '').trim().toLowerCase();
-  return type === 'asset' || systemKey === 'bank';
+  return type === 'asset';
 }
 
 function chartAccountIsPaidFromBank(account: GLAccount): boolean {
@@ -98,21 +107,26 @@ function chartAccountIsPaidFromBank(account: GLAccount): boolean {
 
 function chartAccountAsPaidFrom(account: GLAccount): BankingAccount {
   const systemKey = (account.system_key || '').trim().toLowerCase();
+  // Match GET /api/banking/accounts: cash_on_hand → cash; every other payment account → bank.
+  const role = systemKey === 'cash_on_hand' ? 'cash' : 'bank';
   return {
     id: account.id,
     code: account.code,
     name: account.name,
     type: account.type,
     system_key: account.system_key,
-    role: systemKey === 'bank' ? 'bank' : 'asset',
+    role,
     is_active: account.is_active,
     is_default: systemKey === 'bank',
     balance: 0,
   };
 }
 
-/** Banks and every asset on this company's chart. Marked banks fill any gap. */
-export function expensePaidFromAccounts(
+/**
+ * One shared company payment list: banks and every asset on this company's chart,
+ * excluding system control accounts (AR, Inventory, …). Marked banks fill any gap.
+ */
+export function companyPaymentAccounts(
   chartAccounts: GLAccount[],
   markedBanks: BankingAccount[] = [],
 ): BankingAccount[] {
@@ -121,9 +135,20 @@ export function expensePaidFromAccounts(
     if (chartAccountIsPaidFromBank(account)) byId.set(account.id, chartAccountAsPaidFrom(account));
   }
   for (const bank of markedBanks) {
+    if (!isCompanyPaymentAccount(bank)) continue;
     if (!byId.has(bank.id)) byId.set(bank.id, bank);
   }
   return [...byId.values()].sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+}
+
+/** @deprecated Use companyPaymentAccounts — same shared rule. */
+export const expensePaidFromAccounts = companyPaymentAccounts;
+
+/** Filter an already-loaded banking/options list through the shared rule. */
+export function companyPaymentAccountsFromList(rows: BankingAccount[]): BankingAccount[] {
+  return rows
+    .filter((row) => isCompanyPaymentAccount(row))
+    .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
 }
 
 /** Omit the field when posted, cash, or unset. Cash must not send a bank id. */

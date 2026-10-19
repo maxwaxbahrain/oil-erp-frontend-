@@ -40,7 +40,7 @@ import {
 } from '../../services/purchasesService';
 import { authFetch } from '../../api/axios';
 import { getSupplierLedger, type PartyLedgerRow } from '../../services/api';
-import { useBankingAccounts } from '../../hooks/useBankingAccounts';
+import { useCompanyPaymentAccounts } from '../../hooks/useCompanyPaymentAccounts';
 
 // SupplierDetail v3 (direct API): bypasses the service layer for read paths
 // so cached old bundles can't show stale localStorage data. Writes still
@@ -232,8 +232,7 @@ export default function SupplierDetail() {
     // ITEM 6E — Multi-PO checklist state (mirror of customer 5E).
     const [selectedPOIds, setSelectedPOIds] = useState<string[]>([]);
     // Pay-from-account dropdown — real GL accounts from GET /api/accounts/.
-    const { cash, banks, defaultBank, loading: accountsLoading, error: accountsLoadError } = useBankingAccounts();
-    const bankAccounts = useMemo(() => [...banks, ...cash], [banks, cash]);
+    const { accounts: bankAccounts, cash, defaultBank, loading: accountsLoading, error: accountsLoadError } = useCompanyPaymentAccounts();
     const [payFromAccountId, setPayFromAccountId] = useState<string>('');
 
     const [selectedCurrency, setSelectedCurrency] = useState(WORLD_CURRENCIES[0]); // Default to USD

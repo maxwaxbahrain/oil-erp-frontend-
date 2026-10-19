@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMatch, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Loader2, Plus, Trash2 } from 'lucide-react';
-import { useBankingAccounts } from '../../hooks/useBankingAccounts';
+import { useCompanyPaymentAccounts } from '../../hooks/useCompanyPaymentAccounts';
 import { getProducts, type Product } from '../../services/api';
 import { getSuppliers, type Supplier } from '../../services/purchasesService';
 import {
@@ -51,8 +51,7 @@ export default function PurchaseReturnFormPage() {
   const isEdit = useMatch('/purchases/returns/:id/edit') != null;
   const editId = isEdit ? params.id : undefined;
 
-  const { banks, loading: accountsLoading } = useBankingAccounts();
-  const bankAccounts = banks.filter((account) => account.role === 'bank');
+  const { banks: bankAccounts, loading: accountsLoading } = useCompanyPaymentAccounts();
 
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [products, setProducts] = useState<Product[]>([]);

@@ -2,7 +2,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { act, type ReactElement } from 'react';
 import { describe, expect, it } from 'vitest';
 import { PaidFromBankPicker } from '../paidFromBankPicker';
-import { expensePaidFromAccounts } from '../../../utils/bankingAccounts';
+import { companyPaymentAccounts } from '../../../utils/bankingAccounts';
 import type { BankingAccount, GLAccount } from '../../../services/glService';
 
 function chart(partial: Partial<GLAccount> & Pick<GLAccount, 'id' | 'code' | 'name' | 'type'>): GLAccount {
@@ -48,7 +48,7 @@ describe('expense paid-from asset accounts', () => {
       is_default: false,
       balance: 0,
     };
-    const options = expensePaidFromAccounts(
+    const options = companyPaymentAccounts(
       [
         chart({ id: 1, code: '1010', name: 'Bank', type: 'asset', system_key: 'bank' }),
         chart({ id: 8, code: '1020', name: 'MCB Bank', type: 'asset' }),
