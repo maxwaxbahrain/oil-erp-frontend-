@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, type CSSProperties } from 'react';
+import { useState, useEffect, useRef, type CSSProperties } from 'react';
 import { Link, useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
     ArrowLeft,
