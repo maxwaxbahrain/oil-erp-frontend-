@@ -39,6 +39,7 @@ import CommandBar from '../components/VoiceAssistant/CommandBar';
 import AdvisorDock from '../components/advisor/AdvisorDock';
 import { SubscriptionRequiredDialog } from '../components/common/SubscriptionRequired';
 import { isProduction, isStaging, appEnv } from '../config/appEnv';
+import { postLoginHomePath } from '../config/stagingHome';
 import { rolePillLabel } from '../utils/roleLabel';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { getInvoices, getCustomers, getProducts, getPayments, isCustomerPayment } from '../services/api';
@@ -295,14 +296,12 @@ function App() {
   }
 
   // Landing page — show it to anonymous visitors, but immediately
-  // redirect authenticated users to /dashboard so the shell mounts
-  // and the role pill stays available. Returning <AppRoutes /> bare
-  // (without the shell) for authenticated users used to drop the
-  // chrome and surface as a "black screen" momentarily.
+  // redirect authenticated users into the shell. Staging admins land
+  // on Zava Nexus; everyone else keeps /dashboard.
   if (location.pathname === '/') {
     const token = localStorage.getItem('access_token');
     if (token) {
-      return <Navigate to="/dashboard" replace />;
+      return <Navigate to={postLoginHomePath(user?.role)} replace />;
     }
     return <AppRoutes />;
   }
