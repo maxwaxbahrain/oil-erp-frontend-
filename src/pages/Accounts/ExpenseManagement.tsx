@@ -28,7 +28,7 @@ import { getCustomers as loadCustomerList } from '../../services/customerService
 import { useEscape } from '../../hooks/useEscape';
 import { useBankingAccounts } from '../../hooks/useBankingAccounts';
 import { getGLAccounts, type GLAccount } from '../../services/glService';
-import { expensePaidFromAccounts } from '../../utils/bankingAccounts';
+import { companyPaymentAccounts } from '../../utils/bankingAccounts';
 
 export { PaidFromBankPicker } from './paidFromBankPicker';
 
@@ -200,7 +200,7 @@ export default function ExpenseManagement() {
         }
     }, []);
     const paidFromAccounts = useMemo(
-        () => expensePaidFromAccounts(chartAccounts, banks),
+        () => companyPaymentAccounts(chartAccounts, banks),
         [chartAccounts, banks],
     );
 

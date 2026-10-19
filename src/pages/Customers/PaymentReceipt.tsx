@@ -17,7 +17,7 @@ import { WORLD_CURRENCIES } from '../../constants/currencies';
 import { getSystemSettings } from '../../services/settingsService';
 import { formatDateOnly } from '../../utils/formatters';
 import { localIsoDate } from '../../utils/localDate';
-import { useBankingAccounts } from '../../hooks/useBankingAccounts';
+import { useCompanyPaymentAccounts } from '../../hooks/useCompanyPaymentAccounts';
 import type { BankingAccount } from '../../services/glService';
 import { depositPickerForMethod, methodIsCashReceipt } from '../../utils/bankingAccounts';
 
@@ -104,7 +104,7 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
   const [applyError, setApplyError] = useState<string | null>(null);
   const [amountFollowsAllocations, setAmountFollowsAllocations] = useState(true);
 
-  const { cash, banks, defaultBank, loading: accountsLoading, error: accountsLoadError } = useBankingAccounts();
+  const { cash, banks, defaultBank, loading: accountsLoading, error: accountsLoadError } = useCompanyPaymentAccounts();
   const [depositAccountId, setDepositAccountId] = useState<string>('');
   const depositOptions = accountsLoadError
     ? []

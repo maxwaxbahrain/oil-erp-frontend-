@@ -24,14 +24,14 @@ vi.mock('../../../services/api', () => ({
   getProducts: vi.fn(),
 }));
 
-vi.mock('../../../hooks/useBankingAccounts', () => ({
-  useBankingAccounts: () => ({
+vi.mock('../../../hooks/useCompanyPaymentAccounts', () => ({
+  useCompanyPaymentAccounts: () => ({
+    accounts: [{ id: 7, code: '1020', name: 'Operating', role: 'bank', is_active: true, is_default: true, system_key: 'bank', type: 'Asset', balance: 0 }],
     cash: [],
     banks: [{ id: 7, code: '1020', name: 'Operating', role: 'bank', is_active: true, is_default: true, system_key: 'bank', type: 'Asset', balance: 0 }],
     defaultBank: null,
     loading: false,
     error: null,
-    reload: vi.fn(),
   }),
 }));
 

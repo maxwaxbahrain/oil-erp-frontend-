@@ -27,7 +27,7 @@ import { authFetch } from '../../api/axios';
 import { PAYMENT_METHODS } from '../../constants/data';
 import SearchableSelect from '../../components/common/SearchableSelect';
 import InvoiceLineRow, { type InvoiceLineItem } from './InvoiceLineRow';
-import { useBankingAccountOptions } from '../../hooks/useBankingAccountOptions';
+import { useCompanyPaymentAccounts } from '../../hooks/useCompanyPaymentAccounts';
 // ITEM 7G — Real PDF download (mirrors payslip/receipt PDFs).
 import { generateInvoicePDF } from '../../utils/invoicePDF';
 // ITEM 16 — Escape closes the topmost open inline modal.
@@ -319,7 +319,7 @@ export default function InvoiceFormPage() {
     const location = useLocation();
     const { hasRole } = useAuth();
     const canOverrideCreditHold = hasRole(...MANAGEMENT_ROLES);
-    const { cash: depositCash, banks: depositBanks } = useBankingAccountOptions();
+    const { accounts: depositAccounts } = useCompanyPaymentAccounts();
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
     const [loading, setLoading] = useState(false);
@@ -859,7 +859,7 @@ export default function InvoiceFormPage() {
                 salesman: selectedSalesmanName ?? parseSalesmanNameFromNotes(formData.notes) ?? undefined,
                 notes: formData.notes,
                 deposit_account_name:
-                    [...depositBanks, ...depositCash].find((account) => String(account.id) === formData.depositAccountId)?.name
+                    depositAccounts.find((account) => String(account.id) === formData.depositAccountId)?.name
                     || undefined,
             });
         } catch (e: any) {
@@ -1561,11 +1561,8 @@ export default function InvoiceFormPage() {
                                 className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-bold focus:border-[#4F8EF7] outline-none bg-white transition-all shadow-sm"
                             >
                                 <option value="">No preference</option>
-                                {depositBanks.map((account) => (
-                                    <option key={`bank-${account.id}`} value={String(account.id)}>{account.code} — {account.name}</option>
-                                ))}
-                                {depositCash.map((account) => (
-                                    <option key={`cash-${account.id}`} value={String(account.id)}>{account.code} — {account.name}</option>
+                                {depositAccounts.map((account) => (
+                                    <option key={account.id} value={String(account.id)}>{account.code} — {account.name}</option>
                                 ))}
                             </select>
                         </div>

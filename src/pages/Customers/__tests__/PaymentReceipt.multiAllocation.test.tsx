@@ -21,14 +21,14 @@ const { cash, banks, defaultBank } = vi.hoisted(() => {
   return { cash: [cashAccount], banks: [mainBank, bank2, bank3], defaultBank: mainBank };
 });
 
-vi.mock('../../../hooks/useBankingAccounts', () => ({
-  useBankingAccounts: () => ({
+vi.mock('../../../hooks/useCompanyPaymentAccounts', () => ({
+  useCompanyPaymentAccounts: () => ({
+    accounts: [...cash, ...banks],
     cash,
     banks,
     defaultBank,
     loading: false,
     error: null,
-    reload: vi.fn(),
   }),
 }));
 

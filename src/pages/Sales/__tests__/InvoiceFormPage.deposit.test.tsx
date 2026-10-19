@@ -6,8 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import InvoiceFormPage from '../InvoiceFormPage';
 import * as api from '../../../services/api';
 
-const { getBankingAccountOptions, authFetch } = vi.hoisted(() => ({
-  getBankingAccountOptions: vi.fn(),
+const { getBankingAccounts, getGLAccounts, authFetch } = vi.hoisted(() => ({
+  getBankingAccounts: vi.fn(),
+  getGLAccounts: vi.fn(),
   authFetch: vi.fn(),
 }));
 
@@ -31,17 +32,24 @@ vi.mock('../../../services/employeeService', () => ({
 
 vi.mock('../../../services/glService', async () => {
   const actual = await vi.importActual<typeof import('../../../services/glService')>('../../../services/glService');
-  return { ...actual, getBankingAccountOptions };
+  return { ...actual, getBankingAccounts, getGLAccounts };
 });
 
-const options = {
-  accounts: [
-    { id: 2, code: '1011', name: 'Operating', role: 'bank', is_default: false },
-    { id: 3, code: '1000', name: 'Cash on Hand', role: 'cash', is_default: false },
-    { id: 1, code: '1010', name: 'Main Bank', role: 'bank', is_default: true },
-  ],
-  collections_bank_account_id: null,
-};
+const chart = [
+  { id: 1, code: '1010', name: 'Main Bank', type: 'asset', system_key: 'bank', is_active: true },
+  { id: 2, code: '1011', name: 'Operating', type: 'asset', system_key: null, account_role: 'bank', is_active: true },
+  { id: 3, code: '1000', name: 'Cash on Hand', type: 'asset', system_key: 'cash_on_hand', is_active: true },
+  { id: 4, code: '1001', name: 'MCB', type: 'asset', system_key: null, is_active: true },
+  { id: 5, code: '1100', name: 'Accounts Receivable', type: 'asset', system_key: 'accounts_receivable', is_active: true },
+  { id: 6, code: '1200', name: 'Inventory', type: 'asset', system_key: 'inventory', is_active: true },
+];
+
+const banks = [
+  { id: 1, code: '1010', name: 'Main Bank', type: 'asset', system_key: 'bank', role: 'bank', is_default: true, is_active: true, balance: 0 },
+  { id: 2, code: '1011', name: 'Operating', type: 'asset', role: 'bank', is_default: false, is_active: true, balance: 0 },
+  { id: 3, code: '1000', name: 'Cash on Hand', type: 'asset', system_key: 'cash_on_hand', role: 'cash', is_default: false, is_active: true, balance: 0 },
+  { id: 4, code: '1001', name: 'MCB', type: 'asset', role: 'bank', is_default: false, is_active: true, balance: 0 },
+];
 
 function setSelectValue(select: HTMLSelectElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
@@ -57,8 +65,10 @@ describe('InvoiceFormPage deposit account', () => {
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
-    getBankingAccountOptions.mockReset();
-    getBankingAccountOptions.mockResolvedValue(options);
+    getBankingAccounts.mockReset();
+    getGLAccounts.mockReset();
+    getBankingAccounts.mockResolvedValue(banks);
+    getGLAccounts.mockResolvedValue(chart);
     authFetch.mockReset();
     vi.spyOn(window, 'alert').mockImplementation(() => undefined);
     vi.spyOn(api, 'getCustomers').mockResolvedValue([{ id: '10', name: 'Held Customer' }] as api.Customer[]);
@@ -76,7 +86,7 @@ describe('InvoiceFormPage deposit account', () => {
   });
 
   async function flush() {
-    for (let i = 0; i < 6; i += 1) {
+    for (let i = 0; i < 8; i += 1) {
       await act(async () => {
         await Promise.resolve();
       });
@@ -109,7 +119,7 @@ describe('InvoiceFormPage deposit account', () => {
     return JSON.parse(String((call?.[1] as RequestInit).body));
   }
 
-  it('lists banks and cash, and sends deposit_account_id or null', async () => {
+  it('lists company payment accounts including MCB, excludes AR/Inventory, and sends deposit_account_id or null', async () => {
     await act(async () => {
       root.render(
         <MemoryRouter initialEntries={[{ pathname: '/sales/invoices/new', state: { customerId: '10', customerName: 'Held Customer' } }]}>
@@ -129,7 +139,9 @@ describe('InvoiceFormPage deposit account', () => {
     expect(labels).toContain('1010 — Main Bank');
     expect(labels).toContain('1011 — Operating');
     expect(labels).toContain('1000 — Cash on Hand');
-    expect(labels.indexOf('1010 — Main Bank')).toBeLessThan(labels.indexOf('1000 — Cash on Hand'));
+    expect(labels).toContain('1001 — MCB');
+    expect(labels.some((label) => label?.includes('Accounts Receivable'))).toBe(false);
+    expect(labels.some((label) => label?.includes('Inventory'))).toBe(false);
 
     const blank = await saveDraft();
     expect(blank.deposit_account_id).toBeNull();
@@ -147,10 +159,10 @@ describe('InvoiceFormPage deposit account', () => {
     });
     await flush();
     await act(async () => {
-      setSelectValue(depositSelect(), '2');
+      setSelectValue(depositSelect(), '4');
     });
     const chosen = await saveDraft();
-    expect(chosen.deposit_account_id).toBe(2);
+    expect(chosen.deposit_account_id).toBe(4);
   });
 
   it('preselects deposit_account_id from the invoice API in edit mode', async () => {

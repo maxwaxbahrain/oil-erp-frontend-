@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { usePlaidLink, type PlaidLinkError } from 'react-plaid-link';
 import { formatUsd } from '../../utils/money';
+import { isCompanyPaymentAccount } from '../../utils/bankingAccounts';
 import {
   PLAID_LINK_MODE_KEY,
   PLAID_LINK_TOKEN_KEY,
@@ -22,9 +23,11 @@ export type BankFeedAccountOption = {
   id: number;
   code: string;
   name: string;
+  type?: string | null;
   system_key?: string | null;
   role?: string | null;
   account_role?: string | null;
+  is_active?: boolean;
 };
 
 type Props = {
@@ -89,7 +92,7 @@ function errorText(err: unknown): string {
 }
 
 function isBankOption(account: BankFeedAccountOption): boolean {
-  return account.system_key === 'bank' || account.account_role === 'bank' || account.role === 'bank';
+  return isCompanyPaymentAccount(account);
 }
 
 function consentWithin30Days(iso: string | null): boolean {
