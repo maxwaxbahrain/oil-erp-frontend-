@@ -20,6 +20,7 @@ import { getArSummary, getCustomerStats, type ArSummary, type CustomerStats } fr
 import { useEscape } from '../../hooks/useEscape';
 import { calculateReceivables, capReceivablesByLedger } from '../../utils/arMetrics';
 import { outstandingTotals } from '../../utils/outstandingTotals';
+import { dashboardLowStockAlertCount } from '../../utils/dashboardLowStock';
 import { livePayments } from '../../utils/paymentVoid';
 import {
     getGLProfitLoss, getGLBalanceSheet, isGLEmpty,
@@ -303,11 +304,11 @@ export default function Dashboard() {
         ['pending', 'open', 'draft'].includes(String(o.status || '').toLowerCase())
     ).length;
 
-    const lowStockCount = products.filter(p => Number(p.current_stock || 0) < 10).length;
     const lowStockItems = products
         .filter(p => Number(p.current_stock || 0) < 20)
         .sort((a, b) => Number(a.current_stock || 0) - Number(b.current_stock || 0))
         .slice(0, 6);
+    const lowStockCount = dashboardLowStockAlertCount(products);
 
     const cashCollectedToday = livePaymentsData.reduce((sum: number, p: any) => {
         const d = String(p.payment_date || p.date || '').slice(0, 10);
@@ -445,9 +446,9 @@ export default function Dashboard() {
         },
         {
             label: 'Low Stock Items',
-            value: String(lowStockItems.length || lowStockCount),
-            color: (lowStockItems.length || lowStockCount) > 0 ? C.amber : C.green,
-            sub: (lowStockItems.length || lowStockCount) > 0 ? 'need reorder' : 'All stocked ✓',
+            value: String(lowStockCount),
+            color: lowStockCount > 0 ? C.amber : C.green,
+            sub: lowStockCount > 0 ? 'need reorder' : 'All stocked ✓',
         },
         {
             label: 'Active Customers',

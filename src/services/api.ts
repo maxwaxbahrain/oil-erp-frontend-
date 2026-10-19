@@ -687,7 +687,17 @@ export const getSupplierLedger = (id: string, startDate?: string, endDate?: stri
 export const getOverdueCustomers = (): Promise<Customer[]> => apiRequest<Customer[]>('/customers/overdue');
 
 // Payment APIs
-export const getPayments = (): Promise<Payment[]> => apiRequest<Payment[]>('/payments');
+/** Optional start_date/end_date — backend already filters Transaction.date. */
+export const getPayments = (opts?: {
+  start_date?: string;
+  end_date?: string;
+}): Promise<Payment[]> => {
+  const qs = new URLSearchParams();
+  if (opts?.start_date) qs.set('start_date', opts.start_date);
+  if (opts?.end_date) qs.set('end_date', opts.end_date);
+  const suffix = qs.toString() ? `?${qs.toString()}` : '';
+  return apiRequest<Payment[]>(`/payments${suffix}`);
+};
 
 /** True for customer receipt rows from GET /api/payments (excludes expense-type transactions). */
 export function isCustomerPayment(p: Payment): boolean {

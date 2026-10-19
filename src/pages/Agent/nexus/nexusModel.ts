@@ -29,7 +29,7 @@ export type PlanetId =
   | 'ai_team'
   | 'reports';
 
-export type PlanetStatus = 'good' | 'info' | 'watch' | 'needs_you' | 'offline';
+export type PlanetStatus = 'good' | 'info' | 'watch' | 'needs_you' | 'offline' | 'error';
 
 export type NexusPlanet = {
   id: PlanetId;
@@ -46,10 +46,12 @@ export type TimelineEvent = {
   id: string;
   lane: TimelineLaneId;
   label: string;
-  /** Minutes from local midnight (0–1440). */
-  minuteOfDay: number;
+  /** Minutes from local midnight when a real clock time exists; null = date-only. */
+  minuteOfDay: number | null;
   expected?: boolean;
   href?: string;
+  /** Date-only today item — not placed on the time axis. */
+  timeNotRecorded?: boolean;
 };
 
 /** Open PO = not draft / rejected / completed / cancelled / paid. */
@@ -68,8 +70,14 @@ export function countOpenPurchaseOrders(
  *   urgent −12, today −6, fyi −2.
  * Clamp to 0–100. Integer.
  * Cards are keyed by `id` so the same id is not double-counted.
+ *
+ * Returns null when signals/data-health failed to load — never show 100 on error.
  */
-export function businessHealthScore(cards: NexusSignalCard[]): number {
+export function businessHealthScore(
+  cards: NexusSignalCard[],
+  cardsLoadOk: boolean,
+): number | null {
+  if (!cardsLoadOk) return null;
   const seen = new Set<string>();
   let score = 100;
   for (const card of cards) {
@@ -103,6 +111,7 @@ function worstStatus(a: PlanetStatus, b: PlanetStatus): PlanetStatus {
     info: 2,
     watch: 3,
     needs_you: 4,
+    error: 5,
   };
   return rank[a] >= rank[b] ? a : b;
 }
@@ -128,114 +137,188 @@ function moduleToPlanet(module: string | undefined): PlanetId | null {
   return null;
 }
 
+/** Discriminated load result for planet sources. */
+export type SourceResult<T> =
+  | { state: 'ok'; value: T }
+  | { state: 'error' }
+  | { state: 'unavailable' };
+
 export type PlanetInputs = {
   cards: NexusSignalCard[];
-  owedToUs: number | null;
-  openPoCount: number | null;
-  lowStockCount: number | null;
-  vansOnline: number | null;
-  vansTotal: number | null;
-  pendingExpenses: number | null;
-  invoiceCountToday: number | null;
+  /** False if /api/agent/signals or /api/agent/data-health failed. */
+  cardsLoadOk: boolean;
+  owedToUs: SourceResult<number>;
+  openPoCount: SourceResult<number>;
+  lowStockCount: SourceResult<number>;
+  vansOnline: SourceResult<number>;
+  vansTotal: SourceResult<number>;
+  pendingExpenses: SourceResult<number>;
+  /**
+   * Sales invoice-today count. `unavailable` when we intentionally skip the
+   * unfiltered GET /invoices/ download (no date filter on that API).
+   */
+  invoiceCountToday: SourceResult<number>;
 };
+
+function metricForSource<T>(
+  src: SourceResult<T>,
+  whenOk: (value: T) => string,
+  unavailableLabel = 'Not connected yet',
+): { connected: boolean; statusBase: PlanetStatus; metricLabel: string } {
+  if (src.state === 'error') {
+    return { connected: false, statusBase: 'error', metricLabel: "Couldn't load" };
+  }
+  if (src.state === 'unavailable') {
+    return { connected: false, statusBase: 'offline', metricLabel: unavailableLabel };
+  }
+  return { connected: true, statusBase: 'good', metricLabel: whenOk(src.value) };
+}
 
 export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
   const byPlanet = new Map<PlanetId, PlanetStatus>();
-  for (const card of input.cards) {
-    const planet = moduleToPlanet(card.module);
-    if (!planet) continue;
-    const next = statusFromPriority(card.priority);
-    byPlanet.set(planet, worstStatus(byPlanet.get(planet) || 'good', next));
+  if (input.cardsLoadOk) {
+    for (const card of input.cards) {
+      const planet = moduleToPlanet(card.module);
+      if (!planet) continue;
+      const next = statusFromPriority(card.priority);
+      byPlanet.set(planet, worstStatus(byPlanet.get(planet) || 'good', next));
+    }
   }
 
+  const collections = metricForSource(input.owedToUs, (v) => `Owed $${Math.round(v).toLocaleString('en-US')}`);
+  const purchase = metricForSource(
+    input.openPoCount,
+    (v) => `${v} open PO${v === 1 ? '' : 's'}`,
+  );
+  const inventory = metricForSource(input.lowStockCount, (v) => `${v} low stock`);
+  let vansOk: SourceResult<{ online: number; total: number }>;
+  if (input.vansTotal.state === 'ok' && input.vansOnline.state === 'ok') {
+    vansOk = {
+      state: 'ok',
+      value: { online: input.vansOnline.value, total: input.vansTotal.value },
+    };
+  } else if (input.vansTotal.state === 'error' || input.vansOnline.state === 'error') {
+    vansOk = { state: 'error' };
+  } else {
+    vansOk = { state: 'unavailable' };
+  }
+  const delivery = metricForSource(
+    vansOk,
+    (v) => `${v.online}/${v.total} vans live`,
+  );
+  const expenses = metricForSource(input.pendingExpenses, (v) => `${v} pending`);
+
+  // Sales: no date-filtered invoice list — open the module; status from cards only.
+  const salesMetric =
+    input.invoiceCountToday.state === 'ok'
+      ? metricForSource(
+          input.invoiceCountToday,
+          (v) => `${v} invoice${v === 1 ? '' : 's'} today`,
+        )
+      : input.invoiceCountToday.state === 'error'
+        ? metricForSource(input.invoiceCountToday, () => '')
+        : {
+            connected: true,
+            statusBase: 'good' as PlanetStatus,
+            metricLabel: 'Open sales',
+          };
+
   const collectionsStatus =
-    input.owedToUs != null && input.owedToUs > 0.005
+    input.owedToUs.state === 'ok' && input.owedToUs.value > 0.005
       ? byPlanet.get('collections') || 'info'
       : byPlanet.get('collections') || 'good';
 
-  const purchaseConnected = input.openPoCount != null;
-  const inventoryConnected = input.lowStockCount != null;
-  const deliveryConnected = input.vansTotal != null;
-  const expensesConnected = input.pendingExpenses != null;
-  const salesConnected = input.invoiceCountToday != null;
+  const financeLabel = !input.cardsLoadOk
+    ? "Couldn't load"
+    : byPlanet.has('finance')
+      ? 'Books check'
+      : 'Books quiet';
+  const reportsLabel = !input.cardsLoadOk ? "Couldn't load" : 'Open reports';
 
   const planets: NexusPlanet[] = [
     {
       id: 'sales',
       label: 'Sales',
       href: '/sales/dashboard',
-      connected: salesConnected,
-      status: salesConnected ? byPlanet.get('sales') || 'good' : 'offline',
-      metricLabel: salesConnected
-        ? `${input.invoiceCountToday} invoice${input.invoiceCountToday === 1 ? '' : 's'} today`
-        : 'Not connected yet',
+      connected: salesMetric.connected,
+      status: salesMetric.statusBase === 'error'
+        ? 'error'
+        : salesMetric.connected
+          ? byPlanet.get('sales') || 'good'
+          : 'offline',
+      metricLabel: salesMetric.metricLabel,
     },
     {
       id: 'collections',
       label: 'Collections',
       href: '/finance/collections',
-      connected: input.owedToUs != null,
-      status: input.owedToUs != null ? collectionsStatus : 'offline',
-      metricLabel:
-        input.owedToUs != null
-          ? `Owed $${Math.round(input.owedToUs).toLocaleString('en-US')}`
-          : 'Not connected yet',
+      connected: collections.connected,
+      status: collections.statusBase === 'error' ? 'error' : collections.connected ? collectionsStatus : 'offline',
+      metricLabel: collections.metricLabel,
     },
     {
       id: 'purchase',
       label: 'Purchase',
       href: '/purchases',
-      connected: purchaseConnected,
-      status: purchaseConnected ? byPlanet.get('purchase') || 'good' : 'offline',
-      metricLabel: purchaseConnected
-        ? `${input.openPoCount} open PO${input.openPoCount === 1 ? '' : 's'}`
-        : 'Not connected yet',
+      connected: purchase.connected,
+      status:
+        purchase.statusBase === 'error'
+          ? 'error'
+          : purchase.connected
+            ? byPlanet.get('purchase') || 'good'
+            : 'offline',
+      metricLabel: purchase.metricLabel,
     },
     {
       id: 'inventory',
       label: 'Inventory',
       href: '/products',
-      connected: inventoryConnected,
-      status: inventoryConnected
-        ? (input.lowStockCount || 0) > 0
-          ? worstStatus(byPlanet.get('inventory') || 'good', 'watch')
-          : byPlanet.get('inventory') || 'good'
-        : 'offline',
-      metricLabel: inventoryConnected
-        ? `${input.lowStockCount} low stock`
-        : 'Not connected yet',
+      connected: inventory.connected,
+      status:
+        inventory.statusBase === 'error'
+          ? 'error'
+          : inventory.connected
+            ? (input.lowStockCount.state === 'ok' && input.lowStockCount.value > 0
+                ? worstStatus(byPlanet.get('inventory') || 'good', 'watch')
+                : byPlanet.get('inventory') || 'good')
+            : 'offline',
+      metricLabel: inventory.metricLabel,
     },
     {
       id: 'delivery',
       label: 'Delivery',
       href: '/logistics/tracking',
-      connected: deliveryConnected,
-      status: deliveryConnected ? byPlanet.get('delivery') || 'good' : 'offline',
-      metricLabel: deliveryConnected
-        ? `${input.vansOnline ?? 0}/${input.vansTotal} vans live`
-        : 'Not connected yet',
+      connected: delivery.connected,
+      status:
+        delivery.statusBase === 'error'
+          ? 'error'
+          : delivery.connected
+            ? byPlanet.get('delivery') || 'good'
+            : 'offline',
+      metricLabel: delivery.metricLabel,
     },
     {
       id: 'finance',
       label: 'Finance',
       href: '/finance/dashboard',
-      connected: true,
-      status: byPlanet.get('finance') || 'good',
-      metricLabel: byPlanet.has('finance') ? 'Books check' : 'Books quiet',
+      connected: input.cardsLoadOk,
+      status: input.cardsLoadOk ? byPlanet.get('finance') || 'good' : 'error',
+      metricLabel: financeLabel,
     },
     {
       id: 'expenses',
       label: 'Expenses',
       href: '/finance/expenses',
-      connected: expensesConnected,
-      status: expensesConnected
-        ? (input.pendingExpenses || 0) > 0
-          ? worstStatus(byPlanet.get('expenses') || 'good', 'watch')
-          : byPlanet.get('expenses') || 'good'
-        : 'offline',
-      metricLabel: expensesConnected
-        ? `${input.pendingExpenses} pending`
-        : 'Not connected yet',
+      connected: expenses.connected,
+      status:
+        expenses.statusBase === 'error'
+          ? 'error'
+          : expenses.connected
+            ? (input.pendingExpenses.state === 'ok' && input.pendingExpenses.value > 0
+                ? worstStatus(byPlanet.get('expenses') || 'good', 'watch')
+                : byPlanet.get('expenses') || 'good')
+            : 'offline',
+      metricLabel: expenses.metricLabel,
     },
     {
       id: 'payroll',
@@ -257,9 +340,9 @@ export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
       id: 'reports',
       label: 'Reports',
       href: '/finance/financial-statement',
-      connected: true,
-      status: byPlanet.get('reports') || 'good',
-      metricLabel: 'Open reports',
+      connected: input.cardsLoadOk,
+      status: input.cardsLoadOk ? byPlanet.get('reports') || 'good' : 'error',
+      metricLabel: reportsLabel,
     },
   ];
 
@@ -281,19 +364,36 @@ export function owedToUsFromArSummary(summary: {
   return null;
 }
 
-function parseLocalDay(iso: string | undefined | null): Date | null {
+/**
+ * True when the string carries a real clock time (not date-only, not midnight).
+ * Date-only and `…T00:00:00` are treated as "time not recorded".
+ */
+export function hasRealTimestamp(iso: string | undefined | null): boolean {
+  if (!iso) return false;
+  const raw = String(iso).trim();
+  if (!raw.includes('T') && !raw.includes(' ')) return false;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return false;
+  return !(d.getHours() === 0 && d.getMinutes() === 0 && d.getSeconds() === 0 && d.getMilliseconds() === 0);
+}
+
+function parseInstant(iso: string | undefined | null): Date | null {
   if (!iso) return null;
-  const raw = String(iso);
-  const d = new Date(raw.includes('T') ? raw : `${raw}T12:00:00`);
+  const d = new Date(String(iso));
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function sameLocalDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
+function parseDateOnlyLocal(iso: string | undefined | null): { y: number; m: number; d: number } | null {
+  if (!iso) return null;
+  const raw = String(iso).trim();
+  const dayPart = raw.includes('T') ? raw.slice(0, 10) : raw.slice(0, 10);
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(dayPart);
+  if (!m) return null;
+  return { y: Number(m[1]), m: Number(m[2]) - 1, d: Number(m[3]) };
+}
+
+function sameLocalDayParts(parts: { y: number; m: number; d: number }, now: Date): boolean {
+  return parts.y === now.getFullYear() && parts.m === now.getMonth() && parts.d === now.getDate();
 }
 
 function minuteOfDay(d: Date): number {
@@ -302,77 +402,109 @@ function minuteOfDay(d: Date): number {
 
 export type TimelineInputs = {
   now?: Date;
-  payments: Array<{ id?: string | number; payment_date?: string; date?: string; amount?: number; customer_name?: string }>;
-  invoices: Array<{ id?: string | number; invoiceDate?: string; date?: string; invoiceNumber?: string; grandTotal?: number }>;
-  deliveryNotes: Array<{ id?: string | number; delivery_date?: string; dn_number?: string; status?: string }>;
+  payments: Array<{
+    id?: string | number;
+    payment_date?: string | null;
+    date?: string | null;
+    created_at?: string | null;
+    createdAt?: string | null;
+    amount?: number;
+    customer_name?: string | null;
+  }>;
+  /** Prefer created_at when it has a real time; delivery_date is date-only. */
+  deliveryNotes: Array<{
+    id?: string | number;
+    delivery_date?: string | null;
+    created_at?: string | null;
+    createdAt?: string | null;
+    dn_number?: string | null;
+    status?: string | null;
+  }>;
   leaveRequests: Array<{
     id?: string | number;
-    start_date?: string;
-    startDate?: string;
-    status?: string;
-    employee_name?: string;
-    employeeName?: string;
+    start_date?: string | null;
+    startDate?: string | null;
+    created_at?: string | null;
+    createdAt?: string | null;
+    status?: string | null;
+    employee_name?: string | null;
+    employeeName?: string | null;
   }>;
 };
 
 /**
- * Timeline lanes from existing today-lists only. Empty lane → UI shows "—".
- * Window shown: 6:00–18:00 local; events outside still listed if today.
+ * Timeline lanes from existing today-lists only.
+ * Axis dots only when a real timestamp exists. Date-only → timeNotRecorded.
+ *
+ * Field notes (Phase 1):
+ * - Payments: `payment_date` is date-only from API; `created_at` is Transaction.date ISO (may include time).
+ * - Delivery notes: `delivery_date` date-only; `created_at` has real time when present.
+ * - Leave: `startDate` date-only; `createdAt` is request time (not used for axis — leave day has no clock).
+ * - Invoices: GET /invoices/ has no date filter — not loaded for timeline in Phase 1.
  */
 export function buildTimelineEvents(input: TimelineInputs): TimelineEvent[] {
   const now = input.now ?? new Date();
   const events: TimelineEvent[] = [];
 
   for (const p of input.payments) {
-    const d = parseLocalDay(p.payment_date || p.date);
-    if (!d || !sameLocalDay(d, now)) continue;
+    const daySrc = p.payment_date || p.date || p.created_at || p.createdAt;
+    const day = parseDateOnlyLocal(daySrc);
+    if (!day || !sameLocalDayParts(day, now)) continue;
+    const timeSrc = hasRealTimestamp(p.created_at || p.createdAt)
+      ? p.created_at || p.createdAt
+      : hasRealTimestamp(p.payment_date || p.date)
+        ? p.payment_date || p.date
+        : null;
+    const instant = timeSrc ? parseInstant(timeSrc) : null;
     events.push({
       id: `pay-${p.id}`,
       lane: 'money',
       label: p.customer_name ? `Payment · ${p.customer_name}` : 'Payment',
-      minuteOfDay: minuteOfDay(d),
+      minuteOfDay: instant ? minuteOfDay(instant) : null,
+      timeNotRecorded: !instant,
       href: '/finance/collections',
     });
   }
-  for (const inv of input.invoices) {
-    const d = parseLocalDay(inv.invoiceDate || inv.date);
-    if (!d || !sameLocalDay(d, now)) continue;
-    events.push({
-      id: `inv-${inv.id}`,
-      lane: 'money',
-      label: inv.invoiceNumber ? `Invoice ${inv.invoiceNumber}` : 'Invoice',
-      minuteOfDay: minuteOfDay(d),
-      href: '/sales/invoices',
-    });
-  }
+
   for (const dn of input.deliveryNotes) {
-    const d = parseLocalDay(dn.delivery_date);
-    if (!d || !sameLocalDay(d, now)) continue;
+    const day = parseDateOnlyLocal(dn.delivery_date || dn.created_at || dn.createdAt);
+    if (!day || !sameLocalDayParts(day, now)) continue;
+    const timeSrc = hasRealTimestamp(dn.created_at || dn.createdAt) ? dn.created_at || dn.createdAt : null;
+    const instant = timeSrc ? parseInstant(timeSrc) : null;
     events.push({
       id: `dn-${dn.id}`,
       lane: 'goods',
       label: dn.dn_number ? `Delivery ${dn.dn_number}` : 'Delivery',
-      minuteOfDay: minuteOfDay(d),
+      minuteOfDay: instant ? minuteOfDay(instant) : null,
+      timeNotRecorded: !instant,
       href: '/logistics/tracking',
     });
   }
+
   for (const leave of input.leaveRequests) {
-    const d = parseLocalDay(leave.start_date || leave.startDate);
-    if (!d || !sameLocalDay(d, now)) continue;
+    const day = parseDateOnlyLocal(leave.start_date || leave.startDate);
+    if (!day || !sameLocalDayParts(day, now)) continue;
     const st = String(leave.status || '').toLowerCase();
     if (st === 'rejected' || st === 'cancelled' || st === 'canceled') continue;
     const who = leave.employee_name || leave.employeeName;
+    // Leave start is date-only — never invent a clock position.
     events.push({
       id: `leave-${leave.id}`,
       lane: 'team',
       label: who ? `Leave · ${who}` : 'Leave',
-      minuteOfDay: minuteOfDay(d),
-      href: '/finance/dashboard',
+      minuteOfDay: null,
+      timeNotRecorded: true,
+      href: '/finance/payroll',
       expected: st === 'pending',
     });
   }
 
-  return events.sort((a, b) => a.minuteOfDay - b.minuteOfDay);
+  return events.sort((a, b) => {
+    if (a.minuteOfDay == null && b.minuteOfDay == null) return 0;
+    if (a.minuteOfDay == null) return 1;
+    if (b.minuteOfDay == null) return -1;
+    return a.minuteOfDay - b.minuteOfDay;
+  });
 }
 
 export function needsYouCards(cards: NexusSignalCard[]): NexusSignalCard[] {
@@ -397,4 +529,18 @@ export const PLANET_STATUS_COLOR: Record<PlanetStatus, string> = {
   watch: '#FBBF24',
   needs_you: '#F87171',
   offline: '#64748B',
+  error: '#F87171',
 };
+
+export const PLANET_RING_ORDER: PlanetId[] = [
+  'sales',
+  'collections',
+  'purchase',
+  'inventory',
+  'delivery',
+  'finance',
+  'expenses',
+  'payroll',
+  'ai_team',
+  'reports',
+];
