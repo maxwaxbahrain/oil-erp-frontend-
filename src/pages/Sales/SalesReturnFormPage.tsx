@@ -7,13 +7,13 @@ import {
   createSalesReturnApi,
   eligibleInvoiceEmptyReason,
   getSalesReturn,
+  invoiceOlderThanReturnNoteDays,
   invoicesEligibleForReturn,
   patchSalesReturn,
   RETURN_REASON_OPTIONS,
   returnInvoiceStatusLabel,
   type ReturnLineItem,
   type ReturnReasonCode,
-  RETURN_POLICY_DAYS,
 } from '../../services/salesReturnService';
 import SearchableSelect from '../../components/common/SearchableSelect';
 
@@ -320,21 +320,15 @@ export default function SalesReturnFormPage() {
     }
   };
 
-  const daysUntilExpiry = selectedInvoice
-    ? Math.max(
-        0,
-        RETURN_POLICY_DAYS -
-          Math.ceil(
-            (new Date().getTime() -
-              new Date(
-                selectedInvoice.invoiceDate.includes('T')
-                  ? selectedInvoice.invoiceDate
-                  : `${selectedInvoice.invoiceDate}T12:00:00`
-              ).getTime()) /
-              (1000 * 60 * 60 * 24)
-          )
-      )
-    : 0;
+  const invoiceOptions = useMemo(
+    () =>
+      eligibleInvoices.map((inv) => ({
+        id: inv.id,
+        name: `${inv.invoiceNumber} · ${inv.invoiceDate} · $${formatMoney(inv.grandTotal)} · ${returnInvoiceStatusLabel(inv.status)}`,
+        code: inv.invoiceNumber,
+      })),
+    [eligibleInvoices],
+  );
 
   if (loading) {
     return (
@@ -368,7 +362,7 @@ export default function SalesReturnFormPage() {
                   {editId || serverId ? 'Edit return' : 'New sales return'}
                 </h1>
                 <p className="text-[11px] font-black text-gray-400 uppercase tracking-[0.2em] mt-1">
-                  Customer returns & credits · {RETURN_POLICY_DAYS}-day policy
+                  Customer returns & credits
                 </p>
               </div>
             </div>
@@ -406,32 +400,29 @@ export default function SalesReturnFormPage() {
               </div>
               <div>
                 <label className="block text-[10px] font-black text-gray-500 uppercase mb-2">Invoice</label>
-                <select
+                <SearchableSelect
+                  options={invoiceOptions}
                   value={invoiceId}
-                  onChange={(e) => handleInvoiceSelect(e.target.value)}
-                  disabled={!customerId || eligibleInvoices.length === 0}
-                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-[#800020]/25 disabled:bg-gray-50"
-                >
-                  <option value="">
-                    {!customerId
+                  onChange={handleInvoiceSelect}
+                  placeholder={
+                    !customerId
                       ? '— Select customer —'
                       : eligibleInvoices.length === 0
                         ? '— No eligible invoices —'
-                        : '— Select invoice —'}
-                  </option>
-                  {eligibleInvoices.map((inv) => (
-                    <option key={inv.id} value={inv.id}>
-                      {inv.invoiceNumber} · {inv.invoiceDate} · ${formatMoney(inv.grandTotal)} · {returnInvoiceStatusLabel(inv.status)}
-                    </option>
-                  ))}
-                </select>
+                        : 'Search invoice number…'
+                  }
+                  displayKey="name"
+                  disabled={!customerId || eligibleInvoices.length === 0}
+                />
                 {customerId && eligibleInvoices.length === 0 && invoiceReason && (
                   <p role="status" className="text-xs font-semibold text-gray-600 mt-2">
                     {invoiceReason}
                   </p>
                 )}
-                {selectedInvoice && (
-                  <p className="text-xs text-gray-500 mt-2 font-semibold">Policy window: {daysUntilExpiry} days left</p>
+                {selectedInvoice && invoiceOlderThanReturnNoteDays(selectedInvoice) && (
+                  <p role="status" className="text-xs font-semibold text-gray-600 mt-2">
+                    This invoice is older than 30 days.
+                  </p>
                 )}
               </div>
             </div>
