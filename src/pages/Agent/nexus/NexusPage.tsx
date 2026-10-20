@@ -43,6 +43,7 @@ import {
   type TimelineEvent,
   type TimelineLaneId,
 } from './nexusModel';
+import { useNexusVoice } from './useNexusVoice';
 
 type HealthBody = {
   data_health?: NexusSignalCard[];
@@ -268,6 +269,18 @@ export default function NexusPage() {
   const activeIndex = activeCard ? speakable.findIndex((c) => c.id === activeCard.id) + 1 : 0;
   const speakModule = String(activeCard?.module || 'Update').toUpperCase();
 
+  const voice = useNexusVoice({
+    firstName: name,
+    cards,
+    cardsLoadOk,
+    needsYou: needs,
+    speakable,
+    activeCardId,
+    setActiveCardId,
+    setActivePlanetId,
+    navigate,
+  });
+
   const onPlanet = (planet: NexusPlanet) => {
     setActivePlanetId(planet.id);
     const match = cards.find((c) => String(c.module || '').toLowerCase().includes(planet.id.split('_')[0]));
@@ -324,26 +337,67 @@ export default function NexusPage() {
           <SectionTitle>Voice link</SectionTitle>
           <div style={voicePanelStyle}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-              <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.16em', color: '#34D399' }}>IDLE</span>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 800,
+                  letterSpacing: '0.16em',
+                  color: voice.voiceState === 'idle' ? '#34D399' : '#5EEAD4',
+                }}
+              >
+                {voice.statusLabel.toUpperCase()}
+                {voice.countdown != null ? ` · ${voice.countdown}s` : ''}
+              </span>
               <Waveform />
             </div>
             <div style={transcriptStyle}>
               <p>
                 <span style={whoStyle}>ZAVA</span>
-                {cardsLoadOk
-                  ? ` Welcome back, ${name}. I have ${cards.length} update${cards.length === 1 ? '' : 's'}.${
-                      needs > 0 ? ` ${needs} need${needs === 1 ? 's' : ''} you.` : ''
-                    }`
-                  : ' Couldn’t load signals right now.'}
+                {voice.zavaLine
+                  ? ` ${voice.zavaLine}`
+                  : cardsLoadOk
+                    ? ` Welcome back, ${name}. I have ${cards.length} update${cards.length === 1 ? '' : 's'}.${
+                        needs > 0 ? ` ${needs} need${needs === 1 ? 's' : ''} you.` : ''
+                      }`
+                    : " I couldn't load your updates right now."}
               </p>
               <p style={{ marginTop: 8 }}>
                 <span style={{ ...whoStyle, color: '#60A5FA' }}>YOU</span>
-                {' —'}
+                {voice.youLine ? ` ${voice.youLine}` : ' —'}
               </p>
             </div>
-            <Link to="/agent" style={{ fontSize: 12, color: '#5EEAD4', fontWeight: 600, marginTop: 10, display: 'inline-block' }}>
-              Open Zava Talk →
-            </Link>
+            {voice.voiceNotice ? (
+              <p style={{ marginTop: 8, fontSize: 11, color: '#FBBF24' }}>{voice.voiceNotice}</p>
+            ) : null}
+            {voice.fallbackChips && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                {voice.fallbackChips.map((chip) => (
+                  <button
+                    key={chip}
+                    type="button"
+                    style={chipBtn}
+                    onClick={() => void voice.runChip(chip)}
+                  >
+                    {chip}
+                  </button>
+                ))}
+              </div>
+            )}
+            {voice.customerChoices && voice.customerChoices.length > 0 && (
+              <ul style={{ listStyle: 'none', margin: '10px 0 0', padding: 0 }}>
+                {voice.customerChoices.map((c) => (
+                  <li key={c.id} style={{ marginBottom: 6 }}>
+                    <button type="button" style={chipBtn} onClick={() => void voice.pickCustomer(c)}>
+                      {c.name}
+                      {c.balance != null ? ` · $${Math.round(c.balance).toLocaleString('en-US')}` : ''}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p style={{ marginTop: 10, fontSize: 11, color: '#64748B' }}>
+              Tap the center orb to talk · push-to-talk only
+            </p>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 22, marginBottom: 10 }}>
@@ -437,6 +491,38 @@ export default function NexusPage() {
               <circle cx={CX} cy={CY} r={86} fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="1" />
             </svg>
 
+            {/* Push-to-talk orb hit target */}
+            <button
+              type="button"
+              aria-label={
+                voice.voiceState === 'listening'
+                  ? 'Stop recording'
+                  : voice.voiceState === 'speaking'
+                    ? 'Stop speaking'
+                    : 'Talk to Zava'
+              }
+              onClick={voice.onOrb}
+              style={{
+                position: 'absolute',
+                left: '50%',
+                top: '50%',
+                transform: 'translate(-50%, -50%)',
+                width: '41%',
+                aspectRatio: '1',
+                borderRadius: '50%',
+                border: voice.voiceState === 'listening' ? '2px solid #5EEAD4' : '2px solid transparent',
+                background: 'transparent',
+                cursor: 'pointer',
+                zIndex: 4,
+                boxShadow:
+                  voice.voiceState === 'listening'
+                    ? '0 0 28px rgba(45,212,191,0.55)'
+                    : voice.voiceState === 'speaking'
+                      ? '0 0 28px rgba(167,139,250,0.45)'
+                      : 'none',
+              }}
+            />
+
             {/* Welcome + score over orb */}
             <div
               style={{
@@ -447,6 +533,7 @@ export default function NexusPage() {
                 textAlign: 'center',
                 width: 160,
                 pointerEvents: 'none',
+                zIndex: 5,
               }}
             >
               <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.25, textShadow: '0 2px 12px rgba(0,0,0,0.55)' }}>
@@ -913,6 +1000,18 @@ const ghostBtn: CSSProperties = {
   fontWeight: 700,
   fontSize: 12,
   cursor: 'pointer',
+};
+
+const chipBtn: CSSProperties = {
+  border: '1px solid rgba(94,234,212,0.35)',
+  borderRadius: 999,
+  padding: '6px 10px',
+  background: 'rgba(8,16,32,0.85)',
+  color: '#5EEAD4',
+  fontWeight: 700,
+  fontSize: 11,
+  cursor: 'pointer',
+  textAlign: 'left',
 };
 
 const trackStyle: CSSProperties = {
