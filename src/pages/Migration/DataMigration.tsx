@@ -585,13 +585,11 @@ export default function DataMigration() {
         const includeProductStock = (probe.rowCounts.purchases ?? 0) > 0;
         const stockByItem: Record<string, number> = {};
         if (includeProductStock) {
+            // Purchase returns are excluded here: post_return deducts those units from purchase_returns[].items.
             const stockArms = [
                 'SELECT item, units AS u FROM purchases',
                 'SELECT item, -units AS u FROM sales',
             ];
-            if (probe.hasTable('purchase_return_lines')) {
-                stockArms.push('SELECT item, -units FROM purchase_return_lines');
-            }
             if (probe.hasTable('sales_return_lines')) {
                 stockArms.push('SELECT item, units FROM sales_return_lines');
             }
